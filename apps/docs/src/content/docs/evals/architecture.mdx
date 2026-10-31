@@ -4,7 +4,7 @@ description: Understand what evaluations measure, how to compare planners, and w
 slug: evals/architecture
 ---
 
-An **evaluation** is a repeatable check of how Maelstrom behaves on a specified task. It supplies an input, observes the result, and checks declared expectations—for example, whether a request to show weekly weather selects the expected Variant and Action. An evaluation only establishes what those checks measure; a passing result is not proof that every part of the user experience is correct.
+An **evaluation** is a repeatable check of how Maelstrom behaves on a specified task. It supplies an input, observes the result, and checks declared expectations. For example, it may check whether a request to show weekly weather selects the expected Variant and Action. An evaluation only establishes what those checks measure; a passing result is not proof that every part of the user experience is correct.
 
 ## Terms used in this section
 
@@ -17,12 +17,12 @@ An **evaluation** is a repeatable check of how Maelstrom behaves on a specified 
 | **Score** | A recorded measurement, such as a correctness pass/fail or a judge's rating. Errors and missing measurements are not automatically scores of zero. |
 | **Langfuse** | An external system for viewing saved evaluation results. It is an optional publication destination, also called a **sink**; it does not run or grade this evaluation. |
 
-The checks can cover the **planner** (which chooses UI updates), an isolated **stage** (one part of that decision), a multi-turn **session**, or **client** behavior such as executing Actions. Results from one of these do not automatically prove the others work.
+The checks can cover the **planner** (which chooses UI updates), an isolated **stage** (one part of that decision), a **session with multiple turns**, or **client** behavior such as executing Actions. Results from one of these do not automatically prove the others work.
 
 ## Start here
 
 1. Choose the behavior to check and the arms to compare. Read [Evaluation cases](/evals/cases/) for examples and coverage limits.
-2. Run the evaluator and retain its records and summary. Provider-backed runs can cost money; scripted offline checks measure harness behavior rather than model quality.
+2. Run the evaluator and retain its records and summary. Runs that call providers can cost money; scripted offline checks measure harness behavior rather than model quality.
 3. Review correctness, missing evidence, and any optional judge ratings separately. Repeats are repeated attempts at the selected tasks, not additional kinds of coverage.
 4. Optionally publish reviewed saved results. The [Langfuse workflow](/evals/langfuse/) walks through creating a runner script, running or reusing an evaluation, previewing it, and approving publication.
 
@@ -47,26 +47,25 @@ flowchart TD
   Sink --> Langfuse["Langfuse v3 adapter (optional)"]
 ```
 
-`EvaluationResultSink` is the destination boundary. The core evaluation package prepares/reviews the publication and owns retry identity; it must not import Langfuse, initialize a destination, or publish implicitly. `tools/evals-langfuse` is one opt-in implementation of the sink. It maps finalized evidence into Langfuse events and scores; it does not define or change the evaluation verdict. A different trusted destination can implement the same sink contract.
+`EvaluationResultSink` is the destination boundary. The core evaluation package prepares/reviews the publication and owns retry identity; it must not import Langfuse, initialize a destination, or publish implicitly. `tools/evals-langfuse` is one implementation of the sink that you can enable explicitly. It maps finalized evidence into Langfuse events and scores; it does not define or change the evaluation verdict. A different trusted destination can implement the same sink contract.
 
 ## Adding another sink
 
 To publish to another system, leave the evaluator core unchanged and add a destination adapter outside `packages/evals/src/core`:
 
-1. Implement `EvaluationResultSink.publish(publication, signal)`. Map the already-reviewed `EvaluationPublication` into the destination's events; do not rerun evaluation, rescore, or infer values from raw records.
-2. Use explicit destination configuration and caller-owned credentials. Keep credentials out of the publication payload. If the adapter owns a client or queue, expose explicit startup/shutdown and report its real delivery boundary.
+1. Implement `EvaluationResultSink.publish(publication, signal)`. Map the previously reviewed `EvaluationPublication` into the destination's events; do not rerun evaluation, rescore, or infer values from raw records.
+2. Use explicit destination configuration and credentials supplied by the caller. Keep credentials out of the publication payload. If the adapter owns a client or queue, expose explicit startup/shutdown and report its real delivery boundary.
 3. Derive destination event/score IDs from the stable publication identity plus the event or metric key, so retries of the same reviewed bytes do not create duplicates. Return `accepted`, `partial`, `failed`, or `uncertain` according to what the destination actually acknowledged; acceptance is not proof of durable storage.
-4. Add fake-transport tests for exact payload mapping, bounds/privacy, partial and uncertain delivery, aborts, and retry identity. Preview and review must remain offline and credential-free; only an explicitly approved publish may send data.
+4. Add tests that use a fake transport for exact payload mapping, bounds/privacy, partial and uncertain delivery, aborts, and retry identity. Preview and review must remain offline and require no credentials; only an explicitly approved publish may send data.
 
 Keep deterministic correctness, secondary judge scores and operational metrics separate, and preserve missing measurements as missing. A destination adapter may project either signal, but must not turn telemetry into task correctness.
 
 ## Optional judging, independent of the sink
 
 1. **Choose a provider.** `typesafe` and `openai` are LLM judges. Scores labeled
-   `heuristic` are **non-LLM** text checks, never a fallback when an LLM request fails.
+   `heuristic` are text checks that do not use an LLM, never a fallback when an LLM request fails.
 2. **Choose a rubric separately.** For LLM judging, `surface` uses the planner
-   dimensions `request_satisfied` and `arrangement_match`, a stage-decision rubric
-   for isolated stages, and session/client rubrics for their actual observations.
+   dimensions `request_satisfied` and `arrangement_match`, a rubric for isolated stage decisions, and session/client rubrics for their actual observations.
    Isolated stages always use their stage rubric: a routing decision is not a
    finished user task.
 3. **Opt in before running.** Both planner and stage CLIs accept `--grader`,
@@ -81,7 +80,7 @@ For example, append `--grader --judge-provider=openai --judge-rubric=surface
 fail before evaluation work. These are potentially paid calls: review the case
 content before sending it to either provider.
 
-For environment-based LLM judging, set all four settings explicitly rather than
+For LLM judging configured through environment variables, set all four settings explicitly rather than
 relying on defaults:
 
 | Setting | Recommended value |
@@ -89,7 +88,7 @@ relying on defaults:
 | `MAELSTROM_ENABLE_LLM_JUDGE` | `true` to enable judging (`1` also works; `false`/`0` disable). |
 | `MAELSTROM_LLM_JUDGE_PROVIDER` | `openai` or `typesafe` for an LLM judge. |
 | `MAELSTROM_LLM_JUDGE_MODEL` | The selected judge model, independent of the tested planner. |
-| `MAELSTROM_LLM_JUDGE_RUBRIC` | `surface` for the task-specific criteria described above. |
+| `MAELSTROM_LLM_JUDGE_RUBRIC` | `surface` for the criteria for each task described above. |
 
 Explicit `--grader` defaults to TypeSafe + `surface` unless overridden. A result
 without valid evidence remains `not_run/no_valid_evidence`, not an invented score.
@@ -103,24 +102,23 @@ synthetic even if an optional live judge rates them.
 
 Every selected sample records `scored`, `failed` or `not_run`. Enabled judging runs
 once per eligible sample/repeat, including deterministic failures, actual deferrals
-and retained partial-session evidence—not only passes. Missing runtime output or
+and retained evidence from partial sessions, not only passing results. Missing runtime output or
 inapplicable stage inputs remain explicit coverage gaps. TypeSafe's intentional
-near-boundary resampling remains part of one logical native grade; OpenAI does not
+resampling near a scoring boundary remains part of one logical native grade; OpenAI does not
 supply calibrated level probabilities, so no probabilities or resampling are invented.
 
 Judging finishes before evaluation callbacks, record projection and reports. JSON,
 Markdown (including paired reports), generic publications and destination adapters
-retain its status/result. Run summaries show coverage and rubric/provider-separated descriptive
-means labeled **unvalidated**. Calibration checks whether judge ratings agree with
+retain its status/result. Run summaries show coverage and descriptive means, labeled **unvalidated**, separately for each rubric and provider. Calibration checks whether judge ratings agree with
 reference judgments; that gate remains separate and requires evidence bound to the
 same provider/model. Missing judge data stays unknown, never zero. Reports,
 publishing and retries reuse the saved result; they never call a judge.
 
 The separately acknowledged manual probes also honor judge environment activation.
 Their planner dispatch caps do not change: judge calls are reported separately in
-`judgeCalls`, dry-run makes neither call, and missing output is not graded. Review
-provider budgets before enabling a judge on these one-shot probes.
+`judgeCalls`, a dry run makes neither call, and missing output is not graded. Review
+provider budgets before enabling a judge on these probes that run once.
 
 :::note
-If you choose Langfuse, its optional v3 adapter imports bounded per-sample summaries—not a hosted dataset experiment or full replay archive. See the [Langfuse workflow](/evals/langfuse/) to create the runner script, run or reuse an evaluation, review its exact preview, and explicitly approve publication.
+If you choose Langfuse, its optional v3 adapter imports bounded summaries for each sample, not a hosted dataset experiment or full replay archive. See the [Langfuse workflow](/evals/langfuse/) to create the runner script, run or reuse an evaluation, review its exact preview, and explicitly approve publication.
 :::

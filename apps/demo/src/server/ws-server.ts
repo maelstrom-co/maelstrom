@@ -76,6 +76,8 @@ export interface SocketData {
 export interface WebSocketHandlerDeps {
   readonly sharedEngine: Engine | null;
   readonly sharedEngineInitError: string | null;
+  /** Connection-owned engine factory; the local E2E stand-in never uses provider transport. */
+  readonly buildBrowserEngine?: typeof buildSharedEngine;
   /** Server-held secrets, scrubbed from every outbound reply as defense in depth. */
   readonly secrets?: readonly string[];
 }
@@ -89,7 +91,12 @@ export interface WebSocketHandlerDeps {
 export function createWebSocketHandlers(
   deps: WebSocketHandlerDeps,
 ): Bun.WebSocketHandler<SocketData> {
-  const { sharedEngine, sharedEngineInitError, secrets = [] } = deps;
+  const {
+    sharedEngine,
+    sharedEngineInitError,
+    secrets = [],
+    buildBrowserEngine = buildSharedEngine,
+  } = deps;
 
   return {
     open(ws) {
@@ -176,7 +183,7 @@ export function createWebSocketHandlers(
           ws.data.agent?.connection.close();
           ws.data.agent = undefined;
           ws.data.sessionId = SessionId(result.frame.sessionId);
-          const built = buildSharedEngine(result.frame.apiKey, [
+          const built = buildBrowserEngine(result.frame.apiKey, [
             ...secrets,
             result.frame.apiKey,
           ]);
