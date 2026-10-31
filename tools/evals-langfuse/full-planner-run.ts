@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import {
+  judgeFromGrader,
+  normalizeJudgeResult,
+} from '../../packages/evals/src/core/judge-result.ts';
 import type { EvaluationPublicationMetadata } from '../../packages/evals/src/core/publication.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
 import {
@@ -116,6 +120,10 @@ export function importFullPlannerRun(
     return {
       result: {
         operational,
+        judge:
+          record.judge === undefined
+            ? judgeFromGrader(record.grader)
+            : normalizeJudgeResult(record.judge),
         schemaVersion: 1,
         identity,
         sampleKey: JSON.stringify([

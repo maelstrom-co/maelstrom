@@ -518,7 +518,7 @@ record projection and reporting. Every sample has a bounded `judge` envelope wit
 `scored`, `failed` or `not_run`; scores include rubric/version, provider/model, kind,
 named dimensions and ranges. Reports include coverage and rubric/provider-separated
 means labeled unvalidated. Raw native calls remain local in `grader`. Publications
-preserve bounded judge evidence, not raw prompts/rationale/errors.
+and Langfuse preserve bounded judge evidence, not raw prompts/rationale/errors.
 Historical missing evidence is unknown, not disabled or zero. Re-export and report
 rebuilding do not grade again. Stage reports also write `summary.json`.
 
