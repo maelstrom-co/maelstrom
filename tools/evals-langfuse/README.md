@@ -16,7 +16,8 @@ provider. The public batch endpoint supplies per-event delivery receipts rather
 than relying on a flush-only OTel acknowledgment. Full-planner publication also uses
 `LangfuseClient.api.datasets.create` and `api.datasetItems.create` for the summary
 results catalog. These public SDK methods address `/api/public/v2/datasets` and
-`/api/public/dataset-items`.
+`/api/public/dataset-items`. The separate, explicitly approved `--link-only` path
+uses `/api/public/dataset-run-items` without rewriting traces or items.
 
 The installed 5.13.1 public API declarations document per-event `successes` and
 `errors`, the 3.5 MB batch limit, event-ID deduplication, and that this endpoint
@@ -244,13 +245,17 @@ ID, so the old generic-name event's deduplication does not suppress the update.
 Item IDs hash the dataset name and stable publication key, so retries target the
 same item. Distinct saved-run/provider publications produce separate rows in this
 one dataset; repeated case identifiers do not imply identical underlying evidence.
+For fixed-evidence judge comparisons, use the manifest's original items instead of
+publishing regraded files as another catalog import.
 Changing only the preparation timestamp retains the item ID but changes the trace
 link, so keep the approved timestamp for retries. Use a dedicated catalog: omitted
 fields do **not** erase any pre-existing expected output, metadata or schemas.
 Existing schemas may reject an identifier-only item.
 
 Ordinary publication creates a **results catalog, not a Langfuse experiment**:
-it does not create runs or run items. Judge scores stay attached to the source trace and
+it does not create runs or run items. The separate link-only workflow below adds
+experiment associations for saved TypeSafe results, without making a runnable
+prompt dataset. Judge scores stay attached to the source trace and
 are summarized in item metadata. The adapter never executes a judge; independently
 configured server-side evaluators are outside its control and must be reviewed
 before live activation.
@@ -268,6 +273,91 @@ an explicit rubric. Scores remain `unvalidated`. Comparing TypeSafe with OpenAI
 requires both to judge the **same underlying samples** with the same rubric/scale;
 a different planner run changes the evidence too. Provider agreement alone is not
 reference validation. Publishing saved results does not authorize another judge run.
+
+### Link existing results into an experiment
+
+Only after the original catalog publication succeeded, use `--link-only` with the
+**same** full-planner source files, dataset name, destination, artifact and saved
+preparation timestamp. This is a separate operation, not another catalog publish.
+It sends only `api.datasetRunItems.create` requests: no trace ingestion, dataset or
+item upserts, deletion, `runExperiment`, planner execution or judge calls.
+
+This first importer accepts scored TypeSafe `jev-1.13.0` results using
+`planner_response_text_1` v2 (request_satisfied and arrangement_match, both [0, 1]).
+It refuses mixed/unknown judge provenance. Both planner arms belong to one labeled
+**mixed-arm** run, with one association per existing case/arm/repeat item. That is
+an unvalidated description of fixed evidence, **not a paired planner-arm comparison**.
+A small single-arm saved run is labeled with its own arm instead.
+
+Use the same `args` array from the full-planner example above. Set a new private
+preview filename; never replace the catalog preview or preparation timestamp:
+
+```bash
+node tools/evals-langfuse/cli.ts "${args[@]}" --link-only \
+  --preview-out "$EVAL_OUT/langfuse-run-links-preview.json"
+# After reviewing this new preview AND confirming no active server evaluators:
+node tools/evals-langfuse/cli.ts "${args[@]}" --link-only \
+  --publish --approve-sha256 'REVIEWED_LINK_PREVIEW_SHA256' \
+  --confirm-no-active-evaluators
+```
+
+The link preview is also the **private comparison manifest**. It binds source-file
+digests, the reconstructed catalog preview digest, dataset/destination/settings,
+judge model/rubric/evidence-rendering version and scales, original publication IDs,
+all case/arm/repeat → item/trace associations, exact outbound requests, and recovery
+policy. Its manifest digest is recorded in the journal. No raw judge-visible text
+is exported. Retain this file unchanged beside the original private evidence;
+regenerating IDs from a later regraded report would break cross-judge alignment.
+The importer does not verify remote item/trace existence offline: approval asserts
+that these exact targets were already published. A wrong target can create an
+incorrect association; verify the original publication and receipts first.
+
+**Server-side evaluation warning:** a run-item POST can queue configured active
+trace/dataset evaluators, including paid provider calls. Check the project's
+LLM-as-a-Judge settings immediately before approving; publish requires
+`--confirm-no-active-evaluators`. The flag is an operator assertion, not remote
+verification or a lock on configuration. The importer neither enables nor disables
+evaluators. Do not use the UI's **Run experiment** button to import saved results.
+
+Each request sets `createdAt` to the saved preparation time. `datasetVersion` is
+omitted deliberately: preparation precedes creation of the published items; links
+use the latest existing item versions. Keep the dataset unchanged during import.
+
+**One-shot recovery:** Langfuse generates fresh association IDs per POST; these
+writes are not assumed idempotent. An exclusive mode-0600
+`langfuse-run-links-<run-key>.jsonl` journal in `EVAL_OUT` is created and synced
+before client startup. Each attempt is synced **before** sending, and each validated
+acceptance is synced before the next attempt. SDK retries are disabled. The first
+exception, mismatched receipt or deadline stops later sends; raw SDK errors are
+never recorded. The summary reports `attempted`, `accepted`, `unsent`, `status` and
+`shutdown`; the journal holds the per-association evidence. An ambiguous first send
+is `uncertain`; an accepted prefix followed by uncertainty is `partial` (exit 3).
+No sends plus a startup/journal-write failure is `failed` (exit 1); an unavailable
+or existing journal is a setup refusal (exit 2). Full acceptance with clean shutdown
+is exit 0. These are API acknowledgments, not durable-storage guarantees.
+
+Any existing journal, even an incomplete or successful one, **blocks another
+invocation**. There is no resume or automatic reconciliation command. Preserve it,
+stop, and reconcile its attempted associations against Langfuse before planning
+separately approved recovery. Absence from an eventually-consistent read is not
+permission to resend. Do not delete the journal, change artifact/destination, or
+copy the run elsewhere to bypass it. This local guard does not provide distributed
+exactly-once delivery. A crash can leave an `attempting` entry after a successful
+remote write; treat it as uncertain. Timed-out requests may still finish remotely.
+
+After approved linking, open **Datasets → maelstrom-evals-v1 → Experiments**.
+Select judge dimensions in **Charts** and hide irrelevant columns in **Columns**.
+The pinned v3 run queries join scores by trace ID, including our export-span scores;
+verify the displayed counts and scores after ingestion settles. A single TypeSafe
+run supplies descriptive metrics; side-by-side **Compare** needs at least two runs.
+Latency/cost widgets are not measurements of the original evaluation: these are
+summary export spans, not generation traces. Input/output panels remain sparse.
+
+A later, separately authorized OpenAI-only pass must read the frozen original
+evidence, verify its source digests and judge-rendering recipe, and reuse the
+manifest's **existing dataset item IDs**. Put its scores on separate OpenAI traces
+and link them in a second run; do not overwrite TypeSafe traces, item metadata or
+source links. This feature does not implement or authorize that paid regrading.
 
 ### 2. Explicitly publish the reviewed summary
 
