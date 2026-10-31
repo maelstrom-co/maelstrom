@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { Judge, JudgeAnswer } from '../../core/plugin.js';
 
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
 /** OpenAI transport for any rubric; scores remain fractional rubric levels, not pass/fail. */
 export function createOpenAIJudge(options: {
   /** Explicit server-side credential; never included in report evidence. */
@@ -9,9 +11,16 @@ export function createOpenAIJudge(options: {
   readonly model: string;
   /** Injectable transport for offline tests. */
   readonly fetch?: typeof fetch;
+  /** Per-call deadline in milliseconds, from 1 to the default maximum of 60,000. */
+  readonly timeoutMs?: number;
 }): Judge {
   if (!options.apiKey.trim() || !options.model.trim())
     throw new Error('OpenAI judge requires an API key and model');
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000)
+    throw new Error(
+      'OpenAI judge timeoutMs must be an integer from 1 to 60000',
+    );
   return {
     provenance: { kind: 'llm', provider: 'openai', model: options.model },
     async score(input, context) {
@@ -19,13 +28,18 @@ export function createOpenAIJudge(options: {
       const calls = (outcome: 'ok' | 'error') => [
         { latencyMs: performance.now() - started, outcome },
       ];
+      const deadline = AbortSignal.timeout(timeoutMs);
+      const signal = context.signal
+        ? AbortSignal.any([deadline, context.signal])
+        : deadline;
       try {
+        signal.throwIfAborted();
         const response = await (options.fetch ?? fetch)(
           'https://api.openai.com/v1/chat/completions',
           {
             method: 'POST',
             redirect: 'error',
-            signal: context.signal ?? AbortSignal.timeout(60_000),
+            signal,
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${options.apiKey}`,
@@ -33,6 +47,7 @@ export function createOpenAIJudge(options: {
             body: JSON.stringify({
               model: options.model,
               store: false,
+              max_completion_tokens: 2048,
               messages: [
                 {
                   role: 'system',
@@ -45,8 +60,6 @@ export function createOpenAIJudge(options: {
             }),
           },
         );
-        if (!response.ok)
-          return { failure: 'grader/provider_failure', calls: calls('error') };
         const body = z
           .object({
             choices: z.array(
@@ -59,7 +72,7 @@ export function createOpenAIJudge(options: {
               })
               .optional(),
           })
-          .parse(await response.json());
+          .parse(await readJudgeResponse(response, signal));
         const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? '');
         const answers: Record<string, JudgeAnswer> = {};
         for (const dimension of input.dimensions) {
@@ -95,6 +108,48 @@ export function createOpenAIJudge(options: {
       }
     },
   };
+}
+
+async function readJudgeResponse(
+  response: Response,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const reader = response.body?.getReader();
+  let onAbort: (() => void) | undefined;
+  try {
+    signal.throwIfAborted();
+    if (
+      !response.ok ||
+      !reader ||
+      Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES
+    )
+      throw new Error('Invalid judge response');
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Error('Judge response aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let size = 0;
+    let text = '';
+    while (true) {
+      const next = await Promise.race([reader.read(), aborted]);
+      signal.throwIfAborted();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > MAX_RESPONSE_BYTES)
+        throw new Error('Judge response exceeds byte limit');
+      text += decoder.decode(next.value, { stream: true });
+    }
+    text += decoder.decode();
+    return JSON.parse(text);
+  } catch {
+    // Cancellation must not wait on a stalled or failed provider stream.
+    if (reader) void reader.cancel().catch(() => undefined);
+    throw new Error('Invalid judge response');
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+    reader?.releaseLock();
+  }
 }
 
 /** Legacy text-only heuristic, explicitly non-LLM and never a fallback from a provider failure. */
