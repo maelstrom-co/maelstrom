@@ -19,6 +19,73 @@ function installedDependency(start: string, ...chain: string[]) {
   return { require, root: dirname(manifest) };
 }
 
+test('custom credentials declared by another realm stop at the redirect origin boundary', () => {
+  const proxy = installedDependency(
+    'package.json',
+    '@nx/web',
+    'http-server',
+    'http-proxy',
+  );
+  const result = spawnSync(
+    Bun.which('node') ?? 'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { createRequire } from 'node:module';
+    import { createServer } from 'node:http';
+    import { runInNewContext } from 'node:vm';
+    const require = createRequire(${JSON.stringify(join(proxy.root, 'package.json'))});
+    const { http } = require('follow-redirects');
+    const servers = [];
+    const listen = async server => {
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      servers.push(server);
+      return server.address().port;
+    };
+    let sourceHeader;
+    let targetHeader;
+    try {
+      const target = await listen(createServer((request, response) => {
+        targetHeader = request.headers['x-fixture-credential'] ?? null;
+        response.end('ok');
+      }));
+      const source = await listen(createServer((request, response) => {
+        sourceHeader = request.headers['x-fixture-credential'] ?? null;
+        response.writeHead(302, { location: 'http://localhost:' + target + '/' });
+        response.end();
+      }));
+      await new Promise((resolve, reject) => {
+        const request = http.get('http://127.0.0.1:' + source + '/', {
+          family: 4,
+          headers: { 'X-Fixture-Credential': 'fixture-only' },
+          sensitiveHeaders: runInNewContext('["X-Fixture-Credential"]'),
+        }, response => {
+          response.resume();
+          response.on('end', resolve);
+          response.on('error', reject);
+        });
+        request.on('error', reject);
+        request.setTimeout(2000, () => request.destroy(new Error('Redirect fixture timed out')));
+      });
+      console.log(JSON.stringify({ sourceHeader, targetHeader }));
+    } finally {
+      await Promise.all(servers.map(server => new Promise(resolve => {
+        server.closeAllConnections();
+        server.close(resolve);
+      })));
+    }
+  `,
+    ],
+    { timeout: 5000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    sourceHeader: 'fixture-only',
+    targetHeader: null,
+  });
+}, 10000);
+
 test('deployment static files cannot bypass protected-route middleware through a second path decode', () => {
   const prisma = installedDependency(
     'infra/platform/package.json',
