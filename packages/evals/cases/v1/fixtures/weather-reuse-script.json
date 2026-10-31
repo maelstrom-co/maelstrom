@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-reuse-script",
+  "kind": "weather-reuse-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "hourly"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showHourly"
+          }
+        ]
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showWeekly"
+          }
+        ]
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            }
+          ]
+        },
+        "executionPlan": []
+      }
+    ]
+  }
+}

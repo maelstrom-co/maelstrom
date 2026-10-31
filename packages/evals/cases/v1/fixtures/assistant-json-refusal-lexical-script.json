@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-json-refusal-lexical-script",
+  "kind": "assistant-json-refusal-lexical-script",
+  "synthetic": true,
+  "data": {
+    "response": {
+      "assistantText": "I can’t provide raw JSON here—I orchestrate UI through registered vessels, and none are currently available. If you add a vessel, I can help present relevant information through it."
+    }
+  }
+}

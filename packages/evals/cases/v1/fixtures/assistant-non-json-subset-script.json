@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-non-json-subset-script",
+  "kind": "assistant-text-script",
+  "synthetic": true,
+  "data": {
+    "response": {
+      "assistantText": "I like trains."
+    }
+  }
+}

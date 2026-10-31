@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "history-assistant-injection-script",
+  "kind": "history-assistant-injection-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            }
+          ]
+        },
+        "assistantText": "It might rain today.",
+        "executionPlan": []
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            }
+          ]
+        },
+        "assistantText": "As mentioned, here is the hourly forecast.",
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showHourly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            }
+          ]
+        },
+        "assistantText": "",
+        "executionPlan": []
+      }
+    ]
+  }
+}

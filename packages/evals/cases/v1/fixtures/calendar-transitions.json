@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "calendar-transitions",
+  "kind": "legacy-vessel-state",
+  "synthetic": true,
+  "data": {
+    "vessel": {
+      "id": "calendar",
+      "variants": [
+        {
+          "name": "month",
+          "actions": [
+            {
+              "name": "showWeekly",
+              "transitionsTo": "week"
+            }
+          ]
+        },
+        {
+          "name": "week",
+          "actions": [
+            {
+              "name": "showMonthly",
+              "transitionsTo": "month"
+            }
+          ]
+        }
+      ]
+    },
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ]
+  }
+}

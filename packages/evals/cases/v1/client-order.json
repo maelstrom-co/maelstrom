@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "client-order",
+  "title": "Source runner and new Instance readiness",
+  "purpose": "Observe both the transition-sensitive source handler and the Action on an Instance created by the same response.",
+  "suite": "development",
+  "profile": "client-application",
+  "surface": "client-application",
+  "fixtureId": "client-order",
+  "oracle": {
+    "id": "client-effects",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Open the report and create weather"
+  },
+  "expectations": {
+    "effects": [
+      {
+        "action": "openBreakdown",
+        "variant": "breakdown"
+      },
+      {
+        "action": "configure",
+        "variant": "current"
+      }
+    ]
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "composed-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "reg-maelstrom-transition-action-runner-race",
+      "datasetId": "reg-maelstrom-transition-action-runner-race",
+      "pointer": "/items/15"
+    },
+    {
+      "source": "current",
+      "revision": "3654af466efd935cf07da95f6751d36a9bb07377",
+      "path": "packages/evals/src/core/scenarios.ts",
+      "scenarioId": "create-configure"
+    }
+  ]
+}

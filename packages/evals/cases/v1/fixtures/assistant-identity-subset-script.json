@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-identity-subset-script",
+  "kind": "assistant-identity-script",
+  "synthetic": true,
+  "data": {
+    "responses": [
+      {
+        "assistantText": "I am MAR.",
+        "executionPlan": [],
+        "layout": {
+          "type": "tiling",
+          "instances": []
+        }
+      },
+      {
+        "assistantText": "Still MAR here.",
+        "executionPlan": [],
+        "layout": {
+          "type": "tiling",
+          "instances": []
+        }
+      },
+      {
+        "assistantText": "MAR is my name.",
+        "executionPlan": [],
+        "layout": {
+          "type": "tiling",
+          "instances": []
+        }
+      }
+    ]
+  }
+}

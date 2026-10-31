@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-transitions",
+  "kind": "legacy-vessel-state",
+  "synthetic": true,
+  "data": {
+    "vessel": {
+      "id": "weather",
+      "variants": [
+        {
+          "name": "current",
+          "actions": [
+            {
+              "name": "showHourly",
+              "transitionsTo": "hourly"
+            },
+            {
+              "name": "showWeekly",
+              "transitionsTo": "weekly"
+            }
+          ]
+        },
+        {
+          "name": "hourly",
+          "actions": [
+            {
+              "name": "showCurrent",
+              "transitionsTo": "current"
+            },
+            {
+              "name": "showWeekly",
+              "transitionsTo": "weekly"
+            }
+          ]
+        },
+        {
+          "name": "weekly",
+          "actions": [
+            {
+              "name": "showCurrent",
+              "transitionsTo": "current"
+            },
+            {
+              "name": "showHourly",
+              "transitionsTo": "hourly"
+            }
+          ]
+        }
+      ]
+    },
+    "instances": [
+      {
+        "instanceId": "weather-main",
+        "vesselId": "weather",
+        "variant": "current"
+      }
+    ]
+  }
+}

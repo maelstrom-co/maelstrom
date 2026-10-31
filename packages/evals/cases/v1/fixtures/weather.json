@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "weather",
+  "kind": "weather-state",
+  "synthetic": true,
+  "data": {
+    "instanceId": "weather-main",
+    "initialVariant": "current"
+  }
+}

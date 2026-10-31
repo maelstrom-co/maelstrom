@@ -1,0 +1,387 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+    "path": "langfuse/maelstrom-eval-dataset.v1.json"
+  },
+  "rows": [
+    {
+      "pointer": "/items/0",
+      "id": "reg-maelstrom-history-used-when-available",
+      "sha256": "7fb8b998f0415759737ea48e0a09b3fff62922635cea4e3e3bc0093e6680d3aa"
+    },
+    {
+      "pointer": "/items/1",
+      "id": "reg-maelstrom-multiturn-assistant-identity-consistency",
+      "sha256": "2095977d3aec653ed3516035a920f08b1f07c4618df9e872b155b917fae2a04c"
+    },
+    {
+      "pointer": "/items/2",
+      "id": "cap-ai-chat-single-message",
+      "sha256": "9f70ce311acd1ed1b4256d386f8d219991a20790e77b1cc32671e8016b62572f"
+    },
+    {
+      "pointer": "/items/3",
+      "id": "reg-ai-chat-schema-enforced-lab-extraction",
+      "sha256": "2ab6e5f5ab34937ddb242debfe97cf47208943ce7aa1ec6ba8ebf0dbe62cb112"
+    },
+    {
+      "pointer": "/items/4",
+      "id": "reg-labs-extraction-error-wrap",
+      "sha256": "47b1f237cc108381a16ba07bbb24993a6a7dad5d7c01c309ae7b1486de93e5a5"
+    },
+    {
+      "pointer": "/items/5",
+      "id": "reg-labs-job-non-lab-key",
+      "sha256": "f0255965d7a0ba8c58f352c09aba8a2223cd876099d374733763e71255736d19"
+    },
+    {
+      "pointer": "/items/6",
+      "id": "reg-voice-stt-api-key-required",
+      "sha256": "c8d2f23cae64bb0075902d6546fb3a3dbfc145ed7f1d1da5583ff0a109edfe78"
+    },
+    {
+      "pointer": "/items/7",
+      "id": "reg-voice-stt-send-audio-without-connection",
+      "sha256": "aef7e55872ac909cd46a8016e211abf9bfaeb3be1bd584f5551c975b31541804"
+    },
+    {
+      "pointer": "/items/8",
+      "id": "reg-voice-tts-no-voice-id",
+      "sha256": "dc24db876951d3665897d1b74a610c9547f1383e66aa0aa31a78e63a08e62e13"
+    },
+    {
+      "pointer": "/items/9",
+      "id": "reg-voice-engine-state-transitions",
+      "sha256": "9bf2950ce57177496406eb716862817906c482fb822571f413bba8b5fa43eb54"
+    },
+    {
+      "pointer": "/items/10",
+      "id": "reg-voice-engine-barge-in-interrupt",
+      "sha256": "6c9a611d10044650c510d5ba9e5f02227e6887ac53b081afa4629ae6e834969b"
+    },
+    {
+      "pointer": "/items/11",
+      "id": "cap-maelstrom-tiling-tree-validity",
+      "sha256": "854aa475a9cb5289014c5d683e70dc2c42ee48354322ef273926dd0c36693458"
+    },
+    {
+      "pointer": "/items/12",
+      "id": "cap-maelstrom-grid-no-overlap",
+      "sha256": "172f2b0a3d19ed52fa556cc068a3ea0beddf36545d4335cc92c8a684f376f4e7"
+    },
+    {
+      "pointer": "/items/13",
+      "id": "cap-maelstrom-structured-view-model-validity",
+      "sha256": "b0e4885fdbec4db74a92dceb4efa0a7c91f3099bcb02ff3454381c9ccd70c571"
+    },
+    {
+      "pointer": "/items/14",
+      "id": "cap-maelstrom-vessel-mutation-action",
+      "sha256": "a42dc67e856b3126f2f9b3c84a88e3a693ca5e8c75eeebfdd1cb250335dec7ad"
+    },
+    {
+      "pointer": "/items/15",
+      "id": "reg-maelstrom-transition-action-runner-race",
+      "sha256": "a0787f641de320f4ef0c7562044ee3a3d1fc11ad7883e10c4a7fda00227bd7dc"
+    },
+    {
+      "pointer": "/items/16",
+      "id": "cap-maelstrom-conv-clarification",
+      "sha256": "51b090a6a0750831c02c0f8812ffbe89124dd6ee702c517de61a829abf76763d"
+    },
+    {
+      "pointer": "/items/17",
+      "id": "cap-maelstrom-edge-invalid-action",
+      "sha256": "3ec4e399a14625464cd8f2d7b2176cda67aa33aa7fbf857f92f973635daecb42"
+    },
+    {
+      "pointer": "/items/18",
+      "id": "cap-maelstrom-edge-wrong-enum",
+      "sha256": "afff0f98c063627d3779776547c6eb72abef456976bf8b864583b3d26647ca11"
+    },
+    {
+      "pointer": "/items/19",
+      "id": "cap-maelstrom-single-noop-preservation",
+      "sha256": "215f19f984463852b07f2fee5b2bdba2939afae979ae0949d8eaa3c34991bbff"
+    },
+    {
+      "pointer": "/items/20",
+      "id": "cap-maelstrom-conv-refusal",
+      "sha256": "03432806339c693069003301e9262be6c5e9b6691fed3e5ff4f5c377aeefc4fc"
+    },
+    {
+      "pointer": "/items/21",
+      "id": "cap-maelstrom-multiturn-weather-reuse-weekly",
+      "sha256": "bbbe1cf659c6482187a1871e37ff16e10f601c1c8aec5fa5eaa9d352ed2e2100"
+    },
+    {
+      "pointer": "/items/22",
+      "id": "cap-maelstrom-multiturn-labs-select-marker",
+      "sha256": "742f1596e5769c5a59052196fcefe3e7d57a62736d4af40829664723b8c5661f"
+    },
+    {
+      "pointer": "/items/23",
+      "id": "cap-maelstrom-multiturn-target-disambiguation",
+      "sha256": "1fbea72ea46b7f6d6035c1b469b01066246190c38715f2c67fc226cfc887a340"
+    },
+    {
+      "pointer": "/items/24",
+      "id": "cap-history-assistant-message-injection",
+      "sha256": "95937c098376b88ca8f5afd2c6c4c4c355b4a7312318cd923ac1085a30f8aa27"
+    },
+    {
+      "pointer": "/items/25",
+      "id": "cap-maelstrom-vessel-calendar-week",
+      "sha256": "4a51ae49468e7ffdb001db5137c6f236238ade25f51f8966fde10a6bfd74f4fc"
+    },
+    {
+      "pointer": "/items/26",
+      "id": "cap-maelstrom-vessel-weather-hourly",
+      "sha256": "6f9978c94db5ccde9e8e6be5cff1ed87849d0b0867ee19753144e4bfa3804346"
+    },
+    {
+      "pointer": "/items/27",
+      "id": "cap-maelstrom-vessel-labs-upload",
+      "sha256": "a7d9b175ee7a7a2ec6ca6a0ee4db1dffdb8503b7e5573d0ab663f1bd7e0e1833"
+    },
+    {
+      "pointer": "/items/28",
+      "id": "cap-maelstrom-multiturn-calendar-week-nav",
+      "sha256": "240047c64fbb14d32c57cde6a803e656f8068c979ecd40abc2b7fc3e817e299a"
+    },
+    {
+      "pointer": "/items/29",
+      "id": "cap-maelstrom-multiturn-labs-multi-markers",
+      "sha256": "99a2f30cc99e3bba92cea5ca9ef78fb03a8058c677b05fd6e0b207ba9f49df5d"
+    },
+    {
+      "pointer": "/items/30",
+      "id": "cap-maelstrom-multiturn-weather-variant-chain",
+      "sha256": "c80bf7c20fe59ff98b86b1a89aedb91239cef78ec95666d58945c511ad314020"
+    },
+    {
+      "pointer": "/items/31",
+      "id": "cap-maelstrom-multiturn-delayed-action",
+      "sha256": "e569e4fcd1a9bf5e4ec7b9f9011dd9f9a27458f8f19b4c513c611a108c3ae905"
+    },
+    {
+      "pointer": "/items/32",
+      "id": "cap-maelstrom-multiturn-state-reset",
+      "sha256": "bf45202a4ba8c0c27174f69db62ca786d66b7b59efac034d38490389050f7873"
+    },
+    {
+      "pointer": "/items/33",
+      "id": "cap-maelstrom-multivessel-add-instance",
+      "sha256": "1126b125514daf5f1f4db442bdc5d0152c0894d7b926885ba0897d4a934271fe"
+    },
+    {
+      "pointer": "/items/34",
+      "id": "cap-maelstrom-multivessel-three",
+      "sha256": "f664074b1426aa30ebe8278c44a264f979ad63d75f64c42f7bb9eebb26b81aa0"
+    },
+    {
+      "pointer": "/items/35",
+      "id": "cap-maelstrom-multiturn-cross-vessel",
+      "sha256": "13c2698a19eb3ab7095a46aeeddbae6205d11f40678b521fcc3e8d000199cc01"
+    },
+    {
+      "pointer": "/items/36",
+      "id": "cap-maelstrom-tiling-add-vessel",
+      "sha256": "a403b157eb23d0ae59bcb796ce1537c2fe99a0e56b956f6e86111f008847622f"
+    },
+    {
+      "pointer": "/items/37",
+      "id": "cap-maelstrom-edge-deterministic-actions",
+      "sha256": "341038e827913ec2884acc273449921a17a4b54389ab9f7769b322fc7636d320"
+    },
+    {
+      "pointer": "/items/38",
+      "id": "cap-maelstrom-edge-deterministic-actions",
+      "sha256": "083d2932336ccc1b53725a913fcd6c9721743c3ec288ce84105af92022b5ce93"
+    },
+    {
+      "pointer": "/items/39",
+      "id": "cap-maelstrom-edge-deterministic-actions",
+      "sha256": "3652050792cdc50adf698dea5cd132f4f7c29f1197166896a855cbb1d1133ea1"
+    },
+    {
+      "pointer": "/items/40",
+      "id": "cap-maelstrom-edge-deterministic-actions",
+      "sha256": "ea6cf28c3e5cb40fdcc59a03c3c00061584f14062efb53effe3141ec2bd8a316"
+    }
+  ],
+  "obligations": [
+    {
+      "pointer": "/items/0",
+      "row": {
+        "id": "reg-maelstrom-history-used-when-available",
+        "input": {
+          "prompt": "Turn 2 depends on prior context",
+          "target": "maelstrom.process"
+        },
+        "expectedOutput": {
+          "rule": "history-aware provider path used"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "current-unit-test-evidence",
+      "evidence": {
+        "testPath": "packages/planner-llm/src/lib/llm-planner.test.ts",
+        "testName": "D01 bounded provider-input evidence: sends the system prompt, history, then the user prompt",
+        "scope": "With fake @tanstack/ai.chat, the existing planner unit test asserts the system prompt and exact prior user/assistant history before the current user prompt. This is provider-input history propagation only.",
+        "limitations": [
+          "The row ID is absent from the pinned legacy src/tasks/index.ts TASK_DEFINITIONS registry; no legacy runnable contract is recovered.",
+          "No Engine multi-turn session or model semantic reliance on history is exercised.",
+          "The source row's unspecified Turn-2 setup is not reconstructed. This is bounded current code-unit evidence, not full source behavior coverage or an executable eval case."
+        ]
+      }
+    },
+    {
+      "pointer": "/items/3",
+      "row": {
+        "id": "reg-ai-chat-schema-enforced-lab-extraction",
+        "input": {
+          "prompt": "schemaId=lab-extraction with malformed draft output",
+          "target": "shared-ai.chat"
+        },
+        "expectedOutput": {
+          "rule": "response matches extraction schema or clean failure"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user excluded D04 from the unification scope as not needed, after review found no lab-extraction schema body, malformed draft payload or clean-failure contract. The pinned source row is retained for traceability only, not executable evidence or a passing result."
+    },
+    {
+      "pointer": "/items/4",
+      "row": {
+        "id": "reg-labs-extraction-error-wrap",
+        "input": {
+          "prompt": "Force extraction provider failure",
+          "target": "labs.extract"
+        },
+        "expectedOutput": {
+          "rule": "AIExtractionError surfaced"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user excluded D05 from the unification scope like D04; no current Labs extraction API, schema or failure contract was authorized. The pinned source row is retained for traceability only, not a case, fixture, unit evidence, passing result or current behavioral coverage."
+    },
+    {
+      "pointer": "/items/5",
+      "row": {
+        "id": "reg-labs-job-non-lab-key",
+        "input": {
+          "prompt": "S3 event contains key outside labs/<user>/<file>",
+          "target": "labs.job"
+        },
+        "expectedOutput": {
+          "rule": "invalid key skipped without batch crash"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user excluded D06 from the unification scope like D04/D05; review identified no current Labs S3 job and the row specifies no S3 event envelope, batch result or key parsing/skip contract. The pinned source row is retained for traceability only, not a case, fixture, unit evidence, passing result or current behavioral coverage. No S3 handler or batch contract is invented."
+    },
+    {
+      "pointer": "/items/6",
+      "row": {
+        "id": "reg-voice-stt-api-key-required",
+        "input": {
+          "prompt": "Create STT provider without API key",
+          "target": "voice.stt"
+        },
+        "expectedOutput": {
+          "rule": "explicit missing API key error"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user deferred all voice/audio-related rows (D07-D11) from this unification task. The pinned source row is retained for traceability only, not active coverage, case or unit evidence, a passing result or model-quality evidence. Existing unit tests and adapter code remain unchanged."
+    },
+    {
+      "pointer": "/items/7",
+      "row": {
+        "id": "reg-voice-stt-send-audio-without-connection",
+        "input": {
+          "prompt": "Send audio before STT connect",
+          "target": "voice.stt"
+        },
+        "expectedOutput": {
+          "rule": "error event emitted, process alive"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user deferred all voice/audio-related rows (D07-D11) from this unification task. The pinned source row is retained for traceability only, not active coverage, case or unit evidence, a passing result or model-quality evidence. Existing unit tests and adapter code remain unchanged."
+    },
+    {
+      "pointer": "/items/8",
+      "row": {
+        "id": "reg-voice-tts-no-voice-id",
+        "input": {
+          "prompt": "Call speak without voice id",
+          "target": "voice.tts"
+        },
+        "expectedOutput": {
+          "rule": "error event emitted"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user deferred all voice/audio-related rows (D07-D11) from this unification task. The pinned source row is retained for traceability only, not active coverage, case or unit evidence, a passing result or model-quality evidence. Existing unit tests and adapter code remain unchanged."
+    },
+    {
+      "pointer": "/items/9",
+      "row": {
+        "id": "reg-voice-engine-state-transitions",
+        "input": {
+          "prompt": "Simulate transcript final and TTS completion",
+          "target": "voice.engine"
+        },
+        "expectedOutput": {
+          "rule": "valid state sequence"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user deferred all voice/audio-related rows (D07-D11) from this unification task. The pinned source row is retained for traceability only, not active coverage, case or unit evidence, a passing result or model-quality evidence. Existing unit tests and adapter code remain unchanged."
+    },
+    {
+      "pointer": "/items/10",
+      "row": {
+        "id": "reg-voice-engine-barge-in-interrupt",
+        "input": {
+          "prompt": "Trigger speech_start during speaking",
+          "target": "voice.engine"
+        },
+        "expectedOutput": {
+          "rule": "TTS interrupted and listening restored"
+        },
+        "metadata": {
+          "category": "regression"
+        }
+      },
+      "status": "out-of-scope",
+      "reason": "The user deferred all voice/audio-related rows (D07-D11) from this unification task. The pinned source row is retained for traceability only, not active coverage, case or unit evidence, a passing result or model-quality evidence. Existing unit tests and adapter code remain unchanged."
+    }
+  ]
+}

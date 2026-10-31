@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "noop-preservation",
+  "title": "Informational-query no-op preservation",
+  "purpose": "Require no Actions and preserve initial Weather state; nonempty text alone does not prove answer quality.",
+  "suite": "development",
+  "profile": "legacy-response-constraint",
+  "surface": "session",
+  "fixtureId": "weather-response",
+  "oracle": {
+    "id": "legacy-response-constraint",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "What's the current temperature?",
+    "response": {
+      "assistantText": "The synthetic current temperature is 20 degrees.",
+      "executionPlan": [],
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        }
+      ]
+    }
+  },
+  "expectations": {
+    "rule": "no-op"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-single-noop-preservation",
+      "datasetId": "cap-maelstrom-single-noop-preservation",
+      "pointer": "/items/19"
+    }
+  ]
+}
