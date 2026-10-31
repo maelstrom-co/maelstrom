@@ -187,6 +187,15 @@ async function askDimensions(
     const answer = verdict.answers[dimension];
     if (answer === undefined)
       return { failure: 'grader/answer_missing', calls: verdict.calls };
+    if (
+      !Number.isFinite(answer.score) ||
+      answer.score < 0 ||
+      answer.score > LEVELS[dimension].length - 1 ||
+      Object.values(answer.probabilities).some(
+        (p) => !Number.isFinite(p) || p < 0 || p > 1,
+      )
+    )
+      return { failure: 'grader/invalid_answer', calls: verdict.calls };
     answers[dimension] = answer;
   }
   return { answers, calls: verdict.calls };
@@ -227,6 +236,7 @@ function sameTree(
 }
 
 function topTwoGap(probabilities: Readonly<Record<string, number>>): number {
+  if (Object.keys(probabilities).length === 0) return Number.POSITIVE_INFINITY;
   const [top = 0, second = 0] = Object.values(probabilities).sort(
     (a, b) => b - a,
   );
