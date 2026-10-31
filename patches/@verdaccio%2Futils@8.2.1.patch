@@ -1,0 +1,35 @@
+diff --git a/build/matcher.js b/build/matcher.js
+index 136415b2aa76bf51992a94a2c3fc081bdff6ca84..1823e0fe5de4a2d38b27a94542816737c59a2184 100644
+--- a/build/matcher.js
++++ b/build/matcher.js
+@@ -1,7 +1,11 @@
+ let minimatch = require("minimatch");
+ //#region src/matcher.ts
+ function getMatchedPackagesSpec(pkgName, packages) {
+-	for (const i in packages) if (minimatch.minimatch.makeRe(i).exec(pkgName)) return packages[i];
++	for (const i in packages) {
++		const matcher = new minimatch.Minimatch(i);
++		if (!matcher.set.length) throw new TypeError("Invalid package pattern: " + i);
++		if (matcher.match(pkgName)) return packages[i];
++	}
+ }
+ //#endregion
+ exports.getMatchedPackagesSpec = getMatchedPackagesSpec;
+diff --git a/build/matcher.mjs b/build/matcher.mjs
+index 4a63dc44717e7c59cbe2ded9dd3899b5735dd05a..0f2df10d490d9e43b8287a6369c113641ff18129 100644
+--- a/build/matcher.mjs
++++ b/build/matcher.mjs
+@@ -1,7 +1,11 @@
+-import { minimatch } from "minimatch";
++import { Minimatch } from "minimatch";
+ //#region src/matcher.ts
+ function getMatchedPackagesSpec(pkgName, packages) {
+-	for (const i in packages) if (minimatch.makeRe(i).exec(pkgName)) return packages[i];
++	for (const i in packages) {
++		const matcher = new Minimatch(i);
++		if (!matcher.set.length) throw new TypeError("Invalid package pattern: " + i);
++		if (matcher.match(pkgName)) return packages[i];
++	}
+ }
+ //#endregion
+ export { getMatchedPackagesSpec };
