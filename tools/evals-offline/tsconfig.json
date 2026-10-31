@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "composite": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "types": ["bun"],
+    "lib": ["es2022", "dom"]
+  },
+  "include": ["./**/*.ts"],
+  "references": [
+    {
+      "path": "../../packages/planner-jev"
+    },
+    {
+      "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/client"
+    },
+    {
+      "path": "../../packages/evals"
+    }
+  ]
+}

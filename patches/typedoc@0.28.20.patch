@@ -1,0 +1,115 @@
+diff --git a/dist/node-utils.js b/dist/node-utils.js
+--- a/dist/node-utils.js
++++ b/dist/node-utils.js
+@@ -1,3 +1,4 @@
++import { legacyPartialMatch } from "./legacy-partial-match.js";
+ var __defProp = Object.defineProperty;
+ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+   get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+@@ -325,12 +326,7 @@
+       if (childPath[childPath.length - 1] === "node_modules" && !shouldIncludeNodeModules) {
+         return false;
+       }
+-      return mini.set.some((row) => mini.matchOne(
+-        childPath,
+-        row,
+-        /* partial */
+-        true
+-      ));
++      return mini.set.some((row) => legacyPartialMatch(mini, childPath, row));
+     },
+     matchDirectories: options.includeDirectories,
+     followSymlinks: options.followSymlinks
+diff --git a/dist/legacy-partial-match.js b/dist/legacy-partial-match.js
+new file mode 100644
+--- /dev/null
++++ b/dist/legacy-partial-match.js
+@@ -0,0 +1,88 @@
++import { GLOBSTAR } from 'minimatch';
++
++// Adapted from minimatch 10.2.5, Blue Oak Model License 1.0.0:
++// https://blueoakcouncil.org/license/1.0.0
++// Legacy partial traversal can include hidden paths that minimatch 11 prunes.
++// Keep that traversal without restoring the vulnerable regexp compiler.
++export function legacyPartialMatch(mini, file, pattern) {
++  if (mini.isWindows) {
++    const driveIndex = (parts) =>
++      typeof parts[0] === 'string' && /^[a-z]:$/i.test(parts[0]) ? 0 :
++      parts[0] === '' && parts[1] === '' && parts[2] === '?' &&
++      typeof parts[3] === 'string' && /^[a-z]:$/i.test(parts[3]) ? 3 : undefined;
++    const fdi = driveIndex(file);
++    const pdi = driveIndex(pattern);
++    if (fdi !== undefined && pdi !== undefined &&
++        file[fdi].toLowerCase() === pattern[pdi].toLowerCase()) {
++      file = file.slice(fdi);
++      pattern = [file[0], ...pattern.slice(pdi + 1)];
++    }
++  }
++  const firstGlobstar = pattern.indexOf(GLOBSTAR);
++  if (firstGlobstar === -1) return matchSegments(file, pattern);
++
++  const head = pattern.slice(0, firstGlobstar);
++  if (!matchSegments(file, head, 0, Math.min(file.length, head.length))) return false;
++  const body = pattern.slice(firstGlobstar + 1);
++  const hasForbiddenDot = (part) =>
++    part === '.' || part === '..' || (!mini.options.dot && part.startsWith('.'));
++  if (!body.length) return !file.slice(head.length).some(hasForbiddenDot);
++
++  const segments = [[[], 0]];
++  let current = segments[0];
++  let nonGlobstarParts = 0;
++  const prefixLengths = [0];
++  for (const part of body) {
++    if (part === GLOBSTAR) {
++      prefixLengths.push(nonGlobstarParts);
++      current = [[], 0];
++      segments.push(current);
++    } else {
++      current[0].push(part);
++      nonGlobstarParts++;
++    }
++  }
++  let index = segments.length - 1;
++  for (const segment of segments) {
++    segment[1] = file.length - (prefixLengths[index--] + segment[0].length);
++  }
++
++  // A state depends only on these two indices; cache it to bound repeated walks.
++  const memo = new Map();
++  const walk = (fileIndex, bodyIndex) => {
++    const key = `${fileIndex}:${bodyIndex}`;
++    if (memo.has(key)) return memo.get(key);
++    const result = visit(fileIndex, bodyIndex);
++    memo.set(key, result);
++    return result;
++  };
++  const visit = (fileIndex, bodyIndex) => {
++    const segment = segments[bodyIndex];
++    if (!segment) {
++      return fileIndex < file.length && !file.slice(fileIndex).some(hasForbiddenDot);
++    }
++    const [parts, after] = segment;
++    while (fileIndex <= after) {
++      if (bodyIndex < mini.maxGlobstarRecursion &&
++          matchSegments(file, parts, fileIndex, Math.min(file.length, fileIndex + parts.length)) &&
++          walk(fileIndex + parts.length, bodyIndex + 1)) {
++        return true;
++      }
++      if (hasForbiddenDot(file[fileIndex])) return false;
++      fileIndex++;
++    }
++    return true;
++  };
++  return walk(head.length, 0);
++}
++
++function matchSegments(file, pattern, fileIndex = 0, end = file.length) {
++  let patternIndex = 0;
++  for (; fileIndex < end && patternIndex < pattern.length; fileIndex++, patternIndex++) {
++    const part = pattern[patternIndex];
++    if (part === false || part === GLOBSTAR) return false;
++    if (typeof part === 'string' ? file[fileIndex] !== part : !part.test(file[fileIndex])) return false;
++  }
++  return fileIndex === end ||
++    (patternIndex === pattern.length && fileIndex === end - 1 && file[fileIndex] === '');
++}

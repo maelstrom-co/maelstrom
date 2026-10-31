@@ -313,7 +313,7 @@ it('rejects non-object input with invalid-request and never calls upstream fetch
   expect(fetchCalled).toBe(false);
 });
 
-it('returns missing-api-key and never calls upstream fetch when the minter holds no api key', async () => {
+it('D07 bounded server-minter credential-guard evidence: missing API key never calls upstream fetch', async () => {
   let fetchCalled = false;
   const fakeFetch = async (): Promise<Response> => {
     fetchCalled = true;

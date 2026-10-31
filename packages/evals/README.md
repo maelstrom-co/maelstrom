@@ -1,8 +1,334 @@
 # @maelstrom-co/evals
 
-Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_internal` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; nothing depends on it.
+Case completion follows the [declared-scope convention](cases/README.md#completion-scope); it is separate from sample outcome and human review.
+
+Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_internal` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; no published package depends on it.
 
 Two evals live here: the full-planner eval runs whole planners through `createEngine` and compares named arms, the stage eval runs one pipeline stage on gold inputs. The runners are generic and live in `src/core/`; everything that knows a planner family lives in a plugin under `src/plugins/` (see Plugins below). The Jev and Decisions plugins read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_internal`, and their offline tests read the fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository. There are four entry points: `src/eval/cli.ts` (the full-planner eval, the nx `eval` target), `src/eval-stages/cli.ts` (the stage eval, the nx `eval-stages` target), `src/eval/report-cli.ts` (rebuilds a run's report from its records) and `src/eval/grader-validate.ts` (validates the grader). Each only hands the registered plugins, `evalPlugins` from `src/plugins/index.ts`, to its runner in `src/core/`.
+
+## Manual current-Engine samples
+
+[`src/manual/d02.ts`](src/manual/README.md) prepares one current-Engine identity
+conversation. It defaults to a no-network dry-run; live execution requires explicit
+flags and an externally enforced capped key. No new CI/live Nx target is added.
+The three prompts use current `llmPlanner` identity customization and retained
+Engine history, not the canonical scripted replies. Preparation/offline tests do
+not constitute a live result. D02's declared response and prompt-delivery checks
+are complete; semantic identity reliability is not claimed.
+
+[`src/manual/d14.ts`](src/manual/README.md#manual-d14-refusal-sample) prepares one
+current-Engine arbitrary-JSON refusal request, using the default Maelstrom identity
+and current refusal rule. Its syntax predicate and pending human review of refusal
+and Vessel redirection are separate. The source text predicate and separate lexical
+rubric are complete for their scopes; neither is semantic certification. Case and
+new-sample review remain pending.
+
+[`src/manual/d17.ts`](src/manual/README.md#manual-d17-ambiguous-weekly-view-sample)
+prepares one ambiguous weekly-view request with the actual current Weather and
+Calendar catalogs. It checks the shipped Chart and Execution Plan independently
+of a lexical clarification signal; semantic review stays pending. The existing
+planner prompt is unchanged. The declared target-exclusion and manual structural
+checks are complete; a new sample is still pending human semantic review.
+
+[`src/manual/d25.ts`](src/manual/README.md#manual-d25-ordinary-weather-conversation)
+prepares one three-turn Weather conversation with the actual current catalog and
+natural Engine history. Shipped navigation and delivery of earlier replies are
+checked separately from human review of response semantics. The follow-up itself
+names rain/hourly, so this cannot prove semantic reliance on history. No assistant
+message is injected. The narrowed ordinary-history contract is complete; injection
+robustness is out of scope.
+
+[`src/manual/weather.ts`](src/manual/README.md#manual-d38--d39--d40--d41-current-weather-samples)
+requires one explicit D38, D39, D40 or D41 selection: current-view no-op,
+action-backed current→weekly, hourly→weekly→current, or hourly→current→weekly
+respectively. It uses the actual Weather catalog, unchanged planner prompt and
+natural Engine history. Shipped predicates are separate from prose review; D39
+checks matching Action/identity but leaves extra Actions/params/geometry unscored. The declared branch/trajectory contracts are
+complete, not reliability or handler-effect claims. Dry-run is the
+default; no provider call is made by preparation or fake-transport tests.
+
+## Offline unification slice
+
+`src/core/runtime/` provides an internal, provisional runtime-neutral sample lifecycle and explicit session-state adapter. `src/adapters/` wraps the existing planner and stage runners without changing their CLI contracts. Missing evidence, runtime errors, scorer errors, hand-offs and not-applicable cases remain distinct; sample correlation stays outside operational telemetry.
+
+The five-path [offline composition tests](../../tools/evals-offline/README.md) combine these adapters with legacy-derived synthetic fixtures and real headless client effects. Client imports remain in that tooling composition root, never in this server-side package. This is harness evidence, not installed legacy-runtime compatibility or completion of the dataset migration. Paid commands below are unchanged and are not run by that offline suite.
+
+`legacy-history-assistant-injection` adds **COMPLETE D25/T23** `/items/24`
+(`cap-history-assistant-message-injection`) at legacy revision
+`d6ef99aacb8ebce4d707d54fee14149daeea552d`. The dataset has no injected assistant
+payload, user-message sequence or turn-specific expected responses. The case
+retains the three ordinary Weather user-turn fallback prompts from
+`src/tasks/historyAssistantInjection.ts`. Its scope is **scripted ordinary
+conversation-history continuity**, not assistant-message injection. Independent
+scripted responses preserve the source predicate: turn 0 nonblank text, no
+Actions and `weather-main/current`; turn 1 a matching `showHourly`, nonblank
+text containing any case-insensitive substring `rain`, `mentioned` or `said`,
+and `weather-main/hourly`; turn 2 no Actions and `weather-main/hourly`.
+Every response must use tiling. Empty/absent turn-2 text and additional turn-1
+Actions pass. The scorer only finds the first matching Instance; it does not
+check Vessel identity, exact membership counts, geometry, or snapshot continuity.
+The strict harness requires exactly three complete ordered turns; snapshots
+record scripted retention, not an additional source-scoring requirement.
+
+A control with turn-0 text `The sky is clear.` and turn-1 text `I like trains.`
+passes. This lexical predicate does **not** verify that a model semantically
+depended on previous assistant content and does not test prompt injection or
+security. **Assistant-message injection and semantic reliance are out of scope**
+for the completed ordinary-history contract. The existing session adapter supplies
+prior turns; the script uses only their count. Exact provider-input delivery is
+verified separately in `packages/evals/src/manual/d25.test.ts`. Legacy profile/file
+IDs and exact lineage are retained, not relabeled as injection coverage.
+No AI/model/provider/runtime compatibility claim is made. No Engine, model,
+provider, judge or Action handler runs; artifacts remain synthetic, legacy-derived
+and pending human review.
+
+`legacy-assistant-identity` adds **COMPLETE D02/T24** `/items/1`: three original
+dataset prompts, separate scripted responses and declarative identity expectations.
+Every turn requires nonblank text, case-insensitive `MAR` inclusion / `Maelstrom`
+exclusion, an empty Execution Plan, tiling layout and zero layout Instances.
+Substring success is not semantic identity: even `The market is open.` passes.
+The declared response predicate is complete. MAR system-prompt delivery is tested
+separately in the manual path; this script does not establish semantic identity,
+prompt effectiveness, provider behavior or runtime compatibility.
+
+`legacy-assistant-text` adds D03/T01 `/items/2` source exact-text predicate
+representation (case-sensitive `trim().split(/\s+/).join(' ')`) and **COMPLETE
+D14/T19** `/items/13` nonempty/non-JSON-container evidence. Objects and arrays
+fail; primitives, null, malformed JSON and fenced JSON are allowed. Unrelated
+`I like trains.` prose passes: semantic refusal and Vessel-orchestration
+redirection are outside this complete source text predicate. The separate
+user-defined lexical case tests refusal/redirection cues, not semantic judgment.
+Two distinct independent synthetic fixtures run through the common session
+lifecycle; no provider/model/judge, shared-ai.chat, streaming or runtime
+compatibility claim.
+
+`assistant-json-refusal-lexical` adds a separate synthetic/pending-human-review
+**user-defined extension** inspired by `/items/13`, with an independent response
+fixture and code-owned lexical scorer. It requires raw/arbitrary-JSON refusal cues
+and an explicit offer of Vessel-based help, not a bare mention. The accepted
+response is a regression example, not an exact-output baseline. Case, whitespace
+and apostrophes normalize; whole words match; pure object/array JSON and obvious
+code fences fail. Lexical cues are not semantic judgment; embedded/malformed JSON
+may escape detection. Text cannot prove no Actions/layout effects: no state-safety
+claim. The original D14 source predicate and its empty source phrase constraints
+are unchanged. Both predicates are complete for their separately declared scopes;
+case review remains pending. No provider/model/judge/API/live invocation.
+See the [case contract](cases/README.md#complete-user-defined-lexical-json-refusal-and-vessel-help).
+Total: 43 cases, 35 fixtures, 30 profiles.
+D02/D14/D17/D25/D33/D38/D40/D41 are complete for their declared bounded contracts,
+not full legacy equivalence or model-quality coverage. D04–D11 are user-excluded;
+no source-only blocked obligations remain. See the case contract for scope and evidence.
+
+### Previously missing Weather rows and source obligations
+
+D39 `/items/38` now has `weather-action-backed-transition`: existing Weather/current
+must have matching `showWeekly` and shipped weekly state. The legacy single-turn
+scorer permits that Action but rejects an actionless weekly jump; the former
+blocked interpretation was incorrect. Matching Action/target strengthens its
+nonempty-plan check. Extra Actions/params/geometry remain unscored. See the
+[D39 contract](cases/README.md#action-backed-weekly-transition-d39).
+
+D38 `/items/37` now has a **COMPLETE stay-current-only** no-op case.
+D40 `/items/39` and D41 `/items/40` use `legacy-weather-transition-chain` with
+independent scripted responses: exact source prompts, pre-turn-valid navigation,
+required Actions and retained membership continuity. D40 follows the dataset's
+hourly→weekly→current trajectory, explicitly correcting the old scorer's
+hourly→current→weekly mismatch. D41 uses hourly→current→weekly and strengthens
+the permissive old scorer by rejecting empty/extra/conflicting Actions.
+These are plan/state harness checks, not Engine execution or model/handler evidence.
+
+The separate [obligation ledger](obligations/README.md) preserves one bounded D01
+code-unit row and eight out-of-scope D04–D11 rows verbatim. Inventory rejects holes, overlaps and mismatched lineage:
+41 pointers accounted for: 32 with bounded case evidence, 1 with bounded code-unit
+evidence (D01), 0 source-only blocked, 8 out-of-scope (D04–D11), 0 unaccounted.
+The user excluded D04, D05 and D06 from unification. No current Labs extraction API,
+schema or failure contract was authorized for D05; D06 has no identified current Labs
+S3 job or specified S3 event envelope/batch contract. Their pinned rows remain
+traceable, not cases, fixtures, unit evidence, passing results or current behavioral coverage.
+This closes traceability, not the remaining behavioral gaps. D01 links only the
+existing planner provider-input history test, not an Engine multi-turn session,
+model semantic reliance or the unspecified source Turn-2 setup. No runnable case
+is added. The user deferred all voice/audio-related rows D07–D11 from this task.
+Their source rows and digests, existing server-minter/adapter unit tests and all
+voice/audio code remain unchanged. D07/D10/D11 are no longer active unit evidence;
+D08/D09 are no longer active blockers. All eight excluded rows are accounting
+only, not coverage, evidence or passes.
+
+D35 now has `three-vessel-addition`: the user-approved Weather-only start adds
+Labs/trends and Calendar/month on the first source prompt, then requires
+Weather/showWeekly and Calendar/showWeek. Labs preservation starts after addition.
+The shared offline/manual predicate validates incoming Actions and stable state;
+this is not equivalence to the old preloaded task's mismatched scorer. D35 is
+**COMPLETE only for this adjudicated current contract**: one fresh post-fix
+one-shot current-Engine sample passed in three dispatches with empty failures
+and no retry. Prior failed reports remain preserved. Case and sample semantic
+review remain pending, not user semantic acceptance. One sample establishes no
+reliability, clinical data/trend fulfillment or client/handler effects; no source
+scorer/runtime or legacy `TASK_DEFINITIONS` equivalence is claimed. See the
+[D35 contract](cases/README.md#user-adjudicated-three-vessel-addition-d35t17).
+
+### JSON v1 offline cases
+
+[`cases/v1/index.json`](cases/v1/index.json) now drives the offline composition: forty-three strict JSON cases cover thirty profiles (the original five-path slice plus legacy Vessel navigation, response constraints, four-turn Weather reuse, Labs marker Action emission, final-turn multi-marker exact-set emission (F03b timing correction; extra/conflicting Actions unscored), Weather/Calendar target isolation, three-turn delayed Weather Action, Calendar round trips, strict tiling addition, binary-tree validity, grid non-overlap, Calendar addition with same-response Action targeting (D34; response-only identity/preservation), dataset-aligned cross-Vessel isolation (D36; explicit labs-main/lab-results/trends mapping), the bounded D33 Labs list→trends subset, its separate synthetic third-turn marker emission extension, and an isolated optional first-marker enum slice (not full T12; no handler effects or marker persistence from scripts)), with thirty-five indexed fixture files. Envelope validation is in `src/core/case-schema.ts`; profile-specific validation is in `src/adapters/offline-case.ts`; bounded registry loading and code-owned execution composition stay in `tools/evals-offline`, with fixed-path core loaders for the three case-owned scenarios. The sibling `scenarios/v1` manifest supplies all 155 current scenario definitions without adding offline cases. Case and fixture byte digests enter result provenance. See the [case contract and coverage obligations](cases/README.md). `variant`, `preserve` and `generate-content` load their full requests/catalogs and expectations from canonical JSON; other current case references remain reference-backed metadata, and legacy-derived fixtures remain harness proofs—not full case migration or old-runtime compatibility. Live CLI inputs are unchanged.
+
+D17/T02 has a **complete target-exclusion predicate** in `legacy-no-dual-target-plan`:
+only complete Execution Plans containing both `weather-main` and `calendar-main`
+fail the predicate. Empty, single/repeated-target and unrelated/mixed plans pass;
+text, Action validity and layout effects are semantically unscored. The separate
+legacy lexical clarification heuristic is discarded. Semantic clarification and
+whole-response safety are outside this predicate. This is synthetic harness
+evidence, not clarification success or a no-double-mutation proof. There are now
+32 legacy rows with bounded case evidence, 1 bounded D01 code-unit row,
+0 source-only blocked obligations and 8 out-of-scope rows (D04–D11)
+out of 41, with zero unaccounted. The 155 current scenario definitions are unchanged.
+Full legacy T12/F03a compatibility is not claimed; exclusions are not evidence or passes.
+The [source-obligation ledger](obligations/README.md) accounts for those nine non-case rows
+without creating dummy cases or increasing pass counts.
+
+`labs-state-reset-synthetic` adds a separate **COMPLETE synthetic eval contract**
+from D33's `/items/32` lineage. The two-turn scoring rules and fixture output are
+unchanged. Its third prompt, “What's the trend for hemoglobin?”, is explicitly
+synthetic and absent from the dataset (legacy task fallback wording). Independent
+responses must emit exactly `labs-main/showList`, `showTrends`, then `selectMarker`
+with exactly `params: {markerSlug: "hemoglobin"}`, and preserve one Labs Instance
+through trends→list→trends→trends membership snapshots. No extra Actions or
+navigation parameters are accepted. This is scripted emission/continuity only,
+not prompt understanding, selected-marker persistence, handler effects or optional
+enum-safety. Optional first-match enum safety has its own case. The authorized
+current demo Labs Vessel separately tests navigation and per-instance selection
+persistence with no lab data. That does not make this scripted result a handler,
+clinical-trend or full legacy T12/F03a compatibility result.
+This adds a case, fixture and profile, not another represented legacy row or a
+live/model result.
+
+`labs-state-reset-optional-enum` separately represents D33's optional first-match
+marker enum subpredicate with the same synthetic third prompt. An absent
+`labs-main/selectMarker` passes; only its first occurrence, if any, must use
+`hemoglobin`, `platelets` or `glucose`. Later matching Actions are deliberately
+unscored, unlike D19's every-match rule. The fixture independently supplies an
+empty Execution Plan. This is one isolated response projection, not a reset
+session, positive selection, full legacy scorer or recovered third dataset turn.
+The predicate is **COMPLETE for declared scope**, with case review still pending.
+Handler effects, marker persistence and runtime compatibility are not inferred from
+this script. D33's other predicates and D19's every-match rule are unchanged. See the [enum slice contract](cases/README.md#complete-isolated-optional-marker-enum-slice-d33).
+
+All **155 current scenario definitions are JSON-backed**, preserving their full
+values and order. The [sibling scenario registry](scenarios/README.md) contains
+152 snapshots and three references to the existing case-owned sources:
+`scripted-variant.json` owns `variant`, `planner-preserve.json` owns `preserve`,
+and `planner-deferral.json` owns `generate-content`. Each case stores its full
+ChartRequest (catalog, layout and context), `inputs.scenarioTitle` distinct from
+its display title, and complete expectations. History remains absent for all
+three; `preserve` retains its existing `spatial: false`, while the others omit it.
+Fixed-path `core/variant-case.ts` and `core/planner-case.ts` loaders supply the
+live scenario registry and validate the same snapshots used directly by offline
+composition. Missing, invalid or mismatched data fails closed without TS fallback.
+
+The three case-specific snapshot schemas intentionally support only variant's
+planned visible/actions, preserve's additional reference tree and `unchangedTree`
+rule, and generate-content's deferred/select contract. Unsupported expectation
+fields reject rather than disappear. Profiles, execution and scoring stay
+code-owned. Future demo/catalog edits require explicit snapshot updates and review.
+The other **152 scenarios load from `scenarios/v1/snapshots`** through the strict
+full Scenario/Expectation schema. The ordered manifest is the runtime source and
+the source-format inventory authority; no TypeScript data fallback remains. All
+97 development / 58 holdout labels, histories and spatial flags are preserved.
+This is definition migration, not model-quality or fixture coverage. The inventory
+still has eight case-level links to five IDs; a link alone is not coverage. Replay
+cases remain reference controls. Historical holdout labels do not imply secrecy.
+
+Variant's independent candidate JSON still passes through the real Engine and
+shipped-response scorer with separate raw/shipped evidence. The two planner
+cases instead retain the existing mocked planner: `inputs.response` independently
+selects preserve or defer, and its response copies the **request** layout, never
+expected layout. It is not an independent candidate snapshot. Changing the
+loaded JSON request or expectations affects offline execution/scoring without
+falling back to registry values. No model-quality improvement, handler behavior,
+paid result, or full migration is claimed by these three data migrations.
+
+### Pluggable publication and optional Langfuse sink
+
+`src/core/publication.ts` defines the internal `EvaluationResultSink` boundary **after** `evaluateSample` has returned, including cleanup. It is separate from execution/scoring, the existing report writers, and operational telemetry. Canonical cases/fixtures remain in the monorepo. The private [`tools/evals-langfuse`](../../tools/evals-langfuse/README.md) package provides an opt-in sink using the public `@langfuse/client` 5.13.1 batch API for self-hosted Langfuse OSS 3.163.0 on Node ≥24. It is not automatically activated: its CLI previews saved evidence and publishes only explicitly approved bytes; there is no provisioning, dataset sync, durable archive, or request to the user's deployment. A live smoke test needs explicit destination credentials and version assertion, a reviewed synthetic publication, and verification of deployment access, retention and receipt behavior. The core eval package's Node ≥20 baseline is unchanged.
+
+The explicit sequence is:
+
+1. Finish `evaluateSample` once and retain its result locally.
+2. Call `prepareEvaluationPublication(result, { destinationId, artifactId, policy })`. The policy must specify `maxBytes` and synchronously approve the exact serialized bytes and destination via `review`. The payload persists `preparedAt`, defaulting to current UTC; optional `preparedAt` injection accepts a valid UTC ISO date-time ending in `Z` and canonicalizes it to millisecond precision. This is publication preparation time, not evaluation latency. Reuse the persisted publication for retries; when preparing/reviewing it again, supply its original `preparedAt` to preserve content identity. There is no default approval or environment initialization.
+3. Supply an `EvaluationResultSink` to `createEvaluationPublisher({ destinationId, sink, timeoutMs, maxEntries })`, then call `publish` with that reviewed publication. The sink owns SDK initialization, any buffering/flush necessary to establish its acknowledgment, and disposal. The publisher never disposes caller resources.
+
+The default payload contains allowlisted identity, runtime provenance, statuses, counts and omission markers—not raw observations, records, failure messages, SDK errors, producer IDs or request IDs. Identity/provenance strings still need privacy review. An optional `recording` projection supplies only reviewed replacement observation/record values; source record sequences are validated, omitted records counted, and incomplete source evidence stays incomplete. This is a projected recording, not a complete replay bundle. Runtime values must be plain JSON: finite numbers, strings, booleans, null, dense arrays and plain objects. Accessors, hidden/symbol properties, prototype-related keys, custom `toJSON`, non-JSON types and cycles are rejected; nesting is capped at 32 and the full payload is capped in UTF-8 bytes. Validation does not detect all secrets/PII or certify data synthetic. Review callbacks and projection construction are trusted caller code, not a sandbox or human-approval authentication system. No real-data consent flow is enabled.
+
+The immutable JSON is canonicalized and SHA-256 hashed. `publicationKey` binds destination, sample identity and artifact name; `publicationId` additionally binds payload digest. Different bytes under the same key fail closed. A publisher coalesces concurrent identical sends and reuses accepted results within its **bounded in-memory lifetime only**; it never evicts identity protection to make room. This is not durable, cross-process, or backend exactly-once delivery. Reconstructed/imported payloads require preparation/review again; a shallow copy of a reviewed object is not an approved publication.
+
+`accepted`, `partial`, `failed` and `uncertain` are publication states, never eval verdicts. `accepted` means the sink's declared acknowledgment, not durable storage; a merely queued/flush-resolved SDK operation cannot honestly promise more than its delivery evidence. `failed` requires known rejection. Thrown/invalid sink responses and timeout return `uncertain` without copying raw exception messages. Deadline expiry requests abort but does not prove cancellation; a still-active timed-out send blocks another attempt. Late completion does not rewrite the returned receipt. Retrying a partial/failed/uncertain publication is an explicit caller action with the same ID/bytes, may require backend reconciliation, and **never reruns evaluation**. There is no automatic retry, storage, CLI activation, or sink registry.
+
+`src/core/publication.test.ts` uses synthetic in-memory sinks and denies global fetch. It covers bounded JSON/review rejection, partial/failure/timeout behavior, concurrent deduplication, conflicting bytes, immutable evidence, and independent re-export. Existing CLI and live-eval paths are unchanged.
+
+### Shared native lifecycle and operational evidence
+
+`src/core/run-orchestration.ts` owns catalog-order selection, case × repeat ×
+runtime expansion, prepare-once execution, the bounded worker pool, sample/result
+accounting, progress callbacks, and final reporting. Native `runEval` and
+`runStageEval` supply source-policy hooks rather than separate loops/schedulers.
+`tools/evals-offline/run.ts` uses the same orchestrator for the existing synthetic
+session, planner and isolated-stage cases. Each invocation uses `evaluateSample`.
+
+Planner ordering remains serial; stages retain configured concurrency, once-per-
+scenario preparation and one N/A sample per variant. Replay lookup uses the actual
+repeat. Native fields, grading, correctness denominators and report formats remain
+source-owned. The CLI report writers are registered with the common `report` hook:
+reporting is awaited once, only after a completed run. A fatal source-policy or
+progress error stops new admission and drains in-flight samples before rejecting;
+it cannot produce a complete report for partial work.
+
+The common result contains `records`, finalized `samples`, `runId`, explicit
+`policy`, and accounting for selected cases, planned/completed samples, execution
+and evaluation outcomes, and cleanup failures. These are labeled policy-specific
+counts, not a new universal accuracy metric. Both native APIs accept `runId`,
+`onEvaluation`, and `report`; the latter receives the common run result. Native
+APIs still return their existing record arrays. Selection retains existing
+suite/ID intersection and catalog ordering; repeats/concurrency and duplicate
+sample identities are validated before executing samples.
+
+Reusable turn adapters keep preparation, collected telemetry, returned response
+and original exception state keyed by invocation context. Native-only grading and
+exception helpers are private one-shot completion hooks, not closure-wide getters
+on reusable adapters.
+
+Scoring policy is surface-specific: `planner-response` adapter checks still
+assert expected deferrals; `planner-native` and imported `planner-report`
+expected-deferral samples remain unscored with separate deferral facts. Do not
+pool these surfaces into an unlabeled correctness average. Secondary graders
+remain outside measured Engine execution and operational collection.
+
+Each newly owned Engine gets an isolated operational collector attached before
+handling a request. Isolated stages emit eval-owned `engine.stage` start/result
+facts around the actual call; they do not pretend to be Engine requests or
+provider telemetry. Preparation and judging are outside that duration. Native
+records add an optional `operational` aggregate; old records and uninstrumented
+scripted sessions remain unavailable, not zero-operation measurements. Replay
+collection measures the current invocation only, not the historical upstream
+provider's time or cost.
+
+The dependency-free runtime operational schema (version 1) groups only bounded
+operation/outcome pairs. Collection retires attachments, waits at most one second
+for drainage, flushes, disposes, then freezes aggregates and delivery/loss state.
+An undrained source or dropped facts marks collection partial without changing
+correctness. Empty observed collections have no score groups. Missing durations
+stay absent; measured zero stays zero. Token/cost usage remains a separate source.
+
+Reviewed sample publications include these finalized aggregates. Separately
+owned run collectors use `prepareRunTelemetryPublication` and a genuine run-only
+identity, never a fictitious sample or duplicated run scores on sample traces.
+The Langfuse tool exports counts, duration means in milliseconds, and measured
+sample counts under `eval.operational.*`; see its README for the mapping and
+`run-telemetry` CLI input. Run ownership must be established by the caller: lack
+of sample attribution is not evidence of run attribution. Retries reuse reviewed
+bytes and stable score IDs without execution, collection, or rescoring.
+
+This integration does not change the 41-row lineage accounting, bounded case
+contracts, unit-only evidence, or eight exclusions; it is not full legacy
+behavioral equivalence or certification of a live backend.
 
 ## Plugins
 
@@ -104,7 +430,7 @@ The variants, in `SELECT_VARIANTS` in `src/plugins/jev/stages/select.ts`, are `g
 
 The expected answer per gate comes from `expectedGateAnswers` in `src/plugins/jev/gold-inputs.ts`: a scenario's explicit `expectedGates` entry wins; otherwise `needsActions` is yes when a planned scenario expects an action, an ask or a parameter with no listed match and no when it states its actions and all are empty, `spatial` follows the spatial tag, and `generatedContent` and `dependsOnScreen` are no for a planned scenario. Gates the planner does not ask are ignored, and a scenario with no expected answer for any asked gate is not applicable. A turn passes when every judged gate matches and the selection leaves the expected visible set, if any. It fails with one failure per wrong gate, naming the expected answer, the answer and its probability of yes, and one more when the scenario expects a visible set and the selection leaves another set visible or the stage deferred without one. `records.json` keeps every gate's answer, probability and confidence, the expected answers and the deferral reason. `report.md` adds a table of judged turns, false positives (yes where no was expected) and false negatives per variant and gate, then every miss with its scenario, suite, repeat and probability, sorted by gate, expected answer and probability, so the effect of another threshold can be read off.
 
-The gate scenarios live in `src/core/scenarios/gates.ts`, on the demo board and on a second board of non-demo Vessels (`src/core/fixtures/workspace-vessels.ts`: a music player, a stock watchlist and CRM contacts), so gate wording is not tuned to the five demo widgets alone.
+The gate scenario definitions live in `scenarios/v1/snapshots`, on the demo board and on a second board of non-demo Vessels (`src/core/fixtures/workspace-vessels.ts`: a music player, a stock watchlist and CRM contacts), so gate wording is not tuned to the five demo widgets alone.
 
 ```sh
 bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage select --variant gated --suite development --repeats 3 --out tmp/evals/<name>

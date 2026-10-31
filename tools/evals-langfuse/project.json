@@ -1,0 +1,24 @@
+{
+  "name": "evals-langfuse",
+  "projectType": "library",
+  "implicitDependencies": ["@maelstrom-co/evals"],
+  "targets": {
+    "cli": {
+      "command": "node tools/evals-langfuse/cli.ts",
+      "cache": false
+    },
+    "test": {
+      "command": "bun test tools/evals-langfuse",
+      "cache": false
+    },
+    "typecheck": {
+      "command": "tsc -p tools/evals-langfuse/tsconfig.json --noEmit",
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "check": {
+      "command": "biome check tools/evals-langfuse --error-on-warnings",
+      "cache": false
+    }
+  }
+}

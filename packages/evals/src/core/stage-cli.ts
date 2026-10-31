@@ -96,12 +96,30 @@ export async function runStageEvalCli(
   console.log(
     `stage eval: ${stageName}, ${scenarios.length} scenarios x ${repeats} repeats x ${variants.join(', ')}${describe(moduleMeta)}`,
   );
-  const records = await stage.run({
+  await stage.run({
     scenarios,
     variants,
     repeats,
     concurrency,
     ...(values.verbose === true && { logger: consoleLogger }),
+    report: ({ records }) =>
+      writeStageReport(
+        out,
+        stage,
+        records,
+        variants,
+        {
+          stage: stageName,
+          suite,
+          variants: variants.join(', '),
+          repeats,
+          scenarios: scenarios.length,
+          concurrency,
+          ...moduleMeta,
+          date: new Date().toISOString(),
+        },
+        stage.reportSections(records, variants),
+      ),
     onRecord: (record) =>
       console.log(
         `${record.variant.padEnd(24)} ${record.scenarioId} #${record.repeat} ${
@@ -111,23 +129,7 @@ export async function runStageEvalCli(
         }${record.outcome}${record.reason ? `: ${record.reason}` : ''}`,
       ),
   });
-  await writeStageReport(
-    out,
-    stage,
-    records,
-    variants,
-    {
-      stage: stageName,
-      suite,
-      variants: variants.join(', '),
-      repeats,
-      scenarios: scenarios.length,
-      concurrency,
-      ...moduleMeta,
-      date: new Date().toISOString(),
-    },
-    stage.reportSections(records, variants),
-  );
+
   console.log(`Report written to ${out}/report.md`);
 }
 

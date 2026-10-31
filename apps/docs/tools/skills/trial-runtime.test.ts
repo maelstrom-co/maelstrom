@@ -46,17 +46,24 @@ function terminatedLinuxProcess(stat: string): boolean {
   return state === 'Z' || state === 'X';
 }
 
+async function isLinuxProcessTerminated(
+  readStat: () => Promise<string>,
+): Promise<boolean> {
+  try {
+    // Linux may retain an orphan's zombie PID after execution has stopped.
+    return terminatedLinuxProcess(await readStat());
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ESRCH') return true;
+    throw error;
+  }
+}
+
 async function childTerminated(pid: number): Promise<boolean> {
   if (process.platform === 'linux') {
-    try {
-      // Linux may retain an orphan's zombie PID after execution has stopped.
-      return terminatedLinuxProcess(
-        await readFile(`/proc/${pid}/stat`, 'utf8'),
-      );
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
-      throw error;
-    }
+    return isLinuxProcessTerminated(() =>
+      readFile(`/proc/${pid}/stat`, 'utf8'),
+    );
   }
   try {
     process.kill(pid, 0);
@@ -66,6 +73,28 @@ async function childTerminated(pid: number): Promise<boolean> {
     throw error;
   }
 }
+
+test('Linux termination checks treat missing proc stats as terminated', async () => {
+  for (const code of ['ENOENT', 'ESRCH']) {
+    const error = Object.assign(new Error(code), { code });
+    await expect(
+      isLinuxProcessTerminated(async () => {
+        throw error;
+      }),
+    ).resolves.toBe(true);
+  }
+});
+
+test('Linux termination checks rethrow unrelated proc stat errors', async () => {
+  const error = Object.assign(new Error('permission denied'), {
+    code: 'EACCES',
+  });
+  await expect(
+    isLinuxProcessTerminated(async () => {
+      throw error;
+    }),
+  ).rejects.toBe(error);
+});
 
 test('termination checks accept zombies but reject running, sleeping, and stopped processes', () => {
   for (const state of ['Z', 'X'])

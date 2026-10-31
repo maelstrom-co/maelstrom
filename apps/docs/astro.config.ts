@@ -513,6 +513,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
                 { slug: 'guides/engine/custom-llm-providers' },
                 { slug: 'guides/engine/system-prompt' },
                 { slug: 'guides/engine/conversation-history' },
+                { slug: 'guides/engine/evaluations' },
               ],
             },
             {

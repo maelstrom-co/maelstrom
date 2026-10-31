@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["bun", "node"],
+    "lib": ["es2022", "dom"]
+  },
+  "include": ["./**/*.ts"],
+  "references": [
+    {
+      "path": "../../packages/evals"
+    }
+  ]
+}

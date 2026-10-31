@@ -9,7 +9,18 @@ import {
   type StageContext,
 } from '@maelstrom-co/engine';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
+import {
+  createOperationalCollector,
+  type OperationalTelemetry,
+  unavailableOperationalTelemetry,
+} from './operational-telemetry.js';
 import type { ProviderCall } from './plugin.js';
+import { type EvaluationRun, runEvaluationRun } from './run-orchestration.js';
+import type {
+  EvaluationAdapter,
+  EvaluationContext,
+  EvaluationResult,
+} from './runtime/evaluate.js';
 import type { Scenario, Suite } from './scenarios.js';
 
 /**
@@ -152,16 +163,37 @@ export interface StageTurnRecord<Detail = unknown> {
   readonly detail?: Detail;
   /** The deferral reason the scenario expects of the stage; absent when it expects an output. */
   readonly expectedDeferral?: string;
+  /** Finalized stage-owned collection; absence is not zero operations. */
+  readonly operational?: OperationalTelemetry;
+  /** Opt-in evidence of a completed stage whose judge threw, captured before judging. */
+  readonly judgeFailure?: {
+    /** Judge exception, not a runtime failure. */
+    readonly message: string;
+    /** Completed invocation's input snapshot. */
+    readonly input: unknown;
+    /** Completed invocation's output snapshot. */
+    readonly output: unknown;
+  };
 }
 
 /** Options for {@link runStageEval}. */
 export interface StageEvalOptions {
+  /** Shared-lifecycle identity generated once when omitted. */
+  readonly runId?: string;
+  /** Native-policy finalized result for each stage invocation. */
+  readonly onEvaluation?: (result: EvaluationResult<StageTurnRecord>) => void;
+  /** Native report writer dispatched once by common run orchestration. */
+  readonly report?: (
+    run: EvaluationRun<StageTurnRecord, StageTurnRecord>,
+  ) => void | Promise<void>;
   readonly scenarios: readonly Scenario[];
   /** Variant names of the module, run in this order for every scenario and repeat. */
   readonly variants: readonly string[];
   readonly repeats: number;
   /** Turns in flight at once. Defaults to 1. */
   readonly concurrency?: number;
+  /** Preserve judge exceptions with completed evidence; by default they propagate. */
+  readonly captureJudgeFailure?: boolean;
   readonly logger?: Logger;
   /** Called after every turn, for progress output. */
   readonly onRecord?: (record: StageTurnRecord) => void;
@@ -185,6 +217,12 @@ export interface RegisteredStageEval {
     readonly module: RegisteredStageEval;
     readonly meta: StageRunMeta;
   }>;
+  /** One shared-lifecycle invocation, retaining its actual sample/repeat identifier. */
+  readonly adapter: (options: {
+    readonly scenario: Scenario;
+    readonly variant: string;
+    readonly provenance: string;
+  }) => EvaluationAdapter<StageTurnRecord>;
   readonly run: (options: StageEvalOptions) => Promise<StageTurnRecord[]>;
   readonly reportSections: (
     records: readonly StageTurnRecord[],
@@ -204,43 +242,65 @@ export async function runStageEval<Input, Output, Detail, Deps>(
   module: StageEvalModule<Input, Output, Detail, Deps>,
   options: StageEvalOptions,
 ): Promise<StageTurnRecord<Detail>[]> {
-  const unknown = options.variants.filter(
-    (name) => !Object.hasOwn(module.variants, name),
-  );
-  if (unknown.length > 0)
-    throw new Error(
-      `unknown ${module.stage} variant ${unknown.join(', ')}; known variants: ${Object.keys(module.variants).join(', ')}`,
-    );
   const logger = options.logger ?? silentLogger;
-  const tasks: (() => Promise<StageTurnRecord<Detail>>)[] = [];
-  for (const scenario of options.scenarios) {
-    const origin = planningInput(scenario);
-    const prepared = await module.prepare(
-      scenario,
-      stageContext(origin, logger),
-    );
-    if (!prepared.applicable) {
-      for (const variant of options.variants)
-        tasks.push(async () => ({
-          ...base(module.stage, variant, scenario, 1),
-          outcome: 'not_applicable',
-          reason: prepared.reason,
-          calls: [],
-        }));
-      continue;
-    }
-    for (let repeat = 1; repeat <= options.repeats; repeat++)
-      for (const variant of options.variants)
-        tasks.push(() =>
-          runTurn(module, logger, {
-            variant,
-            scenario,
-            repeat,
-            prepared,
-          }),
+  const run = await runEvaluationRun({
+    runId: options.runId,
+    policy: 'native:stage/v1',
+    cases: options.scenarios,
+    runtimes: options.variants,
+    repeats: options.repeats,
+    concurrency: options.concurrency,
+    caseId: (scenario) => scenario.id,
+    runtimeId: (_scenario, variant) => `${module.name}/${variant}`,
+    preflight() {
+      const unknown = options.variants.filter(
+        (name) => !Object.hasOwn(module.variants, name),
+      );
+      if (unknown.length > 0)
+        throw new Error(
+          `unknown ${module.stage} variant ${unknown.join(', ')}; known variants: ${Object.keys(module.variants).join(', ')}`,
         );
-  }
-  return runPool(tasks, options.concurrency ?? 1, options.onRecord);
+    },
+    prepare: (scenario) =>
+      module.prepare(scenario, stageContext(planningInput(scenario), logger)),
+    sampleCount: (prepared, repeats) => (prepared.applicable ? repeats : 1),
+    invocation(scenario, prepared, variant) {
+      const turn = createStageTurn(module, {
+        scenario,
+        prepared,
+        variant,
+        logger,
+        provenance: 'native:stage/v1',
+      });
+      let context: EvaluationContext | undefined;
+      return {
+        adapter: {
+          ...turn.adapter,
+          preflight(current) {
+            context = current;
+            return turn.adapter.preflight?.(current);
+          },
+        },
+        finish(result) {
+          const state = context && turn.states.get(context);
+          if (!options.captureJudgeFailure && state?.judgeError)
+            throw state.judgeError.error;
+          if (!result.observation)
+            throw new Error(
+              result.error?.message ?? 'Stage produced no observation',
+            );
+          return {
+            ...result.observation,
+            ...(result.operational && { operational: result.operational }),
+          };
+        },
+      };
+    },
+    onEvaluation: options.onEvaluation,
+    onRecord: options.onRecord,
+    report: options.report,
+  });
+  return [...run.records];
 }
 
 /** Erases `module`'s types for a registry of stage evals. */
@@ -263,6 +323,7 @@ export function registerStageEval<Input, Output, Detail, Deps>(
             meta: configured.meta,
           };
     },
+    adapter: (options) => stageTurnAdapter(module, options),
     run: (options) => runStageEval(module, options),
     reportSections: (records, variants) =>
       module.reportSections?.(
@@ -290,6 +351,8 @@ async function runTurn<Input, Output, Detail, Deps>(
     readonly scenario: Scenario;
     readonly repeat: number;
     readonly prepared: Extract<PreparedInput<Input>, { applicable: true }>;
+    readonly captureJudgeFailure?: boolean;
+    readonly collector?: ReturnType<typeof createOperationalCollector>;
   },
 ): Promise<StageTurnRecord<Detail>> {
   const { variant, scenario, repeat, prepared } = turn;
@@ -302,14 +365,26 @@ async function runTurn<Input, Output, Detail, Deps>(
   let input = prepared.input;
   let started = performance.now();
   let result: Awaited<ReturnType<Stage<Input, Output>>>;
+  let invoked = false;
   try {
     input = module.turnInput?.(scenario, repeat, input) ?? input;
     const stage = module.variants[variant](
       module.makeDeps((call) => calls.push(call)),
     );
+    turn.collector?.telemetry.record({
+      operation: 'engine.stage',
+      outcome: 'started',
+    });
+    invoked = true;
     started = performance.now();
     result = await stage(input, stageContext(prepared.origin, logger));
   } catch (error) {
+    if (invoked)
+      turn.collector?.telemetry.record({
+        operation: 'engine.stage',
+        outcome: 'failed',
+        durationMs: performance.now() - started,
+      });
     return {
       ...own,
       outcome: 'error',
@@ -319,6 +394,15 @@ async function runTurn<Input, Output, Detail, Deps>(
     };
   }
   const stageMs = performance.now() - started;
+  turn.collector?.telemetry.record({
+    operation: 'engine.stage',
+    outcome: isErr(result)
+      ? isDeferred(result.error)
+        ? 'skipped'
+        : 'failed'
+      : 'succeeded',
+    durationMs: stageMs,
+  });
   if (isErr(result)) {
     const { error } = result;
     const deferred = isDeferred(error);
@@ -337,7 +421,24 @@ async function runTurn<Input, Output, Detail, Deps>(
       calls,
     };
   }
-  const judgement = module.judge(scenario, input, result.value);
+  const completed = turn.captureJudgeFailure
+    ? structuredClone({ input, output: result.value })
+    : undefined;
+  let judgement: Judgement<Detail>;
+  try {
+    judgement = module.judge(scenario, input, result.value);
+  } catch (error) {
+    if (completed === undefined) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ...own,
+      outcome: 'error',
+      reason: message,
+      stageMs,
+      calls,
+      judgeFailure: { message, ...completed },
+    };
+  }
   const missedDeferral =
     expectedDeferral !== undefined && judgement.outcome === 'pass';
   return {
@@ -350,6 +451,133 @@ async function runTurn<Input, Output, Detail, Deps>(
     calls,
     detail: judgement.detail,
   };
+}
+
+type StageTurnOptions<Input> = {
+  readonly scenario: Scenario;
+  readonly variant: string;
+  readonly provenance: string;
+  readonly logger?: Logger;
+  readonly prepared?: PreparedInput<Input>;
+};
+
+/** Reusable stage adapter; judge exceptions and inputs belong to each invocation context. */
+export function stageTurnAdapter<Input, Output, Detail, Deps>(
+  module: StageEvalModule<Input, Output, Detail, Deps>,
+  options: StageTurnOptions<Input>,
+): EvaluationAdapter<StageTurnRecord<Detail>> {
+  return createStageTurn(module, options).adapter;
+}
+
+function createStageTurn<Input, Output, Detail, Deps>(
+  module: StageEvalModule<Input, Output, Detail, Deps>,
+  options: StageTurnOptions<Input>,
+) {
+  const logger = options.logger ?? silentLogger;
+  const states = new WeakMap<
+    EvaluationContext,
+    {
+      prepared: PreparedInput<Input>;
+      collector?: ReturnType<typeof createOperationalCollector>;
+      judgeError?: { error: unknown };
+    }
+  >();
+  const adapter: EvaluationAdapter<StageTurnRecord<Detail>> = {
+    surface: 'isolated-stage',
+    provenance: options.provenance,
+    async preflight(context) {
+      if (!Object.hasOwn(module.variants, options.variant))
+        throw new Error(`Unknown stage variant: ${options.variant}`);
+      states.set(context, {
+        prepared:
+          options.prepared ??
+          (await module.prepare(
+            options.scenario,
+            stageContext(planningInput(options.scenario), logger),
+          )),
+      });
+    },
+    async execute(context) {
+      const state = states.get(context);
+      if (!state) throw new Error('Stage input unavailable');
+      const { prepared } = state;
+      let record: StageTurnRecord<Detail>;
+      if (!prepared.applicable)
+        record = {
+          ...base(
+            module.stage,
+            options.variant,
+            options.scenario,
+            context.identity.sample,
+          ),
+          outcome: 'not_applicable',
+          reason: prepared.reason,
+          calls: [],
+        };
+      else {
+        const collector = createOperationalCollector('sample');
+        state.collector = collector;
+        record = await runTurn(
+          {
+            ...module,
+            judge(...args) {
+              try {
+                return module.judge(...args);
+              } catch (error) {
+                state.judgeError = { error };
+                throw error;
+              }
+            },
+          },
+          logger,
+          {
+            variant: options.variant,
+            scenario: options.scenario,
+            repeat: context.identity.sample,
+            prepared,
+            captureJudgeFailure: true,
+            collector,
+          },
+        );
+      }
+      context.record({ kind: 'stage', value: record });
+      const executionFailed =
+        record.outcome === 'error' && !record.judgeFailure;
+      return {
+        completeness: executionFailed ? 'partial' : 'complete',
+        disposition: record.judgeFailure
+          ? 'planned'
+          : record.outcome === 'not_applicable' ||
+              record.outcome === 'handed_off'
+            ? record.outcome
+            : record.outcome === 'deferred' ||
+                (record.expectedDeferral &&
+                  record.reason === record.expectedDeferral)
+              ? 'deferred'
+              : 'planned',
+        value: record,
+        ...(executionFailed && { error: record.reason ?? 'Stage error' }),
+      };
+    },
+    score(record) {
+      if (record.judgeFailure) throw new Error(record.judgeFailure.message);
+      return {
+        outcome: record.outcome === 'pass' ? 'pass' : 'fail',
+        failures: record.failures.length
+          ? record.failures
+          : record.outcome === 'pass'
+            ? []
+            : [record.reason ?? record.outcome],
+      };
+    },
+    async finalizeOperational(context) {
+      const collector = states.get(context)?.collector;
+      return collector
+        ? collector.finalize()
+        : unavailableOperationalTelemetry();
+    },
+  };
+  return { adapter, states };
 }
 
 function base(
@@ -379,30 +607,6 @@ function stageContext(origin: PlanningInput, logger: Logger): StageContext {
       throw new Error('the stage eval validates no candidate');
     },
   };
-}
-
-async function runPool<T>(
-  tasks: readonly (() => Promise<T>)[],
-  concurrency: number,
-  onResult?: (result: T) => void,
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < tasks.length) {
-      const index = next++;
-      const result = await tasks[index]();
-      results[index] = result;
-      onResult?.(result);
-    }
-  };
-  await Promise.all(
-    Array.from(
-      { length: Math.max(1, Math.min(concurrency, tasks.length)) },
-      worker,
-    ),
-  );
-  return results;
 }
 
 const silentLogger: Logger = {

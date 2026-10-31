@@ -742,7 +742,7 @@ describe('llmPlanner', () => {
     });
   });
 
-  test('sends the system prompt, history, then the user prompt', async () => {
+  test('D01 bounded provider-input evidence: sends the system prompt, history, then the user prompt', async () => {
     mockChat.mockResolvedValue(buildGridResponse());
     const history: LLMContextMessage[] = [
       { role: 'user', content: 'earlier intent' },

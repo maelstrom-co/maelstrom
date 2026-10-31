@@ -139,6 +139,7 @@ describe('summary.json and records.json parity with a pre-seam run', () => {
     expect([...written].filter((key) => !recorded.has(key)).sort()).toEqual([
       'error',
       'grader',
+      'operational',
     ]);
   });
 
