@@ -62,7 +62,7 @@ async function save(rows = records()) {
     join(directory, 'summary.json'),
     JSON.stringify({
       meta: {
-        arms: 'baseline,jev-poc',
+        arms: [...new Set(rows.map((row) => row.arm))].join(','),
         repeats: 1,
         scenarios: new Set(rows.map((row) => row.scenarioId)).size,
       },
@@ -229,6 +229,64 @@ test('link preview freezes existing item and trace identities with source/recipe
   ).toBe(false);
   expect(reads).toEqual([]);
   expect(starts).toBe(0);
+});
+
+test.each([
+  { arms: ['baseline'] },
+  { arms: ['jev-poc'] },
+  { arms: ['baseline', 'jev-poc'] },
+])('supported recipe identity is consistent across manifest and requests for %j', async ({
+  arms,
+}) => {
+  await save(records().filter((row) => arms.some((arm) => arm === row.arm)));
+  const { plan } = await preview();
+  const judge = {
+    provider: 'typesafe',
+    model: 'jev-1.13.0',
+    rubric: 'planner_response_text_1',
+    rubricVersion: 2,
+    evidenceRendering: 'planner_response_text_1',
+    calibration: 'unvalidated',
+    scores: [
+      { name: 'request_satisfied', min: 0, max: 1 },
+      { name: 'arrangement_match', min: 0, max: 1 },
+    ],
+  };
+  expect(plan.manifest.judge).toEqual(judge);
+  expect(plan.manifest.samples.map((sample) => sample.arm)).toEqual([...arms]);
+  const runKey = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'maelstrom/run-links/v1',
+        plan.manifest.datasetName,
+        'test',
+        plan.manifest.source.runId,
+        'summary',
+        judge,
+      ]),
+    )
+    .digest('hex');
+  const scope = arms.length > 1 ? 'mixed-arms' : arms[0];
+  for (const request of plan.requests) {
+    expect(request.runName).toBe(
+      `${judge.provider}-${judge.model}-${scope}-${runKey}`,
+    );
+    expect(request.runDescription).toBe(
+      `Imported saved TypeSafe ${judge.model} judgments; ${judge.rubric} v${judge.rubricVersion}; ${judge.calibration}; ${scope} (${arms.join(', ')}). Descriptive fixed evidence, not a paired planner-arm comparison. Publication timestamps are not evaluation latency.`,
+    );
+    expect(request.metadata).toEqual({
+      sourceRunId: plan.manifest.source.runId,
+      provider: judge.provider,
+      model: judge.model,
+      rubric: judge.rubric,
+      rubricVersion: judge.rubricVersion,
+      calibration: judge.calibration,
+      arms: arms.join(','),
+      samples: arms.length,
+      timing: 'publication preparation only',
+    });
+  }
+  expect(plan.journalFile).toBe(`langfuse-run-links-${runKey}.jsonl`);
 });
 
 test('link publish sends only reviewed run-item requests, journaling attempts before sends and receipts before next send', async () => {
