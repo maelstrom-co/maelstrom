@@ -3,6 +3,22 @@ import type { EvaluationPublication } from '../../packages/evals/src/core/public
 import type { LangfuseV3DatasetItem } from './dataset.ts';
 import type { importFullPlannerRun } from './full-planner-run.ts';
 
+const supportedRecipe = {
+  kind: 'llm',
+  providerLabel: 'TypeSafe',
+  arms: ['baseline', 'jev-poc'],
+  provider: 'typesafe',
+  model: 'jev-1.13.0',
+  rubric: 'planner_response_text_1',
+  rubricVersion: 2,
+  calibration: 'unvalidated',
+  scores: ['request_satisfied', 'arrangement_match'].map((name) => ({
+    name,
+    min: 0,
+    max: 1,
+  })),
+};
+
 /** Explicit warning included in every reviewed run-link plan. */
 export const evaluatorWarning =
   'Run-item writes can enqueue configured server-side trace/dataset evaluations, including paid provider calls. Confirm no active evaluators before publishing; this importer cannot disable or continuously verify them.';
@@ -37,6 +53,15 @@ export function planRunLinks(
     items.length !== source.actualRecordCount
   )
     throw new Error('Invalid link count');
+  const judge = {
+    provider: supportedRecipe.provider,
+    model: supportedRecipe.model,
+    rubric: supportedRecipe.rubric,
+    rubricVersion: supportedRecipe.rubricVersion,
+    evidenceRendering: supportedRecipe.rubric,
+    calibration: supportedRecipe.calibration,
+    scores: supportedRecipe.scores.map((score) => ({ ...score })),
+  };
   const first = items[0];
   const createdAt: string = JSON.parse(publications[0].json).preparedAt;
   const seen = new Set<string>();
@@ -47,46 +72,33 @@ export function planRunLinks(
       item.datasetName !== first.datasetName ||
       metadata.runId !== source.runId ||
       metadata.judgeStatus !== 'scored' ||
-      metadata.judgeKind !== 'llm' ||
-      metadata.judgeProvider !== 'typesafe' ||
-      metadata.judgeModel !== 'jev-1.13.0' ||
-      metadata.judgeRubric !== 'planner_response_text_1' ||
-      metadata.judgeRubricVersion !== 2 ||
-      metadata.judgeCalibration !== 'unvalidated' ||
-      !['baseline', 'jev-poc'].includes(item.input.arm) ||
+      metadata.judgeKind !== supportedRecipe.kind ||
+      metadata.judgeProvider !== judge.provider ||
+      metadata.judgeModel !== judge.model ||
+      metadata.judgeRubric !== judge.rubric ||
+      metadata.judgeRubricVersion !== judge.rubricVersion ||
+      metadata.judgeCalibration !== judge.calibration ||
+      !supportedRecipe.arms.includes(item.input.arm) ||
       JSON.parse(publications[index].json).preparedAt !== createdAt ||
       publications[index].destinationId !== publications[0].destinationId ||
       publications[index].artifactId !== publications[0].artifactId
     )
       throw new Error('Unsupported or mixed judge evidence');
-    for (const dimension of ['request_satisfied', 'arrangement_match'])
+    for (const score of judge.scores)
       if (
-        metadata[`judge.${dimension}.min`] !== 0 ||
-        metadata[`judge.${dimension}.max`] !== 1 ||
-        typeof metadata[`judge.${dimension}.value`] !== 'number'
+        metadata[`judge.${score.name}.min`] !== score.min ||
+        metadata[`judge.${score.name}.max`] !== score.max ||
+        typeof metadata[`judge.${score.name}.value`] !== 'number'
       )
         throw new Error('Unsupported score scale');
     if (
       Object.keys(metadata).filter((key) => key.startsWith('judge.')).length !==
-      6
+      judge.scores.length * 3
     )
       throw new Error('Unsupported judge dimensions');
     seen.add(item.id);
   }
   const arms = [...new Set(items.map((item) => item.input.arm))].sort();
-  const judge = {
-    provider: 'typesafe',
-    model: 'jev-1.13.0',
-    rubric: 'planner_response_text_1',
-    rubricVersion: 2,
-    evidenceRendering: 'planner_response_text_1',
-    calibration: 'unvalidated',
-    scores: ['request_satisfied', 'arrangement_match'].map((name) => ({
-      name,
-      min: 0,
-      max: 1,
-    })),
-  };
   // Excludes preparation time and transport limits so changed settings cannot bypass the local retry guard.
   const runKey = createHash('sha256')
     .update(
@@ -101,8 +113,8 @@ export function planRunLinks(
     )
     .digest('hex');
   const scope = arms.length > 1 ? 'mixed-arms' : arms[0];
-  const runName = `typesafe-jev-1.13.0-${scope}-${runKey}`;
-  const runDescription = `Imported saved TypeSafe jev-1.13.0 judgments; planner_response_text_1 v2; unvalidated; ${scope} (${arms.join(', ')}). Descriptive fixed evidence, not a paired planner-arm comparison. Publication timestamps are not evaluation latency.`;
+  const runName = `${judge.provider}-${judge.model}-${scope}-${runKey}`;
+  const runDescription = `Imported saved ${supportedRecipe.providerLabel} ${judge.model} judgments; ${judge.rubric} v${judge.rubricVersion}; ${judge.calibration}; ${scope} (${arms.join(', ')}). Descriptive fixed evidence, not a paired planner-arm comparison. Publication timestamps are not evaluation latency.`;
   const metadata = {
     sourceRunId: source.runId,
     provider: judge.provider,
