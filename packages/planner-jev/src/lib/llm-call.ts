@@ -7,16 +7,10 @@ import {
   type StageContext,
 } from '@maelstrom-co/engine';
 import { err, ok, type Result } from '@maelstrom-co/protocol';
-import {
-  normalizeLlmUsage,
-  type ReportedLlmUsage,
-} from '@maelstrom-co/telemetry/usage';
-import {
-  type ChatMiddleware,
-  chat,
-  convertSchemaToJsonSchema,
-} from '@tanstack/ai';
+import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
+import { chat, convertSchemaToJsonSchema } from '@tanstack/ai';
 import type { z } from 'zod';
+import { observeAdapter } from './observe-adapter.js';
 import { recentHistory } from './questions.js';
 import type { CompletionLlm } from './stages/stage-deps.js';
 
@@ -49,24 +43,10 @@ export async function callLlm<T>(
   const started = performance.now();
   let outcome: 'ok' | 'error' | 'cancelled' = 'error';
   let usage: Partial<Record<keyof ReportedLlmUsage, number>> | undefined;
-  let usageRecorded = false;
-  const middleware: ChatMiddleware = {
-    // Each provider call gets a fresh snapshot, including separate finalization.
-    onConfig: () => {
-      usageRecorded = false;
-    },
-    // onUsage normalizes missing AG-UI counters to zero; retain their presence.
-    onChunk: (_ctx, chunk) => {
-      if (
-        (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
-        usageRecorded
-      )
-        return;
-      const current = normalizeLlmUsage(
-        chunk.usage,
-        chunk.metadata?.tanstack?.usage,
-      );
-      if (!current) return;
+  let providerAborted = false;
+  const adapter = observeAdapter(
+    llm.adapter,
+    (current) => {
       for (const key of [
         'inputTokens',
         'outputTokens',
@@ -78,10 +58,12 @@ export async function callLlm<T>(
         if (value === undefined) continue;
         usage ??= {};
         usage[key] = (usage[key] ?? 0) + value;
-        usageRecorded = true;
       }
     },
-  };
+    () => {
+      providerAborted = true;
+    },
+  );
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
   const cancelled = (message: string) => {
@@ -93,7 +75,7 @@ export async function callLlm<T>(
     if (signal?.aborted) return cancelled('Request was already cancelled');
     signal?.addEventListener('abort', abort, { once: true });
     const output = await chat({
-      adapter: llm.adapter,
+      adapter,
       threadId: sessionId,
       messages: [
         ...recentHistory(history),
@@ -105,21 +87,24 @@ export async function callLlm<T>(
       outputSchema: preserveNullableBranches(convertSchemaToJsonSchema(schema)),
       stream: false,
       debug: false,
-      middleware: [middleware],
       abortController: controller,
       ...(llm.modelOptions !== undefined && {
         modelOptions: llm.modelOptions,
       }),
     });
-    if (signal?.aborted)
+    if (signal?.aborted || providerAborted)
       return cancelled('Request cancelled before accepting the response');
     const parsed = schema.parse(output);
     outcome = 'ok';
     return ok(parsed);
   } catch (error) {
-    if (signal?.aborted)
+    if (
+      signal?.aborted ||
+      providerAborted ||
+      (error instanceof DOMException && error.name === 'AbortError')
+    )
       return cancelled(
-        `Request cancelled: ${signal.reason ?? 'unknown reason'}`,
+        `Request cancelled: ${signal?.reason ?? 'unknown reason'}`,
       );
     const failure = providerError(
       error instanceof Error ? error.message : String(error),
