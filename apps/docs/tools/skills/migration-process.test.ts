@@ -415,6 +415,51 @@ test('the native worker kills its group when its initial publication throws', as
   }
 }, 6000);
 
+test.each([
+  1, 100,
+])('the native supervisor reaps its child before publishing timeout completion (%dms)', async (timeoutMs) => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-timeout-reap-'));
+  const statusPath = join(root, 'status.json');
+  const node = await realpath(Bun.which('node') ?? '/usr/bin/node');
+  const worker = Bun.spawn(
+    [
+      node,
+      join(import.meta.dir, 'migration-process-worker.mjs'),
+      statusPath,
+      JSON.stringify({
+        cwd: root,
+        args: [node, '-e', 'setInterval(()=>{},1000)'],
+        timeoutMs,
+      }),
+    ],
+    {
+      detached: true,
+      env: { PATH: '/usr/bin:/bin', HOME: root },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    },
+  );
+  const guard = setTimeout(() => {
+    try {
+      process.kill(-worker.pid, 'SIGKILL');
+    } catch {}
+  }, 3000);
+  try {
+    expect(await worker.exited).toBe(0);
+    const status = JSON.parse(await readFile(statusPath, 'utf8'));
+    expect(status).toMatchObject({ phase: 'finished', outcome: 'timeout' });
+    expect(Number.isSafeInteger(status.pid) && status.pid > 0).toBe(true);
+    expect(() => process.kill(status.pid, 0)).toThrow();
+  } finally {
+    clearTimeout(guard);
+    try {
+      process.kill(-worker.pid, 'SIGKILL');
+    } catch {}
+    await worker.exited;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
 test('repeated native deadlines are timeouts, never successful or missing reports', async () => {
   const root = await mkdtemp(join(tmpdir(), 'migration-repeated-deadline-'));
   try {
