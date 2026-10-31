@@ -81,3 +81,91 @@ test('offline profile selection intersects IDs and leaves excluded inventory out
   expect(run.records[0].identity.caseId).toBe('weather-chain');
   expect(run.policy).toBe('offline:declared-case/v1');
 });
+
+test('enabled judge covers every eligible offline surface and repeat, with native planner dimensions and separate session/stage/client rubrics', async () => {
+  const asked: string[][] = [];
+  const run = await runOfflineCases({
+    repeats: 1,
+    judge: {
+      async score(input) {
+        asked.push(input.dimensions.map((dimension) => dimension.name));
+        return {
+          answers: Object.fromEntries(
+            input.dimensions.map((dimension) => [
+              dimension.name,
+              { score: dimension.levels.length - 1, probabilities: {} },
+            ]),
+          ),
+          calls: [],
+        };
+      },
+    },
+    onEvaluation(result) {
+      expect(result.judge).toBeDefined();
+    },
+  });
+  expect(run.accounting.judge.failed).toBe(0);
+  expect(run.accounting.judge.scored).toBe(
+    run.records.filter(
+      (record) =>
+        record.disposition !== 'not_applicable' &&
+        record.completeness === 'complete',
+    ).length,
+  );
+  expect(asked).toHaveLength(run.accounting.judge.scored);
+  expect(asked).toContainEqual(['request_satisfied', 'arrangement_match']);
+  expect(asked).toContainEqual(['stage_alignment']);
+  expect(asked).toContainEqual(['session_alignment']);
+  expect(asked).toContainEqual(['application_alignment']);
+});
+
+test('partial session judging uses only retained completed turns and does not invent a final response', async () => {
+  const { caseAdapter } = await import('./case-adapter.js');
+  const { evaluateSample } = await import(
+    '../../packages/evals/src/core/runtime/evaluate.js'
+  );
+  const item = loadOfflineCases().find(
+    (value) => value.definition.id === 'weather-chain',
+  );
+  if (!item) throw new Error('Missing weather-chain');
+  let asked = 0;
+  const adapter = caseAdapter(item, {
+    judge: {
+      async score(input) {
+        asked++;
+        expect(input.state.completeness).toBe('partial');
+        expect(input.state.observation).toHaveLength(1);
+        return {
+          answers: { session_alignment: { score: 1, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+  });
+  let turns = 0;
+  const result = await evaluateSample(
+    {
+      runId: 'partial',
+      caseId: item.definition.id,
+      runtimeId: 'fake',
+      sample: 1,
+    },
+    {
+      ...adapter,
+      execute(context) {
+        return adapter.execute({
+          ...context,
+          record(record) {
+            if (record.kind === 'turn' && ++turns === 2)
+              throw new Error('Scripted interruption');
+            context.record(record);
+          },
+        });
+      },
+    },
+  );
+  expect(result.execution).toBe('error');
+  expect(result.evaluation).toBe('unscored');
+  expect(result.judge?.status).toBe('scored');
+  expect(asked).toBe(1);
+});

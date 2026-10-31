@@ -634,3 +634,23 @@ Reviewed publication can export these metrics through `tools/evals-langfuse`.
 Run-level publication requires its own genuinely owned collection, never a guessed
 fallback for shared concurrent events. No live/provider or backend run is implied
 by these offline checks or by this integration.
+
+## Optional secondary judging
+
+`runOfflineCases({ judge, judgeRubric, ... })` can rate every eligible selected
+sample with an explicitly supplied judge; it does not read environment or enable
+providers itself. An application can call `configureJudge(options, process.env)`
+from `packages/evals/src/plugins/judging/config.ts` and spread the result into the runner.
+This opt-in may make paid judge calls even though runtime observations are synthetic.
+The repository tests use fake judges/transports only.
+
+Planner records retain the native two dimensions; isolated stages use actual
+input/output or deferral evidence; session rubrics read completed turn snapshots,
+including retained partial evidence after failure. Client effects use their own
+rubric. `judgeRubric: 'legacy'` selects the separate adapted scalar rubric for
+planner/session evidence, not stage decisions. Heuristics require actual assistant
+text and are labeled non-LLM. Missing evidence is explicitly not run.
+
+Samples, callbacks, run accounting and reports retain the secondary judge envelope,
+separate from deterministic correctness. Reports and sinks never rerun it. Synthetic
+judge success does not establish live-runtime quality or full legacy equivalence.

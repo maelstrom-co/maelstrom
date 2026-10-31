@@ -32,8 +32,11 @@ import {
 import { scriptedCandidateDataSchema } from '../../packages/evals/src/adapters/scripted-candidate.js';
 import { threeVesselAdditionDataSchema } from '../../packages/evals/src/adapters/three-vessel-addition.js';
 import { weatherActionBackedDataSchema } from '../../packages/evals/src/adapters/weather-action-backed-transition.js';
+import { judgeEvidence } from '../../packages/evals/src/core/judge.js';
+import { judgeNotRun } from '../../packages/evals/src/core/judge-result.js';
 import { plannerScenarioFromCase } from '../../packages/evals/src/core/planner-case.js';
 import type { ReplaySource } from '../../packages/evals/src/core/replay.js';
+import type { EvalOptions } from '../../packages/evals/src/core/run.js';
 import type { EvaluationAdapter } from '../../packages/evals/src/core/runtime/evaluate.js';
 import { legacyAssistantIdentity } from './assistant-identity-fixture.js';
 import { assistantJsonRefusalLexical } from './assistant-json-refusal-lexical-fixture.js';
@@ -65,7 +68,10 @@ import { legacyWeatherReuse } from './weather-reuse-fixture.js';
 import { legacyWeatherTransitionChain } from './weather-transition-chain-fixture.js';
 
 /** Code-owned composition: no dynamic module, command, URL or scorer resolution from data. */
-export function caseAdapter(value: LoadedCase): EvaluationAdapter<unknown> {
+export function caseAdapter(
+  value: LoadedCase,
+  judging: Pick<EvalOptions, 'judge' | 'judgeRubric'> = {},
+): EvaluationAdapter<unknown> {
   const { definition, fixture, caseDigest, fixtureDigest } =
     validateLoadedCase(value);
   let adapter: EvaluationAdapter<unknown>;
@@ -130,6 +136,7 @@ export function caseAdapter(value: LoadedCase): EvaluationAdapter<unknown> {
       adapter = scriptedCandidate(
         scriptedCandidateDataSchema.parse(fixture.data),
         definition,
+        judging,
       );
       break;
     case 'legacy-no-dual-target-plan':
@@ -270,6 +277,7 @@ export function caseAdapter(value: LoadedCase): EvaluationAdapter<unknown> {
         binding.kind === 'completion',
         binding.kind === 'literal' ? binding.value : undefined,
         data.pick,
+        judging,
       ).adapter;
       break;
     }
@@ -280,6 +288,7 @@ export function caseAdapter(value: LoadedCase): EvaluationAdapter<unknown> {
         definition.inputs.response === 'defer',
         plannerScenarioFromCase(definition),
         plannerData.parse(fixture.data),
+        judging,
       );
       break;
     case 'planner-replay': {
@@ -314,12 +323,61 @@ export function caseAdapter(value: LoadedCase): EvaluationAdapter<unknown> {
         false,
         getScenario(definition.scenarioId),
         plannerData.parse(fixture.data),
+        judging,
       );
       break;
     }
   }
+  const judge = judging.judge;
   return {
     ...adapter,
+    ...(judge &&
+      !adapter.judge && {
+        async judge(result) {
+          const turns = result.records
+            .filter((record) => record.kind === 'turn')
+            .map((record) => record.value);
+          const observation =
+            result.observation ?? (turns.length ? turns : undefined);
+          if (
+            observation === undefined ||
+            result.disposition === 'not_applicable'
+          )
+            return judgeNotRun('no_valid_evidence');
+          const last = Array.isArray(observation)
+            ? observation.at(-1)?.output
+            : observation;
+          const assistantText =
+            typeof last?.assistantText === 'string'
+              ? last.assistantText
+              : typeof last?.userMessage === 'string'
+                ? last.userMessage
+                : undefined;
+          const expected = definition.expectations as Record<string, unknown>;
+          const expectedText =
+            typeof expected.exactText === 'string'
+              ? expected.exactText
+              : expected.exact_text;
+          return judgeEvidence(
+            judge,
+            judging.judgeRubric === 'legacy'
+              ? 'legacy_task'
+              : definition.surface === 'session'
+                ? 'session_outcome'
+                : 'client_application',
+            {
+              profile: definition.profile,
+              inputs: definition.inputs,
+              expectations: definition.expectations,
+              completeness: result.completeness,
+              observation,
+              ...(assistantText !== undefined && { assistantText }),
+              ...(typeof expectedText === 'string' && { expectedText }),
+            },
+            { logger: { debug() {}, info() {}, warn() {}, error() {} } },
+          );
+        },
+      }),
     provenance: `${adapter.provenance}; case-sha256:${caseDigest}; fixture-sha256:${fixtureDigest}`,
   };
 }
