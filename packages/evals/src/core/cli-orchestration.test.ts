@@ -20,9 +20,14 @@ let keys: (string | undefined)[];
 let exiting: ReturnType<typeof spyOn<typeof process, 'exit'>>;
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'shared-eval-cli-'));
-  keys = [process.env.OPENAI_API_KEY, process.env.FAKE_KEY];
+  keys = [
+    process.env.OPENAI_API_KEY,
+    process.env.FAKE_KEY,
+    process.env.MAELSTROM_ENABLE_LLM_JUDGE,
+  ];
   process.env.OPENAI_API_KEY = 'synthetic-unused';
   process.env.FAKE_KEY = 'synthetic-unused';
+  process.env.MAELSTROM_ENABLE_LLM_JUDGE = 'false';
   const deny = () => {
     throw new Error('No network permitted');
   };
@@ -41,7 +46,11 @@ afterEach(async () => {
   network.mockRestore();
   logging.mockRestore();
   exiting.mockRestore();
-  for (const [index, key] of ['OPENAI_API_KEY', 'FAKE_KEY'].entries()) {
+  for (const [index, key] of [
+    'OPENAI_API_KEY',
+    'FAKE_KEY',
+    'MAELSTROM_ENABLE_LLM_JUDGE',
+  ].entries()) {
     if (keys[index] === undefined) delete process.env[key];
     else process.env[key] = keys[index];
   }

@@ -13,6 +13,7 @@
     },
     "typecheck": {
       "command": "tsc -p tools/evals-langfuse/tsconfig.json --noEmit",
+      "dependsOn": ["^build"],
       "cache": false
     },
     "check": {
