@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import * as caseAdapters from './case-adapter.js';
 import { loadOfflineCases } from './cases.js';
 import { runOfflineCases } from './run.js';
 
@@ -136,6 +137,83 @@ test('empty offline profiles keep catalog order and known profiles outside selec
     repeats: 1,
   });
   expect(empty.records).toEqual([]);
+});
+
+test('selected action-stage rejects legacy judging before runtime, evaluation or reporting', async () => {
+  const catalog = loadOfflineCases();
+  const adapter = spyOn(caseAdapters, 'caseAdapter');
+  let scores = 0;
+  let evaluations = 0;
+  let reports = 0;
+  try {
+    await expect(
+      runOfflineCases({
+        cases: catalog,
+        ids: ['weather-chain', 'stage-bound'],
+        repeats: 1,
+        judgeRubric: 'legacy',
+        judge: {
+          async score() {
+            scores++;
+            return { answers: {}, calls: [] };
+          },
+        },
+        onEvaluation() {
+          evaluations++;
+        },
+        report() {
+          reports++;
+        },
+      }),
+    ).rejects.toThrow('Stage judging supports only the surface rubric');
+    expect(adapter).not.toHaveBeenCalled();
+    expect(scores).toBe(0);
+    expect(evaluations).toBe(0);
+    expect(reports).toBe(0);
+  } finally {
+    adapter.mockRestore();
+  }
+});
+
+test.each([
+  'IDs',
+  'profiles',
+])('action-stage excluded by %s does not reject legacy judging for selected cases', async (selection) => {
+  const catalog = loadOfflineCases();
+  const item = catalog.find((value) => value.definition.id === 'weather-chain');
+  if (!item) throw new Error('Missing synthetic session');
+  let scores = 0;
+  const run = await runOfflineCases({
+    cases: catalog,
+    ids:
+      selection === 'IDs'
+        ? ['weather-chain']
+        : ['weather-chain', 'stage-bound'],
+    profiles: selection === 'profiles' ? [item.definition.profile] : [],
+    repeats: 1,
+    judgeRubric: 'legacy',
+    judge: {
+      async score(input) {
+        scores++;
+        expect(input.dimensions.map((dimension) => dimension.name)).toEqual([
+          'llm_judge_score',
+        ]);
+        return {
+          answers: { llm_judge_score: { score: 1, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+  });
+  expect(run.records.map((record) => record.identity.caseId)).toEqual([
+    'weather-chain',
+  ]);
+  expect(run.records[0].evaluation).toBe('pass');
+  expect(run.records[0].judge).toMatchObject({
+    status: 'scored',
+    rubric: { id: 'legacy_task' },
+  });
+  expect(scores).toBe(1);
 });
 
 test('enabled judge covers every eligible offline surface and repeat, with native planner dimensions and separate session/stage/client rubrics', async () => {

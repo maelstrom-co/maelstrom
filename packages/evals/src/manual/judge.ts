@@ -88,6 +88,7 @@ export function manualJudge(
           inputs: definition.inputs,
           expectations: definition.expectations,
           observation,
+          ...(turns.length > 0 && { turns }),
           completeness: result.completeness,
           ...(typeof assistantText === 'string' && { assistantText }),
           ...(typeof expectedText === 'string' && { expectedText }),

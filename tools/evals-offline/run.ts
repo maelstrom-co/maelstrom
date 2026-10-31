@@ -7,6 +7,7 @@ import {
   selectEvaluationCases,
 } from '../../packages/evals/src/core/run-orchestration.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import { validateStageJudgeSelection } from '../../packages/evals/src/core/stage-eval.js';
 import { caseAdapter } from './case-adapter.js';
 import { loadOfflineCases } from './cases.js';
 
@@ -58,7 +59,11 @@ export function runOfflineCases(options: {
     concurrency: options.concurrency,
     caseId: (value) => value.definition.id,
     runtimeId: (value) => value.definition.profile,
-    preflight: () => validateJudgeSelection(options.judge, options.judgeRubric),
+    preflight() {
+      if (cases.some((value) => value.definition.surface === 'isolated-stage'))
+        validateStageJudgeSelection(options.judge, options.judgeRubric);
+      else validateJudgeSelection(options.judge, options.judgeRubric);
+    },
     prepare: (value) => value,
     invocation: (value) => ({
       adapter: caseAdapter(value, options),

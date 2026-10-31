@@ -54,6 +54,66 @@ test('manual env opt-in judges actual evidence and reports calls separately from
   });
 });
 
+test('manual judging preserves recorded request/response turns alongside the shipped observation', async () => {
+  const request = {
+    context: { updateReasons: [{ type: 'user_intent', intent: 'say hello' }] },
+    instances: [],
+  };
+  const response = { userMessage: 'hello', executionPlan: [] };
+  const turn = { request, response };
+  const states: Readonly<Record<string, unknown>>[] = [];
+  const judging = manualJudge(
+    definition,
+    {},
+    {
+      judge: {
+        provenance: { kind: 'llm', provider: 'fake', model: 'fake' },
+        async score(input) {
+          states.push(input.state);
+          return {
+            answers: { session_alignment: { score: 4, probabilities: {} } },
+            calls: [{ latencyMs: 1 }],
+          };
+        },
+      },
+    },
+  );
+  const result = await evaluateSample(identity, {
+    ...(judging.judge && { judge: judging.judge }),
+    surface: 'planner-response',
+    provenance: 'synthetic',
+    async execute(context) {
+      context.record({ kind: 'turn', value: turn });
+      return {
+        completeness: 'complete',
+        disposition: 'planned',
+        value: response,
+      };
+    },
+    score() {
+      return { outcome: 'fail', failures: ['independent'] };
+    },
+  });
+  expect(states).toEqual([
+    {
+      inputs: definition.inputs,
+      expectations: definition.expectations,
+      observation: response,
+      turns: [turn],
+      completeness: 'complete',
+      assistantText: 'hello',
+      expectedText: 'hello',
+    },
+  ]);
+  expect(result.judge?.status).toBe('scored');
+  expect(result.evaluation).toBe('fail');
+  expect(judging.calls).toEqual({
+    attempts: 1,
+    reportedCalls: 1,
+    unknownAttempts: 0,
+  });
+});
+
 test('manual explicit provider rates retained partial evidence once; missing output does not manufacture a call', async () => {
   let asked = 0;
   const judging = manualJudge(
