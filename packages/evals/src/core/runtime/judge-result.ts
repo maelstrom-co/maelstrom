@@ -1,6 +1,6 @@
 /** Provider provenance is evidence, not inferred from the score. */
 export interface JudgeProvenance {
-  /** LLM, explicitly non-LLM heuristic, or unknown historical source. */
+  /** LLM, explicitly non-LLM heuristic, or undeclared/unknown source. */
   readonly kind: 'llm' | 'heuristic' | 'unknown';
   /** Provider identifier, never a credential or endpoint. */
   readonly provider: string;

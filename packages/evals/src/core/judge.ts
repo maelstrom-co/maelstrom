@@ -7,9 +7,9 @@ import {
 } from './judge-result.js';
 import type { Judge, JudgeDimension } from './plugin.js';
 
-/** Provenance for new calls; imported historical scores use an explicit unknown identity. */
+/** Provenance for new calls; custom judges without declared provenance remain unknown. */
 export function judgeProvenance(judge: Judge): JudgeProvenance {
-  return judge.provenance ?? { kind: 'llm', provider: 'custom' };
+  return judge.provenance ?? { kind: 'unknown', provider: 'custom' };
 }
 
 /** Rubric selection is independent of the provider; surface uses the native evidence contract. */
