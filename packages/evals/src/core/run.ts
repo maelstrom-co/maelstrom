@@ -476,11 +476,11 @@ function createPlannerTurn(options: PlannerTurnOptions) {
       if (errors.length) throw new Error(errors.join('\n'));
       if (options.runtime.replay) {
         const { source, through } = options.runtime.replay;
-        verifyReplay(source, [options.scenario], context.identity.sample);
+        verifyReplay(source, [options.scenario], [context.identity.sample]);
         verifyReplayShape(
           source,
           [options.scenario],
-          context.identity.sample,
+          [context.identity.sample],
           through,
           [options.arm].filter(isStaged),
         );

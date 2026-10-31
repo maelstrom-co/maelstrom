@@ -6,7 +6,7 @@ import {
   type SampleIdentity,
 } from './runtime/evaluate.js';
 
-/** Stable catalog-order selection; unknown IDs do not manufacture cases. */
+/** Stable catalog-order selection; rejects IDs absent from the complete catalog before filtering. */
 export function selectEvaluationCases<T>(
   catalog: readonly T[],
   selection: {
@@ -16,6 +16,12 @@ export function selectEvaluationCases<T>(
   },
 ): readonly T[] {
   const ids = new Set(selection.ids ?? []);
+  const known = new Set(catalog.map(selection.id));
+  const unknown = [...ids].filter((id) => !known.has(id));
+  if (unknown.length)
+    throw new Error(
+      `Unknown evaluation case IDs: ${unknown.join(', ')}. Choose IDs from the evaluation catalog.`,
+    );
   return catalog.filter(
     (value) =>
       (ids.size === 0 || ids.has(selection.id(value))) &&

@@ -45,23 +45,76 @@ const basic = {
   }),
 };
 
-test('one selection policy preserves catalog order, suite intersection, empty and unknown IDs', () => {
-  const catalog = [
-    { id: 'a', suite: 'dev' },
-    { id: 'b', suite: 'held' },
-    { id: 'c', suite: 'dev' },
-  ];
+const catalog = [
+  { id: 'a', suite: 'dev' },
+  { id: 'b', suite: 'held' },
+  { id: 'c', suite: 'dev' },
+];
+const selection = { id: (x: (typeof catalog)[number]) => x.id };
+
+test('selection preserves catalog order and deduplicates requested IDs', () => {
   expect(
     selectEvaluationCases(catalog, {
-      id: (x) => x.id,
-      ids: ['c', 'a', 'unknown', 'c'],
-      include: (x) => x.suite === 'dev',
+      ...selection,
+      ids: ['c', 'a', 'c'],
     }),
   ).toEqual([catalog[0], catalog[2]]);
-  expect(selectEvaluationCases(catalog, { id: (x) => x.id })).toEqual(catalog);
+});
+
+test('selection rejects all unknown IDs before applying suite inclusion', () => {
+  for (const ids of [
+    ['a', 'typo', 'missing', 'typo'],
+    ['typo', 'missing'],
+  ]) {
+    let included = false;
+    expect(() =>
+      selectEvaluationCases(catalog, {
+        ...selection,
+        ids,
+        include() {
+          included = true;
+          return false;
+        },
+      }),
+    ).toThrow(
+      'Unknown evaluation case IDs: typo, missing. Choose IDs from the evaluation catalog.',
+    );
+    expect(included).toBe(false);
+  }
+});
+
+test('valid IDs outside the suite are excluded, not unknown', () => {
+  const include = (x: (typeof catalog)[number]) => x.suite === 'dev';
   expect(
-    selectEvaluationCases(catalog, { id: (x) => x.id, ids: ['unknown'] }),
+    selectEvaluationCases(catalog, {
+      ...selection,
+      ids: ['c', 'b', 'a'],
+      include,
+    }),
+  ).toEqual([catalog[0], catalog[2]]);
+  expect(
+    selectEvaluationCases(catalog, {
+      ...selection,
+      ids: ['b'],
+      include,
+    }),
   ).toEqual([]);
+});
+
+test('empty and omitted IDs select the full catalog subject to inclusion', () => {
+  for (const ids of [undefined, []]) {
+    expect(selectEvaluationCases(catalog, { ...selection, ids })).toEqual(
+      catalog,
+    );
+    expect(
+      selectEvaluationCases(catalog, {
+        ...selection,
+        ids,
+        include: (x) => x.suite === 'dev',
+      }),
+    ).toEqual([catalog[0], catalog[2]]);
+    expect(selectEvaluationCases([], { ...selection, ids })).toEqual([]);
+  }
 });
 
 test('shared expansion owns case/repeat/runtime ordering, prepare-once and complete reporting/accounting', async () => {

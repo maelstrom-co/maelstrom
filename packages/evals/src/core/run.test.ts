@@ -661,3 +661,124 @@ test('reusable planner adapters expose no auxiliary getters and isolate late fai
   expect(third.observation?.userMessage).toBe('response-3');
   expect(second.observation?.userMessage).toBe('response-2');
 });
+
+test('replay validator work grows linearly with the selected repeats', async () => {
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out, repeats: 6, arms: ['fake'] });
+  const source = await loadReplay(out, 'fake');
+  for (const repeats of [3, 6]) {
+    let checks = 0;
+    const fake = fakePluginWith(tokyo);
+    const plugin: typeof fake = {
+      ...fake,
+      verifyReplay(record, arm) {
+        checks++;
+        return fake.verifyReplay?.(record, arm) ?? [];
+      },
+    };
+    await runEval({
+      scenarios: selectScenarios('all', ['quoted-location']),
+      arms: resolveArms([plugin], ['fake']),
+      repeats,
+      adapter: unusedAdapter,
+      fallback: () => async () => ok(TOKYO_CANDIDATE),
+      replay: { source, through: 'select' },
+    });
+    // Whole-run validation and one exact-repeat check per standalone adapter.
+    expect(checks).toBe(2 * repeats);
+  }
+});
+
+test('standalone replay sample 3 validates only repeat 3', async () => {
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out, repeats: 3, arms: ['fake'] });
+  const recorded = await loadReplay(out, 'fake');
+  const seen: number[] = [];
+  const scenario = selectScenarios('all', ['quoted-location'])[0];
+  const plugin = fakePluginWith(tokyo);
+  let checks = 0;
+  const result = await evaluateSample(
+    { runId: 'standalone', caseId: scenario.id, runtimeId: 'fake', sample: 3 },
+    plannerTurnAdapter({
+      scenario,
+      arm: resolveArms(
+        [
+          {
+            ...plugin,
+            verifyReplay(record, arm) {
+              checks++;
+              return plugin.verifyReplay?.(record, arm) ?? [];
+            },
+          },
+        ],
+        ['fake'],
+      )[0],
+      runtime: {
+        adapter: unusedAdapter,
+        fallback: () => async () => ok(TOKYO_CANDIDATE),
+        replay: {
+          through: 'select',
+          source: {
+            ...recorded,
+            turn(id, repeat) {
+              seen.push(repeat);
+              return repeat === 3
+                ? recorded.turn(id, repeat)
+                : { key: `${id} #${repeat}` };
+            },
+          },
+        },
+      },
+      policy: 'adapter',
+      provenance: 'synthetic',
+    }),
+  );
+  expect(result.evaluation).toBe('pass');
+  expect(checks).toBe(1);
+  expect(seen).toEqual([3, 3, 3]);
+});
+
+test('invalid later replay repeat rejects the entire run before any turn executes', async () => {
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out, repeats: 3, arms: ['fake'] });
+  const recorded = await loadReplay(out, 'fake');
+  for (const failure of ['request', 'shape']) {
+    let executed = 0;
+    await expect(
+      run(
+        {
+          candidate() {
+            executed++;
+            return TOKYO_CANDIDATE;
+          },
+        },
+        ['quoted-location'],
+        {
+          arms: ['fake'],
+          repeats: 3,
+          replay: {
+            through: 'select',
+            source: {
+              ...recorded,
+              turn(id, repeat) {
+                const turn = recorded.turn(id, repeat);
+                return repeat !== 3
+                  ? turn
+                  : {
+                      ...turn,
+                      stages: turn.stages?.map((stage) => ({
+                        ...stage,
+                        ...(failure === 'request'
+                          ? { input: {} }
+                          : { output: {} }),
+                      })),
+                    };
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow('quoted-location #3');
+    expect(executed).toBe(0);
+  }
+});

@@ -1,11 +1,11 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import { ChartRequestSchema } from '@maelstrom-co/protocol';
+import { type ChartRequest, ChartRequestSchema } from '@maelstrom-co/protocol';
 import { z } from 'zod';
 import type { Scenario } from './scenario-types.js';
 
 const name = z.string().min(1).max(120);
-const request = z.unknown().transform((value, context) => {
+const request = z.unknown().transform<ChartRequest>((value, context) => {
   const parsed = ChartRequestSchema.safeParse(value);
   // Protocol schemas can strip unknown fields; a canonical snapshot must be lossless.
   if (!parsed.success || !isDeepStrictEqual(value, parsed.data)) {
