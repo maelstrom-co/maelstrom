@@ -725,7 +725,12 @@ function plannerRecord(overrides: Record<string, unknown> = {}) {
     stages: ['PRIVATE STAGE'],
     llmCalls: ['PRIVATE LLM'],
     rawOutput: 'PRIVATE RAW',
-    grader: { pass: true, reason: 'PRIVATE GRADER' },
+    grader: {
+      graderVersion: 2,
+      verbalizerVersion: 1,
+      failure: 'PRIVATE GRADER',
+      calls: ['PRIVATE GRADER CALLS'],
+    },
     ...overrides,
   };
 }
@@ -893,6 +898,7 @@ test('full planner import and publication preserve bounded judges without raw ev
         scenarioId: `judged-${index}`,
         score: { pass: true, failures: [] },
         judge,
+        ...(judge === undefined && { grader: undefined }),
       }),
     ),
   );
@@ -925,6 +931,98 @@ test('full planner import and publication preserve bounded judges without raw ev
         batch.batch.find((event) => event.type === 'span-create')?.body.output,
     ),
   ).toEqual(expected.map((judge) => expect.objectContaining({ judge })));
+});
+
+test('full planner import and publication recover legacy grader evidence only when judge is absent', async () => {
+  const grader = {
+    graderVersion: 2,
+    verbalizerVersion: 1,
+    dimensions: {
+      request_satisfied: { score: 0.75, samples: [3] },
+      arrangement_match: { score: 0.5, samples: [2] },
+    },
+    calls: [{ prompt: 'PRIVATE PROMPT', rationale: 'PRIVATE RATIONALE' }],
+  };
+  const disabled: EvaluationJudgeResult = {
+    schemaVersion: 1,
+    status: 'not_run',
+    reason: 'disabled',
+  };
+  const records = [
+    plannerRecord({ scenarioId: 'legacy', grader }),
+    plannerRecord({
+      scenarioId: 'current',
+      grader: { malformed: 'PRIVATE ignored grade' },
+      judge: plannerJudge,
+    }),
+    plannerRecord({ scenarioId: 'disabled', grader, judge: disabled }),
+    plannerRecord({ scenarioId: 'failed' }),
+  ];
+  const expected: EvaluationJudgeResult[] = [
+    {
+      schemaVersion: 1,
+      status: 'scored',
+      rubric: { id: 'planner_response_text_1', version: 2 },
+      provenance: { kind: 'unknown', provider: 'historical' },
+      calibration: 'unvalidated',
+      scores: [
+        { name: 'request_satisfied', value: 0.75, min: 0, max: 1 },
+        { name: 'arrangement_match', value: 0.5, min: 0, max: 1 },
+      ],
+    },
+    plannerJudge,
+    disabled,
+    {
+      schemaVersion: 1,
+      status: 'failed',
+      reason: 'provider_failure',
+      rubric: { id: 'planner_response_text_1', version: 2 },
+      provenance: { kind: 'unknown', provider: 'historical' },
+    },
+  ];
+  const overrides = await fullPlannerInput(records);
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  const imported = importFullPlannerRun(
+    await readFile(join(directory, 'records.json')),
+    await readFile(join(directory, 'summary.json')),
+    records.length,
+  );
+  expect(imported.samples.map((sample) => sample.result.judge)).toEqual(
+    expected,
+  );
+  expect(JSON.stringify(imported.samples)).not.toContain('PRIVATE');
+  const { json } = await preview(overrides);
+  const payloads = JSON.parse(json).publications.map(
+    (publication: { json: string }) => JSON.parse(publication.json),
+  );
+  expect(payloads.map((payload: { judge: unknown }) => payload.judge)).toEqual(
+    expected,
+  );
+  expect(json).not.toContain('PRIVATE');
+  expect(starts).toBe(0);
+  expect(credentialReads).toEqual([]);
+});
+
+test('full planner import rejects malformed legacy grades instead of silently losing their evidence', async () => {
+  const overrides = await fullPlannerInput([
+    plannerRecord({ grader: { pass: true, reason: 'PRIVATE INVALID GRADE' } }),
+  ]);
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  const records = await readFile(join(directory, 'records.json'));
+  const summary = await readFile(join(directory, 'summary.json'));
+  expect(() => importFullPlannerRun(records, summary, 1)).toThrow();
+  const outcome = await runLangfuseCli(
+    [
+      ...args(overrides),
+      '--preview-out',
+      join(directory, 'invalid-grade.json'),
+    ],
+    dependencies(),
+  );
+  expect(outcome.exitCode).not.toBe(0);
+  expectNoSecrets(outcome);
+  expect(starts).toBe(0);
+  expect(credentialReads).toEqual([]);
 });
 
 test.each([

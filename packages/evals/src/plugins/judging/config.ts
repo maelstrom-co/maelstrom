@@ -1,6 +1,7 @@
 import {
   type JudgeConfig,
   type JudgeRubric,
+  judgeEnvironmentValue,
   MissingJudgeEnvironment,
   resolveJudgeSelection,
 } from '../../core/judge.js';
@@ -18,7 +19,7 @@ export function configureJudge(
   const judgeRubric = selection.rubric;
   const provider =
     explicit.provider ??
-    env.MAELSTROM_LLM_JUDGE_PROVIDER ??
+    judgeEnvironmentValue(env.MAELSTROM_LLM_JUDGE_PROVIDER) ??
     (selection.legacyDefaults ? 'heuristic' : 'typesafe');
   if (provider === 'heuristic') {
     if (judgeRubric !== 'legacy')
@@ -27,10 +28,13 @@ export function configureJudge(
   }
   if (provider !== 'typesafe' && provider !== 'openai')
     throw new Error('Judge provider must be typesafe, openai or heuristic');
+  const environmentModel = judgeEnvironmentValue(env.MAELSTROM_LLM_JUDGE_MODEL);
   const model = (
     explicit.model ??
-    env.MAELSTROM_LLM_JUDGE_MODEL ??
-    (provider === 'typesafe' ? env.JEV_MODEL : 'gpt-5.4-mini')
+    environmentModel ??
+    (provider === 'typesafe'
+      ? judgeEnvironmentValue(env.JEV_MODEL)
+      : 'gpt-5.4-mini')
   )?.trim();
   const apiKey =
     env[
@@ -44,7 +48,7 @@ export function configureJudge(
       : []),
     ...(!model
       ? [
-          env.MAELSTROM_LLM_JUDGE_MODEL !== undefined
+          environmentModel !== undefined
             ? 'MAELSTROM_LLM_JUDGE_MODEL'
             : 'JEV_MODEL',
         ]

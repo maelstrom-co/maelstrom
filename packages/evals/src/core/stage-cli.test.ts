@@ -9,8 +9,13 @@ function fakeModule(name: string): RegisteredStageEval {
 
 test('stage CLI checks an injected judge requiredEnv before running', async () => {
   const name = 'MAELSTROM_TEST_MISSING_STAGE_JUDGE_KEY';
-  const previous = process.env[name];
-  delete process.env[name];
+  const keys = [
+    name,
+    'MAELSTROM_ENABLE_LLM_JUDGE',
+    'MAELSTROM_LLM_JUDGE_RUBRIC',
+  ];
+  const previous = keys.map((key) => process.env[key]);
+  for (const key of keys) delete process.env[key];
   let runs = 0;
   let judgeCalls = 0;
   const module = {
@@ -49,8 +54,10 @@ test('stage CLI checks an injected judge requiredEnv before running', async () =
   } finally {
     exit.mockRestore();
     error.mockRestore();
-    if (previous === undefined) delete process.env[name];
-    else process.env[name] = previous;
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
   }
 });
 

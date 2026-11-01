@@ -1,6 +1,6 @@
 import { expect, mock, spyOn, test } from 'bun:test';
 import { gradeResponse } from '../../core/grader.js';
-import { judgeEvidence } from '../../core/judge.js';
+import { judgeEvidence, MissingJudgeEnvironment } from '../../core/judge.js';
 import {
   evaluationJudgeSchema,
   judgeFromGrader,
@@ -91,6 +91,103 @@ test('judge activation is opt-in, supports legacy env defaults, and explicit opt
   ).toBe('surface');
 });
 
+test.each([
+  '',
+  ' \t\n ',
+])('blank environment settings %j retain judge defaults', (blank) => {
+  const blankSettings = {
+    MAELSTROM_LLM_JUDGE_PROVIDER: blank,
+    MAELSTROM_LLM_JUDGE_RUBRIC: blank,
+    MAELSTROM_LLM_JUDGE_MODEL: blank,
+  };
+  const legacy = configureJudge(
+    {},
+    {
+      ...blankSettings,
+      MAELSTROM_ENABLE_LLM_JUDGE: '1',
+    },
+  );
+  expect(legacy.judge?.provenance).toEqual({
+    kind: 'heuristic',
+    provider: 'heuristic',
+  });
+  expect(legacy.judgeRubric).toBe('legacy');
+  const native = configureJudge(
+    { enabled: true },
+    { ...env, ...blankSettings, JEV_MODEL: ' fallback-model ' },
+  );
+  expect(native.judge?.provenance).toEqual({
+    kind: 'llm',
+    provider: 'typesafe',
+    model: 'fallback-model',
+  });
+  expect(native.judgeRubric).toBe('surface');
+  const openai = configureJudge(
+    {},
+    {
+      ...env,
+      ...blankSettings,
+      MAELSTROM_ENABLE_LLM_JUDGE: 'true',
+      MAELSTROM_LLM_JUDGE_PROVIDER: 'openai',
+    },
+  );
+  expect(openai.judge?.provenance).toEqual({
+    kind: 'llm',
+    provider: 'openai',
+    model: 'gpt-5.4-mini',
+  });
+  expect(openai.judgeRubric).toBe('legacy');
+  expect(configureJudge({}, { ...env, ...blankSettings })).toEqual({});
+  try {
+    configureJudge(
+      { provider: 'typesafe' },
+      { ...env, ...blankSettings, JEV_MODEL: blank },
+    );
+    throw new Error('Expected missing model');
+  } catch (error) {
+    if (!(error instanceof MissingJudgeEnvironment)) throw error;
+    expect(error.missing).toEqual(['JEV_MODEL']);
+  }
+});
+
+test('nonempty environment provider, rubric and model values are trimmed', () => {
+  const configured = configureJudge(
+    {},
+    {
+      ...env,
+      MAELSTROM_ENABLE_LLM_JUDGE: 'true',
+      MAELSTROM_LLM_JUDGE_PROVIDER: ' openai ',
+      MAELSTROM_LLM_JUDGE_RUBRIC: ' surface ',
+      MAELSTROM_LLM_JUDGE_MODEL: ' environment-model ',
+    },
+  );
+  expect(configured.judgeRubric).toBe('surface');
+  expect(configured.judge?.provenance).toEqual({
+    kind: 'llm',
+    provider: 'openai',
+    model: 'environment-model',
+  });
+});
+
+test.each([
+  '',
+  ' \t ',
+])('explicit blank config %j remains invalid even with environment defaults', (blank) => {
+  for (const option of ['provider', 'rubric', 'model']) {
+    expect(() =>
+      configureJudge(
+        { enabled: true, provider: 'openai', [option]: blank },
+        {
+          ...env,
+          MAELSTROM_LLM_JUDGE_PROVIDER: 'openai',
+          MAELSTROM_LLM_JUDGE_RUBRIC: 'surface',
+          MAELSTROM_LLM_JUDGE_MODEL: 'valid-model',
+        },
+      ),
+    ).toThrow();
+  }
+});
+
 test('enabled invalid configuration fails synchronously without making calls or falling back', () => {
   for (const explicit of [
     { enabled: true, provider: 'unknown' },
@@ -148,6 +245,16 @@ test.each([
     args: ['--judge-provider=openai', '--judge-rubric=surface'],
     env: { MAELSTROM_LLM_JUDGE_RUBRIC: 'legacy' },
     exitCode: 2,
+  },
+  {
+    name: 'blank environment rubric preserves the default surface before construction',
+    args: ['--judge-provider=openai'],
+    env: {
+      OPENAI_API_KEY: 'unused-test-key',
+      MAELSTROM_LLM_JUDGE_RUBRIC: ' ',
+      MAELSTROM_LLM_JUDGE_MODEL: ' explicit ',
+    },
+    exitCode: 0,
   },
   {
     name: 'supported surface preserves configured judge and explicit model',

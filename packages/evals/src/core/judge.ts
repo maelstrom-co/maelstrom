@@ -158,6 +158,13 @@ export interface JudgeConfig {
   /** Surface or legacy rubric. */
   readonly rubric?: string;
 }
+/** Treats blank environment settings as unset without changing explicit option validation. */
+export function judgeEnvironmentValue(
+  value: string | undefined,
+): string | undefined {
+  return value?.trim() || undefined;
+}
+
 /** Resolves enabled rubric defaults without reading credentials or constructing a provider. */
 export function resolveJudgeSelection(
   explicit: JudgeConfig,
@@ -188,7 +195,7 @@ export function resolveJudgeSelection(
   const legacyDefaults = explicit.enabled === undefined && !invoked;
   const rubric =
     explicit.rubric ??
-    env.MAELSTROM_LLM_JUDGE_RUBRIC ??
+    judgeEnvironmentValue(env.MAELSTROM_LLM_JUDGE_RUBRIC) ??
     (legacyDefaults ? 'legacy' : 'surface');
   if (rubric !== 'surface' && rubric !== 'legacy')
     throw new Error('Judge rubric must be surface or legacy');
