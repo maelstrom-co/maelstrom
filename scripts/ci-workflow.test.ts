@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 type Step = {
   name?: string;
@@ -79,7 +82,62 @@ test('the starter consumer check in e2e stays gated on docs', async () => {
   expect(step.if).toContain("steps.scope.outputs.docs == 'true'");
 });
 
-test('verify installs Playwright before nx when a docs unit test needs a browser', async () => {
+test.each([
+  ['pull_request', ['@maelstrom-co/docs'], true],
+  ['pull_request', ['@maelstrom-co/agui-workspace-poc'], true],
+  ['pull_request', ['@maelstrom-co/protocol'], false],
+  ['pull_request', [], false],
+  ['push', [], true],
+])(
+  'verify selects browser installation for %s with affected projects %j',
+  async (event, affected, expected) => {
+    const workflow = await readCi();
+    const need = workflow.jobs.verify!.steps.find(
+      (step) => step.id === 'browser-need',
+    )!;
+    const directory = await mkdtemp(join(tmpdir(), 'maelstrom-ci-workflow-'));
+    const output = join(directory, 'github-output');
+    try {
+      const result = Bun.spawnSync(
+        [
+          'bash',
+          '-euo',
+          'pipefail',
+          '-c',
+          `
+          bunx() {
+            bun -e '
+              const args = process.argv.slice(1);
+              if (args.slice(0, 4).join(" ") !== "nx show projects --affected") process.exit(1);
+              const filter = args.find(arg => arg.startsWith("--projects="))?.slice(11).split(",");
+              const affected = JSON.parse(process.env.AFFECTED_PROJECTS);
+              console.log(JSON.stringify(affected.filter(project => !filter || filter.includes(project))));
+            ' "$@"
+          }
+          ${need.run}
+        `,
+        ],
+        {
+          env: {
+            ...process.env,
+            EVENT_NAME: event,
+            AFFECTED_PROJECTS: JSON.stringify(affected),
+            GITHUB_OUTPUT: output,
+          },
+        },
+      );
+      expect(result.stderr.toString()).toBe('');
+      expect(result.exitCode).toBe(0);
+      expect((await Bun.file(output).text()).trim()).toBe(
+        `browser=${expected}`,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test('verify installs Playwright before browser-backed unit tests run in nx', async () => {
   const workflow = await readCi();
   const steps = workflow.jobs.verify!.steps;
   const need = steps.find((s) => s.id === 'browser-need')!;

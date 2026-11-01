@@ -264,6 +264,16 @@
   "overrides": [
     {
       "files": [
+        "apps/agui-workspace-poc/src/host.ts",
+        "apps/agui-workspace-poc/src/child.test.ts",
+        "apps/agui-workspace-poc/src/poc.test.ts"
+      ],
+      "rules": {
+        "eslint/no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/*.spec.ts",
