@@ -1,0 +1,17 @@
+        const result = await this.#commandProcessor.dispatchSettled(
+          layoutCommand,
+          actionsCommand,
+        );
+        release();
+        if (this.#isDisposed || epoch !== this.#connectorEpoch) {
+          return {
+            status: 'unknown',
+            error: new Error('Application settlement retired'),
+          };
+        }
+        await connector.applicationSettled?.({
+          requestId,
+          result,
+          actions,
+          chart: this.getStructuralSnapshot(),
+        });
