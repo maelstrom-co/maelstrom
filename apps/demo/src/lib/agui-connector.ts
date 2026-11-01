@@ -213,11 +213,11 @@ export class AguiConnector implements EngineConnector {
       throw new Error(`Experimental request failed (${response.status})`);
     return response;
   }
-  private run(operation: AgentOperation) {
+  private run(operation: AgentOperation, owner?: AbortSignal) {
     return bounded(
       60_000,
       (signal) => this.runWithSignal(operation, signal),
-      this.abort.signal,
+      owner ? AbortSignal.any([owner, this.abort.signal]) : this.abort.signal,
     );
   }
   private async runWithSignal(operation: AgentOperation, signal: AbortSignal) {
@@ -316,8 +316,12 @@ export class AguiConnector implements EngineConnector {
     }
   }
 
-  async applicationSettled(settlement: ApplicationSettlement): Promise<void> {
+  async applicationSettled(
+    settlement: ApplicationSettlement,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
+      signal?.throwIfAborted();
       const plan = this.pending;
       if (
         !plan ||
@@ -338,7 +342,9 @@ export class AguiConnector implements EngineConnector {
       };
       const { value } = await this.run(
         OperationSchema.parse({ kind: 'ack', ack }),
+        signal,
       );
+      signal?.throwIfAborted();
       const state = StateSchema.parse(value);
       if (
         this.closed ||

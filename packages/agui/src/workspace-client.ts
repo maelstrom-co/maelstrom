@@ -26,6 +26,7 @@ type PendingRun = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  releaseAbort?: () => void;
 };
 
 const eventTypes = new Set<string>(Object.values(EventType));
@@ -86,8 +87,10 @@ export class AguiWorkspaceClient {
     this.error ??= new WorkspaceError(code, message);
     const run = this.run;
     this.run = undefined;
+    this.application = undefined;
     if (run) {
       clearTimeout(run.timeout);
+      run.releaseAbort?.();
       run.reject(this.error);
     }
     if (notify) {
@@ -161,6 +164,7 @@ export class AguiWorkspaceClient {
       } else {
         this.run = undefined;
         clearTimeout(run.timeout);
+        run.releaseAbort?.();
         run.resolve(run.value);
       }
     } else if (event.type === 'RUN_ERROR') {
@@ -172,7 +176,15 @@ export class AguiWorkspaceClient {
   private request(
     operation: WorkspaceOperation,
     resultName: string,
+    signal?: AbortSignal,
   ): Promise<unknown> {
+    if (signal?.aborted)
+      return Promise.reject(
+        this.fail(
+          'application_unknown',
+          'AG-UI application acknowledgment cancelled; outcome is uncertain.',
+        ),
+      );
     if (!this.send || this.error || this.run)
       return Promise.reject(new Error('AG-UI session is unavailable.'));
     const input = workspaceRun(this.threadId, operation);
@@ -186,7 +198,7 @@ export class AguiWorkspaceClient {
       );
     }
     return new Promise((resolve, reject) => {
-      this.run = {
+      const run: PendingRun = {
         id: input.runId,
         started: false,
         resultName,
@@ -197,6 +209,18 @@ export class AguiWorkspaceClient {
           this.timeoutMs,
         ),
       };
+      this.run = run;
+      if (signal) {
+        const abort = () => {
+          if (this.run === run)
+            this.fail(
+              'application_unknown',
+              'AG-UI application acknowledgment cancelled; outcome is uncertain.',
+            );
+        };
+        signal.addEventListener('abort', abort, { once: true });
+        run.releaseAbort = () => signal.removeEventListener('abort', abort);
+      }
       try {
         this.send?.(wire);
       } catch {
@@ -242,8 +266,11 @@ export class AguiWorkspaceClient {
     }
   }
 
-  /** Report client-owned settlement and await correlated server acceptance. */
-  async applicationSettled(settlement: ApplicationSettlement): Promise<void> {
+  /** Report settlement; cancellation retires acknowledgment without replaying executed Actions. */
+  async applicationSettled(
+    settlement: ApplicationSettlement,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const generation = this.generation;
     try {
       const application = this.application;
@@ -266,6 +293,7 @@ export class AguiWorkspaceClient {
           }),
         },
         APPLICATION_RESULT,
+        signal,
       );
       if (generation !== this.generation)
         throw new Error('AG-UI workspace binding changed.');

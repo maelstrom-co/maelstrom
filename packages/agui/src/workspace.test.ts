@@ -54,6 +54,7 @@ async function setup(
     instanceId?: string;
     replaceAfterPlan?: boolean;
     unsupportedTool?: boolean;
+    applicationAcknowledgmentTimeoutMs?: number;
     output?: (event: unknown, operation: WorkspaceOperation) => unknown;
   } = {},
 ) {
@@ -158,9 +159,9 @@ async function setup(
       server.close();
     },
     process: (message) => workspace.process(message),
-    applicationSettled: (settlement) => {
+    applicationSettled: (settlement, signal) => {
       settlements.push(settlement);
-      return workspace.applicationSettled(settlement);
+      return workspace.applicationSettled(settlement, signal);
     },
     subscribe: () => () => {},
     addAssistantMessage: async () => {},
@@ -170,6 +171,8 @@ async function setup(
     sessionId,
     vessels: [vessel],
     layoutMode: 'tiling',
+    applicationAcknowledgmentTimeoutMs:
+      options.applicationAcknowledgmentTimeoutMs,
   });
   cleanups.push(() => client.dispose());
   client.commandProcessor.events.on('command_complete', ({ command }) => {
@@ -221,6 +224,39 @@ describe('headless workspace adapter', () => {
     );
     expect(h.writes()).toBe(1);
   });
+
+  it('cancels adapter acknowledgment before its transport deadline without replaying a committed write', async () => {
+    const lateEvents: unknown[] = [];
+    const h = await setup({
+      applicationAcknowledgmentTimeoutMs: 10,
+      output: (event, operation) => {
+        if (operation.kind !== 'applied') return event;
+        lateEvents.push(event);
+        return undefined;
+      },
+    });
+    const observed: unknown[] = [];
+    h.workspace.observe(() => {
+      observed.push(h.workspace.snapshot());
+    });
+    expect((await h.client.enqueueIntent('increment').result).status).toBe(
+      'unknown',
+    );
+    expect(h.workspace.snapshot()?.code).toBe('application_unknown');
+    expect(h.operations.map((operation) => operation.kind)).toEqual([
+      'plan',
+      'applied',
+    ]);
+    expect(h.writes()).toBe(1);
+    const failure = h.workspace.snapshot();
+    for (const event of lateEvents)
+      h.workspace.receive(JSON.stringify(event), true);
+    await expect(h.client.processIntent('retry')).rejects.toThrow();
+    expect(h.workspace.snapshot()).toBe(failure);
+    expect(observed).toEqual([failure]);
+    expect(h.plans()).toBe(1);
+    expect(h.writes()).toBe(1);
+  });
   it('does not poison a replacement binding when an old planning promise resumes', async () => {
     const h = await setup({ replaceAfterPlan: true });
     expect((await h.client.enqueueIntent('increment').result).status).toBe(
@@ -252,9 +288,7 @@ describe('headless workspace adapter', () => {
           'unknown',
         );
         expect(h.workspace.snapshot()?.code).toBe('invalid_run');
-        expect((await h.client.enqueueIntent('later').result).status).toBe(
-          'unknown',
-        );
+        await expect(h.client.processIntent('later')).rejects.toThrow();
         expect(h.plans()).toBe(1);
         expect(h.writes()).toBe(kind === 'plan' ? 0 : 1);
         expect(h.settlements).toHaveLength(kind === 'plan' ? 0 : 1);
@@ -298,7 +332,7 @@ describe('headless workspace adapter', () => {
     const first = h.client.enqueueIntent('increment');
     const second = h.client.enqueueIntent('later');
     expect((await first.result).status).toBe('unknown');
-    expect((await second.result).status).toBe('unknown');
+    expect(second.store.state.status).toBe('queued');
     expect(h.workspace.snapshot()?.code).toBe('run_timeout');
     expect(observed).toEqual([h.workspace.snapshot()]);
     expect(h.writes()).toBe(1);
@@ -378,9 +412,7 @@ describe('headless workspace adapter', () => {
         'unknown',
       );
       expect(h.workspace.snapshot()?.code).toBe('invalid_run');
-      expect((await h.client.enqueueIntent('later').result).status).toBe(
-        'unknown',
-      );
+      await expect(h.client.processIntent('later')).rejects.toThrow();
       expect(h.writes()).toBe(1);
       expect(h.plans()).toBe(1);
     });
@@ -418,9 +450,7 @@ describe('headless workspace adapter', () => {
       kind: 'applied',
       application: { status: 'unknown', actions: [{ succeeded: false }] },
     });
-    expect((await h.client.enqueueIntent('later').result).status).toBe(
-      'unknown',
-    );
+    await expect(h.client.processIntent('later')).rejects.toThrow();
     expect(h.plans()).toBe(1);
     expect(h.writes()).toBe(0);
     expect(h.workspace.snapshot()?.code).toBe('application_unknown');
@@ -431,9 +461,7 @@ describe('headless workspace adapter', () => {
     expect((await h.client.enqueueIntent('increment').result).status).toBe(
       'unknown',
     );
-    expect((await h.client.enqueueIntent('later').result).status).toBe(
-      'unknown',
-    );
+    await expect(h.client.processIntent('later')).rejects.toThrow();
     expect(h.writes()).toBe(1);
     expect(h.plans()).toBe(1);
     expect(h.workspace.snapshot()?.code).toBe('connection_lost');

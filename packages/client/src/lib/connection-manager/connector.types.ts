@@ -326,12 +326,20 @@ export interface EngineConnector {
   /**
    * Receive the canonical application result for a response returned by {@link EngineConnector.process}.
    * The Orchestrator awaits this optional acknowledgment before releasing
-   * admission for later planning. Implementations must bound their wait.
-   * Rejection makes queued intent completion unknown; application is never
-   * retried. Retired connectors receive no new settlement notifications.
+   * admission for later planning, bounded by applicationAcknowledgmentTimeoutMs.
+   * The signal cancels acknowledgment I/O on timeout, retirement, or failure;
+   * it does not cancel Actions that have already executed. Adapters should remove
+   * listeners and release pending transport state when cancellation occurs.
+   * Rejection or timeout makes queued completion unknown and stops planning until
+   * a different connector is installed. Application is never automatically retried.
+   * Retired connectors receive no new settlement notifications. Legacy
+   * processIntent still resolves on response delivery, before this acknowledgment.
    * Unsolicited push delivery does not invoke this hook or own acknowledgment admission.
    */
-  applicationSettled?(settlement: ApplicationSettlement): Promise<void>;
+  applicationSettled?(
+    settlement: ApplicationSettlement,
+    signal?: AbortSignal,
+  ): Promise<void>;
 
   /**
    * Subscribe to transport-level events.
