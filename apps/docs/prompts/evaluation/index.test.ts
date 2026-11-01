@@ -933,8 +933,20 @@ process.stdin.on('end', () => {
     expect(result.manifest.transport).toMatchObject({ status: 'error-result' });
   });
 
-  test('delivers task on stdin in scratch cwd and separates objective checks from semantic review', async () => {
-    await fake(`
+  test.each([
+    'canary',
+    'empty',
+    'absent',
+  ] as const)('delivers task on stdin in scratch cwd and separates objective checks from semantic review (%s API key)', async (keyState) => {
+    const previousKey = process.env.OPENAI_API_KEY;
+    const canary = `synthetic-secret-canary-${crypto.randomUUID()}`;
+    const key =
+      keyState === 'canary' ? canary : keyState === 'empty' ? '' : undefined;
+    try {
+      if (key === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = key;
+      await fake(`
+if (process.env.OPENAI_API_KEY !== ${JSON.stringify(key)}) process.exit(10);
 if (process.argv.includes('--version')) { console.log('fake-pi 1.2.3'); process.exit(0); }
 let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
@@ -942,37 +954,41 @@ process.stdin.on('end', () => {
   if (!process.cwd().endsWith('/case')) process.exit(8);
   console.log(JSON.stringify({ type: 'message_end', message: { role: 'assistant', model: 'fixture-model', provider: 'fixture-provider', content: [{ type: 'text', text: 'legacy final answer' }] } }));
 });`);
-    const result = await evaluateModeling(options());
-    expect(result.exitCode).toBe(0);
-    expect(result.changes).toEqual([]);
-    expect(result.criteria.map((criterion) => criterion.status)).toEqual([
-      'passed',
-      'passed',
-      'passed',
-      'unrun',
-      'unrun',
-      'unrun',
-    ]);
-    expect(result.manifest).toMatchObject({
-      runner: {
-        version: 'fake-pi 1.2.3',
-        model: 'fixture-model',
-        provider: 'fixture-provider',
-      },
-      security: { filesystemSandbox: false, environmentSerialized: false },
-    });
-    expect(JSON.stringify(result.manifest)).not.toContain(
-      process.env.OPENAI_API_KEY ?? 'not-present-secret',
-    );
-    expect(
-      await readFile(
-        join(
-          result.manifest.security.privateOutputDirectory as string,
-          'stdout.jsonl',
-        ),
-        'utf8',
-      ),
-    ).toContain('fixture-model');
+      const result = await evaluateModeling(options());
+      expect(result.exitCode).toBe(0);
+      expect(result.changes).toEqual([]);
+      expect(result.criteria.map((criterion) => criterion.status)).toEqual([
+        'passed',
+        'passed',
+        'passed',
+        'unrun',
+        'unrun',
+        'unrun',
+      ]);
+      expect(result.manifest).toMatchObject({
+        runner: {
+          version: 'fake-pi 1.2.3',
+          model: 'fixture-model',
+          provider: 'fixture-provider',
+        },
+        security: { filesystemSandbox: false, environmentSerialized: false },
+      });
+      const artifactDir = result.manifest.security
+        .privateOutputDirectory as string;
+      for (const serialized of [
+        JSON.stringify(result.manifest),
+        await readFile(join(artifactDir, 'manifest.json'), 'utf8'),
+      ]) {
+        expect(serialized).not.toContain('OPENAI_API_KEY');
+        if (keyState === 'canary') expect(serialized).not.toContain(canary);
+      }
+      expect(
+        await readFile(join(artifactDir, 'stdout.jsonl'), 'utf8'),
+      ).toContain('fixture-model');
+    } finally {
+      if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousKey;
+    }
   });
 
   test('rejects output paths that reach the checkout through a symlink before mkdir', async () => {

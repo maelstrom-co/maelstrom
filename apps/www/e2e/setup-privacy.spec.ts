@@ -25,7 +25,11 @@ test('real autocapture and replay omit prompt content while bounded setup metric
     }),
   );
   await page.goto('/');
-  await expect(page.locator('.demo-shell-live .max-w-4xl')).toBeVisible();
+  const copyIntegrationPrompt = page.getByRole('button', {
+    name: 'Copy integration prompt',
+    exact: true,
+  });
+  await expect(copyIntegrationPrompt).toBeVisible();
   await page.addScriptTag({
     path: resolve(
       import.meta.dirname,
@@ -96,9 +100,7 @@ test('real autocapture and replay omit prompt content while bounded setup metric
   const automaticCount = events.filter(
     (event) => event.event === '$autocapture',
   ).length;
-  await page
-    .getByRole('button', { name: 'Copy integration prompt', exact: true })
-    .click();
+  await copyIntegrationPrompt.click();
   await page.getByText('Read the prompt', { exact: true }).click();
   await expect
     .poll(() => events.some((event) => event.event === 'setup_copied'))
