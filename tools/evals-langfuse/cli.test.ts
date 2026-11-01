@@ -1016,7 +1016,7 @@ test('full planner import and publication recover legacy grader evidence only wh
     expected,
   );
   expect(JSON.stringify(imported.samples)).not.toContain('PRIVATE');
-  const { json } = await preview(overrides);
+  const { approval, json } = await preview(overrides);
   const payloads = JSON.parse(json).publications.map(
     (publication: { json: string }) => JSON.parse(publication.json),
   );
@@ -1026,6 +1026,18 @@ test('full planner import and publication recover legacy grader evidence only wh
   expect(json).not.toContain('PRIVATE');
   expect(starts).toBe(0);
   expect(credentialReads).toEqual([]);
+  const published = await runLangfuseCli(
+    publishArgs(approval, overrides),
+    dependencies(),
+  );
+  expect(published.exitCode).toBe(0);
+  expect(
+    batches.map(
+      (batch) =>
+        batch.batch.find((event) => event.type === 'span-create')?.body.output,
+    ),
+  ).toEqual(expected.map((judge) => expect.objectContaining({ judge })));
+  expectNoSecrets(published);
 });
 
 test('full planner import rejects malformed legacy grades instead of silently losing their evidence', async () => {
