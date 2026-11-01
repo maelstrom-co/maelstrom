@@ -1,4 +1,4 @@
-import type { AnyTextAdapter, ChatMiddleware, JSONSchema } from '@tanstack/ai';
+import type { AnyTextAdapter, JSONSchema } from '@tanstack/ai';
 import { convertSchemaToJsonSchema } from '@tanstack/ai';
 
 const convertOutputSchema = convertSchemaToJsonSchema;
@@ -16,8 +16,8 @@ export interface ChatCall {
   readonly abortController: AbortController;
   /** Disables provider console logs that bypass the engine logger. */
   readonly debug: boolean;
-  /** Observes provider usage without changing the request or output. */
-  readonly middleware: readonly ChatMiddleware[];
+  /** Provider adapter used for this call. */
+  readonly adapter: AnyTextAdapter;
 }
 
 /** A stand-in for `@tanstack/ai`'s `chat`, as far as tests call it. */

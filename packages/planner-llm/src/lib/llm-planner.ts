@@ -9,6 +9,7 @@ import type {
 } from '@maelstrom-co/engine';
 import {
   buildActionParameterEnumSnapshot,
+  cancellationError,
   enumSnapshotFor,
   validationError,
 } from '@maelstrom-co/engine';
@@ -25,13 +26,10 @@ import {
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import {
-  normalizeLlmUsage,
-  type ReportedLlmUsage,
-} from '@maelstrom-co/telemetry/usage';
-import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
-
+import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
+import type { AnyTextAdapter } from '@tanstack/ai';
 import { callLLM, logLLMCallError } from './call-llm.js';
+import { observeAdapter } from './observe-adapter.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
 import {
   buildSystemPrompt,
@@ -165,24 +163,10 @@ export function llmPlanner(
 
     const started = performance.now();
     let usage: Partial<Record<keyof ReportedLlmUsage, number>> | undefined;
-    let usageRecorded = false;
-    const middleware: ChatMiddleware = {
-      // Each provider call gets a fresh snapshot, including separate finalization.
-      onConfig: () => {
-        usageRecorded = false;
-      },
-      // onUsage normalizes missing AG-UI counters to zero; retain their presence.
-      onChunk: (_ctx, chunk) => {
-        if (
-          (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
-          usageRecorded
-        )
-          return;
-        const current = normalizeLlmUsage(
-          chunk.usage,
-          chunk.metadata?.tanstack?.usage,
-        );
-        if (!current) return;
+    let providerAborted = false;
+    const observedAdapter = observeAdapter(
+      adapter,
+      (current) => {
         for (const key of [
           'inputTokens',
           'outputTokens',
@@ -194,12 +178,14 @@ export function llmPlanner(
           if (value === undefined) continue;
           usage ??= {};
           usage[key] = (usage[key] ?? 0) + value;
-          usageRecorded = true;
         }
       },
-    };
-    const result = await callLLM(
-      adapter,
+      () => {
+        providerAborted = true;
+      },
+    );
+    const received = await callLLM(
+      observedAdapter,
       systemPrompts[mode],
       input.retry === undefined
         ? userPrompt
@@ -209,8 +195,10 @@ export function llmPlanner(
       ctx.origin.sessionId,
       signal,
       modelOptions,
-      [middleware],
     );
+    const result = providerAborted
+      ? err(cancellationError('Provider call was cancelled', signal?.reason))
+      : received;
     ctx.instrument.event('llm.call', {
       'gen_ai.request.model': adapter.model,
       'maelstrom.message_id': ctx.origin.messageId,

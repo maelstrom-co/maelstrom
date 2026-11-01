@@ -31,15 +31,17 @@ import {
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import type {
+  AnyTextAdapter,
   ChatMiddleware,
   RunErrorEvent,
   RunFinishedEvent,
+  StreamChunk,
   TokenUsage,
 } from '@tanstack/ai';
 import { convertSchemaToJsonSchema } from '@tanstack/ai';
 
 import {
-  dummyAdapter,
+  dummyAdapter as baseAdapter,
   overflowDiagnostics,
 } from './__test-helpers__/fixtures.js';
 import type { LlmPlannerOptions } from './llm-planner.js';
@@ -49,6 +51,12 @@ import { buildSystemPrompt, buildUserPrompt } from './prompt/prompt-builder.js';
 import { buildRetryPrompt } from './retry-prompt.js';
 
 const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
+const dummyAdapter: AnyTextAdapter = {
+  ...baseAdapter,
+  async *chatStream(options) {
+    yield* options.modelOptions?.fixtureChunks as StreamChunk[];
+  },
+};
 const convertOutputSchema = convertSchemaToJsonSchema;
 
 mock.module('@tanstack/ai', () => ({
@@ -61,7 +69,7 @@ afterEach(() => {
 });
 
 interface ChatArgs {
-  readonly adapter: unknown;
+  readonly adapter: AnyTextAdapter;
   readonly threadId: string;
   readonly messages: ReadonlyArray<{ role: string; content: string }>;
   readonly systemPrompts: readonly string[];
@@ -74,18 +82,28 @@ interface ChatArgs {
 }
 
 async function reportUsage(
-  middleware: ChatMiddleware | undefined,
+  adapter: AnyTextAdapter,
   usage: TokenUsage,
+  duplicate?: StreamChunk,
 ) {
-  await middleware?.onConfig?.({} as never, {} as never);
-  await middleware?.onChunk?.({} as never, {
+  const terminal: StreamChunk = {
     type: 'RUN_FINISHED' as RunFinishedEvent['type'],
     runId: 'r',
     threadId: 't',
     timestamp: 1,
     usage,
-  });
-  await middleware?.onUsage?.({} as never, usage);
+  };
+  // This scripted adapter reads only fixtureChunks, not an SDK logger.
+  for await (const _chunk of adapter.chatStream({
+    model: 'dummy-model',
+    threadId: 'fixture',
+    logger: undefined as never,
+    messages: [],
+    modelOptions: {
+      fixtureChunks: [terminal, ...(duplicate ? [duplicate] : [])],
+    },
+  })) {
+  }
 }
 
 function chatCall(index: number): ChatArgs {
@@ -94,16 +112,18 @@ function chatCall(index: number): ChatArgs {
   return args;
 }
 
-function comparableChatCalls(): Array<
-  Omit<ChatArgs, 'abortController' | 'middleware'>
-> {
+function comparableChatCalls() {
   return mockChat.mock.calls.map((call) => {
     const {
       abortController: _ignored,
       middleware: _middleware,
+      adapter,
       ...rest
     } = call[0] as ChatArgs;
-    return rest;
+    return {
+      ...rest,
+      adapter: { kind: adapter.kind, name: adapter.name, model: adapter.model },
+    };
   });
 }
 
@@ -315,7 +335,11 @@ describe('llmPlanner', () => {
       expect(isOk(result)).toBe(true);
       expect(comparableChatCalls()).toEqual([
         {
-          adapter: dummyAdapter,
+          adapter: {
+            kind: dummyAdapter.kind,
+            name: dummyAdapter.name,
+            model: dummyAdapter.model,
+          },
           threadId: 'session-1',
           messages: [
             { role: 'user', content: buildUserPrompt(request, prompt) },
@@ -391,7 +415,10 @@ describe('llmPlanner', () => {
 
       expect(mockChat).toHaveBeenCalledTimes(1);
       const callArgs = chatCall(0);
-      expect(callArgs).toHaveProperty('adapter', dummyAdapter);
+      expect(callArgs.adapter).toMatchObject({
+        kind: 'text',
+        model: 'dummy-model',
+      });
       expect(callArgs).toHaveProperty('stream', false);
       expect(callArgs).toHaveProperty('outputSchema');
       expect(callArgs).toHaveProperty('systemPrompts');
@@ -730,7 +757,7 @@ describe('llmPlanner', () => {
     );
 
     const call = chatCall(0);
-    expect(call.adapter).toBe(dummyAdapter);
+    expect(call.adapter).toMatchObject({ kind: 'text', model: 'dummy-model' });
     expect(call.systemPrompts).toEqual([buildSystemPrompt('grid')]);
     expect(call.messages).toEqual([
       ...history,
@@ -1130,7 +1157,7 @@ describe('llmPlanner instrumentation', () => {
       release = resolve;
     });
     mockChat.mockImplementationOnce(async (options) => {
-      await reportUsage((options as ChatArgs).middleware[0], {
+      await reportUsage((options as ChatArgs).adapter, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -1141,7 +1168,7 @@ describe('llmPlanner instrumentation', () => {
       return buildGridResponse();
     });
     mockChat.mockImplementationOnce(async (options) => {
-      await reportUsage((options as ChatArgs).middleware[0], {
+      await reportUsage((options as ChatArgs).adapter, {
         promptTokens: 40,
         completionTokens: 10,
         totalTokens: 50,
@@ -1202,18 +1229,20 @@ describe('llmPlanner instrumentation', () => {
 
   test('counts a failed provider run once when terminal usage is repeated', async () => {
     mockChat.mockImplementationOnce(async (options) => {
-      const middleware = (options as ChatArgs).middleware[0];
-      await reportUsage(middleware, {
-        promptTokens: 12,
-        completionTokens: 3,
-        totalTokens: 15,
-      });
-      await middleware?.onChunk?.({} as never, {
-        type: 'RUN_ERROR' as RunErrorEvent['type'],
-        message: 'private-provider-key',
-        timestamp: 2,
-        usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
-      });
+      await reportUsage(
+        (options as ChatArgs).adapter,
+        {
+          promptTokens: 12,
+          completionTokens: 3,
+          totalTokens: 15,
+        },
+        {
+          type: 'RUN_ERROR' as RunErrorEvent['type'],
+          message: 'private-provider-key',
+          timestamp: 2,
+          usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
+        },
+      );
       throw new Error('private-provider-key');
     });
     const { instrument, events } = spyInstrument();
@@ -1260,9 +1289,9 @@ describe('llmPlanner instrumentation', () => {
     ]);
   });
 
-  test('sums reported usage without counting normalized hooks again', async () => {
+  test('sums reported usage from separate provider calls', async () => {
     mockChat.mockImplementationOnce(async (options) => {
-      const middleware = (options as ChatArgs).middleware[0];
+      const adapter = (options as ChatArgs).adapter;
       for (const usage of [
         {
           promptTokens: 12,
@@ -1279,7 +1308,7 @@ describe('llmPlanner instrumentation', () => {
           cost: 0.03,
         },
       ])
-        await reportUsage(middleware, usage);
+        await reportUsage(adapter, usage);
       return buildGridResponse();
     });
     const { instrument, events } = spyInstrument();
@@ -1302,7 +1331,7 @@ describe('llmPlanner instrumentation', () => {
 
   test('keeps reported usage when finalization fails so failed work is not free', async () => {
     mockChat.mockImplementationOnce(async (options) => {
-      await reportUsage((options as ChatArgs).middleware[0], {
+      await reportUsage((options as ChatArgs).adapter, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,

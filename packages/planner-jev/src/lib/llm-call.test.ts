@@ -2,9 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { InstrumentAttributes } from '@maelstrom-co/engine';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
-  ChatMiddleware,
+  AnyTextAdapter,
   RunErrorEvent,
   RunFinishedEvent,
+  StreamChunk,
   TokenUsage,
 } from '@tanstack/ai';
 import { z } from 'zod';
@@ -14,8 +15,8 @@ import {
   makeRequest,
 } from './__test-helpers__/fixtures.js';
 import {
+  dummyAdapter as baseAdapter,
   chatCall,
-  dummyAdapter,
   installMockChat,
   mockChat,
 } from './__test-helpers__/mock-chat.js';
@@ -43,22 +44,38 @@ function context(signal?: AbortSignal, messageId = 'req-1') {
 }
 
 const schema = z.object({ userMessage: z.string() });
+const dummyAdapter: AnyTextAdapter = {
+  ...baseAdapter,
+  async *chatStream(options) {
+    yield* options.modelOptions?.fixtureChunks as StreamChunk[];
+  },
+};
 const complete = (ctx: ReturnType<typeof context>['ctx']) =>
   callLlm({ adapter: dummyAdapter }, 'private prompt', schema, [], ctx);
 
 async function reportUsage(
-  middleware: readonly ChatMiddleware[],
+  adapter: AnyTextAdapter,
   usage: TokenUsage,
+  duplicate?: StreamChunk,
 ) {
-  await middleware[0]?.onConfig?.({} as never, {} as never);
-  await middleware[0]?.onChunk?.({} as never, {
+  const terminal: StreamChunk = {
     type: 'RUN_FINISHED' as RunFinishedEvent['type'],
     runId: 'r',
     threadId: 't',
     timestamp: 1,
     usage,
-  });
-  await middleware[0]?.onUsage?.({} as never, usage);
+  };
+  // This scripted adapter reads only fixtureChunks, not an SDK logger.
+  for await (const _chunk of adapter.chatStream({
+    model: 'dummy-model',
+    threadId: 'fixture',
+    logger: undefined as never,
+    messages: [],
+    modelOptions: {
+      fixtureChunks: [terminal, ...(duplicate ? [duplicate] : [])],
+    },
+  })) {
+  }
 }
 
 describe('completion call instrumentation', () => {
@@ -109,18 +126,21 @@ describe('completion call instrumentation', () => {
   });
 
   test('counts a failed provider run once when terminal usage is repeated', async () => {
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
-        promptTokens: 12,
-        completionTokens: 3,
-        totalTokens: 15,
-      });
-      await middleware[0]?.onChunk?.({} as never, {
-        type: 'RUN_ERROR' as RunErrorEvent['type'],
-        message: 'private-provider-key',
-        timestamp: 2,
-        usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
-      });
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(
+        adapter,
+        {
+          promptTokens: 12,
+          completionTokens: 3,
+          totalTokens: 15,
+        },
+        {
+          type: 'RUN_ERROR' as RunErrorEvent['type'],
+          message: 'private-provider-key',
+          timestamp: 2,
+          usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
+        },
+      );
       throw new Error('private-provider-key');
     });
     const { ctx, events } = context();
@@ -156,12 +176,12 @@ describe('completion call instrumentation', () => {
     expect(events[0]?.attributes['maelstrom.outcome']).toBe('cancelled');
   });
   test('includes all reported usage in one correlated event without private content', async () => {
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
       for (const usage of [
         { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
         { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
       ])
-        await reportUsage(middleware, usage);
+        await reportUsage(adapter, usage);
       return { userMessage: 'private output' };
     });
     const { ctx, events } = context();
@@ -193,8 +213,8 @@ describe('completion call instrumentation', () => {
   });
 
   test('preserves an explicit zero measurement instead of treating it as missing', async () => {
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(adapter, {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
@@ -226,8 +246,8 @@ describe('completion call instrumentation', () => {
   });
 
   test('retains usage on a failure without exposing the provider error', async () => {
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(adapter, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -250,8 +270,8 @@ describe('completion call instrumentation', () => {
 
   test('rejects a late cancelled response and reports the actual planner outcome', async () => {
     const controller = new AbortController();
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(adapter, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -276,8 +296,8 @@ describe('completion call instrumentation', () => {
     const barrier = new Promise<void>((resolve) => {
       release = resolve;
     });
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(adapter, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -285,8 +305,8 @@ describe('completion call instrumentation', () => {
       await barrier;
       return { userMessage: 'First.' };
     });
-    mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await reportUsage(middleware, {
+    mockChat.mockImplementationOnce(async ({ adapter }) => {
+      await reportUsage(adapter, {
         promptTokens: 40,
         completionTokens: 10,
         totalTokens: 50,

@@ -1,0 +1,41 @@
+diff --git a/build/auth-utils.js b/build/auth-utils.js
+index 1810f59d74a81c014c710075500fa0d1dffd534a..8f67090a480866bd7d481917d2286bca468c1aa7 100644
+--- a/build/auth-utils.js
++++ b/build/auth-utils.js
+@@ -21,7 +21,11 @@ function buildToken(type, token) {
+ 	return `${capitalize(type)} ${token}`;
+ }
+ function getMatchedPackagesSpec(pkgName, packages) {
+-	for (const i in packages) if (minimatch.minimatch.makeRe(i, { nocase: true }).exec(pkgName)) return packages[i];
++	for (const i in packages) {
++		const matcher = new minimatch.Minimatch(i, { nocase: true });
++		if (!matcher.set.length) throw new TypeError("Invalid package pattern: " + i);
++		if (matcher.match(pkgName)) return packages[i];
++	}
+ }
+ function capitalize(str) {
+ 	return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+diff --git a/build/auth-utils.mjs b/build/auth-utils.mjs
+index 252e9b82dd00e148d260f407a953ef05e8e4ac2f..00b09c8583965c03510e1933ba9d3d60acdfd420 100644
+--- a/build/auth-utils.mjs
++++ b/build/auth-utils.mjs
+@@ -1,5 +1,5 @@
+ import { __exportAll } from "./_virtual/_rolldown/runtime.mjs";
+-import { minimatch } from "minimatch";
++import { Minimatch } from "minimatch";
+ //#region src/auth-utils.ts
+ var auth_utils_exports = /* @__PURE__ */ __exportAll({
+ 	buildToken: () => buildToken,
+@@ -21,7 +21,11 @@ function buildToken(type, token) {
+ 	return `${capitalize(type)} ${token}`;
+ }
+ function getMatchedPackagesSpec(pkgName, packages) {
+-	for (const i in packages) if (minimatch.makeRe(i, { nocase: true }).exec(pkgName)) return packages[i];
++	for (const i in packages) {
++		const matcher = new Minimatch(i, { nocase: true });
++		if (!matcher.set.length) throw new TypeError("Invalid package pattern: " + i);
++		if (matcher.match(pkgName)) return packages[i];
++	}
+ }
+ function capitalize(str) {
+ 	return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();

@@ -19,6 +19,268 @@ function installedDependency(start: string, ...chain: string[]) {
   return { require, root: dirname(manifest) };
 }
 
+test('custom credentials declared by another realm stop at the redirect origin boundary', () => {
+  const proxy = installedDependency(
+    'package.json',
+    '@nx/web',
+    'http-server',
+    'http-proxy',
+  );
+  const result = spawnSync(
+    Bun.which('node') ?? 'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { createRequire } from 'node:module';
+    import { createServer } from 'node:http';
+    import { runInNewContext } from 'node:vm';
+    const require = createRequire(${JSON.stringify(join(proxy.root, 'package.json'))});
+    const { http } = require('follow-redirects');
+    const servers = [];
+    const listen = async server => {
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      servers.push(server);
+      return server.address().port;
+    };
+    let sourceHeader;
+    let targetHeader;
+    try {
+      const target = await listen(createServer((request, response) => {
+        targetHeader = request.headers['x-fixture-credential'] ?? null;
+        response.end('ok');
+      }));
+      const source = await listen(createServer((request, response) => {
+        sourceHeader = request.headers['x-fixture-credential'] ?? null;
+        response.writeHead(302, { location: 'http://localhost:' + target + '/' });
+        response.end();
+      }));
+      await new Promise((resolve, reject) => {
+        const request = http.get('http://127.0.0.1:' + source + '/', {
+          family: 4,
+          headers: { 'X-Fixture-Credential': 'fixture-only' },
+          sensitiveHeaders: runInNewContext('["X-Fixture-Credential"]'),
+        }, response => {
+          response.resume();
+          response.on('end', resolve);
+          response.on('error', reject);
+        });
+        request.on('error', reject);
+        request.setTimeout(2000, () => request.destroy(new Error('Redirect fixture timed out')));
+      });
+      console.log(JSON.stringify({ sourceHeader, targetHeader }));
+    } finally {
+      await Promise.all(servers.map(server => new Promise(resolve => {
+        server.closeAllConnections();
+        server.close(resolve);
+      })));
+    }
+  `,
+    ],
+    { timeout: 5000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    sourceHeader: 'fixture-only',
+    targetHeader: null,
+  });
+}, 10000);
+
+test('patched pattern matching still discovers nested API documentation entry points', () => {
+  const typedoc = installedDependency('apps/docs/package.json', 'typedoc');
+  const result = spawnSync(
+    Bun.which('node') ?? 'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { Application } from ${JSON.stringify(join(typedoc.root, 'dist/index.js'))};
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+    import { tmpdir } from 'node:os';
+    import { join } from 'node:path';
+    const root = mkdtempSync(join(tmpdir(), 'docs-entrypoints-'));
+    try {
+      mkdirSync(join(root, 'src/nested'), { recursive: true });
+      writeFileSync(join(root, 'src/alpha.ts'), 'export function fromAlpha(): string { return "alpha"; }');
+      writeFileSync(join(root, 'src/nested/beta.ts'), 'export function fromBeta(): number { return 2; }');
+      writeFileSync(join(root, 'src/ignored.ts'), 'export function internalOnly(): boolean { return true; }');
+      writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({
+        compilerOptions: { strict: true, target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', types: [] },
+        include: ['src/**/*.ts'],
+      }));
+      const app = await Application.bootstrap({
+        entryPoints: [join(root, 'src/**/*.ts')], entryPointStrategy: 'expand',
+        exclude: ['**/ignored.ts'],
+        tsconfig: join(root, 'tsconfig.json'), logLevel: 'None',
+      });
+      const project = await app.convert();
+      if (!project) throw new Error('API documentation conversion failed');
+      const names = [];
+      const visit = reflection => {
+        names.push(reflection.name);
+        for (const child of reflection.children ?? []) visit(child);
+      };
+      visit(project);
+      console.log(JSON.stringify({ names }));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  `,
+    ],
+    { timeout: 20000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  const resultNames = JSON.parse(result.stdout).names;
+  expect(resultNames).toContain('fromAlpha');
+  expect(resultNames).toContain('fromBeta');
+  expect(resultNames).not.toContain('internalOnly');
+}, 25000);
+
+test('release project filters retain scoped names, dot names, exclusions, and invalid-pattern errors', () => {
+  const nx = installedDependency('package.json', 'nx');
+  const { getMatchingStringsWithCache } = nx.require(
+    join(nx.root, 'dist/src/utils/find-matching-projects.js'),
+  ) as {
+    getMatchingStringsWithCache(pattern: string, items: string[]): string[];
+  };
+  const names = [
+    '@maelstrom-co/client',
+    '@maelstrom-co/engine',
+    'regular',
+    '.hidden',
+  ];
+  expect(getMatchingStringsWithCache('@maelstrom-co/*', names)).toEqual(
+    names.slice(0, 2),
+  );
+  expect(getMatchingStringsWithCache('*', names)).toEqual([
+    'regular',
+    '.hidden',
+  ]);
+  expect(getMatchingStringsWithCache('!@maelstrom-co/engine', names)).toEqual([
+    '@maelstrom-co/client',
+    'regular',
+    '.hidden',
+  ]);
+  expect(() => getMatchingStringsWithCache('#comment', names)).toThrow(
+    'Invalid glob pattern',
+  );
+});
+
+test('generator globs include pending files, hide deleted files, and honor exclusions', () => {
+  const nx = installedDependency('package.json', 'nx');
+  const result = spawnSync(
+    Bun.which('node') ?? 'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { createRequire } from 'node:module';
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+    import { tmpdir } from 'node:os';
+    import { join } from 'node:path';
+    const require = createRequire(${JSON.stringify(join(nx.root, 'package.json'))});
+    const { FsTree } = require('./dist/src/generators/tree.js');
+    const { glob } = require('./dist/src/generators/utils/glob.js');
+    const root = mkdtempSync(join(tmpdir(), 'generator-globs-'));
+    try {
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'nx.json'), '{}');
+      writeFileSync(join(root, 'package.json'), '{"name":"fixture","private":true}');
+      for (const name of ['kept.ts', 'deleted.ts', 'ignored.ts']) writeFileSync(join(root, 'src', name), 'export {};');
+      const tree = new FsTree(root, false);
+      tree.write('src/created.ts', 'export {};');
+      tree.delete('src/deleted.ts');
+      console.log(JSON.stringify(glob(tree, ['src/**/*.ts', '!src/ignored.ts']).sort()));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  `,
+    ],
+    { timeout: 10000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual(['src/created.ts', 'src/kept.ts']);
+}, 15000);
+
+test('release branch patterns control whether baseline tags include unmerged branches', () => {
+  const nx = installedDependency('package.json', 'nx');
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+    import { mock } from 'bun:test';
+    import { createRequire } from 'node:module';
+    const require = createRequire(${JSON.stringify(join(nx.root, 'package.json'))});
+    const commands = [];
+    mock.module(${JSON.stringify(join(nx.root, 'dist/src/command-line/release/utils/exec-command.js'))}, () => ({
+      execCommand: async (command, args) => {
+        if (command !== 'git') throw new Error('Unexpected fixture command');
+        if (args[0] === 'rev-parse') return 'release/fixture';
+        if (!args.includes('tag')) throw new Error('Unexpected git fixture command');
+        commands.push(args);
+        return ['v0.2.0', 'v0.1.1', ''].join(String.fromCharCode(10));
+      },
+    }));
+    const { RepoGitTags } = require('./dist/src/command-line/release/utils/repository-git-tags.js');
+    const values = [];
+    for (const patterns of [['release/*'], ['main*'], ['#comment']]) {
+      values.push(await RepoGitTags.create().resolveTags(patterns));
+    }
+    console.log(JSON.stringify({ values, mergedOnly: commands.map(args => args.includes('--merged')) }));
+  `,
+    ],
+    { timeout: 5000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    values: [
+      ['v0.2.0', 'v0.1.1'],
+      ['v0.2.0', 'v0.1.1'],
+      ['v0.2.0', 'v0.1.1'],
+    ],
+    mergedOnly: [false, true, true],
+  });
+});
+
+for (const [name, file, namespace, nocase] of [
+  ['@verdaccio/core', 'auth-utils.js', 'auth_utils_exports', true],
+  ['@verdaccio/core', 'auth-utils.mjs', 'auth_utils_exports', true],
+  ['@verdaccio/utils', 'matcher.js', null, false],
+  ['@verdaccio/utils', 'matcher.mjs', null, false],
+] as const) {
+  test(`local registry ${name} ${file} preserves package rule ordering and case policy`, () => {
+    const dependency = installedDependency('package.json', 'verdaccio', name);
+    const entry = join(dependency.root, 'build', file);
+    const load = file.endsWith('.mjs')
+      ? `import * as loaded from ${JSON.stringify(entry)};`
+      : `import { createRequire } from 'node:module'; const loaded = createRequire(${JSON.stringify(join(dependency.root, 'package.json'))})(${JSON.stringify(entry)});`;
+    const result = spawnSync(
+      Bun.which('node') ?? 'node',
+      [
+        '--input-type=module',
+        '-e',
+        `
+      import assert from 'node:assert/strict';
+      ${load}
+      const match = ${namespace ? `loaded.${namespace}` : 'loaded'}.getMatchedPackagesSpec;
+      const specific = { access: 'specific-fixture' };
+      const fallback = { access: 'fallback-fixture' };
+      const rules = { '@scope/*': specific, '**': fallback };
+      assert.equal(match('@scope/item', rules), specific);
+      assert.equal(match('plain', rules), fallback);
+      assert.equal(match('@SCOPE/item', rules), ${nocase} ? specific : fallback);
+      assert.equal(match('@scope/item', { '**': fallback, '@scope/*': specific }), fallback);
+      assert.equal(match('@other/item', { '@scope/*': specific }), undefined);
+      for (const pattern of ['', '#comment']) {
+        assert.throws(() => match('plain', { [pattern]: specific, '**': fallback }), TypeError);
+      }
+      console.log(JSON.stringify({ checksPassed: true }));
+    `,
+      ],
+      { timeout: 5000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+    );
+    expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ checksPassed: true });
+  });
+}
+
 test('deployment static files cannot bypass protected-route middleware through a second path decode', () => {
   const prisma = installedDependency(
     'infra/platform/package.json',
