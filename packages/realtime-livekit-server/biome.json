@@ -8,6 +8,8 @@
           "level": "error",
           "options": {
             "paths": {
+              "@maelstrom-co/agui": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/agui/browser": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
               "@maelstrom-co/client": {
                 "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
               },
