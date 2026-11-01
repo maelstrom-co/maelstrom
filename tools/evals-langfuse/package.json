@@ -1,0 +1,13 @@
+{
+  "name": "@maelstrom-co/evals-langfuse",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@langfuse/client": "catalog:",
+    "@opentelemetry/api": "catalog:"
+  }
+}

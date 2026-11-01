@@ -3,6 +3,7 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
+import { labsEntry } from '../vessels/labs.vessel';
 import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
@@ -22,6 +23,7 @@ const vessels = [
   journalEntry,
   tasksEntry,
   mapEntry,
+  labsEntry,
 ] as const;
 
 const demoTelemetry = createDemoTelemetry();

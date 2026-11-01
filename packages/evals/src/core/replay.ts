@@ -55,16 +55,18 @@ export function replayedStages(
  * recorded stage's input is compared with the scenario; its `messageId` and
  * `sessionId` are ignored, since they name the arm that recorded it.
  *
+ * A numeric `repeats` checks 1 through that count; an array checks only those repeats.
+ *
  * @throws {Error} Naming `source.dir` and every mismatched turn with its reason.
  */
 export function verifyReplay(
   source: ReplaySource,
   scenarios: readonly Scenario[],
-  repeats: number,
+  repeats: number | readonly number[],
 ): void {
   const problems: string[] = [];
   for (const scenario of scenarios)
-    for (let repeat = 1; repeat <= repeats; repeat++) {
+    for (const repeat of replayRepeats(repeats)) {
       const turn = source.turn(scenario.id, repeat);
       const reasons = mismatches(scenario, turn.stages);
       problems.push(...reasons.map((reason) => `- ${turn.key}: ${reason}`));
@@ -82,12 +84,14 @@ export function verifyReplay(
  * Checks, before anything runs, that every replayed stage output of every
  * turn has what each arm's plugin says the arm reads from it.
  *
+ * A numeric `repeats` checks 1 through that count; an array checks only those repeats.
+ *
  * @throws {Error} Naming `source.dir`, and per arm and problem the turns it affects.
  */
 export function verifyReplayShape(
   source: ReplaySource,
   scenarios: readonly Scenario[],
-  repeats: number,
+  repeats: number | readonly number[],
   through: string,
   arms: readonly RegisteredArm[],
 ): void {
@@ -96,7 +100,7 @@ export function verifyReplayShape(
     if (plugin.verifyReplay === undefined) continue;
     const stages = replayedStages(plugin, through);
     for (const scenario of scenarios)
-      for (let repeat = 1; repeat <= repeats; repeat++) {
+      for (const repeat of replayRepeats(repeats)) {
         const turn = source.turn(scenario.id, repeat);
         for (const record of turn.stages ?? []) {
           if (!stages.includes(record.stage) || record.outcome !== 'ok')
@@ -118,6 +122,11 @@ export function verifyReplayShape(
         ),
       ].join('\n'),
     );
+}
+
+function* replayRepeats(repeats: number | readonly number[]) {
+  if (typeof repeats !== 'number') yield* repeats;
+  else for (let repeat = 1; repeat <= repeats; repeat++) yield repeat;
 }
 
 /**

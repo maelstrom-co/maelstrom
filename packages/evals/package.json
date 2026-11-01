@@ -21,6 +21,18 @@
   "nx": {
     "name": "@maelstrom-co/evals",
     "targets": {
+      "build": {
+        "command": "tsc -p tsconfig.json",
+        "dependsOn": [
+          "^build"
+        ],
+        "outputs": [
+          "{projectRoot}/out-tsc/eval"
+        ],
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
       "eval": {
         "command": "bun --conditions=@maelstrom-co/source src/eval/cli.ts",
         "cache": false,

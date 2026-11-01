@@ -233,6 +233,17 @@ public package; `identical` and `not-applicable` are acceptable. A
 so verification scripts and CI consumers must parse the JSON and treat that
 status as a rejection.
 
+#### TypeDoc compatibility patch
+
+The root override pins `minimatch` to 11.0.1 to clear its security advisory.
+TypeDoc 0.28.20 still calls the removed private `matchOne` API, so
+`patches/typedoc@0.28.20.patch` preserves the existing partial-glob traversal
+behavior until upstream TypeDoc supports minimatch 11. The regression cases in
+`apps/docs/src/lib/typedoc-glob.test.ts` protect matched-file behavior,
+including negation and hidden paths. When a compatible TypeDoc release is
+available, upgrade it, remove the patch and its `patchedDependencies` entry,
+and keep the regression coverage until equivalent behavior is verified.
+
 ### Generated documentation source links
 
 TypeDoc source links use `DOCS_SOURCE_REF` when set, then the GitHub Actions

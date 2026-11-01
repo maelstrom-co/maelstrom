@@ -1358,7 +1358,38 @@ describe('OpenAIAdapter — typed errors', () => {
 // ============================================================================
 
 describe('OpenAIAdapter — voice activity state', () => {
-  it('emits listening/thinking/speaking/connected across a full turn', async () => {
+  it('D11 bounded adapter evidence: default server-VAD interrupt request and simulated speaking-to-listening states', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const update = JSON.parse(channel.sent[0] ?? '{}');
+    expect(update.type).toBe('session.update');
+    // These flags request provider behavior; fake events cannot prove audible interruption.
+    expect(update.session.audio.input.turn_detection).toEqual({
+      type: 'server_vad',
+      threshold: 0.5,
+      prefix_padding_ms: 300,
+      silence_duration_ms: 500,
+      create_response: true,
+      interrupt_response: true,
+    });
+    const states: string[] = [];
+    adapter.on((event) => {
+      if (event.type === 'state') states.push(event.state);
+    });
+
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(states).toEqual(['speaking', 'listening']);
+
+    channel.receive({
+      type: 'response.done',
+      response: { status: 'cancelled' },
+    });
+    channel.receive({ type: 'output_audio_buffer.cleared' });
+    expect(states).toEqual(['speaking', 'listening']);
+    await adapter.disconnect();
+  });
+
+  it('D10 bounded adapter state-mapping evidence: emits listening/thinking/speaking/connected across a simulated turn', async () => {
     const { adapter, channel } = await connectWithChannel();
     const states: string[] = [];
     adapter.on((e) => {
@@ -1372,6 +1403,7 @@ describe('OpenAIAdapter — voice activity state', () => {
     channel.receive({ type: 'response.done' });
     channel.receive({ type: 'output_audio_buffer.stopped' });
 
+    // Fake events establish local state mapping, not transcript-final processing or TTS delivery.
     expect(states).toEqual(['listening', 'thinking', 'speaking', 'connected']);
   });
 

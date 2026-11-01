@@ -285,6 +285,36 @@ describe('buildSystemPrompt', () => {
     );
   });
 
+  for (const mode of ['grid', 'tiling'] as const) {
+    test(`${mode} prompt uses the catalog default for an omitted new-Instance Variant`, () => {
+      const prompt = buildSystemPrompt(mode);
+      expect(prompt).toContain(
+        'When the user clearly requests adding/showing a registered Vessel as a new Instance and omits its Variant, use the catalog-declared defaultVariant (marked "(default)") as its initial Variant',
+      );
+      expect(prompt).toContain(
+        "Do not ask solely because that new Instance's Variant was omitted",
+      );
+      expect(prompt).not.toContain(
+        'If the user expresses an action but does not specify the intended resulting state',
+      );
+    });
+
+    test(`${mode} prompt preserves explicit Variants and clarification beyond the creation default`, () => {
+      const prompt = buildSystemPrompt(mode);
+      expect(prompt).toContain(
+        'An explicitly requested Variant takes precedence over the default',
+      );
+      expect(prompt).toContain(
+        "This creation default does not choose a target or change an existing Instance's Variant",
+      );
+      expect(prompt).toContain(
+        'Ask clarifying questions with userMessage instead of mutating when the target is ambiguous, the requested capability is unsupported, required configuration is missing, or a change to an existing Instance has no clear intended resulting state',
+      );
+      expect(prompt).toContain(
+        'do not execute any actions and keep the current state unchanged until the user clarifies the intended change',
+      );
+    });
+  }
   // Regression lock for the LLM "two ways to change a variant" footgun.
   // The simulator validates each action against the instance's pre-action
   // variant; an LLM that both mutates layout.instances directly AND adds a
