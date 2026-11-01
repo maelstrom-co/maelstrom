@@ -13,6 +13,8 @@ afterEach(() => cleanup());
 function renderKeylessDemo() {
   return render(
     <KeylessDemo
+      protocol="native"
+      onProtocolChange={vi.fn()}
       intent=""
       onIntentChange={vi.fn()}
       onRequireKey={vi.fn()}

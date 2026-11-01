@@ -1,7 +1,18 @@
+import {
+  AguiWebSocketConnector,
+  type AguiWorkspaceClient,
+} from '@maelstrom-co/agui/browser';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
@@ -36,9 +47,14 @@ import { KeylessDemo } from './keyless-demo';
 import { SuggestionChips } from './suggestion-chips';
 import { VesselOptionSync } from './vessel-option-sync';
 import { VoiceProviderSelect } from './voice-provider-select';
+import {
+  type WorkspaceProtocol,
+  WorkspaceProtocolSelect,
+} from './workspace-protocol-select';
 
 export function HomePage() {
   const [experimental, setExperimental] = useState(false);
+  const [protocol, setProtocol] = useState<WorkspaceProtocol>('native');
   if (experimental)
     return <ExperimentalAgui onExit={() => setExperimental(false)} />;
   return (
@@ -52,12 +68,22 @@ export function HomePage() {
           Experimental AG-UI
         </button>
       )}
-      <NormalHomePage />
+      <NormalHomePage
+        key={protocol}
+        protocol={protocol}
+        onProtocolChange={setProtocol}
+      />
     </>
   );
 }
 
-function NormalHomePage() {
+function NormalHomePage({
+  protocol,
+  onProtocolChange,
+}: {
+  protocol: WorkspaceProtocol;
+  onProtocolChange: (protocol: WorkspaceProtocol) => void;
+}) {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -132,9 +158,10 @@ function NormalHomePage() {
     if (browserKeyMode && !apiKey) return null;
     return createDemoConnector({
       sessionId,
+      protocol,
       getApiKey: () => playgroundKeyStore.state.apiKey,
     });
-  }, [apiKey, browserKeyMode, sessionId]);
+  }, [apiKey, browserKeyMode, sessionId, protocol]);
   useEffect(() => {
     if (connector && layoutHostWidth !== null) return;
     const layoutHost = layoutHostRef.current;
@@ -156,11 +183,19 @@ function NormalHomePage() {
           key={keyEpoch}
           sessionId={sessionId}
           connector={connector}
+          readyTimeoutMs={5_000}
           initialLayout={initialLayout}
           debug={debug}
         >
           <VesselOptionSync />
           <DemoApp
+            workspace={
+              connector instanceof AguiWebSocketConnector
+                ? connector.workspace
+                : undefined
+            }
+            protocol={protocol}
+            onProtocolChange={onProtocolChange}
             onRequireKey={() => setDrawerOpen(true)}
             onBlockedSubmit={() => {
               setBlockedSubmit(true);
@@ -177,6 +212,8 @@ function NormalHomePage() {
         </m.Provider>
       ) : connector ? null : (
         <KeylessDemo
+          protocol={protocol}
+          onProtocolChange={onProtocolChange}
           intent={intent}
           onIntentChange={setIntent}
           onRequireKey={() => setDrawerOpen(true)}
@@ -235,6 +272,9 @@ function NormalHomePage() {
 }
 
 interface DemoAppProps {
+  readonly workspace?: AguiWorkspaceClient;
+  readonly protocol: WorkspaceProtocol;
+  readonly onProtocolChange: (protocol: WorkspaceProtocol) => void;
   readonly onRequireKey: () => void;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
@@ -247,6 +287,9 @@ interface DemoAppProps {
 }
 
 function DemoApp({
+  workspace,
+  protocol,
+  onProtocolChange,
   onRequireKey,
   onBlockedSubmit,
   onMintError,
@@ -301,6 +344,8 @@ function DemoApp({
   return (
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
+        <WorkspaceProtocolSelect value={protocol} onChange={onProtocolChange} />
+        {workspace && <WorkspaceProtocolError workspace={workspace} />}
         <VoiceProviderSelect
           useVoice={m.useVoice}
           options={availableVoiceProviders()}
@@ -342,6 +387,25 @@ function DemoApp({
       />
     </div>
   );
+}
+
+function WorkspaceProtocolError({
+  workspace,
+}: {
+  workspace: AguiWorkspaceClient;
+}) {
+  const error = useSyncExternalStore(
+    workspace.observe,
+    workspace.snapshot,
+    workspace.snapshot,
+  );
+  return error ? (
+    <span role="alert" className="text-xs text-pink max-w-64">
+      {error.message} Inspect the workspace before starting a new session.
+      Switch workspace protocol or reload; do not repeat an uncertain write
+      automatically.
+    </span>
+  ) : null;
 }
 
 /**

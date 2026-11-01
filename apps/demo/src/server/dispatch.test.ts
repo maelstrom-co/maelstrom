@@ -4,7 +4,7 @@ import {
   encodeEnvelope,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { dispatchFrame } from './dispatch';
 
@@ -39,6 +39,22 @@ const base = {
 };
 
 describe('dispatchFrame', () => {
+  it('rejects oversized UTF-8 input before JSON parsing', async () => {
+    const raw = JSON.stringify({
+      type: 'demo.agui.run',
+      input: '界'.repeat(400_000),
+    });
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      const result = await dispatchFrame(raw, base);
+      expect(parse.mock.calls.filter(([input]) => input === raw)).toHaveLength(
+        0,
+      );
+      expect(result).toMatchObject({ kind: 'close', code: 1009 });
+    } finally {
+      parse.mockRestore();
+    }
+  });
   it('classifies a heartbeat before the hello gate', async () => {
     // A keyless visitor never sends playground.hello, but the client's
     // heartbeat timer still fires. If the hello gate ran first, that ping
