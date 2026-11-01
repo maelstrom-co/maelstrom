@@ -73,6 +73,14 @@ interface MaelstromProviderBaseProps {
    */
   intentQueue?: IntentQueueOptions;
   /**
+   * Maximum milliseconds to wait for an Instance's Action runner to register.
+   * Defaults to the client's 500 ms. Use a longer bound for lazily loaded
+   * Vessels. Must be finite and non-negative; zero checks readiness immediately.
+   * Captured on mount; remount the Provider to change it. Expiry skips the
+   * Action rather than retrying application work.
+   */
+  readyTimeoutMs?: number;
+  /**
    * Called on Orchestrator startup failures, connection failures,
    * processIntent failures, executeAction failures, and command-processing
    * failures — both of `CommandProcessor`'s failure events route here:
@@ -169,12 +177,14 @@ export function createProvider(
     debug,
     motion,
     intentQueue,
+    readyTimeoutMs,
     onError,
     initialLayout,
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
     const [mountIntentQueue] = useState(() => intentQueue);
+    const [mountReadyTimeoutMs] = useState(() => readyTimeoutMs);
     const config = useMemo(
       () =>
         resolveConfig(factoryConfig, {
@@ -289,10 +299,17 @@ export function createProvider(
         vessels: vesselEntries.map((entry) => entry.vessel),
         debug: config.debug,
         intentQueue: config.intentQueue,
+        readyTimeoutMs: mountReadyTimeoutMs,
       } as OrchestratorOptions;
 
       let instance: Orchestrator;
       try {
+        if (
+          mountReadyTimeoutMs !== undefined &&
+          (!Number.isFinite(mountReadyTimeoutMs) || mountReadyTimeoutMs < 0)
+        ) {
+          throw new Error('readyTimeoutMs must be finite and non-negative');
+        }
         instance = new Orchestrator(connectorRef.current, options);
       } catch (err) {
         const error = toError(err);
