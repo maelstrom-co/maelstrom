@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "route-script",
+  "kind": "route-script",
+  "synthetic": true,
+  "data": {
+    "pick": "map-main/showRoute"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "grid-no-overlap",
+  "title": "Five-Instance Chart grid bounds and non-overlap",
+  "purpose": "Synthetic cell-allocation constraints: five unique known positions within Chart bounds without overlap. No compactness, minimum-size, healing, rendering, Action-effect or runtime claim. Dataset prompt differs from the legacy builder.",
+  "suite": "development",
+  "profile": "legacy-grid-no-overlap",
+  "surface": "session",
+  "fixtureId": "grid-no-overlap-script",
+  "oracle": {
+    "id": "legacy-grid-no-overlap",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Place 5 vessels in compact grid"
+  },
+  "expectations": {
+    "chartDimensions": {
+      "rows": 12,
+      "columns": 16
+    },
+    "instanceIds": [
+      "weather-main",
+      "labs-main",
+      "calendar-main",
+      "email-main",
+      "tasks-main"
+    ]
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-grid-no-overlap",
+      "datasetId": "cap-maelstrom-grid-no-overlap",
+      "pointer": "/items/12"
+    }
+  ]
+}

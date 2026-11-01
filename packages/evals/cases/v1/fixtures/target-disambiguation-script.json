@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "id": "target-disambiguation-script",
+  "kind": "target-disambiguation-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        },
+        {
+          "instanceId": "calendar-main",
+          "vesselId": "calendar",
+          "variant": "month"
+        }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showWeekly"
+          }
+        ]
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": []
+      }
+    ]
+  }
+}

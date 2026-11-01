@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-weekly",
+  "title": "Existing weather switches to weekly",
+  "purpose": "Observe target identity and retained state, not just the claimed output.",
+  "suite": "development",
+  "profile": "weather-session",
+  "surface": "session",
+  "fixtureId": "weather",
+  "oracle": {
+    "id": "weather-transitions",
+    "version": 1
+  },
+  "inputs": {
+    "turns": ["weekly"]
+  },
+  "expectations": {
+    "variants": ["weekly"]
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-vessel-mutation-action",
+      "datasetId": "cap-maelstrom-vessel-mutation-action",
+      "pointer": "/items/14"
+    }
+  ]
+}

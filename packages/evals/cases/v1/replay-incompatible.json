@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-incompatible",
+  "title": "Replay replay-incompatible",
+  "purpose": "Validate the supplied upstream request identity before executing downstream stages.",
+  "suite": "development",
+  "profile": "planner-replay",
+  "surface": "planner-response",
+  "fixtureId": "planner-script",
+  "oracle": {
+    "id": "scenario-response",
+    "version": 1
+  },
+  "inputs": {
+    "response": "preserve",
+    "replayScenarioId": "variant"
+  },
+  "expectations": {
+    "source": "scenario"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "reference-backed",
+  "lineage": [
+    {
+      "source": "current",
+      "revision": "3654af466efd935cf07da95f6751d36a9bb07377",
+      "path": "packages/evals/src/core/scenarios.ts",
+      "scenarioId": "preserve"
+    },
+    {
+      "source": "current",
+      "revision": "3654af466efd935cf07da95f6751d36a9bb07377",
+      "path": "packages/evals/src/core/scenarios.ts",
+      "scenarioId": "variant"
+    }
+  ],
+  "scenarioId": "preserve"
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-state-reset-optional-enum",
+  "title": "COMPLETE D33 isolated optional first-marker enum predicate",
+  "purpose": "COMPLETE for this isolated synthetic D33/T12 optional third-turn enum predicate: an absent labs-main/selectMarker passes; if present only the first match must use hemoglobin, platelets or glucose. Uses the existing synthetic third prompt exactly, absent from dataset /items/32. This is one response projection, not a three-turn reset, full legacy scorer, every-match enum safety or positive selection. Handler effects, marker persistence and current-app/runtime compatibility are outside this scripted predicate. No Engine, model or provider runs.",
+  "suite": "development",
+  "profile": "labs-state-reset-optional-enum",
+  "surface": "session",
+  "fixtureId": "labs-state-reset-optional-enum-script",
+  "oracle": {
+    "id": "labs-state-reset-optional-enum",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "What's the trend for hemoglobin?"
+  },
+  "expectations": {
+    "rule": "optional-first-marker-enum",
+    "instanceId": "labs-main",
+    "action": "selectMarker",
+    "allowedMarkerSlugs": ["hemoglobin", "platelets", "glucose"],
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-state-reset",
+      "datasetId": "cap-maelstrom-multiturn-state-reset",
+      "pointer": "/items/32"
+    }
+  ]
+}

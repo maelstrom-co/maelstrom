@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-action-backed-transition-script",
+  "kind": "weather-action-backed-transition-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "response": {
+      "executionPlan": [
+        { "instanceId": "weather-main", "action": "showWeekly" }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          }
+        ]
+      }
+    }
+  }
+}

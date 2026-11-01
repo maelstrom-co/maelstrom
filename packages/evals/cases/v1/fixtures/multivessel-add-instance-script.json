@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "multivessel-add-instance-script",
+  "kind": "multivessel-add-instance-script",
+  "synthetic": true,
+  "data": {
+    "registeredVessels": ["weather", "labs", "calendar"],
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            },
+            {
+              "instanceId": "calendar-added",
+              "vesselId": "calendar",
+              "variant": "week"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "calendar-added",
+            "action": "showWeekly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            },
+            {
+              "instanceId": "calendar-added",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": []
+      }
+    ]
+  }
+}

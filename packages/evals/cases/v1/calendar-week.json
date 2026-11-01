@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "calendar-week",
+  "title": "Calendar week navigation",
+  "purpose": "Check the showWeekly Action targets the existing calendar Instance and retains week state. Synthetic navigation harness only.",
+  "suite": "development",
+  "profile": "legacy-vessel-transition",
+  "surface": "session",
+  "fixtureId": "calendar-transitions",
+  "oracle": {
+    "id": "legacy-vessel-transition",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Show me the weekly view of my calendar",
+    "instanceId": "calendar-main",
+    "action": "showWeekly"
+  },
+  "expectations": {
+    "instanceId": "calendar-main",
+    "action": "showWeekly",
+    "variant": "week"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-vessel-calendar-week",
+      "datasetId": "cap-maelstrom-vessel-calendar-week",
+      "pointer": "/items/25"
+    }
+  ]
+}

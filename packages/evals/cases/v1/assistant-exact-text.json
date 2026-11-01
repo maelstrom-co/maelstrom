@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-exact-text",
+  "title": "D03 source exact-text predicate represented",
+  "purpose": "D03/T01 source exact-text predicate represented with case-sensitive whitespace normalization only; no shared-ai.chat, streaming or runtime compatibility claim.",
+  "suite": "development",
+  "profile": "legacy-assistant-text",
+  "surface": "session",
+  "fixtureId": "assistant-exact-text-script",
+  "oracle": {
+    "id": "legacy-assistant-text",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Reply with exactly: HELLO_MAELSTROM"
+  },
+  "expectations": {
+    "rule": "exact-text",
+    "exactText": "HELLO_MAELSTROM"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-ai-chat-single-message",
+      "datasetId": "cap-ai-chat-single-message",
+      "pointer": "/items/2"
+    }
+  ]
+}

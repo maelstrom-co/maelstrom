@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-action-backed-transition",
+  "title": "COMPLETE D39 action-backed Weather weekly transition",
+  "purpose": "COMPLETE for the declared D39 predicate: from existing weather-main/Weather/current, require matching showWeekly and a shipped weekly Variant on the same identity. The source's 'without proper transition' forbids an actionless jump, not the declared showWeekly transition. Matching Action/target and unique protected identity strengthen the legacy nonempty-plan check. Extra Actions, parameters, other Instances and geometry are unscored. No model compliance, handler effects, reliability or exact legacy-scorer equivalence claim.",
+  "suite": "development",
+  "profile": "weather-action-backed-transition",
+  "surface": "session",
+  "fixtureId": "weather-action-backed-transition-script",
+  "oracle": { "id": "weather-action-backed-transition", "version": 1 },
+  "inputs": { "intent": "Skip to weekly forecast" },
+  "expectations": {
+    "rule": "matching-weekly-transition",
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-edge-deterministic-actions",
+      "datasetId": "cap-maelstrom-edge-deterministic-actions",
+      "pointer": "/items/38"
+    }
+  ]
+}

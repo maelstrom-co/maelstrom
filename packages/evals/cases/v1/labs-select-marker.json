@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-select-marker",
+  "title": "Labs turn-1 marker Action emission",
+  "purpose": "Synthetic source-scoring trajectory: selectMarker(hemoglobin) on turn 1; trends/no-navigation checks on turns 0, 2, 3. Dataset says final response; this does not prove retained marker selection or complete final-response correctness.",
+  "suite": "development",
+  "profile": "legacy-labs-select-marker",
+  "surface": "session",
+  "fixtureId": "labs-select-marker-script",
+  "oracle": {
+    "id": "legacy-labs-select-marker",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Focus the labs chart on one marker."
+      },
+      {
+        "intent": "Use hemoglobin."
+      },
+      {
+        "intent": "Keep the current trends view."
+      },
+      {
+        "intent": "Do not switch to upload or list."
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "labs-main",
+    "action": "selectMarker",
+    "markerSlug": "hemoglobin",
+    "variant": "trends",
+    "forbiddenActions": ["showUpload", "showList"],
+    "forbidNewInstances": true
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-labs-select-marker",
+      "datasetId": "cap-maelstrom-multiturn-labs-select-marker",
+      "pointer": "/items/22"
+    }
+  ]
+}

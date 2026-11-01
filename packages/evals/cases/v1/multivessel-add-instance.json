@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "multivessel-add-instance",
+  "title": "Two-turn Calendar addition with Weather preservation",
+  "purpose": "Synthetic response evidence: preserve Weather/current, add a fresh Calendar with a plan step targeting it, then retain that Calendar in month. Strengthened identity/preservation only; no Action-name, handler-ordering or runtime claim.",
+  "suite": "development",
+  "profile": "legacy-multivessel-add-instance",
+  "surface": "session",
+  "fixtureId": "multivessel-add-instance-script",
+  "oracle": {
+    "id": "legacy-multivessel-add-instance",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "I want to see my calendar alongside the weather."
+      },
+      {
+        "intent": "Show the monthly view."
+      }
+    ]
+  },
+  "expectations": {
+    "retainedInstance": {
+      "instanceId": "weather-main",
+      "vesselId": "weather",
+      "variant": "current"
+    },
+    "addedInstance": {
+      "instanceId": "calendar-added",
+      "vesselId": "calendar",
+      "finalVariant": "month"
+    }
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multivessel-add-instance",
+      "datasetId": "cap-maelstrom-multivessel-add-instance",
+      "pointer": "/items/33"
+    }
+  ]
+}

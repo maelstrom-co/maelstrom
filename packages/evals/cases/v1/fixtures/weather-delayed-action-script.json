@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-delayed-action-script",
+  "kind": "weather-delayed-action-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "weekly"
+          }
+        ],
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            }
+          ]
+        },
+        "executionPlan": [
+          { "instanceId": "weather-main", "action": "showWeekly" }
+        ]
+      }
+    ]
+  }
+}

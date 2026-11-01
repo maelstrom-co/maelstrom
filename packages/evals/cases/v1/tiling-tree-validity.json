@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "tiling-tree-validity",
+  "title": "Add Labs in a strict current-format binary tree",
+  "purpose": "Synthetic binary-subset strengthening: retain Weather/current and add Labs/trends, both visible once. Current ID:/weighted syntax; no legacy depth parity, geometry, runtime repair or Action-effect claim.",
+  "suite": "development",
+  "profile": "legacy-tiling-tree-validity",
+  "surface": "session",
+  "fixtureId": "tiling-tree-validity-script",
+  "oracle": {
+    "id": "legacy-tiling-tree-validity",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Add my lab results to the view"
+  },
+  "expectations": {
+    "retainedInstance": {
+      "instanceId": "weather-main",
+      "vesselId": "weather",
+      "variant": "current"
+    },
+    "addedInstance": {
+      "instanceId": "labs-main",
+      "vesselId": "labs",
+      "variant": "trends"
+    }
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-tiling-tree-validity",
+      "datasetId": "cap-maelstrom-tiling-tree-validity",
+      "pointer": "/items/11"
+    }
+  ]
+}

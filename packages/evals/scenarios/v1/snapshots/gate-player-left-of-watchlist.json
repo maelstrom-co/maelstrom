@@ -1,0 +1,735 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "revision": "cf672d3103a6a241bce9c409a4c6edace2a9dbfe",
+    "path": "packages/evals/src/core/scenarios.ts",
+    "scenarioId": "gate-player-left-of-watchlist"
+  },
+  "scenario": {
+    "id": "gate-player-left-of-watchlist",
+    "suite": "development",
+    "title": "A stated order on the workspace board",
+    "request": {
+      "type": "chart_request",
+      "context": {
+        "updateReasons": [
+          {
+            "type": "user_intent",
+            "intent": "Put the player to the left of the watchlist."
+          }
+        ],
+        "chartDimensions": {
+          "rows": 18,
+          "columns": 30
+        },
+        "layoutMode": "tiling"
+      },
+      "instances": [
+        {
+          "instanceId": "player-main",
+          "vesselId": "player",
+          "variant": "nowPlaying"
+        },
+        {
+          "instanceId": "watchlist-main",
+          "vesselId": "watchlist",
+          "variant": "list"
+        },
+        {
+          "instanceId": "contacts-main",
+          "vesselId": "contacts",
+          "variant": "list"
+        }
+      ],
+      "vessels": [
+        {
+          "id": "player",
+          "name": "Music Player",
+          "description": "Music player for browsing what is currently playing, the upcoming queue, and lyrics for the current track. Supports playing a track, queueing tracks, and pausing playback from any view.",
+          "defaultVariant": "nowPlaying",
+          "variants": {
+            "nowPlaying": {
+              "props": {},
+              "minSize": {
+                "width": 4,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "showQueue",
+                  "description": "Switch to the upcoming queue view",
+                  "transitionsTo": "queue",
+                  "idempotent": true
+                },
+                {
+                  "name": "showLyrics",
+                  "description": "Switch to the lyrics view for the current track",
+                  "transitionsTo": "lyrics",
+                  "idempotent": true
+                },
+                {
+                  "name": "play",
+                  "description": "Play a track",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addToQueue",
+                  "description": "Add a track to the end of the queue",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "pause",
+                  "description": "Pause playback",
+                  "idempotent": true
+                }
+              ]
+            },
+            "queue": {
+              "props": {},
+              "minSize": {
+                "width": 6,
+                "height": 3
+              },
+              "actions": [
+                {
+                  "name": "showNowPlaying",
+                  "description": "Switch back to the now-playing view",
+                  "transitionsTo": "nowPlaying",
+                  "idempotent": true
+                },
+                {
+                  "name": "showLyrics",
+                  "description": "Switch to the lyrics view for the current track",
+                  "transitionsTo": "lyrics",
+                  "idempotent": true
+                },
+                {
+                  "name": "play",
+                  "description": "Play a track",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addToQueue",
+                  "description": "Add a track to the end of the queue",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "pause",
+                  "description": "Pause playback",
+                  "idempotent": true
+                }
+              ]
+            },
+            "lyrics": {
+              "props": {},
+              "minSize": {
+                "width": 4,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "showNowPlaying",
+                  "description": "Switch back to the now-playing view",
+                  "transitionsTo": "nowPlaying",
+                  "idempotent": true
+                },
+                {
+                  "name": "showQueue",
+                  "description": "Switch to the upcoming queue view",
+                  "transitionsTo": "queue",
+                  "idempotent": true
+                },
+                {
+                  "name": "play",
+                  "description": "Play a track",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addToQueue",
+                  "description": "Add a track to the end of the queue",
+                  "parameters": [
+                    {
+                      "name": "track",
+                      "type": "string",
+                      "description": "Song title, optionally with the artist"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "pause",
+                  "description": "Pause playback",
+                  "idempotent": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "watchlist",
+          "name": "Stock Watchlist",
+          "description": "Stock watchlist showing tracked symbols, an interactive price chart, and related news. Supports adding and removing symbols and adjusting the chart time range.",
+          "defaultVariant": "list",
+          "variants": {
+            "list": {
+              "props": {},
+              "minSize": {
+                "width": 3,
+                "height": 3
+              },
+              "actions": [
+                {
+                  "name": "showChart",
+                  "description": "Show the price chart for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "transitionsTo": "chart",
+                  "idempotent": true
+                },
+                {
+                  "name": "showNews",
+                  "description": "Show related news for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "transitionsTo": "news",
+                  "idempotent": true
+                },
+                {
+                  "name": "addSymbol",
+                  "description": "Add a symbol to the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "removeSymbol",
+                  "description": "Remove a symbol from the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                }
+              ]
+            },
+            "chart": {
+              "props": {},
+              "minSize": {
+                "width": 6,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "showChart",
+                  "description": "Show the price chart for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": true
+                },
+                {
+                  "name": "showNews",
+                  "description": "Show related news for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "transitionsTo": "news",
+                  "idempotent": true
+                },
+                {
+                  "name": "setRange",
+                  "description": "Set the chart time range",
+                  "parameters": [
+                    {
+                      "name": "range",
+                      "type": "string",
+                      "description": "Time range to display",
+                      "enum": ["1D", "1W", "1M", "1Y"]
+                    }
+                  ],
+                  "idempotent": true
+                },
+                {
+                  "name": "addSymbol",
+                  "description": "Add a symbol to the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "removeSymbol",
+                  "description": "Remove a symbol from the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "backToList",
+                  "description": "Return to the watchlist",
+                  "transitionsTo": "list",
+                  "idempotent": true
+                }
+              ]
+            },
+            "news": {
+              "props": {},
+              "minSize": {
+                "width": 4,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "showChart",
+                  "description": "Show the price chart for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "transitionsTo": "chart",
+                  "idempotent": true
+                },
+                {
+                  "name": "showNews",
+                  "description": "Show related news for a symbol",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": true
+                },
+                {
+                  "name": "addSymbol",
+                  "description": "Add a symbol to the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "removeSymbol",
+                  "description": "Remove a symbol from the watchlist",
+                  "parameters": [
+                    {
+                      "name": "symbol",
+                      "type": "string",
+                      "description": "Ticker symbol such as AAPL"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "backToList",
+                  "description": "Return to the watchlist",
+                  "transitionsTo": "list",
+                  "idempotent": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "contacts",
+          "name": "Contacts",
+          "description": "Contact list with a detail view and a call-history view for each contact. Supports adding contacts, adding notes, and logging calls.",
+          "defaultVariant": "list",
+          "variants": {
+            "list": {
+              "props": {},
+              "minSize": {
+                "width": 3,
+                "height": 3
+              },
+              "actions": [
+                {
+                  "name": "openContact",
+                  "description": "Open a contact to view their details",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "transitionsTo": "detail",
+                  "idempotent": true
+                },
+                {
+                  "name": "showHistory",
+                  "description": "Show a contact's call history",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "transitionsTo": "history",
+                  "idempotent": true
+                },
+                {
+                  "name": "addContact",
+                  "description": "Add a new contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "company",
+                      "type": "string",
+                      "description": "Contact's company"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addNote",
+                  "description": "Add a note to a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "text",
+                      "type": "string",
+                      "description": "Note text"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "logCall",
+                  "description": "Log a call with a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "summary",
+                      "type": "string",
+                      "description": "Summary of the call"
+                    }
+                  ],
+                  "idempotent": false
+                }
+              ]
+            },
+            "detail": {
+              "props": {},
+              "minSize": {
+                "width": 4,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "openContact",
+                  "description": "Open a contact to view their details",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "idempotent": true
+                },
+                {
+                  "name": "showHistory",
+                  "description": "Show a contact's call history",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "transitionsTo": "history",
+                  "idempotent": true
+                },
+                {
+                  "name": "addContact",
+                  "description": "Add a new contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "company",
+                      "type": "string",
+                      "description": "Contact's company"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addNote",
+                  "description": "Add a note to a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "text",
+                      "type": "string",
+                      "description": "Note text"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "logCall",
+                  "description": "Log a call with a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "summary",
+                      "type": "string",
+                      "description": "Summary of the call"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "backToList",
+                  "description": "Return to the contact list",
+                  "transitionsTo": "list",
+                  "idempotent": true
+                }
+              ]
+            },
+            "history": {
+              "props": {},
+              "minSize": {
+                "width": 4,
+                "height": 4
+              },
+              "actions": [
+                {
+                  "name": "openContact",
+                  "description": "Open a contact to view their details",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "transitionsTo": "detail",
+                  "idempotent": true
+                },
+                {
+                  "name": "showHistory",
+                  "description": "Show a contact's call history",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    }
+                  ],
+                  "idempotent": true
+                },
+                {
+                  "name": "addContact",
+                  "description": "Add a new contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "company",
+                      "type": "string",
+                      "description": "Contact's company"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "addNote",
+                  "description": "Add a note to a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "text",
+                      "type": "string",
+                      "description": "Note text"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "logCall",
+                  "description": "Log a call with a contact",
+                  "parameters": [
+                    {
+                      "name": "name",
+                      "type": "string",
+                      "description": "Contact's full name"
+                    },
+                    {
+                      "name": "summary",
+                      "type": "string",
+                      "description": "Summary of the call"
+                    }
+                  ],
+                  "idempotent": false
+                },
+                {
+                  "name": "backToList",
+                  "description": "Return to the contact list",
+                  "transitionsTo": "list",
+                  "idempotent": true
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "layout": {
+        "tree": [
+          "V:1,1,1",
+          "ID:watchlist-main",
+          "ID:player-main",
+          "ID:contacts-main"
+        ],
+        "instances": [
+          {
+            "instanceId": "player-main",
+            "vesselId": "player",
+            "variant": "nowPlaying"
+          },
+          {
+            "instanceId": "watchlist-main",
+            "vesselId": "watchlist",
+            "variant": "list"
+          },
+          {
+            "instanceId": "contacts-main",
+            "vesselId": "contacts",
+            "variant": "list"
+          }
+        ],
+        "type": "tiling"
+      }
+    },
+    "expected": {
+      "status": "planned",
+      "visible": ["player-main", "watchlist-main", "contacts-main"],
+      "actions": [],
+      "tree": [
+        "V:1,1,1",
+        "ID:player-main",
+        "ID:watchlist-main",
+        "ID:contacts-main"
+      ],
+      "arrangement": [
+        {
+          "kind": "leftOf",
+          "a": "player-main",
+          "b": "watchlist-main"
+        }
+      ]
+    },
+    "spatial": true
+  }
+}
