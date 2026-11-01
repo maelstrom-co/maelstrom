@@ -24,6 +24,7 @@ function gate() {
 type Options = {
   failAction?: boolean;
   skipRunner?: boolean;
+  applicationAcknowledgmentTimeoutMs?: number;
   changeAck?: (body: WireBody) => void;
   dropAck?: boolean;
   onCreate?: (connector: AguiConnector, orchestrator: Orchestrator) => void;
@@ -66,6 +67,8 @@ async function setup(options: Options = {}) {
     vessels: [journalVessel],
     layoutMode: 'tiling',
     readyTimeoutMs: 50,
+    applicationAcknowledgmentTimeoutMs:
+      options.applicationAcknowledgmentTimeoutMs,
   });
   cleanup.push(async () => {
     await orchestrator.dispose();
@@ -116,6 +119,38 @@ async function setup(options: Options = {}) {
 }
 
 describe('experimental Journal session', () => {
+  it('retires an automatic update at the client acknowledgment deadline and fences its late result', async () => {
+    vi.useFakeTimers();
+    const waiting = gate();
+    const delivered = gate();
+    const h = await setup({
+      applicationAcknowledgmentTimeoutMs: 10,
+      changeResponse: async (response, body) => {
+        if (body.forwardedProps?.kind === 'ack') {
+          waiting.resolve();
+          await delivered.promise;
+        }
+        return response;
+      },
+    });
+    h.orchestrator.chartManager.setDimensions({ columns: 13, rows: 8 });
+    const update = h.orchestrator.flushUpdates();
+    await waiting.promise;
+    try {
+      await vi.advanceTimersByTimeAsync(10);
+      await update;
+      expect(h.connector.state.phase).toBe('stopped');
+    } finally {
+      delivered.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(h.connector.state.phase).toBe('stopped');
+    expect(h.connector.state.revision).toBe(0);
+    expect(
+      h.requests.filter((r) => r.forwardedProps?.kind === 'plan'),
+    ).toHaveLength(1);
+  });
+
   it('bounds startup through body consumption so retirement cannot wait forever for a token', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', async () => new Response(new ReadableStream()));

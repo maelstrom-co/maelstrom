@@ -51,6 +51,7 @@ import {
   readStructuralSnapshot,
   type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
+import { ApplicationAcknowledgment } from './application-acknowledgment.js';
 import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
 import { IntentScheduler } from './intent-scheduler.js';
@@ -161,6 +162,7 @@ export class Orchestrator {
   // microkernels and outlive any connector.
   #unsubPush: (() => void) | null = null;
   #connectorEpoch = 0;
+  #applicationAcknowledgment: ApplicationAcknowledgment;
   // Vessel mutations invoked while disconnected/reconnecting are held here
   // instead of flushed into a closed connector; replayed once
   // 'connection_status_changed' reports 'connected' (mirrors ChartManager's
@@ -171,10 +173,14 @@ export class Orchestrator {
   constructor(connector: EngineConnector, options: OrchestratorOptions = {}) {
     this.#connector = connector;
     this.#config = resolveOrchestratorOptions(options);
+    this.#applicationAcknowledgment = new ApplicationAcknowledgment(
+      this.#config.applicationAcknowledgmentTimeoutMs,
+    );
     this.diagnostics = new DiagnosticChannel(this.#config.sessionId);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
     this.#intentScheduler = new IntentScheduler(options.intentQueue ?? {}, {
       ready: () =>
+        !this.#applicationAcknowledgment.error &&
         this.#localActions === 0 &&
         this.#commandProcessor.store.state.status === 'idle' &&
         this.#commandProcessor.queueLength === 0,
@@ -487,6 +493,9 @@ export class Orchestrator {
    *   disconnected out from under this request. Both shapes mean the intent
    *   may have effects; do not automatically retry uncertain work.
    * - `Error('Orchestrator is disposed')` — called after {@link dispose}.
+   * - the acknowledgment error — a previous application acknowledgment failed
+   *   or expired. Install a different connector before planning again; never
+   *   automatically replay the uncertain intent.
    *
    * INVARIANTS:
    * - Whenever a fenced outcome discards the response, the updates that rode
@@ -500,6 +509,8 @@ export class Orchestrator {
     if (this.#isDisposed) {
       throw new Error('Orchestrator is disposed');
     }
+    if (this.#applicationAcknowledgment.error)
+      throw this.#applicationAcknowledgment.error;
     if (!this.#intentScheduler.acquire()) {
       throw new RequestInFlightError();
     }
@@ -632,7 +643,8 @@ export class Orchestrator {
         outcome.response,
         request.id,
       );
-      this.#requestCoordinator.resolveFlushPromises(outcome.response);
+      if (!isFenced('application acknowledgment completed'))
+        this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return settlement.status === 'applied'
         ? { status: 'applied', response: outcome.response }
         : settlement;
@@ -662,6 +674,7 @@ export class Orchestrator {
    * RESOLVES `null` — deliberately the same value for every "nothing landed"
    * case, because none of them is a failure the caller can act on:
    * - the Orchestrator is disposed;
+   * - an earlier application acknowledgment failed or expired;
    * - nothing was buffered;
    * - disconnect removed buffered work waiting for a future engine turn;
    * - a concurrent {@link setConnector} superseded the response, which was
@@ -675,7 +688,7 @@ export class Orchestrator {
    * connector — an ordinary failure, not a fenced one, is never swallowed.
    */
   async flushUpdates(): Promise<MaelstromResponse | null> {
-    if (this.#isDisposed) return null;
+    if (this.#isDisposed || this.#applicationAcknowledgment.error) return null;
 
     if (!this.#updateCoordinator.hasPending()) return null;
     if (!this.#intentScheduler.acquire()) {
@@ -703,6 +716,7 @@ export class Orchestrator {
         this.#logger.error('Timer-flush dispatch failed', error);
         throw error;
       }
+      if (isFenced('application acknowledgment completed')) return null;
       this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return outcome.response;
     } catch (error) {
@@ -998,6 +1012,12 @@ export class Orchestrator {
     this.#connector = next;
     this.#connectorEpoch += 1;
     this.#intentScheduler.retire('connector_replaced');
+    this.#applicationAcknowledgment.retire(
+      new Error('Application acknowledgment retired'),
+    );
+    this.#applicationAcknowledgment = new ApplicationAcknowledgment(
+      this.#config.applicationAcknowledgmentTimeoutMs,
+    );
     this.#requestCoordinator.resolveFlushPromises(null);
     this.#connectionManager.setConnector(next);
     this.#requestCoordinator.setConnector(next);
@@ -1020,6 +1040,9 @@ export class Orchestrator {
 
     this.#isDisposed = true;
     this.#intentScheduler.retire('disposed');
+    this.#applicationAcknowledgment.retire(
+      new Error('Application acknowledgment retired'),
+    );
     for (const [requestId, phase] of this.#diagnosticPending)
       this.diagnostics.emit(
         phase === 'request'
@@ -1300,6 +1323,12 @@ export class Orchestrator {
   ) {
     const connector = this.#connector;
     const epoch = this.#connectorEpoch;
+    const acknowledgment = this.#applicationAcknowledgment;
+    if (source === 'request' && acknowledgment.error)
+      return Promise.resolve<CommandBatchResult>({
+        status: 'unknown',
+        error: acknowledgment.error,
+      });
     const layoutCommand = {
       kind: 'set_layout' as const,
       layout: response.layout,
@@ -1372,7 +1401,9 @@ export class Orchestrator {
         }),
       );
     }
-    if (source === 'push' || !connector.applicationSettled || !requestId) {
+    const notifyApplicationSettled =
+      connector.applicationSettled?.bind(connector);
+    if (source === 'push' || !notifyApplicationSettled || !requestId) {
       return this.#commandProcessor.dispatchSettled(
         layoutCommand,
         actionsCommand,
@@ -1424,12 +1455,10 @@ export class Orchestrator {
             error: new Error('Application settlement retired'),
           };
         }
-        await connector.applicationSettled?.({
-          requestId,
-          result,
-          actions,
-          chart,
-        });
+        const settlement = { requestId, result, actions, chart };
+        await acknowledgment.wait((signal) =>
+          notifyApplicationSettled(settlement, signal),
+        );
         if (this.#isDisposed || epoch !== this.#connectorEpoch) {
           return {
             status: 'unknown',
@@ -1438,6 +1467,8 @@ export class Orchestrator {
         }
         return result;
       } catch (error) {
+        if (!this.#isDisposed && epoch === this.#connectorEpoch)
+          this.#requestCoordinator.resolveFlushPromises(null);
         return { status: 'unknown', error: toError(error) };
       } finally {
         release();
