@@ -1325,6 +1325,63 @@ test('native count metadata rejects excess records instead of approving a matchi
   expect(starts).toBe(0);
 });
 
+test.each([
+  ['undeclared arm', { arm: 'undeclared' }],
+  ['repeat above declared maximum', { repeat: 3 }],
+])('full planner import rejects %s with unchanged counts and unique tuples before credentials or publication', async (_label, invalid) => {
+  const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
+    [1, 2].flatMap((repeat) =>
+      ['baseline', 'staged'].map((arm) =>
+        plannerRecord({ scenarioId, repeat, arm }),
+      ),
+    ),
+  );
+  const overrides = await fullPlannerInput(records);
+  const { approval } = await preview(overrides);
+  const summary = await readFile(join(directory, 'summary.json'));
+  const changed = records.map((record, index) =>
+    index === 0 ? { ...record, ...invalid } : record,
+  );
+  expect(changed).toHaveLength(records.length);
+  expect(
+    new Set(
+      changed.map((record) =>
+        JSON.stringify([record.scenarioId, record.arm, record.repeat]),
+      ),
+    ).size,
+  ).toBe(records.length);
+  await writeFile(join(directory, 'records.json'), JSON.stringify(changed));
+  expect(await readFile(join(directory, 'summary.json'))).toEqual(summary);
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  expect(() =>
+    importFullPlannerRun(
+      Buffer.from(JSON.stringify(changed)),
+      summary,
+      records.length,
+    ),
+  ).toThrow('Invalid planner record');
+  const path = join(directory, 'invalid-membership-preview.json');
+  const invalidInput = {
+    exitCode: 2,
+    output: { status: 'invalid', code: 'invalid_input' },
+  } as const;
+  expect(
+    await runLangfuseCli(
+      [...args(overrides), '--preview-out', path],
+      dependencies(),
+    ),
+  ).toEqual(invalidInput);
+  await expect(stat(path)).rejects.toThrow();
+  expect(
+    await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
+  ).toEqual(invalidInput);
+  expect(credentialReads).toEqual([]);
+  expect(starts).toBe(0);
+  expect(batches).toEqual([]);
+  expect(datasets).toEqual([]);
+  expect(datasetItems).toEqual([]);
+});
+
 test('a matching selected-scenario subset previews both structurally consistent record counts', async () => {
   const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
     [1, 2].flatMap((repeat) =>
