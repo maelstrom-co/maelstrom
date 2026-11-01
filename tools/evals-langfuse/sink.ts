@@ -9,6 +9,7 @@ import {
   validateDatasetName,
 } from './dataset.ts';
 import { mapLangfuseV3Publication } from './mapping.ts';
+import type { RunLinkClient } from './run-link-publisher.ts';
 
 type Batch = LangfuseClient['api']['ingestion']['batch'];
 type BatchRequest = Parameters<Batch>[0];
@@ -24,7 +25,7 @@ export interface LangfuseV3Transport {
     request: Parameters<LangfuseClient['api']['datasets']['create']>[0],
     options: BatchOptions,
   ): Promise<{ id: string; name: string }>;
-  /** Catalog item upsert only. */
+  /** Catalog item upsert only; run-link publication has a separate client. */
   createDatasetItem?(
     request: LangfuseV3DatasetItem,
     options: BatchOptions,
@@ -218,6 +219,24 @@ export function startLangfuseV3Sink(
       });
       return shutdown;
     },
+  };
+}
+
+/** Starts only the public run-item API; the one-shot publisher owns deadlines and journaling. */
+export function startLangfuseRunLinkClient(
+  config: LangfuseV3Config,
+): RunLinkClient {
+  validateConfig(config);
+  const client = new LangfuseClient({
+    baseUrl: config.baseUrl,
+    publicKey: config.publicKey,
+    secretKey: config.secretKey,
+    timeout: config.timeoutMs / 1_000,
+  });
+  return {
+    create: (request, options) =>
+      client.api.datasetRunItems.create(request, options),
+    shutdown: () => client.shutdown(),
   };
 }
 

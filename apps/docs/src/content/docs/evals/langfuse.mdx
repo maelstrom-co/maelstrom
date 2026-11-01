@@ -1,0 +1,316 @@
+---
+title: Langfuse workflow
+description: Create a full-planner runner script, review saved evidence, and explicitly approve publication to Langfuse v3.
+slug: evals/langfuse
+---
+
+An evaluation runs defined tasks and checks the observed results. **Langfuse** is an external system for viewing those saved results; this workflow does not use it to run the tasks or judge them. The local evaluator produces correctness scores and any optional judge ratings before publication.
+
+Create and save the script first, configure its environment, run or reuse an evaluation, review the exact preview, then approve publication. For an introduction to cases, suites, arms and judges, see [Evaluation architecture](/evals/architecture/); for executable coverage, see [Evaluation cases](/evals/cases/).
+
+This guide's script is one way to run the evaluation and optionally publish its reviewed summary to the Langfuse v3 sink. Use Bun and installed workspace dependencies from the repository root; the Langfuse CLI requires **Node ≥24** and targets **self-hosted Langfuse OSS 3.163.0**, not Cloud/v4. Deployment compatibility, access, retention and deletion policy still need verification and approval. See `tools/evals-langfuse/README.md` for the authoritative CLI contract and bounds.
+
+**Cost warning:** this runner selects `--suite all --arm baseline --arm jev-poc` with **3 repeats by default**. It is a paid full-suite run of both arms, **not a one-case judge smoke test**. Before `run-preview`, configure an external hard spending cap with your providers; the runner has no internal spend guard. Inject `OPENAI_API_KEY` and `TYPESAFE_API_KEY` through a trusted environment. Defaults below are `JEV_MODEL=jev-1.13.0`, `EVAL_MODEL=gpt-5.6-luna` and `REPEATS=3`.
+
+**Do not start with `publish`.** A successful `run-preview` produces `records.json` and `summary.json` in `EVAL_OUT`, saves the preparation timestamp, and creates the local preview. `publish` only uploads reviewed saved evidence; it never runs the evaluation. `Missing regular input: records.json` means the selected directory does not contain the required saved run, not that publishing will create it. Use a completed run directory or run the evaluator first; do not create empty input files.
+
+## Create your script
+
+From the workspace root, create a new file named `full-planner-langfuse.sh` in your editor. Copy the **five numbered Bash fragments below** into that file in order, starting with `#!/bin/bash`; copy only their code, not the headings or the usage commands after the fragments. Save the file before running anything. The repository does not supply this script: you are creating it from this page. Keep it local and out of commits. The usage commands after the fragments use this exact filename from the workspace root. No executable permission is needed because the commands invoke Bash directly.
+
+The following five Bash 3.2 fragments form `full-planner-langfuse.sh`. Concatenate their code in order into that file as described above, then run the complete script from the workspace root. Do not run each fragment in a fresh shell; later steps use variables set earlier. The script requires exactly one mode:
+
+- `run-preview`: paid full-planner run into a **new** absolute `EVAL_OUT`, followed by local preview only. If unset, it creates a private directory under `${TMPDIR:-/tmp}` and uses its `run` subdirectory.
+- `preview`: use an **existing** `EVAL_OUT` containing `records.json` and `summary.json`; no provider calls or upload. This also works for an earlier Bash run.
+- `publish`: reuse those same files, the saved preparation timestamp and an explicitly selected preview plus its reviewed hash; never run the evaluator.
+- `link-preview`: prepare an offline experiment-link plan for an **already published** catalog, using the saved run and timestamp.
+- `link-publish`: approve that separate plan and link existing items/traces into a run; never rerun or rewrite them.
+
+### 1. Validate the invocation
+
+This opening fragment enables strict shell handling, accepts exactly one mode, and requires an approved Langfuse URL and destination.
+
+```bash title="1. Initialize the script"
+#!/bin/bash
+set -euo pipefail
+umask 077
+
+# Run the complete script from the workspace root.
+
+die() { printf '%s\n' "$*" >&2; exit 2; }
+if [ "$#" -ne 1 ]; then
+  die 'Usage: bash ./full-planner-langfuse.sh run-preview|preview|publish|link-preview|link-publish'
+fi
+mode=$1
+case "$mode" in
+  run-preview|preview|publish|link-preview|link-publish) ;;
+  *) die 'Choose run-preview, preview, publish, link-preview, or link-publish explicitly.' ;;
+esac
+: "${LANGFUSE_BASE_URL:?Set the approved Langfuse base URL}"
+: "${LANGFUSE_DESTINATION_ID:?Set the approved destination ID}"
+```
+
+### 2. Choose private output paths
+
+For `run-preview`, the next fragment creates a fresh output location (or a private temporary directory), checks absolute paths, verifies the repository root and Node version, and refuses to overwrite a preview.
+
+```bash title="2. Choose private output paths"
+# Set defaults only for a new paid run; preview/publish reuse saved paths.
+if [ "$mode" = run-preview ]; then
+  if [ -z "${EVAL_OUT:-}" ]; then
+    temp_root=${TMPDIR:-/tmp}
+    case "$temp_root" in /*) ;; *) die 'TMPDIR must be absolute.' ;; esac
+    EVAL_OUT="$(mktemp -d "$temp_root/maelstrom-evals.XXXXXX")/run"
+  fi
+  PREVIEW_FILE=${PREVIEW_FILE:-"$EVAL_OUT/langfuse-preview.json"}
+fi
+: "${EVAL_OUT:?Set the absolute saved run directory}"
+: "${PREVIEW_FILE:?Set the explicit absolute preview file path}"
+case "$EVAL_OUT" in /*) ;; *) die 'EVAL_OUT must be absolute.' ;; esac
+case "$PREVIEW_FILE" in /*) ;; *) die 'PREVIEW_FILE must be absolute.' ;; esac
+[ -f tools/evals-langfuse/cli.ts ] || die 'Run from the repository root.'
+node -e 'if (Number(process.versions.node.split(".")[0]) < 24) process.exit(2)'
+```
+
+### 3. Run the planner only when requested
+
+This is the only fragment that executes the paid planner evaluation. `preview` and `publish` skip this branch and reuse saved `records.json` and `summary.json`.
+
+```bash title="3. Run the planner only when requested"
+# Only run-preview invokes the provider-backed planner.
+if [ "$mode" != publish ] && [ "$mode" != link-publish ]; then
+  if [ -e "$PREVIEW_FILE" ] || [ -L "$PREVIEW_FILE" ]; then
+    die 'Preview must be a new file.'
+  fi
+fi
+if [ "$mode" = run-preview ]; then
+  : "${OPENAI_API_KEY:?Inject the provider key securely}"
+  : "${TYPESAFE_API_KEY:?Inject the provider key securely}"
+  export JEV_MODEL="${JEV_MODEL:-jev-1.13.0}"
+  EVAL_MODEL=${EVAL_MODEL:-gpt-5.6-luna}
+  REPEATS=${REPEATS:-3}
+  [[ "$REPEATS" =~ ^[1-9][0-9]*$ ]] || die 'REPEATS must be a positive integer.'
+  if [ -e "$EVAL_OUT" ] || [ -L "$EVAL_OUT" ]; then
+    die 'Use a new EVAL_OUT for a paid run.'
+  fi
+  mkdir -p "$EVAL_OUT"
+  [ -d "$(dirname "$PREVIEW_FILE")" ] || die 'Preview parent directory must exist.'
+  printf 'Retain EVAL_OUT=%s\nPREVIEW_FILE=%s\n' "$EVAL_OUT" "$PREVIEW_FILE"
+  eval_log=$(mktemp "$EVAL_OUT/planner-output.XXXXXX")
+  eval_status=0
+  bunx nx run @maelstrom-co/evals:eval -- \
+    --suite all --arm baseline --arm jev-poc --repeats "$REPEATS" \
+    --model "$EVAL_MODEL" --out "$EVAL_OUT" > "$eval_log" 2>&1 || eval_status=$?
+  printf 'Planner exit %s; private log at %s\n' "$eval_status" "$eval_log"
+  [ "$eval_status" -eq 0 ] || exit "$eval_status"
+fi
+```
+
+### 4. Validate and freeze the saved evidence
+
+This fragment verifies the native run files, creates or reuses the fixed preparation timestamp, and builds the exact CLI arguments for preview and publish. Full-suite files can exceed the CLI's 8 MiB input default, so this example uses a shared 16 MiB bound. The timestamp marks publication preparation, not evaluation latency.
+
+```bash title="4. Validate and freeze saved evidence"
+# Reuse this exact timestamp for preview and publish.
+[ -d "$EVAL_OUT" ] || die 'EVAL_OUT must be an existing run directory.'
+for file in records.json summary.json; do
+  if [ ! -f "$EVAL_OUT/$file" ] || [ -L "$EVAL_OUT/$file" ]; then
+    die "Missing regular input: $file"
+  fi
+done
+
+prepared_file="$EVAL_OUT/langfuse-prepared-at.txt"
+[ ! -L "$prepared_file" ] || die 'Preparation timestamp must not be a symlink.'
+if [ ! -e "$prepared_file" ]; then
+  case "$mode" in
+    publish|link-preview|link-publish) die 'Linking and publishing require the saved preparation timestamp.' ;;
+  esac
+  (set -C; date -u '+%Y-%m-%dT%H:%M:%S.000Z' > "$prepared_file")
+fi
+[ -f "$prepared_file" ] || die 'Missing preparation timestamp file.'
+IFS= read -r prepared_at < "$prepared_file"
+[ -n "$prepared_at" ] || die 'Empty preparation timestamp.'
+args=(
+  --input-format full-planner-run
+  --input "$EVAL_OUT"
+  --destination "$LANGFUSE_DESTINATION_ID"
+  --artifact summary
+  --prepared-at "$prepared_at"
+  --base-url "$LANGFUSE_BASE_URL"
+  --server-version 3.163.0
+  --max-input-bytes 16777216
+)
+```
+
+### 5. Preview or publish
+
+Preview needs no Langfuse credentials and makes no network calls. Publish verifies the saved preview’s exact approval hash before reading credentials or sending the reviewed batch.
+
+```bash title="5. Preview or publish"
+# Link-only modes reuse existing items/traces and never run the planner.
+case "$mode" in
+  link-preview|link-publish) args+=(--link-only) ;;
+esac
+
+# Publish is gated by the exact reviewed preview hash and secure credentials.
+if [ "$mode" = publish ] || [ "$mode" = link-publish ]; then
+  if [ "$mode" = link-publish ]; then
+    [ "${CONFIRM_NO_ACTIVE_EVALUATORS:-}" = yes ] || die 'Review server evaluators, then set CONFIRM_NO_ACTIVE_EVALUATORS=yes.'
+    args+=(--confirm-no-active-evaluators)
+  fi
+  : "${APPROVAL_SHA256:?Set the exact approvalSha256 reviewed after preview}"
+  if [ ! -f "$PREVIEW_FILE" ] || [ -L "$PREVIEW_FILE" ]; then
+    die 'Select the reviewed preview file.'
+  fi
+  preview_hash=$(node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { createHash } from "node:crypto";
+    console.log(
+      createHash("sha256")
+        .update(readFileSync(process.argv[1]))
+        .digest("hex"),
+    );
+  ' "$PREVIEW_FILE")
+  if [ "$preview_hash" != "$APPROVAL_SHA256" ]; then
+    die 'Approval does not match the selected preview.'
+  fi
+  : "${LANGFUSE_PUBLIC_KEY:?Inject the project public key securely}"
+  : "${LANGFUSE_SECRET_KEY:?Inject the project secret key securely}"
+  receipts=$(mktemp "$EVAL_OUT/langfuse-receipts.XXXXXX")
+  status=0
+  node tools/evals-langfuse/cli.ts "${args[@]}" \
+    --publish --approve-sha256 "$APPROVAL_SHA256" > "$receipts" || status=$?
+  printf 'Publish exit %s; retain receipts at %s\n' "$status" "$receipts"
+  exit "$status"
+else
+  node tools/evals-langfuse/cli.ts "${args[@]}" --preview-out "$PREVIEW_FILE"
+fi
+```
+
+## Configure the environment
+
+Set `LANGFUSE_BASE_URL` and `LANGFUSE_DESTINATION_ID` in your shell. `LANGFUSE_DESTINATION_ID` is a stable, caller-chosen label for this evaluation target (for example, `evals-project`); it is not a Langfuse credential or server-generated ID. The script passes the URL and label as explicit `--base-url` and `--destination` flags; the CLI itself does **not** read these variables or load `.env`. For `run-preview`, optionally set a new absolute `EVAL_OUT` and `PREVIEW_FILE`; the default preview is `$EVAL_OUT/langfuse-preview.json`. Keep outputs outside the checkout, including when overriding `TMPDIR`. Record the printed paths: for later `preview` or `publish`, explicitly set `EVAL_OUT` to that saved directory and `PREVIEW_FILE` to the selected absolute preview path. A custom preview's parent must already exist. Only publish reads `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`; inject them securely, never into flags, evidence, shell history or logs. Prefer HTTPS.
+
+After saving the complete script, stay in the workspace root. Set the approved configuration below (replace the URL and label), and inject provider credentials securely if you need a new run:
+
+```bash
+export LANGFUSE_BASE_URL='https://your-approved-langfuse-host'
+export LANGFUSE_DESTINATION_ID='your-evaluation-target-label'
+```
+
+If credentials are stored in a local `.env`, load it into **exported** environment variables before invoking the script. Plain `source .env` does not export ordinary assignments to child Bash, Bun or Node processes. Use only a trusted, private, shell-compatible file (owner-readable only, such as mode `0600`, and never committed): sourcing it executes shell code. Populate secrets through a trusted editor or secret manager, not command-line assignments, shell history or logs. Disable tracing before loading it, and do not print the environment or file contents:
+
+```bash title="Load a trusted .env into the subprocess environment"
+set +x
+set -a
+source ./.env
+set +a
+```
+
+`set -a` exports assignments while the file is loaded; `set +a` turns that behavior off afterward. For a saved run, load `.env` first, then restore the saved paths (also inside any wrapper that reloads `.env`).
+
+## Run, preview, then approve
+
+Use this order:
+
+1. **Only if you have no completed saved run**, start a new paid run and preview. Remove stale `EVAL_OUT`/`PREVIEW_FILE` settings from your shell and any `.env` your wrapper sources, or set new absolute paths; `run-preview` refuses to reuse an existing output directory.
+
+   ```bash
+   bash ./full-planner-langfuse.sh run-preview
+   ```
+
+2. Keep the absolute `EVAL_OUT` and `PREVIEW_FILE` paths printed by `run-preview`. For later commands or a new shell, export those same values again; if you load `.env`, do it first, then restore the saved paths.
+
+   If you already have a completed run, restore its paths instead of running again. If it has no preview yet, select a new absolute `PREVIEW_FILE` and run `bash ./full-planner-langfuse.sh preview` first. Otherwise keep the existing preview, inputs and preparation timestamp unchanged.
+
+3. **Review, capture approval, then publish.** Open `PREVIEW_FILE` locally in a trusted editor and review the entire exact batch envelope as described below; do not dump it into logs. After a successful `run-preview` or `preview`, the CLI prints a JSON status line in the terminal containing `approvalSha256`; copy that 64-character value. It is not a field in `PREVIEW_FILE` and is not `payloadDigest` or `publicationId`. The hash binds your approval to this exact preview, destination, and settings, so any change requires a new review. Only after review, enter the copied value as `APPROVAL_SHA256`. Restore the same approved URL/destination configuration and securely inject Langfuse credentials before publishing.
+
+   ```bash
+   read -r -p 'Reviewed approvalSha256: ' APPROVAL_SHA256
+   export APPROVAL_SHA256
+   bash ./full-planner-langfuse.sh publish
+   ```
+
+With the environment configured, choose `bash ./full-planner-langfuse.sh run-preview` for a new paid run, **or** `bash ./full-planner-langfuse.sh preview` for saved evidence. Neither publishes. The planner's stdout and stderr go only to a private log under `EVAL_OUT`; the script prints its exit status and log path, and stops before preview on failure with the same exit status. That log can contain raw planner output, including errors and deferral details: inspect it privately, never copy it into shared shell or CI logs. Temp directories can be cleaned by the OS; preserve the private run directory for review and any later publication. The CLI writes a private (`0600`), no-overwrite preview; it needs no Langfuse credentials and makes no network calls in preview mode. Keep the saved native files private and unchanged during review/publication. The fixed timestamp in `langfuse-prepared-at.txt` marks publication preparation, not evaluation execution time.
+
+Inspect the **entire exact batch envelope** locally in a trusted editor, not by dumping it into logs. Check every `publication.json` string, the `dataset` name and exact item payloads (identifiers, scalar metadata and source trace links), both source digests, expected/actual record counts, destination, physical base URL, server version and limits. Count equality validates structure, not semantic completeness or correct scenario selection. Only after review, set `APPROVAL_SHA256` to the preview command's `approvalSha256` and invoke `bash ./full-planner-langfuse.sh publish`. The hash covers the entire preview file, including its trailing newline; `payloadDigest` and `publicationId` are not approval hashes. Do not automatically approve a computed hash without review.
+
+The script checks the selected preview's hash; the CLI then re-prepares from the saved inputs and fixed timestamp and validates the same approval **before reading credentials or sending**. Preserve the same invocation configuration and limits. Any source-byte, dataset name/item plan, endpoint, destination, timestamp or limit change requires a new preview file and approval. The dataset-aware format requires a fresh preview and approval even for previously published traces; reuse the saved evaluation and timestamp rather than rerunning the planner. If default bounds reject a large run, consult the README and explicitly apply the same reviewed limit flags to both preview and publish; nothing is silently raised.
+
+## One dataset for saved results
+
+Full-planner publication puts all results in one shared dataset, **`maelstrom-evals-v1`**. Each row is a separate result publication with input exactly `{caseId, arm, repeat}`, no expected output, and allowlisted scalar status, provider/model, rubric and score metadata. Its source trace is named `maelstrom.eval.<caseId>` and holds the reviewed summary and separate correctness/judge scores. Optional `--dataset-name NAME` chooses another catalog; if you use it, add the same flag to the script's shared `args` before both preview and publish.
+
+Ordinary publication creates a **results catalog, not a Langfuse experiment**. On its own it creates no dataset runs or run items, and does not promise a built-in experiment comparison table. Use the separate linking step below to add experiment associations. Ordinary publication of a regraded report would create separate rows. For fixed-evidence judge comparisons, instead reuse the manifest's existing item IDs as described below; never replace earlier provider results. Stable catalog item IDs bind the dataset name and publication key so retries target the same row. Use a dedicated catalog: omitting fields does not erase pre-existing expected answers or other data. Independently configured Langfuse evaluators are outside this adapter's control; review that automation before live publication.
+
+### Add an experiment view without rerunning anything
+
+After the catalog publication is accepted, keep its original saved files and
+preparation timestamp. Set `PREVIEW_FILE` to a **new** absolute filename in that
+same `EVAL_OUT`, for example `$EVAL_OUT/langfuse-run-links-preview.json`, then run:
+
+```bash
+bash ./full-planner-langfuse.sh link-preview
+```
+
+The link preview is a **private comparison manifest**: it freezes source digests,
+existing item IDs, case/arm/repeat coordinates, original trace/publication IDs,
+judge model/rubric/rendering version and scales, exact requests and recovery policy.
+Review it and retain it unchanged with the private evidence. A changed source,
+timestamp or target requires fresh preview and approval.
+
+This first importer accepts TypeSafe `jev-1.13.0`, `planner_response_text_1` v2
+scores. It puts baseline and jev-poc evidence in one **mixed-arm** run, not a paired
+planner-arm comparison. Each repeat has its own item. Linking sends only run-item
+associations; it does not recreate traces/items or run the planner or judge.
+
+**Before approving:** check **LLM-as-a-Judge** in the target Langfuse project for
+active evaluators. Run-item writes can enqueue configured server evaluations,
+including paid provider calls. Only after confirming none are active, review the
+new preview, set its `APPROVAL_SHA256`, and explicitly acknowledge that check:
+
+```bash
+export CONFIRM_NO_ACTIVE_EVALUATORS=yes
+bash ./full-planner-langfuse.sh link-publish
+```
+
+The confirmation is your assertion, not a live configuration check or a guarantee
+against later changes. Do not click **Run experiment** to import these saved results.
+The importer uses the latest existing item versions, not the preparation timestamp
+as a dataset version; keep the dataset unchanged during linking.
+
+A private `langfuse-run-links-<run-key>.jsonl` journal is synced before each POST and
+after each accepted response. No automatic retries or resume are allowed: **any
+existing journal blocks another invocation**. Stop on uncertainty, preserve the
+journal and reconcile attempted links before separately approved recovery. An empty
+eventually-consistent read does not make a retry safe. Do not delete the journal or
+copy the input directory to bypass it. Exit 3 means partial or uncertain delivery;
+check `attempted`, `accepted`, `unsent` and `shutdown` as well as the journal.
+
+After linking, open **Datasets → maelstrom-evals-v1 → Experiments**. Use **Charts**
+to select `request_satisfied` and `arrangement_match`, and **Columns** to hide the
+unrelated telemetry fields. A single run shows descriptive metrics; **Compare**
+requires a second run on the same item IDs. Model cost and latency panels are not
+original evaluation measurements: the imported spans describe publication, not
+provider generations. Identifier-only input/output panels stay sparse.
+
+For a later, separately authorized OpenAI judge pass, reuse the frozen original
+evidence and manifest item IDs, but create separate OpenAI result traces and a
+second run. Never derive new item IDs from regraded report bytes or overwrite the
+TypeSafe results. This linking step does not implement or authorize paid regrading.
+
+### What calibration means
+
+Putting a score in a dataset **does not calibrate a judge**. Calibration requires comparing its ratings against trusted reference judgments on representative, fixed evidence using an explicit rubric. Scores stay **`unvalidated`** until that work is done; provider agreement alone is not reference validation.
+
+To compare TypeSafe and OpenAI, have both judge the **same underlying samples**, with the same rubric and scale. Running the planner again changes the evidence as well as the judge, so that does not isolate judge differences. Identifier-only rows are not enough to rerun a judge: retain the original evidence privately. This publication step neither calls OpenAI nor authorizes a later judge run.
+
+## What is imported
+
+Import emits **per-sample summaries**, not a hosted dataset experiment or full replay archive. Only an explicit planned Boolean `score.pass` becomes Boolean `eval.correctness`. Runner errors, expected deferrals and missing scores remain unscored, never inferred failures. Alongside identity and bounded status/count summaries, only the expected-deferral flags `expectedDeferral` and optional `deferredAsExpected` are allowlisted metadata. No raw prompts, messages, Execution Plans, trees, stages, LLM calls, judge prompts/rationale or error text is exported. Bounded judge status, rubric/version, provider/model and named scores are included separately from correctness. A scored fallback remains scored even if an earlier stage deferred; deferral flags alone do not establish final runtime disposition.
+
+Langfuse emits numeric judge scores only for `scored` results, under `eval.judge.<rubric>.v<version>.<llm|heuristic|unknown>.<dimension>`, with provenance and status in metadata. These scores neither replace `eval.correctness` nor become operational telemetry. A run-only telemetry artifact has no fabricated judge score. Judging finishes before publication; the sink never reruns a judge.
+
+Langfuse correctness averages may differ from native `overall`: native denominators include planned errors and missing-score rows, whereas this import leaves them unscored. The secondary grader does not replace the native deterministic score.
+
+Publication is **sequential and non-atomic**: each trace batch is sent before its dataset item, stopping at the first nonaccepted receipt. A failed or unconfirmed dataset/item write after trace acceptance is `partial`, never full success; trace visibility may lag ingestion receipts. Retain the receipt file, including attempted-item statuses and the `unsent` count. Exit `0` means all publications accepted with clean shutdown; `1` is a terminal failure with no accepted prefix; `2` is a validation/setup failure; `3` means partial or uncertain delivery/shutdown. There is no automatic retry/resume or cross-process exactly-once guarantee. Review receipts before any separately authorized retry, using the same saved evidence, timestamp, settings and approval—not another paid run. Acceptance receipts do not prove durable storage or retention.
