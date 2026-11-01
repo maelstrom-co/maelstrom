@@ -41,9 +41,12 @@ export class AguiWebSocketConnector extends WebSocketConnector {
     return this.workspace.process(message);
   }
 
-  /** Acknowledge canonical client settlement before the next request is admitted. */
-  applicationSettled(settlement: ApplicationSettlement): Promise<void> {
-    return this.workspace.applicationSettled(settlement);
+  /** Acknowledge settlement; cancellation stops acknowledgment I/O, never replays Actions. */
+  applicationSettled(
+    settlement: ApplicationSettlement,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.workspace.applicationSettled(settlement, signal);
   }
 }
 
