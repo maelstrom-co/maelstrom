@@ -72,11 +72,13 @@ export function importFullPlannerRun(
       !object(record) ||
       !text(record.scenarioId) ||
       !text(record.arm) ||
+      !arms.includes(record.arm) ||
       !text(record.suite) ||
       !text(record.kind) ||
       typeof record.repeat !== 'number' ||
       !Number.isSafeInteger(record.repeat) ||
       record.repeat < 1 ||
+      record.repeat > repeats ||
       typeof record.expectedDeferral !== 'boolean' ||
       (Object.hasOwn(record, 'deferredAsExpected') &&
         typeof record.deferredAsExpected !== 'boolean') ||

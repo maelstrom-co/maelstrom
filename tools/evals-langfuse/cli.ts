@@ -15,8 +15,13 @@ import {
   type RunTelemetryResult,
 } from '../../packages/evals/src/core/publication.ts';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import {
+  defaultDatasetName,
+  type LangfuseV3DatasetItem,
+  mapLangfuseV3DatasetItem,
+  validateDatasetName,
+} from './dataset.ts';
 import { importFullPlannerRun } from './full-planner-run.ts';
-import { mapLangfuseV3Publication } from './mapping.ts';
 import type { LangfuseV3Config, LangfuseV3Sink } from './sink.js';
 
 const maxInputBytes = 8 * 1024 * 1024;
@@ -24,6 +29,7 @@ const flagOptions = {
   input: { type: 'string' },
   'input-format': { type: 'string', default: 'result' },
   destination: { type: 'string' },
+  'dataset-name': { type: 'string', default: defaultDatasetName },
   artifact: { type: 'string' },
   'prepared-at': { type: 'string' },
   'base-url': { type: 'string' },
@@ -116,7 +122,9 @@ export async function runLangfuseCli(
     if (
       !fullRun &&
       names.some((name) =>
-        ['max-publications', 'max-preview-bytes'].includes(name),
+        ['max-publications', 'max-preview-bytes', 'dataset-name'].includes(
+          name,
+        ),
       )
     )
       throw new Error();
@@ -146,7 +154,9 @@ export async function runLangfuseCli(
       url.hash
     )
       throw new Error();
+    if (fullRun) validateDatasetName(values['dataset-name']);
     const config = {
+      ...(fullRun && { datasetName: values['dataset-name'] }),
       serverVersion: '3.163.0' as const,
       destinationId: required(values.destination),
       baseUrl,
@@ -228,12 +238,20 @@ export async function runLangfuseCli(
             },
           );
     const candidates: EvaluationPublication[] = [];
+    const datasetItems: LangfuseV3DatasetItem[] = [];
     let candidateBytes = 0;
     const previewOnly = new Error();
     for (const sample of samples) {
       try {
         prepare(sample, (publication) => {
-          if (fullRun) mapLangfuseV3Publication(publication, config);
+          if (fullRun) {
+            const item = mapLangfuseV3DatasetItem(publication, {
+              ...config,
+              datasetName: values['dataset-name'],
+            });
+            datasetItems.push(item);
+            candidateBytes += Buffer.byteLength(JSON.stringify(item));
+          }
           candidateBytes += Buffer.byteLength(JSON.stringify(publication));
           if (fullRun && candidateBytes > maxPreviewBytes) throw new Error();
           candidates.push(publication);
@@ -247,9 +265,10 @@ export async function runLangfuseCli(
     const json = `${JSON.stringify(
       fullRun
         ? {
-            schemaVersion: 2,
+            schemaVersion: 3,
             inputFormat,
             source,
+            dataset: { name: config.datasetName, items: datasetItems },
             limits: {
               maxInputBytes: inputLimit,
               maxPublicationBytes,
@@ -323,7 +342,8 @@ export async function runLangfuseCli(
       const publisher = createEvaluationPublisher({
         destinationId: config.destinationId,
         sink,
-        timeoutMs: config.timeoutMs,
+        // Let the sink retain confirmed partial delivery before the fallback aborts it.
+        timeoutMs: config.timeoutMs + 1_000,
         maxEntries: maxPublications,
       });
       for (const publication of approved) {

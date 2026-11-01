@@ -56,6 +56,10 @@ let previewNumber: number;
 let credentialReads: string[];
 let starts: number;
 let batches: Parameters<LangfuseV3Transport['batch']>[0][];
+let datasets: { name: string }[];
+let datasetItems: Parameters<
+  NonNullable<LangfuseV3Transport['createDatasetItem']>
+>[0][];
 let network: ReturnType<typeof spyOn<typeof globalThis, 'fetch'>>;
 
 function args(overrides: Record<string, string> = {}) {
@@ -90,19 +94,27 @@ function dependencies(transport?: LangfuseV3Transport) {
       starts++;
       expect(config.publicKey).toBe('SECRET PUBLIC');
       expect(config.secretKey).toBe('SECRET PRIVATE');
-      return startLangfuseV3Sink(
-        config,
-        transport ?? {
-          async batch(request, options) {
-            expect(options.maxRetries).toBe(0);
-            batches.push(request);
-            return {
-              successes: request.batch.map(({ id }) => ({ id, status: 201 })),
-              errors: [],
-            };
-          },
+      return startLangfuseV3Sink(config, {
+        async createDataset(request, options) {
+          expect(options.maxRetries).toBe(0);
+          datasets.push(request);
+          return { id: 'dataset', name: request.name };
         },
-      );
+        async createDatasetItem(request, options) {
+          expect(options.maxRetries).toBe(0);
+          datasetItems.push(request);
+          return { ...request, datasetId: 'dataset' };
+        },
+        async batch(request, options) {
+          expect(options.maxRetries).toBe(0);
+          batches.push(request);
+          return {
+            successes: request.batch.map(({ id }) => ({ id, status: 201 })),
+            errors: [],
+          };
+        },
+        ...transport,
+      });
     },
   };
 }
@@ -147,6 +159,8 @@ beforeEach(async () => {
   credentialReads = [];
   starts = 0;
   batches = [];
+  datasets = [];
+  datasetItems = [];
   const deny = () => {
     throw new Error('NETWORK DENIED');
   };
@@ -787,7 +801,16 @@ test('full planner import preserves only native scores, explicit errors and revi
   );
   const { approval, json, outcome } = await preview(overrides);
   const envelope = JSON.parse(json);
-  expect(envelope.schemaVersion).toBe(2);
+  expect(envelope.schemaVersion).toBe(3);
+  expect(envelope.dataset.name).toBe('maelstrom-evals-v1');
+  expect(envelope.dataset.items).toHaveLength(variants.length);
+  expect(envelope.dataset.items[0].input).toEqual({
+    caseId: 'native-0',
+    arm: 'baseline',
+    repeat: 1,
+  });
+  expect(datasets).toEqual([]);
+  expect(datasetItems).toEqual([]);
   expect(envelope.publications).toHaveLength(variants.length);
   expect(envelope.source.runId).toMatch(/^full-planner-[a-f0-9]{64}$/);
   const rawRecords = await readFile(join(directory, 'records.json'));
@@ -853,6 +876,8 @@ test('full planner import preserves only native scores, explicit errors and revi
   expect(published.output.unsent).toBe(0);
   expect(published.output.receipts).toHaveLength(variants.length);
   expect(batches).toHaveLength(variants.length);
+  expect(datasets).toEqual([{ name: envelope.dataset.name }]);
+  expect(datasetItems).toEqual(envelope.dataset.items);
   expect(
     batches.flatMap((batch) =>
       batch.batch
@@ -991,7 +1016,7 @@ test('full planner import and publication recover legacy grader evidence only wh
     expected,
   );
   expect(JSON.stringify(imported.samples)).not.toContain('PRIVATE');
-  const { json } = await preview(overrides);
+  const { approval, json } = await preview(overrides);
   const payloads = JSON.parse(json).publications.map(
     (publication: { json: string }) => JSON.parse(publication.json),
   );
@@ -1001,6 +1026,18 @@ test('full planner import and publication recover legacy grader evidence only wh
   expect(json).not.toContain('PRIVATE');
   expect(starts).toBe(0);
   expect(credentialReads).toEqual([]);
+  const published = await runLangfuseCli(
+    publishArgs(approval, overrides),
+    dependencies(),
+  );
+  expect(published.exitCode).toBe(0);
+  expect(
+    batches.map(
+      (batch) =>
+        batch.batch.find((event) => event.type === 'span-create')?.body.output,
+    ),
+  ).toEqual(expected.map((judge) => expect.objectContaining({ judge })));
+  expectNoSecrets(published);
 });
 
 test('full planner import rejects malformed legacy grades instead of silently losing their evidence', async () => {
@@ -1105,6 +1142,7 @@ test.each([
   ['max-publications', '1001'],
   ['max-input-bytes', '8388609'],
   ['max-preview-bytes', '8388609'],
+  ['dataset-name', 'other-evals'],
 ])('full batch approval binds changed %s', async (flag, value) => {
   const overrides = await fullPlannerInput();
   const { approval } = await preview(overrides);
@@ -1299,6 +1337,63 @@ test('native count metadata rejects excess records instead of approving a matchi
   expect(starts).toBe(0);
 });
 
+test.each([
+  ['undeclared arm', { arm: 'undeclared' }],
+  ['repeat above declared maximum', { repeat: 3 }],
+])('full planner import rejects %s with unchanged counts and unique tuples before credentials or publication', async (_label, invalid) => {
+  const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
+    [1, 2].flatMap((repeat) =>
+      ['baseline', 'staged'].map((arm) =>
+        plannerRecord({ scenarioId, repeat, arm }),
+      ),
+    ),
+  );
+  const overrides = await fullPlannerInput(records);
+  const { approval } = await preview(overrides);
+  const summary = await readFile(join(directory, 'summary.json'));
+  const changed = records.map((record, index) =>
+    index === 0 ? { ...record, ...invalid } : record,
+  );
+  expect(changed).toHaveLength(records.length);
+  expect(
+    new Set(
+      changed.map((record) =>
+        JSON.stringify([record.scenarioId, record.arm, record.repeat]),
+      ),
+    ).size,
+  ).toBe(records.length);
+  await writeFile(join(directory, 'records.json'), JSON.stringify(changed));
+  expect(await readFile(join(directory, 'summary.json'))).toEqual(summary);
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  expect(() =>
+    importFullPlannerRun(
+      Buffer.from(JSON.stringify(changed)),
+      summary,
+      records.length,
+    ),
+  ).toThrow('Invalid planner record');
+  const path = join(directory, 'invalid-membership-preview.json');
+  const invalidInput = {
+    exitCode: 2,
+    output: { status: 'invalid', code: 'invalid_input' },
+  } as const;
+  expect(
+    await runLangfuseCli(
+      [...args(overrides), '--preview-out', path],
+      dependencies(),
+    ),
+  ).toEqual(invalidInput);
+  await expect(stat(path)).rejects.toThrow();
+  expect(
+    await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
+  ).toEqual(invalidInput);
+  expect(credentialReads).toEqual([]);
+  expect(starts).toBe(0);
+  expect(batches).toEqual([]);
+  expect(datasets).toEqual([]);
+  expect(datasetItems).toEqual([]);
+});
+
 test('a matching selected-scenario subset previews both structurally consistent record counts', async () => {
   const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
     [1, 2].flatMap((repeat) =>
@@ -1452,14 +1547,30 @@ test('native Node full-planner directory preview and real-SDK intercepted public
   await writeFile(
     hook,
     `
-let calls = 0;
+const calls = [];
 globalThis.fetch = async (url, init) => {
-  if (String(url) !== 'https://langfuse.invalid/api/public/ingestion') throw new Error('UNEXPECTED SEND');
-  calls++;
-  const { batch } = JSON.parse(init.body);
-  return new Response(JSON.stringify({ successes: batch.map(({ id }) => ({ id, status: 201 })), errors: [] }), { status: 207, headers: { 'content-type': 'application/json' } });
+  if (init.method !== 'POST') throw new Error('UNEXPECTED METHOD');
+  const path = new URL(url).pathname;
+  calls.push(path);
+  const body = JSON.parse(init.body);
+  const reply = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+  if (String(url) === 'https://langfuse.invalid/api/public/ingestion')
+    return reply({ successes: body.batch.map(({ id }) => ({ id, status: 201 })), errors: [] }, 207);
+  if (String(url) === 'https://langfuse.invalid/api/public/v2/datasets') {
+    if (JSON.stringify(body) !== JSON.stringify({ name: 'maelstrom-evals-v1' })) throw new Error('UNEXPECTED DATASET');
+    return reply({ id: 'dataset', ...body });
+  }
+  if (String(url) === 'https://langfuse.invalid/api/public/dataset-items') {
+    if ('expectedOutput' in body || JSON.stringify(body).includes('PRIVATE')) throw new Error('RAW CONTENT');
+    if (Object.keys(body.input).sort().join(',') !== 'arm,caseId,repeat') throw new Error('INVALID IDENTIFIERS');
+    return reply({ datasetId: 'dataset', ...body });
+  }
+  throw new Error('UNEXPECTED SEND');
 };
-process.once('exit', () => { if (calls !== 2) throw new Error('EXPECTED TWO INTERCEPTED SENDS'); });
+process.once('exit', () => {
+  const expected = ['/api/public/ingestion', '/api/public/v2/datasets', '/api/public/dataset-items', '/api/public/ingestion', '/api/public/dataset-items'];
+  if (JSON.stringify(calls) !== JSON.stringify(expected)) throw new Error('UNEXPECTED SEND ORDER: ' + JSON.stringify(calls));
+});
 `,
   );
   const published = spawnSync(
@@ -1604,4 +1715,190 @@ test('native full-planner imports finalized telemetry but never converts usage o
       1,
     ),
   ).toThrow('sample-owned telemetry');
+});
+
+test('catalog payload changes invalidate approval and every outbound item matches the offline preview', async () => {
+  const grader = {
+    graderVersion: 2,
+    verbalizerVersion: 1,
+    dimensions: {
+      request_satisfied: { score: 0.8 },
+      arrangement_match: { score: 0.25 },
+    },
+    calls: [
+      {
+        prompt: 'PRIVATE PROMPT',
+        response: 'PRIVATE RESPONSE',
+        rationale: 'PRIVATE RATIONALE',
+      },
+    ],
+  };
+  const overrides = await fullPlannerInput([plannerRecord({ grader })]);
+  const first = await preview(overrides);
+  const firstItem = JSON.parse(first.json).dataset.items[0];
+  expect(firstItem.metadata['judge.request_satisfied.value']).toBe(0.8);
+  expect(firstItem).not.toHaveProperty('expectedOutput');
+  expect(first.json).not.toContain('PRIVATE');
+  grader.dimensions.request_satisfied.score = 0.6;
+  await fullPlannerInput([plannerRecord({ grader })]);
+  const second = await preview(overrides);
+  const secondItem = JSON.parse(second.json).dataset.items[0];
+  expect(secondItem.metadata['judge.request_satisfied.value']).toBe(0.6);
+  expect(second.approval).not.toBe(first.approval);
+  expect(
+    (
+      await runLangfuseCli(
+        publishArgs(first.approval, overrides),
+        dependencies(),
+      )
+    ).output.code,
+  ).toBe('approval_mismatch');
+  expect(credentialReads).toEqual([]);
+  expect(starts).toBe(0);
+  expect(
+    (
+      await runLangfuseCli(
+        publishArgs(second.approval, overrides),
+        dependencies(),
+      )
+    ).exitCode,
+  ).toBe(0);
+  expect(datasetItems).toEqual([secondItem]);
+});
+
+test('catalog write rejection after trace acceptance stops CLI publication with partial receipts', async () => {
+  const overrides = await fullPlannerInput([
+    plannerRecord(),
+    plannerRecord({ scenarioId: 'second' }),
+  ]);
+  const { approval } = await preview(overrides);
+  let attempts = 0;
+  const response = await runLangfuseCli(
+    publishArgs(approval, overrides),
+    dependencies({
+      async batch(request) {
+        batches.push(request);
+        return {
+          successes: request.batch.map(({ id }) => ({ id, status: 201 })),
+          errors: [],
+        };
+      },
+      async createDatasetItem() {
+        attempts++;
+        throw new Error('SECRET DATASET ERROR');
+      },
+    }),
+  );
+  expect(response).toMatchObject({
+    exitCode: 3,
+    output: { status: 'partial', shutdown: 'closed', unsent: 1 },
+  });
+  expect(attempts).toBe(1);
+  expect(batches).toHaveLength(1);
+  expect(response.output.receipts).toMatchObject([{ status: 'partial' }]);
+  expectNoSecrets(response);
+});
+
+test('a stalled catalog item keeps the sink partial receipt ahead of the publisher fallback deadline', async () => {
+  const overrides = {
+    ...(await fullPlannerInput([
+      plannerRecord(),
+      plannerRecord({ scenarioId: 'second' }),
+    ])),
+    'timeout-ms': '10',
+    'shutdown-timeout-ms': '5',
+  };
+  const { approval } = await preview(overrides);
+  let attempts = 0;
+  let signal: AbortSignal | undefined;
+  const response = await runLangfuseCli(
+    publishArgs(approval, overrides),
+    dependencies({
+      async batch(request, options) {
+        batches.push(request);
+        expect(options.timeoutInSeconds).toBe(0.01);
+        return {
+          successes: request.batch.map(({ id }) => ({ id, status: 201 })),
+          errors: [],
+        };
+      },
+      createDatasetItem(_, options) {
+        attempts++;
+        signal = options.abortSignal;
+        expect(options.timeoutInSeconds).toBe(0.01);
+        return new Promise<never>(() => {});
+      },
+    }),
+  );
+  expect(response).toMatchObject({
+    exitCode: 3,
+    output: { status: 'partial', shutdown: 'uncertain', unsent: 1 },
+  });
+  expect(response.output.receipts).toMatchObject([
+    { status: 'partial', reason: 'sink' },
+  ]);
+  expect(attempts).toBe(1);
+  expect(batches).toHaveLength(1);
+  expect(signal?.aborted).toBe(true);
+  expectNoSecrets(response);
+});
+
+test('the maximum send deadline stays 300000 ms with at most 1000 ms of receipt grace', async () => {
+  const overrides = {
+    ...(await fullPlannerInput()),
+    'timeout-ms': '300000',
+    'shutdown-timeout-ms': '5',
+  };
+  const { approval } = await preview(overrides);
+  const timer = spyOn(globalThis, 'setTimeout');
+  try {
+    const response = await runLangfuseCli(
+      publishArgs(approval, overrides),
+      dependencies({
+        async batch(request, options) {
+          expect(options.timeoutInSeconds).toBe(300);
+          return {
+            successes: request.batch.map(({ id }) => ({ id, status: 201 })),
+            errors: [],
+          };
+        },
+      }),
+    );
+    expect(response.exitCode).toBe(0);
+    const deadlines = timer.mock.calls.map(([, timeout]) => timeout);
+    expect(deadlines).toEqual([301000, 300000, 5]);
+  } finally {
+    timer.mockRestore();
+  }
+  expect(
+    (
+      await runLangfuseCli(
+        publishArgs(approval, { ...overrides, 'timeout-ms': '300001' }),
+        dependencies(),
+      )
+    ).output.code,
+  ).toBe('invalid_configuration');
+});
+
+test('dataset configuration is full-planner-only and rejects invalid names before credentials', async () => {
+  expect(
+    (
+      await runLangfuseCli(
+        publishArgs('a'.repeat(64), { 'dataset-name': 'catalog' }),
+        dependencies(),
+      )
+    ).output.code,
+  ).toBe('invalid_arguments');
+  const overrides = await fullPlannerInput();
+  for (const name of ['', '../catalog', 'x'.repeat(129)])
+    expect(
+      (
+        await runLangfuseCli(
+          publishArgs('a'.repeat(64), { ...overrides, 'dataset-name': name }),
+          dependencies(),
+        )
+      ).output.code,
+    ).toBe('invalid_configuration');
+  expect(credentialReads).toEqual([]);
+  expect(starts).toBe(0);
 });
