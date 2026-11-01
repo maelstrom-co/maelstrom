@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-
 import {
   fakePluginWith,
   TOKYO_CANDIDATE,
 } from './__test-helpers__/fake-planner.js';
 import { GRADER_VERSION } from './grader.js';
 import type { GraderValidation } from './grader-validate.js';
+import { judgeFromGrader } from './judge-result.js';
 import { renderMarkdown, renderPaired, summarize } from './report.js';
 import type { RunRecord } from './run.js';
 import { percentile } from './stats.js';
@@ -497,6 +497,107 @@ describe('grader', () => {
     expect(markdown).toContain(
       '| Grader calls / input / output tokens | 2 / 600 / 8 | 3 / 600 / 8 (1 without usage) |',
     );
+  });
+
+  test('unbound historical judges retain validated headlines with unbound calibration', () => {
+    const historical = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader),
+    }));
+    expect(historical[0].judge.provenance).toEqual({
+      kind: 'unknown',
+      provider: 'historical',
+    });
+    expect(passing.provenance).toBeUndefined();
+    const historicalSummaries = summarize(historical, plugins);
+    const report = renderMarkdown(
+      historicalSummaries,
+      {},
+      {
+        plugins,
+        graderValidation: passing,
+      },
+    );
+    expect(report).toContain('grader: validated (rho=0.75, agreement=90.0%)');
+    expect(report).toContain(
+      '| Grader request_satisfied mean | 0.750 | 0.875 |',
+    );
+    expect(report).toContain(
+      '| Grader arrangement_match vs baseline (paired) | n/a | +0.250 (2) |',
+    );
+    const withoutCalibration = renderMarkdown(
+      historicalSummaries,
+      {},
+      { plugins },
+    );
+    expect(withoutCalibration).toContain(
+      'grader: unvalidated (rho=n/a, agreement=n/a)',
+    );
+    expect(withoutCalibration).not.toContain('| Grader request_satisfied mean');
+  });
+
+  test.each([
+    { kind: 'llm', provider: 'openai', model: 'fake' },
+    { kind: 'unknown', provider: 'custom' },
+    { kind: 'unknown', provider: 'historical', model: 'not-historical' },
+  ] as const)('an unbound historical calibration does not validate current provenance %o', (provenance) => {
+    const current = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader, provenance),
+    }));
+    const report = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      { plugins, graderValidation: passing },
+    );
+    expect(report).not.toContain('grader: validated');
+    expect(report).not.toContain('| Grader request_satisfied mean');
+    expect(report).toContain(provenance.provider);
+    expect(report).toContain('unvalidated');
+  });
+
+  test('known judge headlines require matching rubric version, provider and model calibration', () => {
+    const provenance = {
+      kind: 'llm' as const,
+      provider: 'custom',
+      model: 'model-one',
+    };
+    const current = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader, provenance),
+    }));
+    const matching = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      { plugins, graderValidation: { ...passing, provenance } },
+    );
+    expect(matching).toContain('grader: validated');
+    const wrongModel = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      {
+        plugins,
+        graderValidation: {
+          ...passing,
+          provenance: { ...provenance, model: 'model-two' },
+        },
+      },
+    );
+    expect(wrongModel).not.toContain('grader: validated');
+    const oldRubric = current.map((record) => ({
+      ...record,
+      judge:
+        record.judge.status === 'scored'
+          ? { ...record.judge, rubric: { ...record.judge.rubric, version: 99 } }
+          : record.judge,
+    }));
+    expect(
+      renderMarkdown(
+        summarize(oldRubric, plugins),
+        {},
+        { plugins, graderValidation: { ...passing, provenance } },
+      ),
+    ).not.toContain('grader: validated');
   });
 
   test('prints the unvalidated line instead of grader rows when validation failed or did not run', () => {

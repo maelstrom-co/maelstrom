@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { EvaluationPublicationMetadata } from '../../packages/evals/src/core/publication.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import { recordJudgeResult } from '../../packages/evals/src/core/runtime/judge-result.ts';
 import {
   unavailableOperationalTelemetry,
   validateOperationalTelemetry,
@@ -115,6 +116,7 @@ export function importFullPlannerRun(
       throw new Error('Native turn requires sample-owned telemetry');
     return {
       result: {
+        judge: recordJudgeResult(record),
         operational,
         schemaVersion: 1,
         identity,

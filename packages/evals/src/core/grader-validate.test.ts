@@ -114,10 +114,89 @@ describe('validateGrader', () => {
     expect(validation.agreement).toEqual({ agree: 9, total: 10 });
     expect(validation.labels).toEqual({ total: 10, matched: 10 });
     expect(validation.passed).toBe(true);
+    expect(validation).not.toHaveProperty('provenance');
     expect(graderGate(validation)).toEqual({
       validated: true,
       line: 'grader: validated (rho=1.00, agreement=90.0%)',
     });
+  });
+
+  const provenance = {
+    kind: 'llm',
+    provider: 'custom',
+    model: 'one',
+  } as const;
+
+  test('binds calibration only to contributing grades with matching provenance', () => {
+    const { records, grades } = fixture(10);
+    const validation = validateGrader({
+      labels,
+      records,
+      grades: [
+        {
+          ...grades[0],
+          scenarioId: 'unmatched',
+          provenance: { ...provenance, model: 'other' },
+        },
+        ...grades.map((entry, index) => ({
+          ...entry,
+          provenance:
+            index % 2
+              ? provenance
+              : { model: 'one', provider: 'custom', kind: 'llm' as const },
+        })),
+        {
+          ...grades[0],
+          scenarioId: 'failed',
+          grade: {
+            ...grades[0].grade,
+            dimensions: undefined,
+            failure: 'grader/provider_failure',
+          },
+        },
+      ],
+    });
+    expect(validation.passed).toBe(true);
+    expect(validation.provenance).toEqual(provenance);
+  });
+
+  test.each([
+    ['provider', { ...provenance, provider: 'openai' }],
+    ['model', { ...provenance, model: 'two' }],
+    ['kind', { ...provenance, kind: 'unknown' as const }],
+    ['partial', undefined],
+  ])('fails calibration for mixed %s provenance despite passing statistics', (_name, other) => {
+    const { records, grades } = fixture(10);
+    for (const changedIndex of [0, grades.length - 1]) {
+      const validation = validateGrader({
+        labels,
+        records,
+        grades: grades.map((entry, index) => ({
+          ...entry,
+          provenance: index === changedIndex ? other : provenance,
+        })),
+      });
+      expect(validation.gateRho).toBeCloseTo(1, 10);
+      expect(validation.agreement).toEqual({ agree: 10, total: 10 });
+      expect(validation.passed).toBe(false);
+      expect(validation).not.toHaveProperty('provenance');
+      expect(graderGate(validation).validated).toBe(false);
+    }
+  });
+
+  test('agreement-only contributors cannot mix provenance with labelled grades', () => {
+    const { records, grades } = fixture(10);
+    const validation = validateGrader({
+      labels,
+      records: [...records, { ...records[0], scenarioId: 'agreement-only' }],
+      grades: [
+        ...grades.map((entry) => ({ ...entry, provenance })),
+        { ...grades[0], scenarioId: 'agreement-only' },
+      ],
+    });
+    expect(validation.labels.matched).toBe(10);
+    expect(validation.agreement).toEqual({ agree: 11, total: 11 });
+    expect(validation.passed).toBe(false);
   });
 
   test('fails the gate below 85% agreement even with perfect correlation', () => {

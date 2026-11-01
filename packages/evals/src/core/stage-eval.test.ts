@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { deferred, type Stage } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
+import type { Judge } from './plugin.js';
 import { type EvaluationResult, evaluateSample } from './runtime/evaluate.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
 import {
@@ -429,4 +430,189 @@ test('reused stage adapters isolate out-of-order judge errors and subsequent suc
   expect(third.error).toBeUndefined();
   expect(third.observation?.detail).toBe('sample-3');
   expect(second.error).toBeUndefined();
+});
+
+test('optional secondary judge sees actual isolated-stage evidence, including failures and deferrals, before callbacks', async () => {
+  const inputs: unknown[] = [];
+  const finalized: EvaluationResult<StageTurnRecord>[] = [];
+  const records = await runStageEval(shoutModule(), {
+    scenarios: selectScenarios('all', ['swap', 'ambiguous']),
+    variants: ['upper', 'same', 'defer', 'throw'],
+    repeats: 2,
+    concurrency: 3,
+    judge: {
+      async score(input) {
+        inputs.push(input.state);
+        expect(input.dimensions[0].name).toBe('stage_alignment');
+        expect(input.state.input).toBe('swap');
+        expect('output' in input.state || 'deferral' in input.state).toBe(true);
+        return {
+          answers: { stage_alignment: { score: 4, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+    onEvaluation: (sample) => {
+      finalized.push(sample);
+    },
+    report(run) {
+      expect(run.accounting.judge).toMatchObject({
+        scored: 6,
+        notRun: 6,
+        failed: 0,
+      });
+    },
+  });
+  expect(inputs).toHaveLength(6);
+  expect(finalized).toHaveLength(12);
+  expect(
+    records
+      .filter((record) => record.outcome === 'fail')
+      .every((record) => record.judge?.status === 'scored'),
+  ).toBe(true);
+  expect(
+    records
+      .filter(
+        (record) =>
+          record.outcome === 'not_applicable' || record.outcome === 'error',
+      )
+      .every((record) => record.judge?.status === 'not_run'),
+  ).toBe(true);
+  expect(
+    records
+      .filter((record) => record.outcome === 'deferred')
+      .every((record) => record.judge?.status === 'scored'),
+  ).toBe(true);
+});
+
+test('legacy stage rubrics are rejected by runs and reusable adapters before preparation or provider calls', async () => {
+  const shout = shoutModule();
+  let preparations = 0;
+  let providerCalls = 0;
+  const module: typeof shout = {
+    ...shout,
+    async prepare(...args) {
+      preparations++;
+      return shout.prepare(...args);
+    },
+    makeDeps(...args) {
+      providerCalls++;
+      return shout.makeDeps(...args);
+    },
+  };
+  const score: Judge['score'] = async () => {
+    providerCalls++;
+    return { answers: {}, calls: [] };
+  };
+  const judges: (Judge | undefined)[] = [
+    undefined,
+    { score },
+    { score, provenance: { kind: 'heuristic', provider: 'heuristic' } },
+  ];
+  const scenarios = selectScenarios('development', ['swap']);
+  for (const judge of judges) {
+    await expect(
+      runStageEval(module, {
+        scenarios,
+        variants: ['upper'],
+        repeats: 1,
+        judge,
+        judgeRubric: 'legacy',
+      }),
+    ).rejects.toThrow('Stage judging supports only the surface rubric');
+    const result = await evaluateSample(
+      { runId: 'legacy', caseId: 'swap', runtimeId: 'upper', sample: 1 },
+      registerStageEval(module).adapter({
+        scenario: scenarios[0],
+        variant: 'upper',
+        provenance: 'test',
+        judge,
+        judgeRubric: 'legacy',
+      }),
+    );
+    expect(result.execution).toBe('invalid');
+    expect(result.error).toEqual({
+      phase: 'preflight',
+      message: 'Stage judging supports only the surface rubric',
+    });
+  }
+  expect(preparations).toBe(0);
+  expect(providerCalls).toBe(0);
+});
+
+test('stage judge receives the recorded expected deferral without recomputing it', async () => {
+  const shout = shoutModule();
+  let expectations = 0;
+  const evidence: Readonly<Record<string, unknown>>[] = [];
+  const records = await runStageEval(
+    {
+      ...shout,
+      expectedDeferral(scenario) {
+        expectations++;
+        return shout.expectedDeferral?.(scenario);
+      },
+    },
+    {
+      scenarios: selectScenarios('development', ['preserve', 'swap']),
+      variants: ['upper', 'defer'],
+      repeats: 1,
+      concurrency: 3,
+      judge: {
+        async score(input) {
+          evidence.push(input.state);
+          return {
+            answers: { stage_alignment: { score: 4, probabilities: {} } },
+            calls: [],
+          };
+        },
+      },
+    },
+  );
+  expect(expectations).toBe(records.length);
+  expect(evidence).toHaveLength(4);
+  for (const state of evidence) {
+    const variant = 'deferral' in state ? 'defer' : 'upper';
+    const record = records.find(
+      (record) =>
+        record.scenarioId === state.input && record.variant === variant,
+    );
+    expect(record).toBeDefined();
+    expect(state.expectedDeferral).toBe(record?.expectedDeferral);
+    expect(state.expectedDeferral).toBe(
+      state.input === 'preserve' ? 'shout/too_quiet' : undefined,
+    );
+  }
+});
+
+test('secondary evidence serialization cannot turn a real stage deferral into an execution failure', async () => {
+  const records = await runStageEval(
+    {
+      name: 'nonserializable',
+      stage: 'nonserializable',
+      variants: { defer: () => async () => err(deferred('bounded/expected')) },
+      makeDeps: () => ({}),
+      prepare: async (_scenario, context) => ({
+        applicable: true,
+        input: { callback() {} },
+        origin: context.origin,
+      }),
+      judge: () => ({ outcome: 'pass', failures: [], detail: {} }),
+    },
+    {
+      scenarios: selectScenarios('all', ['preserve']),
+      variants: ['defer'],
+      repeats: 1,
+      judge: {
+        async score() {
+          throw new Error('No serializable evidence should reach provider');
+        },
+      },
+    },
+  );
+  expect(records[0].outcome).toBe('deferred');
+  expect(records[0].reason).toBe('bounded/expected');
+  expect(records[0].judge).toMatchObject({
+    status: 'failed',
+    reason: 'exception',
+  });
 });

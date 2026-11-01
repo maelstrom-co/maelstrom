@@ -1,3 +1,5 @@
+import type { JudgeRubric } from '../core/judge.js';
+import type { Judge } from '../core/plugin.js';
 import type { EvaluationAdapter } from '../core/runtime/evaluate.js';
 import type { Scenario } from '../core/scenarios.js';
 import type {
@@ -11,6 +13,8 @@ export function stageAdapter(options: {
   readonly scenario: Scenario;
   readonly variant: string;
   readonly provenance: string;
+  readonly judge?: Judge;
+  readonly judgeRubric?: JudgeRubric;
 }): EvaluationAdapter<StageTurnRecord> {
   return options.module.adapter(options);
 }

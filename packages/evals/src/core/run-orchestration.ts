@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { type JudgeSummary, summarizeJudges } from './judge-result.js';
 import {
   type EvaluationAdapter,
   type EvaluationResult,
@@ -29,7 +30,7 @@ export function selectEvaluationCases<T>(
   );
 }
 
-/** Source-policy completion, including native grading/error propagation and record projection. */
+/** Source-policy completion, including native error propagation and record projection. */
 export interface RunInvocation<Value, Record> {
   /** Adapter for this invocation; no run scheduling belongs inside it. */
   readonly adapter: EvaluationAdapter<Value>;
@@ -55,6 +56,8 @@ export interface EvaluationRunAccounting {
   >;
   /** Samples reporting cleanup failures separately from correctness. */
   readonly cleanupFailures: number;
+  /** Secondary judge coverage and rubric-separated means. */
+  readonly judge: JudgeSummary;
 }
 
 /** A completed run; native report formats remain projections owned by the source policy. */
@@ -93,7 +96,7 @@ export interface EvaluationRunOptions<Case, Prepared, Runtime, Value, Record> {
     runtime: Runtime,
     identity: SampleIdentity,
   ) => RunInvocation<Value, Record>;
-  /** Receives a detached snapshot before native completion/error policy runs. */
+  /** Receives a detached snapshot after secondary judging, before native completion/error policy runs. */
   readonly onEvaluation?: (result: EvaluationResult<Value>) => void;
   /** Native progress callback in completion order. */
   readonly onRecord?: (record: Record) => void;
@@ -200,6 +203,7 @@ export async function runEvaluationRun<Case, Prepared, Runtime, Value, Record>(
       execution,
       evaluation,
       cleanupFailures,
+      judge: summarizeJudges(samples.map((sample) => sample.judge)),
     },
   };
   await options.report?.(run);

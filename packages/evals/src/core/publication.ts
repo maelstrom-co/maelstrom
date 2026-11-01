@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { normalizeJudgeResult } from './judge-result.ts';
 import type { EvaluationResult } from './runtime/evaluate.js';
 import {
   type OperationalTelemetry,
@@ -217,6 +218,11 @@ export function prepareEvaluationPublication(
       preparedAt,
       identity,
       operational,
+      judge: normalizeJudgeResult(
+        result.judge === undefined
+          ? undefined
+          : JSON.parse(boundedJson(result.judge, policy.maxBytes)),
+      ),
       surface: result.surface,
       provenance: result.provenance,
       execution: result.execution,

@@ -152,6 +152,7 @@ test('the run record keeps the same keys for a baseline and a staged turn', asyn
     'expectedDeferral',
     'expectsActions',
     'instances',
+    'judge',
     'kind',
     'llmCalls',
     'operational',
@@ -172,6 +173,7 @@ test('the run record keeps the same keys for a baseline and a staged turn', asyn
     'fakeCalls',
     'fallbackCalls',
     'instances',
+    'judge',
     'kind',
     'llmCalls',
     'operational',
@@ -357,11 +359,11 @@ test('refuses a replay the plugin says the arm cannot read, before any turn', as
   ).rejects.toThrow('ambiguous #1: no recorded turn');
 });
 
-test('grades every planned shipped response with the judge, its calls kept on the record', async () => {
+test('grades every shipped response including expected deferrals with the judge, its calls kept on the record', async () => {
   const judge = scriptedJudge(() => fullMarks);
   const records = await run(tokyo, ['quoted-location', 'ambiguous'], { judge });
   const [baseline, staged, baselineDeferral, stagedDeferral] = records;
-  for (const record of [baseline, staged]) {
+  for (const record of [baseline, staged, baselineDeferral, stagedDeferral]) {
     expect(record?.grader?.dimensions).toEqual({
       request_satisfied: { score: 1, samples: [4] },
       arrangement_match: { score: 0.75, samples: [3] },
@@ -370,10 +372,10 @@ test('grades every planned shipped response with the judge, its calls kept on th
       { latencyMs: 9, usage: { inputTokens: 11, outputTokens: 2 } },
     ]);
   }
-  expect(judge.inputs).toHaveLength(2);
+  expect(judge.inputs).toHaveLength(4);
   expect(judge.inputs[0]?.state.userMessage).toBe('Tokyo it is.');
-  expect(baselineDeferral?.grader).toBe(undefined);
-  expect(stagedDeferral?.grader).toBe(undefined);
+  expect(baselineDeferral?.score).toBeUndefined();
+  expect(stagedDeferral?.score).toBeUndefined();
 });
 
 test('a judge failure is recorded without touching the turn', async () => {
@@ -781,4 +783,38 @@ test('invalid later replay repeat rejects the entire run before any turn execute
     ).rejects.toThrow('quoted-location #3');
     expect(executed).toBe(0);
   }
+});
+
+test('judge results reach evaluation callbacks, reports and native records before publication without regrading', async () => {
+  const judge = scriptedJudge(() => fullMarks);
+  const seen: EvaluationResult<RunRecord>[] = [];
+  const out = await outDir();
+  const records = await run(tokyo, ['quoted-location'], {
+    judge,
+    repeats: 2,
+    onEvaluation(result) {
+      expect(result.judge?.status).toBe('scored');
+      seen.push(result);
+    },
+    report: async (result) => {
+      expect(result.accounting.judge.scored).toBe(4);
+      await writeReport(out, result.records, {}, { plugins: [] });
+    },
+  });
+  expect(judge.inputs).toHaveLength(4);
+  expect(records.map((record) => record.judge)).toEqual(
+    seen.map((sample) => sample.judge),
+  );
+  for (const file of [
+    'records.json',
+    'summary.json',
+    'report.md',
+    'paired.md',
+  ]) {
+    const content = await readFile(join(out, file), 'utf8');
+    expect(content).toContain(
+      file.endsWith('.json') ? '"judge"' : 'unvalidated',
+    );
+  }
+  expect(judge.inputs).toHaveLength(4);
 });

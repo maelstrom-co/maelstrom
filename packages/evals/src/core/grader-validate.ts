@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-
 import {
   consoleLogger,
   createEngine,
@@ -31,6 +30,8 @@ import {
   type ShippedResponse,
 } from './grader.js';
 import type { StageRecord } from './instrument.js';
+import { judgeProvenance } from './judge.js';
+import { evaluationJudgeSchema, type JudgeProvenance } from './judge-result.js';
 import type { PlannerEvalPlugin } from './plugin.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';
@@ -68,11 +69,15 @@ export interface GradedResponse {
   readonly scenarioId: string;
   readonly repeat: number;
   readonly grade: GraderGrade;
+  /** Provider/model that produced the cached score, when recorded. */
+  readonly provenance?: JudgeProvenance;
   readonly calls?: readonly GraderCall[];
 }
 
 /** How the grader's scores compare with the hand labels and the rule-based score, and whether it passed the gate. */
 export interface GraderValidation {
+  /** Present only when all contributing cached grades share known provenance. */
+  readonly provenance?: JudgeProvenance;
   readonly graderVersion: number;
   readonly verbalizerVersion: number;
   /** Labels given, and those whose response has a usable grade. */
@@ -137,14 +142,17 @@ export function validateGrader(input: {
   readonly records: readonly RunRecord[];
   readonly grades: readonly GradedResponse[];
 }): GraderValidation {
-  const usable = new Map<string, GraderGrade>();
+  const usable = new Map<string, GradedResponse>();
   for (const entry of input.grades)
     if (isCurrent(entry.grade) && entry.grade.dimensions)
-      usable.set(keyOf(entry), entry.grade);
+      usable.set(keyOf(entry), entry);
 
+  const contributors = new Set<GradedResponse>();
   const matched = input.labels.flatMap((label) => {
-    const grade = usable.get(keyOf(label));
-    return grade?.dimensions ? [{ label, dimensions: grade.dimensions }] : [];
+    const entry = usable.get(keyOf(label));
+    if (!entry?.grade.dimensions) return [];
+    contributors.add(entry);
+    return [{ label, dimensions: entry.grade.dimensions }];
   });
   const rho = {} as Record<GraderDimension, number | undefined>;
   const meanAbsoluteError = {} as Record<GraderDimension, number | undefined>;
@@ -176,14 +184,28 @@ export function validateGrader(input: {
       rule === undefined
     )
       continue;
-    const grade = usable.get(keyOf(record))?.dimensions;
-    if (grade === undefined) continue;
+    const entry = usable.get(keyOf(record));
+    const grade = entry?.grade.dimensions;
+    if (!entry || !grade) continue;
+    contributors.add(entry);
     total += 1;
     if (grade.arrangement_match.score >= PASS_THRESHOLD === rule.pass)
       agree += 1;
   }
 
+  const sources = [...contributors].map((entry) => entry.provenance);
+  const source = sources[0];
+  const unbound = sources.every((provenance) => provenance === undefined);
+  const sameSource =
+    source !== undefined &&
+    sources.every(
+      (provenance) =>
+        provenance?.kind === source.kind &&
+        provenance.provider === source.provider &&
+        provenance.model === source.model,
+    );
   return {
+    ...(sameSource && { provenance: source }),
     graderVersion: GRADER_VERSION,
     verbalizerVersion: VERBALIZER_VERSION,
     labels: { total: input.labels.length, matched: matched.length },
@@ -192,6 +214,7 @@ export function validateGrader(input: {
     meanAbsoluteError,
     agreement: { agree, total },
     passed:
+      (unbound || sameSource) &&
       matched.length >= MIN_LABELS &&
       gateRho !== undefined &&
       gateRho >= MIN_RANK_CORRELATION &&
@@ -234,6 +257,13 @@ export function graderGate(validation: GraderValidation | undefined): {
 export function isGraderValidation(value: unknown): value is GraderValidation {
   return (
     isRecord(value) &&
+    (value.provenance === undefined ||
+      evaluationJudgeSchema.safeParse({
+        schemaVersion: 1,
+        status: 'failed',
+        reason: 'exception',
+        provenance: value.provenance,
+      }).success) &&
     isFiniteNumber(value.graderVersion) &&
     isFiniteNumber(value.verbalizerVersion) &&
     isRecord(value.labels) &&
@@ -545,6 +575,7 @@ export async function runGraderValidateCli(
         repeat: record.repeat,
         grade,
         calls,
+        provenance: judgeProvenance(judge),
       };
       if (grade.dimensions) {
         graded += 1;
