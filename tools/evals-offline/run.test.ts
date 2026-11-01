@@ -81,3 +81,59 @@ test('offline profile selection intersects IDs and leaves excluded inventory out
   expect(run.records[0].identity.caseId).toBe('weather-chain');
   expect(run.policy).toBe('offline:declared-case/v1');
 });
+
+test.each([
+  false,
+  true,
+])('unknown offline profiles reject before evaluation or reporting (mixed known profile: %s)', (mixed) => {
+  const catalog = loadOfflineCases();
+  let evaluations = 0;
+  let reports = 0;
+  for (const cases of [undefined, catalog]) {
+    expect(() =>
+      runOfflineCases({
+        cases,
+        ids: ['weather-chain'],
+        profiles: [
+          ...(mixed ? [catalog[0].definition.profile] : []),
+          'unknown-profile',
+        ],
+        repeats: 1,
+        onEvaluation() {
+          evaluations++;
+        },
+        report() {
+          reports++;
+        },
+      }),
+    ).toThrow('Unknown evaluation profiles: unknown-profile');
+  }
+  expect(evaluations).toBe(0);
+  expect(reports).toBe(0);
+});
+
+test('empty offline profiles keep catalog order and known profiles outside selected IDs are valid', async () => {
+  const catalog = loadOfflineCases();
+  const wanted = ['weather-chain', 'planner-preserve'];
+  const selected = catalog.filter((item) =>
+    wanted.includes(item.definition.id),
+  );
+  const run = await runOfflineCases({
+    cases: catalog,
+    ids: selected.map((item) => item.definition.id).reverse(),
+    profiles: [],
+    repeats: 1,
+  });
+  expect(run.records.map((record) => record.identity.caseId)).toEqual(
+    selected.map((item) => item.definition.id),
+  );
+  const excluded = catalog.find((item) => item.definition.id === 'stage-bound');
+  if (!excluded) throw new Error('Missing synthetic stage');
+  const empty = await runOfflineCases({
+    cases: catalog,
+    ids: wanted,
+    profiles: [excluded.definition.profile],
+    repeats: 1,
+  });
+  expect(empty.records).toEqual([]);
+});

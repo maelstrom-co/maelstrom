@@ -25,12 +25,23 @@ export function runOfflineCases(options: {
     run: EvaluationRun<unknown, EvaluationResult<unknown>>,
   ) => void | Promise<void>;
 }): Promise<EvaluationRun<unknown, EvaluationResult<unknown>>> {
-  const cases = selectEvaluationCases(options.cases ?? loadOfflineCases(), {
+  const catalog = options.cases ?? loadOfflineCases();
+  const profiles = new Set(options.profiles ?? []);
+  const knownProfiles = new Set<string>(
+    catalog.map((value) => value.definition.profile),
+  );
+  const unknownProfiles = [...profiles].filter(
+    (profile) => !knownProfiles.has(profile),
+  );
+  if (unknownProfiles.length)
+    throw new Error(
+      `Unknown evaluation profiles: ${unknownProfiles.join(', ')}. Choose profiles from the evaluation catalog.`,
+    );
+  const cases = selectEvaluationCases(catalog, {
     id: (value) => value.definition.id,
     ids: options.ids,
     include: (value) =>
-      !options.profiles?.length ||
-      options.profiles.includes(value.definition.profile),
+      profiles.size === 0 || profiles.has(value.definition.profile),
   });
   return runEvaluationRun({
     runId: options.runId,
