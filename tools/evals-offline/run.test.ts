@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import * as caseAdapters from './case-adapter.js';
 import { loadOfflineCases } from './cases.js';
 import { runOfflineCases } from './run.js';
 
@@ -136,4 +137,169 @@ test('empty offline profiles keep catalog order and known profiles outside selec
     repeats: 1,
   });
   expect(empty.records).toEqual([]);
+});
+
+test('selected action-stage rejects legacy judging before runtime, evaluation or reporting', async () => {
+  const catalog = loadOfflineCases();
+  const adapter = spyOn(caseAdapters, 'caseAdapter');
+  let scores = 0;
+  let evaluations = 0;
+  let reports = 0;
+  try {
+    await expect(
+      runOfflineCases({
+        cases: catalog,
+        ids: ['weather-chain', 'stage-bound'],
+        repeats: 1,
+        judgeRubric: 'legacy',
+        judge: {
+          async score() {
+            scores++;
+            return { answers: {}, calls: [] };
+          },
+        },
+        onEvaluation() {
+          evaluations++;
+        },
+        report() {
+          reports++;
+        },
+      }),
+    ).rejects.toThrow('Stage judging supports only the surface rubric');
+    expect(adapter).not.toHaveBeenCalled();
+    expect(scores).toBe(0);
+    expect(evaluations).toBe(0);
+    expect(reports).toBe(0);
+  } finally {
+    adapter.mockRestore();
+  }
+});
+
+test.each([
+  'IDs',
+  'profiles',
+])('action-stage excluded by %s does not reject legacy judging for selected cases', async (selection) => {
+  const catalog = loadOfflineCases();
+  const item = catalog.find((value) => value.definition.id === 'weather-chain');
+  if (!item) throw new Error('Missing synthetic session');
+  let scores = 0;
+  const run = await runOfflineCases({
+    cases: catalog,
+    ids:
+      selection === 'IDs'
+        ? ['weather-chain']
+        : ['weather-chain', 'stage-bound'],
+    profiles: selection === 'profiles' ? [item.definition.profile] : [],
+    repeats: 1,
+    judgeRubric: 'legacy',
+    judge: {
+      async score(input) {
+        scores++;
+        expect(input.dimensions.map((dimension) => dimension.name)).toEqual([
+          'llm_judge_score',
+        ]);
+        return {
+          answers: { llm_judge_score: { score: 1, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+  });
+  expect(run.records.map((record) => record.identity.caseId)).toEqual([
+    'weather-chain',
+  ]);
+  expect(run.records[0].evaluation).toBe('pass');
+  expect(run.records[0].judge).toMatchObject({
+    status: 'scored',
+    rubric: { id: 'legacy_task' },
+  });
+  expect(scores).toBe(1);
+});
+
+test('enabled judge covers every eligible offline surface and repeat, with native planner dimensions and separate session/stage/client rubrics', async () => {
+  const asked: string[][] = [];
+  const run = await runOfflineCases({
+    repeats: 1,
+    judge: {
+      async score(input) {
+        asked.push(input.dimensions.map((dimension) => dimension.name));
+        return {
+          answers: Object.fromEntries(
+            input.dimensions.map((dimension) => [
+              dimension.name,
+              { score: dimension.levels.length - 1, probabilities: {} },
+            ]),
+          ),
+          calls: [],
+        };
+      },
+    },
+    onEvaluation(result) {
+      expect(result.judge).toBeDefined();
+    },
+  });
+  expect(run.accounting.judge.failed).toBe(0);
+  expect(run.accounting.judge.scored).toBe(
+    run.records.filter(
+      (record) =>
+        record.disposition !== 'not_applicable' &&
+        record.completeness === 'complete',
+    ).length,
+  );
+  expect(asked).toHaveLength(run.accounting.judge.scored);
+  expect(asked).toContainEqual(['request_satisfied', 'arrangement_match']);
+  expect(asked).toContainEqual(['stage_alignment']);
+  expect(asked).toContainEqual(['session_alignment']);
+  expect(asked).toContainEqual(['application_alignment']);
+});
+
+test('partial session judging uses only retained completed turns and does not invent a final response', async () => {
+  const { caseAdapter } = await import('./case-adapter.js');
+  const { evaluateSample } = await import(
+    '../../packages/evals/src/core/runtime/evaluate.js'
+  );
+  const item = loadOfflineCases().find(
+    (value) => value.definition.id === 'weather-chain',
+  );
+  if (!item) throw new Error('Missing weather-chain');
+  let asked = 0;
+  const adapter = caseAdapter(item, {
+    judge: {
+      async score(input) {
+        asked++;
+        expect(input.state.completeness).toBe('partial');
+        expect(input.state.observation).toHaveLength(1);
+        return {
+          answers: { session_alignment: { score: 1, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+  });
+  let turns = 0;
+  const result = await evaluateSample(
+    {
+      runId: 'partial',
+      caseId: item.definition.id,
+      runtimeId: 'fake',
+      sample: 1,
+    },
+    {
+      ...adapter,
+      execute(context) {
+        return adapter.execute({
+          ...context,
+          record(record) {
+            if (record.kind === 'turn' && ++turns === 2)
+              throw new Error('Scripted interruption');
+            context.record(record);
+          },
+        });
+      },
+    },
+  );
+  expect(result.execution).toBe('error');
+  expect(result.evaluation).toBe('unscored');
+  expect(result.judge?.status).toBe('scored');
+  expect(asked).toBe(1);
 });

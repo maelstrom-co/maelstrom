@@ -17,6 +17,7 @@ import {
 import { evalCaseSchema } from '../core/case-schema.js';
 import { evaluateSample } from '../core/runtime/evaluate.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
+import { type ManualJudgeOptions, manualJudge } from './judge.js';
 import { type ManualFetch, manualTransport } from './transport.js';
 
 const model = 'gpt-6-luna';
@@ -84,6 +85,7 @@ export async function runD02(
   args: readonly string[] = [],
   env: Readonly<Record<string, string | undefined>> = process.env,
   send: ManualFetch = globalThis.fetch,
+  judgingOptions: ManualJudgeOptions = {},
 ) {
   if (
     new Set(args).size !== args.length ||
@@ -109,12 +111,22 @@ export async function runD02(
     source: value.lineage,
   };
   if (!args.includes('--live'))
-    return { mode: 'dry-run' as const, configuration, generationDispatches: 0 };
+    return {
+      mode: 'dry-run' as const,
+      configuration,
+      generationDispatches: 0,
+      judge: {
+        schemaVersion: 1,
+        status: 'not_run',
+        reason: 'dry_run',
+      } as const,
+    };
   if (!args.includes('--confirm-capped-key'))
     throw new Error('Live D02 requires prior external capped-key confirmation');
   const apiKey = env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error('OPENAI_API_KEY is required for live D02');
 
+  const judging = manualJudge(value, env, judgingOptions);
   const transport = manualTransport(send, apiKey, model, maxOutputTokens, 3);
   const sessionId = SessionId(`d02-${crypto.randomUUID()}`);
   const turns: Array<{
@@ -131,6 +143,7 @@ export async function runD02(
       sample: 1,
     },
     {
+      ...(judging.judge && { judge: judging.judge }),
       surface: 'session',
       provenance: configuration.provenance,
       async execute(context) {
@@ -251,6 +264,7 @@ export async function runD02(
     mode: 'live' as const,
     configuration,
     generationDispatches: transport.count(),
+    judgeCalls: { ...judging.calls },
     result,
     limitation:
       'One sample and lexical D02 predicates, not universal identity reliability or full migration acceptance.',
