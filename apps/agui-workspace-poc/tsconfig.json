@@ -11,6 +11,11 @@
     "jsx": "react-jsx"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "nx": {
+    "sync": {
+      "ignoredDependencies": ["@maelstrom-co/demo", "@maelstrom-co/agui-server"]
+    }
+  },
   "references": [
     { "path": "../../packages/react" },
     { "path": "../../packages/protocol" },
