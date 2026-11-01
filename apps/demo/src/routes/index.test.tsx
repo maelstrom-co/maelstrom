@@ -95,13 +95,15 @@ vi.mock('../lib/hosted-vad', () => ({
 const connectorOverride = vi.hoisted(() => ({
   process: null as null | ((message: unknown) => Promise<unknown>),
   createCalls: 0,
+  selections: [] as { protocol?: string; sessionId?: string }[],
 }));
 
 // createDemoConnector opens a real WebSocketConnector — swapped for the
 // shared no-op mock so the route can mount without a live server.
 vi.mock('../lib/connector', () => ({
-  createDemoConnector: () => {
+  createDemoConnector: (options: { protocol?: string; sessionId?: string }) => {
     connectorOverride.createCalls += 1;
+    connectorOverride.selections.push(options);
     const base = createMockConnector();
     return connectorOverride.process
       ? { ...base, process: connectorOverride.process }
@@ -151,9 +153,46 @@ beforeEach(() => {
   __resetTasksStoreForTests();
   connectorOverride.process = null;
   connectorOverride.createCalls = 0;
+  connectorOverride.selections = [];
   hostedVad.preloadCalls = 0;
   openAIAdapter.activations = 0;
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
+});
+
+it('switches the deployed demo protocol with a fresh session and retires the previous voice connection', async () => {
+  setPlaygroundKey('sk-protocol-switch-fixture-not-a-real-key');
+  const { HomePage } = await import('../components/home-page');
+  render(<HomePage />);
+  await waitFor(() =>
+    expect(FakeRealtimeSession.instances.length).toBeGreaterThan(0),
+  );
+  const previousVoice = FakeRealtimeSession.instances.at(-1);
+  const previousSession = connectorOverride.selections.at(-1)?.sessionId;
+  expect(connectorOverride.selections.at(-1)?.protocol).toBe('native');
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Workspace protocol' }),
+    { target: { value: 'agui' } },
+  );
+  await waitFor(() =>
+    expect(connectorOverride.selections.at(-1)?.protocol).toBe('agui'),
+  );
+  expect(connectorOverride.selections.at(-1)?.sessionId).not.toBe(
+    previousSession,
+  );
+  await waitFor(() =>
+    expect(previousVoice?.disconnectCalls).toBeGreaterThan(0),
+  );
+  expect(screen.getByRole('combobox', { name: 'Voice provider' })).toBeTruthy();
+  expect(
+    await screen.findByPlaceholderText('What would you like to do?'),
+  ).toBeTruthy();
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Workspace protocol' }),
+    { target: { value: 'native' } },
+  );
+  await waitFor(() =>
+    expect(connectorOverride.selections.at(-1)?.protocol).toBe('native'),
+  );
 });
 
 afterEach(() => {

@@ -943,6 +943,19 @@ body {
     font-size: 10px;
   }
 
+  .demo-controls:has(.workspace-protocol-select) {
+    gap: 4px;
+  }
+
+  .demo-controls:has(.workspace-protocol-select) .status-pill {
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+
+  .demo-controls:has(.workspace-protocol-select) .voice-provider-label {
+    display: none;
+  }
+
   .demo-nav {
     gap: 14px;
     overflow-x: auto;
