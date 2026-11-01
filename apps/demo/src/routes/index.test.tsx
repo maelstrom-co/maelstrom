@@ -169,6 +169,25 @@ afterEach(() => {
 });
 
 describe('key drawer gating (hosted, no key)', () => {
+  it('keeps AG-UI opt-in and restores the typed and voice controls on exit', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    const { HomePage } = await import('../components/home-page');
+    render(<HomePage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start voice' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Experimental AG-UI' }));
+    expect(screen.getByLabelText('Experimental planner')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Start voice' })).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Return to normal demo' }),
+    );
+    expect(screen.getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start voice' })).toBeTruthy();
+    expect(screen.queryByLabelText('Experimental planner')).toBeNull();
+  });
+
   it('starts selected Realtime voice after the first lobby key save without a second orb click', async () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
