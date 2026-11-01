@@ -33,6 +33,7 @@ import type {
 } from '../command-processor/action-runner.types.js';
 import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
+import type { ApplicationActionOutcome } from '../connection-manager/application-settlement.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
   AssistantMessage,
@@ -1418,9 +1419,12 @@ export class Orchestrator {
   #dispatchSettledResponse(
     response: MaelstromResponse,
     requestId?: MessageId,
+    source: 'request' | 'push' = 'request',
     onActionsCompleted?: (result: BatchExecutionResult) => void,
     onCommandComplete?: () => void,
   ): Promise<CommandBatchResult> {
+    const connector = this.#connector;
+    const epoch = this.#connectorEpoch;
     const layoutCommand = {
       kind: 'set_layout' as const,
       layout: response.layout,
@@ -1493,25 +1497,94 @@ export class Orchestrator {
         }),
       );
     }
-    const releaseActionsListener = onActionsCompleted
-      ? this.#commandProcessor.events.on('actions_completed', (e) => {
-          if (e.command === actionsCommand) onActionsCompleted(e.result);
-        })
-      : undefined;
-    const releaseCompleteListener = onCommandComplete
-      ? this.#commandProcessor.events.on('command_complete', (e) => {
-          if (e.command === layoutCommand || e.command === actionsCommand)
-            onCommandComplete();
-        })
-      : undefined;
-    const settlement = this.#commandProcessor.dispatchSettled(
-      layoutCommand,
-      actionsCommand,
+    if (source === 'push' || !connector.applicationSettled || !requestId) {
+      const releaseActionsListener = onActionsCompleted
+        ? this.#commandProcessor.events.on('actions_completed', (e) => {
+            if (e.command === actionsCommand) onActionsCompleted(e.result);
+          })
+        : undefined;
+      const releaseCompleteListener = onCommandComplete
+        ? this.#commandProcessor.events.on('command_complete', (e) => {
+            if (e.command === layoutCommand || e.command === actionsCommand)
+              onCommandComplete();
+          })
+        : undefined;
+      const settlement = this.#commandProcessor.dispatchSettled(
+        layoutCommand,
+        actionsCommand,
+      );
+      if (releaseActionsListener)
+        void settlement.finally(releaseActionsListener);
+      if (releaseCompleteListener)
+        void settlement.finally(releaseCompleteListener);
+      return settlement;
+    }
+    let actions: ApplicationActionOutcome[] = [];
+    let chart: UIStructuralSnapshot | undefined;
+    const releaseActions = this.#commandProcessor.events.on(
+      'actions_completed',
+      (event) => {
+        if (event.command === actionsCommand) {
+          actions = event.result.actions.map((action) => ({
+            instanceId: action.instanceId,
+            action: action.action,
+            succeeded: !action.skipped && action.result.ok,
+          }));
+        }
+      },
     );
-    if (releaseActionsListener) void settlement.finally(releaseActionsListener);
-    if (releaseCompleteListener)
-      void settlement.finally(releaseCompleteListener);
-    return settlement;
+    const releaseComplete = this.#commandProcessor.events.on(
+      'command_complete',
+      (event) => {
+        if (event.command === actionsCommand)
+          chart = this.getStructuralSnapshot();
+      },
+    );
+    const releaseError = this.#commandProcessor.events.on(
+      'processing_error',
+      (event) => {
+        if (event.command === layoutCommand || event.command === actionsCommand)
+          chart = this.getStructuralSnapshot();
+      },
+    );
+    const release = () => {
+      releaseActions();
+      releaseComplete();
+      releaseError();
+    };
+    const settle = async (): Promise<CommandBatchResult> => {
+      try {
+        const result = await this.#commandProcessor.dispatchSettled(
+          layoutCommand,
+          actionsCommand,
+        );
+        release();
+        if (this.#isDisposed || epoch !== this.#connectorEpoch || !chart) {
+          return {
+            status: 'unknown',
+            error: new Error('Application settlement retired'),
+          };
+        }
+        await connector.applicationSettled?.({
+          requestId,
+          result,
+          actions,
+          chart,
+        });
+        if (this.#isDisposed || epoch !== this.#connectorEpoch) {
+          return {
+            status: 'unknown',
+            error: new Error('Application acknowledgment retired'),
+          };
+        }
+        return result;
+      } catch (error) {
+        return { status: 'unknown', error: toError(error) };
+      } finally {
+        release();
+      }
+    };
+    return settle();
   }
 
   // The command processor refuses new listeners once disposed, so a change
@@ -1534,6 +1607,7 @@ export class Orchestrator {
     const batch = await this.#dispatchSettledResponse(
       response,
       response.requestId,
+      'push',
       (result) => {
         actions = result.actions;
       },
@@ -1545,7 +1619,7 @@ export class Orchestrator {
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
-    void this.#dispatchSettledResponse(response, requestId);
+    void this.#dispatchSettledResponse(response, requestId, 'push');
   }
 
   #discardResponse(requestId: MessageId, reason: string): void {

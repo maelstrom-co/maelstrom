@@ -82,6 +82,83 @@ const orphanBoard = InstanceId('board-orphan');
 const shortReadyTimeoutMs = 30;
 
 describe('Orchestrator agent path', () => {
+  it('acknowledges native changes with their own snapshots while a process acknowledgment remains pending', async () => {
+    const agent = createMockAgentConnector();
+    const requestAcknowledging = Promise.withResolvers<void>();
+    const releaseRequest = Promise.withResolvers<void>();
+    const actionStarted = Promise.withResolvers<void>();
+    const releaseAction = Promise.withResolvers<void>();
+    const secondApplied = Promise.withResolvers<void>();
+    const requestAcknowledgments: MessageId[] = [];
+    let requestId: MessageId | undefined;
+    const connector: EngineConnector = {
+      ...agent.connector,
+      process: async (message) => {
+        requestId = message.id;
+        return createMockEmptyResponse(message.id);
+      },
+      applicationSettled: async (settlement) => {
+        requestAcknowledgments.push(settlement.requestId);
+        requestAcknowledging.resolve();
+        await releaseRequest.promise;
+      },
+      sendInput: async (input) => {
+        await agent.connector.sendInput(input);
+        if (
+          input.type === 'ui_applied' &&
+          input.changeId === ChangeId('second-native')
+        )
+          secondApplied.resolve();
+      },
+    };
+    const orchestrator = await connectedOrchestrator(connector);
+    try {
+      await orchestrator.processIntent('process request');
+      await requestAcknowledging.promise;
+      orchestrator.commandProcessor.registerRunner(mainBoard, {
+        expand: async () => {
+          actionStarted.resolve();
+          await releaseAction.promise;
+          return ok(undefined);
+        },
+      });
+      const firstApplied = agent.nextInput('ui_applied');
+      agent.emit(
+        uiChange(
+          'first-native',
+          boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+          [step(mainBoard, 'expand')],
+        ),
+      );
+      await actionStarted.promise;
+      agent.emit(
+        uiChange(
+          'second-native',
+          boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+          [],
+        ),
+      );
+      releaseAction.resolve();
+      const first = await firstApplied;
+      await secondApplied.promise;
+      expect(first.changeId).toBe(ChangeId('first-native'));
+      expect(first.actionOutcomes).toEqual([{ ok: true }]);
+      expect(first.chart.instances).toEqual([
+        {
+          instanceId: mainBoard,
+          vesselId: VesselId('board'),
+          variant: VariantName('expanded'),
+        },
+      ]);
+      if (requestId === undefined) throw new Error('Missing process request');
+      expect(requestAcknowledgments).toEqual([requestId]);
+    } finally {
+      releaseAction.resolve();
+      releaseRequest.resolve();
+      await orchestrator.dispose();
+    }
+  });
+
   it('never reports busy: back to back utterances and one during an in flight intent all reach the agent', async () => {
     const agent = createMockAgentConnector();
     const intentResponse = Promise.withResolvers<MaelstromResponse>();
