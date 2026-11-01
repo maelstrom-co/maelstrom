@@ -266,7 +266,7 @@ export async function runStageEval<Input, Output, Detail, Deps>(
     caseId: (scenario) => scenario.id,
     runtimeId: (_scenario, variant) => `${module.name}/${variant}`,
     preflight() {
-      validateJudgeSelection(options.judge, options.judgeRubric);
+      validateStageJudgeSelection(options.judge, options.judgeRubric);
       const unknown = options.variants.filter(
         (name) => !Object.hasOwn(module.variants, name),
       );
@@ -512,7 +512,7 @@ function createStageTurn<Input, Output, Detail, Deps>(
     surface: 'isolated-stage',
     provenance: options.provenance,
     async preflight(context) {
-      validateJudgeSelection(options.judge, options.judgeRubric);
+      validateStageJudgeSelection(options.judge, options.judgeRubric);
       if (!Object.hasOwn(module.variants, options.variant))
         throw new Error(`Unknown stage variant: ${options.variant}`);
       states.set(context, {
@@ -608,7 +608,7 @@ function createStageTurn<Input, Output, Detail, Deps>(
     },
     ...(options.judge && {
       async judge(
-        _result: EvaluationResult<StageTurnRecord<Detail>>,
+        result: EvaluationResult<StageTurnRecord<Detail>>,
         context: EvaluationContext,
       ) {
         const state = states.get(context);
@@ -630,6 +630,7 @@ function createStageTurn<Input, Output, Detail, Deps>(
             request: options.scenario.request,
             history: options.scenario.history ?? [],
             expected: options.scenario.expected,
+            expectedDeferral: result.observation?.expectedDeferral,
             ...evidence,
           },
           { logger },
@@ -644,6 +645,16 @@ function createStageTurn<Input, Output, Detail, Deps>(
     },
   };
   return { adapter, states };
+}
+
+/** Rejects rubrics without an isolated-stage evidence contract before runtime work. */
+export function validateStageJudgeSelection(
+  judge: Judge | undefined,
+  rubric: JudgeRubric = 'surface',
+): void {
+  validateJudgeSelection(judge, rubric);
+  if (rubric !== 'surface')
+    throw new Error('Stage judging supports only the surface rubric');
 }
 
 function base(

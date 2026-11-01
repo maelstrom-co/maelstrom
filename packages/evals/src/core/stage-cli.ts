@@ -3,13 +3,18 @@ import { parseArgs } from 'node:util';
 import { consoleLogger } from '@maelstrom-co/engine';
 import {
   type ConfigureJudge,
+  type JudgeConfig,
   MissingJudgeEnvironment,
+  resolveJudgeSelection,
   unconfiguredJudge,
 } from './judge.js';
 import { renderJudgeSummary, summarizeJudges } from './judge-result.js';
 
 import { type Suite, selectScenarios } from './scenarios.js';
-import type { RegisteredStageEval } from './stage-eval.js';
+import {
+  type RegisteredStageEval,
+  validateStageJudgeSelection,
+} from './stage-eval.js';
 import { writeStageReport } from './stage-report.js';
 
 const WORKSPACE_ROOT = resolve(import.meta.dir, '../../../..');
@@ -54,17 +59,19 @@ export async function runStageEvalCli(
   let judgeMissing: readonly string[] = [];
   const judging = (() => {
     try {
-      return configureJudge(
-        {
-          enabled: values['no-grader']
-            ? false
-            : (values.grader as boolean | undefined),
-          provider: values['judge-provider'] as string | undefined,
-          model: values['judge-model'] as string | undefined,
-          rubric: values['judge-rubric'] as string | undefined,
-        },
-        process.env,
-      );
+      const explicit: JudgeConfig = {
+        enabled: values['no-grader']
+          ? false
+          : (values.grader as boolean | undefined),
+        provider: values['judge-provider'] as string | undefined,
+        model: values['judge-model'] as string | undefined,
+        rubric: values['judge-rubric'] as string | undefined,
+      };
+      const selection = resolveJudgeSelection(explicit, process.env);
+      if (selection) validateStageJudgeSelection(undefined, selection.rubric);
+      const configured = configureJudge(explicit, process.env);
+      validateStageJudgeSelection(configured.judge, configured.judgeRubric);
+      return configured;
     } catch (error) {
       if (error instanceof MissingJudgeEnvironment) {
         judgeMissing = error.missing;
@@ -120,9 +127,11 @@ export async function runStageEvalCli(
       ),
   );
 
-  const missing = [...judgeMissing, ...(stage.requiredEnv ?? [])].filter(
-    (name) => (process.env[name]?.trim() ?? '').length === 0,
-  );
+  const missing = [
+    ...judgeMissing,
+    ...(stage.requiredEnv ?? []),
+    ...(judging.judge?.requiredEnv ?? []),
+  ].filter((name) => (process.env[name]?.trim() ?? '').length === 0);
   if (missing.length > 0) {
     console.error(`stage eval skipped: missing ${missing.join(', ')}`);
     process.exit(2);

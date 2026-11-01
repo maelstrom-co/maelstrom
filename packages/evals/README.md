@@ -4,7 +4,7 @@ Case completion follows the [declared-scope convention](cases/README.md#completi
 
 Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_internal` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; no published package depends on it.
 
-Two evals live here: the full-planner eval runs whole planners through `createEngine` and compares named arms, the stage eval runs one pipeline stage on gold inputs. The runners are generic and live in `src/core/`; everything that knows a planner family lives in a plugin under `src/plugins/` (see Plugins below). The Jev and Decisions plugins read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_internal`, and their offline tests read the fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository. There are four entry points: `src/eval/cli.ts` (the full-planner eval, the nx `eval` target), `src/eval-stages/cli.ts` (the stage eval, the nx `eval-stages` target), `src/eval/report-cli.ts` (rebuilds a run's report from its records) and `src/eval/grader-validate.ts` (validates the grader). Each only hands the registered plugins, `evalPlugins` from `src/plugins/index.ts`, to its runner in `src/core/`.
+Two evals live here: the full planner eval runs whole planners through `createEngine` and compares named arms, the stage eval runs one pipeline stage on gold inputs. The runners are generic and live in `src/core/`; everything that knows a planner family lives in a plugin under `src/plugins/` (see Plugins below). The Jev and Decisions plugins read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_internal`, and their offline tests read the fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository. There are four entry points: `src/eval/cli.ts` (the full planner eval, the nx `eval` target), `src/eval-stages/cli.ts` (the stage eval, the nx `eval-stages` target), `src/eval/report-cli.ts` (rebuilds a run's report from its records) and `src/eval/grader-validate.ts` (validates the grader). Each only hands the registered plugins, `evalPlugins` from `src/plugins/index.ts`, to its runner in `src/core/`.
 
 ## Manual current-Engine samples
 
@@ -386,7 +386,7 @@ Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<s
 
 ### Stage evals
 
-`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
+`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL for the Jev modules, OPENAI_API_KEY for the decisions-* modules)
@@ -456,7 +456,7 @@ A full comparison is one run with every arm side by side, plus `paired.md`:
 bunx nx run @maelstrom-co/evals:eval -- --arm baseline --arm jev-poc --arm decisions-poc --arm jev-gated-per-instance-composed-pairs-gate-and-defer-inline --arm decisions-composed-pairs --suite all --repeats 3 --out "$EVAL_OUT/full-comparison"
 ```
 
-The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` above). Keep the stage evals at `--concurrency 1` (the default; the full-planner eval has no such flag) and run each Jev and Decisions pair back to back, so latency is not inflated and load hits both alike. The completion call and the fallback use `--model` for every arm alike. In the full-planner report the rows labelled "Stage calls", "Stage call latency" and "Stage tokens" are shared by both plugins and count TypeSafe calls in a Jev column and Decisions calls in a Decisions column; the stage-eval report labels its call rows with the module's provider (`Decisions calls per turn`). A Decisions refusal of any question defers the stage as `<stage>/provider_refusal`, shown among the fallback reasons.
+The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` above). Keep the stage evals at `--concurrency 1` (the default; the full planner eval has no such flag) and run each Jev and Decisions pair back to back, so latency is not inflated and load hits both alike. The completion call and the fallback use `--model` for every arm alike. In the full planner report the rows labelled "Stage calls", "Stage call latency" and "Stage tokens" are shared by both plugins and count TypeSafe calls in a Jev column and Decisions calls in a Decisions column; the stage-eval report labels its call rows with the module's provider (`Decisions calls per turn`). A Decisions refusal of any question defers the stage as `<stage>/provider_refusal`, shown among the fallback reasons.
 
 ### Reading the report
 
@@ -477,7 +477,7 @@ The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` 
 
 ### Measure a cache baseline
 
-Use the existing full-planner runner before changing prompts or cache settings. Run from the workspace root with Bun dependencies installed and `OPENAI_API_KEY` configured. This command makes paid provider requests.
+Use the existing full planner runner before changing prompts or cache settings. Run from the workspace root with Bun dependencies installed and `OPENAI_API_KEY` configured. This command makes paid provider requests.
 
 1. Record five repetitions of one fixed case, with only the baseline arm and an explicit model:
 
@@ -497,7 +497,8 @@ Providers and rubrics are independent. `--judge-provider=typesafe|openai` select
 LLM provider; `--judge-rubric=surface|legacy` selects surface-specific dimensions or
 the distinct `legacy_task/v2` scalar `llm_judge_score`. The legacy task wording is
 adapted to available evidence; no historical score equivalence is claimed. Stage
-runs always use the isolated-stage rubric, including actual deferrals/handoffs.
+runs support only `surface` (the isolated-stage rubric, including actual
+deferrals/handoffs); selecting `legacy` is rejected before execution.
 OpenAI uses fractional levels without invented level probabilities or resampling.
 `--judge-provider=heuristic --judge-rubric=legacy` retains normalized exact text
 (1/0), nonempty text (0.5), and empty text (0) behavior, explicitly **non-LLM**.
@@ -523,7 +524,7 @@ Historical missing evidence is unknown, not disabled or zero. Re-export and repo
 rebuilding do not grade again. Stage reports also write `summary.json`.
 
 
-`src/core/grader.ts` rates each shipped response, including expected-deferral scenarios with actual responses, with one judge call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. A dimension whose two most probable levels are within 0.15 of each other is asked twice more on its own and scores the mean of the three samples. Grading runs after the turn's latency is measured, on its own provider client: its usage is reported in the grader rows and never in an arm's stage tokens. A failed grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
+For full planner runs with `--judge-rubric=surface`, `src/core/grader.ts` rates each shipped response, including expected-deferral scenarios with actual responses, with an initial judge call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. With TypeSafe, dimensions whose two most probable levels are within 0.15 of each other are asked together in two additional calls and score the mean of their three samples: one call normally, three when resampling. OpenAI supplies no level probabilities, so this path uses one call without resampling. Legacy judging and other surface rubrics, including isolated stages, use one call without this resampling policy. Grading runs after the turn's latency is measured, on its own provider client: native grader usage is reported in the grader rows and never in an arm's stage tokens. A failed native grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
 
 The rule-based pass stays the primary metric. The grader reads the LLM-written `userMessage` and the plan, so it may prefer fluent messages and plans shaped like Jev's own (self-preference). That is why it is secondary: descriptive scores remain labeled unvalidated, and validated native headline rows still require calibration:
 

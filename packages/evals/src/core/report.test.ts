@@ -499,14 +499,51 @@ describe('grader', () => {
     );
   });
 
-  test('an unbound historical calibration does not validate a known provider using the native rubric', () => {
+  test('unbound historical judges retain validated headlines with unbound calibration', () => {
+    const historical = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader),
+    }));
+    expect(historical[0].judge.provenance).toEqual({
+      kind: 'unknown',
+      provider: 'historical',
+    });
+    expect(passing.provenance).toBeUndefined();
+    const historicalSummaries = summarize(historical, plugins);
+    const report = renderMarkdown(
+      historicalSummaries,
+      {},
+      {
+        plugins,
+        graderValidation: passing,
+      },
+    );
+    expect(report).toContain('grader: validated (rho=0.75, agreement=90.0%)');
+    expect(report).toContain(
+      '| Grader request_satisfied mean | 0.750 | 0.875 |',
+    );
+    expect(report).toContain(
+      '| Grader arrangement_match vs baseline (paired) | n/a | +0.250 (2) |',
+    );
+    const withoutCalibration = renderMarkdown(
+      historicalSummaries,
+      {},
+      { plugins },
+    );
+    expect(withoutCalibration).toContain(
+      'grader: unvalidated (rho=n/a, agreement=n/a)',
+    );
+    expect(withoutCalibration).not.toContain('| Grader request_satisfied mean');
+  });
+
+  test.each([
+    { kind: 'llm', provider: 'openai', model: 'fake' },
+    { kind: 'unknown', provider: 'custom' },
+    { kind: 'unknown', provider: 'historical', model: 'not-historical' },
+  ] as const)('an unbound historical calibration does not validate current provenance %o', (provenance) => {
     const current = records.map((record) => ({
       ...record,
-      judge: judgeFromGrader(record.grader, {
-        kind: 'llm',
-        provider: 'openai',
-        model: 'fake',
-      }),
+      judge: judgeFromGrader(record.grader, provenance),
     }));
     const report = renderMarkdown(
       summarize(current, plugins),
@@ -515,7 +552,7 @@ describe('grader', () => {
     );
     expect(report).not.toContain('grader: validated');
     expect(report).not.toContain('| Grader request_satisfied mean');
-    expect(report).toContain('openai/fake');
+    expect(report).toContain(provenance.provider);
     expect(report).toContain('unvalidated');
   });
 

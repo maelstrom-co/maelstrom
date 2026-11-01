@@ -2,6 +2,7 @@ import type { GraderContext } from './grader.js';
 import {
   type EvaluationJudgeResult,
   evaluationJudgeSchema,
+  graderFailureReason,
   type JudgeProvenance,
   judgeNotRun,
 } from './judge-result.js';
@@ -110,7 +111,7 @@ export async function judgeEvidence(
       return {
         schemaVersion: 1,
         status: 'failed',
-        reason: 'provider_failure',
+        reason: graderFailureReason(verdict.failure),
         ...identity,
       };
     const value = verdict.answers[dimension.name]?.score;
@@ -157,6 +158,43 @@ export interface JudgeConfig {
   /** Surface or legacy rubric. */
   readonly rubric?: string;
 }
+/** Resolves enabled rubric defaults without reading credentials or constructing a provider. */
+export function resolveJudgeSelection(
+  explicit: JudgeConfig,
+  env: Readonly<Record<string, string | undefined>>,
+):
+  | {
+      /** Enabled rubric after explicit options and environment defaults. */
+      readonly rubric: JudgeRubric;
+      /** Environment-only activation retains historical provider defaults. */
+      readonly legacyDefaults: boolean;
+    }
+  | undefined {
+  const invoked =
+    explicit.provider !== undefined ||
+    explicit.model !== undefined ||
+    explicit.rubric !== undefined;
+  const flag = env.MAELSTROM_ENABLE_LLM_JUDGE?.trim().toLowerCase();
+  if (
+    explicit.enabled === undefined &&
+    !invoked &&
+    flag !== undefined &&
+    !['true', 'false', '1', '0', ''].includes(flag)
+  )
+    throw new Error('MAELSTROM_ENABLE_LLM_JUDGE must be true/false or 1/0');
+  const enabled =
+    explicit.enabled ?? (invoked || flag === 'true' || flag === '1');
+  if (!enabled) return undefined;
+  const legacyDefaults = explicit.enabled === undefined && !invoked;
+  const rubric =
+    explicit.rubric ??
+    env.MAELSTROM_LLM_JUDGE_RUBRIC ??
+    (legacyDefaults ? 'legacy' : 'surface');
+  if (rubric !== 'surface' && rubric !== 'legacy')
+    throw new Error('Judge rubric must be surface or legacy');
+  return { rubric, legacyDefaults };
+}
+
 /** Application-owned, preflight-only judge configuration. */
 export type ConfigureJudge = (
   explicit: JudgeConfig,

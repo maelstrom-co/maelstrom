@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createOperationalCollector } from '../../packages/evals/src/core/operational-telemetry.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import type { EvaluationJudgeResult } from '../../packages/evals/src/core/runtime/judge-result.js';
 import { runLangfuseCli } from './cli.ts';
 import { type LangfuseV3Transport, startLangfuseV3Sink } from './sink.js';
 
@@ -860,6 +861,101 @@ test('full planner import preserves only native scores, explicit errors and revi
     metadata: { expectedDeferral: true, deferredAsExpected: false },
   });
   expectNoSecrets(published);
+});
+
+const plannerJudge: EvaluationJudgeResult = {
+  schemaVersion: 1,
+  status: 'scored',
+  rubric: { id: 'planner_response_text_1', version: 1 },
+  provenance: { kind: 'llm', provider: 'test', model: 'test-model' },
+  calibration: 'unvalidated',
+  scores: [{ name: 'request_satisfied', value: 0.75, min: 0, max: 1 }],
+};
+
+test('full planner import and publication preserve bounded judges without raw evidence or regrading', async () => {
+  const judges: (EvaluationJudgeResult | undefined)[] = [
+    plannerJudge,
+    { schemaVersion: 1, status: 'failed', reason: 'invalid_result' },
+    { schemaVersion: 1, status: 'not_run', reason: 'disabled' },
+    undefined,
+  ];
+  const expected = judges.map<EvaluationJudgeResult>(
+    (judge) =>
+      judge ?? {
+        schemaVersion: 1,
+        status: 'not_run',
+        reason: 'historical_unknown',
+      },
+  );
+  const overrides = await fullPlannerInput(
+    judges.map((judge, index) =>
+      plannerRecord({
+        scenarioId: `judged-${index}`,
+        score: { pass: true, failures: [] },
+        judge,
+      }),
+    ),
+  );
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  const imported = importFullPlannerRun(
+    await readFile(join(directory, 'records.json')),
+    await readFile(join(directory, 'summary.json')),
+    judges.length,
+  );
+  expect(imported.samples.map((sample) => sample.result.judge)).toEqual(
+    expected,
+  );
+  expect(JSON.stringify(imported.samples)).not.toContain('PRIVATE');
+  const { approval, json } = await preview(overrides);
+  const payloads = JSON.parse(json).publications.map(
+    (publication: { json: string }) => JSON.parse(publication.json),
+  );
+  expect(payloads.map((payload: { judge: unknown }) => payload.judge)).toEqual(
+    expected,
+  );
+  expect(json).not.toContain('PRIVATE');
+  const published = await runLangfuseCli(
+    publishArgs(approval, overrides),
+    dependencies(),
+  );
+  expect(published.exitCode).toBe(0);
+  expect(
+    batches.map(
+      (batch) =>
+        batch.batch.find((event) => event.type === 'span-create')?.body.output,
+    ),
+  ).toEqual(expected.map((judge) => expect.objectContaining({ judge })));
+});
+
+test.each([
+  null,
+  { ...plannerJudge, rawEvidence: 'PRIVATE' },
+  {
+    ...plannerJudge,
+    provenance: { kind: 'llm', provider: 'test', apiKey: 'PRIVATE' },
+  },
+  {
+    ...plannerJudge,
+    scores: [{ name: 'request_satisfied', value: 2, min: 0, max: 1 }],
+  },
+])('full planner import rejects invalid or raw judge evidence %o before publication', async (judge) => {
+  const overrides = await fullPlannerInput([plannerRecord({ judge })]);
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  const records = await readFile(join(directory, 'records.json'));
+  const summary = await readFile(join(directory, 'summary.json'));
+  expect(() => importFullPlannerRun(records, summary, 1)).toThrow();
+  const outcome = await runLangfuseCli(
+    [
+      ...args(overrides),
+      '--preview-out',
+      join(directory, 'invalid-preview.json'),
+    ],
+    dependencies(),
+  );
+  expect(outcome.exitCode).not.toBe(0);
+  expect(starts).toBe(0);
+  expect(credentialReads).toEqual([]);
+  expectNoSecrets(outcome);
 });
 
 test.each([

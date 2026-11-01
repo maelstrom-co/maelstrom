@@ -273,6 +273,16 @@ export function normalizeJudgeResult(value: unknown): EvaluationJudgeResult {
     : evaluationJudgeSchema.parse(value);
 }
 
+/** Maps grader failure codes to bounded reasons without exposing provider error text. */
+export function graderFailureReason(
+  failure: string,
+): Extract<EvaluationJudgeResult, { status: 'failed' }>['reason'] {
+  return failure === 'grader/invalid_answer' ||
+    failure === 'grader/answer_missing'
+    ? 'invalid_result'
+    : 'provider_failure';
+}
+
 /** Imports the native two-dimension rubric without exporting its calls or failure text. */
 export function judgeFromGrader(
   value: unknown,
@@ -291,7 +301,7 @@ export function judgeFromGrader(
       schemaVersion: 1,
       ...(grade.failure === 'grader/not_tiling'
         ? { status: 'not_run', reason: 'unsupported_surface' }
-        : { status: 'failed', reason: 'provider_failure' }),
+        : { status: 'failed', reason: graderFailureReason(grade.failure) }),
       provenance: source,
       rubric: {
         id: `planner_response_text_${verbalizerVersion}`,

@@ -209,6 +209,8 @@ export function renderMarkdown(
         mean.rubric ===
           `planner_response_text_${VERBALIZER_VERSION}/v${GRADER_VERSION}` &&
         ((mean.provenance.kind === 'unknown' &&
+          mean.provenance.provider === 'historical' &&
+          mean.provenance.model === undefined &&
           options.graderValidation?.provenance === undefined) ||
           (mean.provenance.kind ===
             options.graderValidation?.provenance?.kind &&

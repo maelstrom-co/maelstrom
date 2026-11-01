@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, mock, spyOn, test } from 'bun:test';
 import { gradeResponse } from '../../core/grader.js';
 import { judgeEvidence } from '../../core/judge.js';
 import {
@@ -10,6 +10,11 @@ import {
 } from '../../core/judge-result.js';
 import { evaluateSample } from '../../core/runtime/evaluate.js';
 import { selectScenarios } from '../../core/scenarios.js';
+import { runStageEvalCli } from '../../core/stage-cli.js';
+import type {
+  RegisteredStageEval,
+  StageEvalOptions,
+} from '../../core/stage-eval.js';
 import { configureJudge } from './config.js';
 import { createHeuristicJudge, createOpenAIJudge } from './providers.js';
 
@@ -98,6 +103,146 @@ test('enabled invalid configuration fails synchronously without making calls or 
   expect(() =>
     configureJudge({}, { MAELSTROM_ENABLE_LLM_JUDGE: 'maybe' }),
   ).toThrow();
+});
+
+test.each([
+  {
+    name: 'explicit legacy with missing OpenAI credentials',
+    args: ['--judge-provider=openai', '--judge-rubric=legacy'],
+    env: {},
+    exitCode: 1,
+  },
+  {
+    name: 'environment legacy with missing OpenAI credentials',
+    args: ['--judge-provider=openai'],
+    env: { MAELSTROM_LLM_JUDGE_RUBRIC: 'legacy' },
+    exitCode: 1,
+  },
+  {
+    name: 'environment-only legacy defaults with missing OpenAI credentials',
+    args: [],
+    env: {
+      MAELSTROM_ENABLE_LLM_JUDGE: ' true ',
+      MAELSTROM_LLM_JUDGE_PROVIDER: 'openai',
+    },
+    exitCode: 1,
+  },
+  {
+    name: 'explicit opt-out overrides enabled legacy configuration',
+    args: ['--no-grader', '--judge-provider=openai', '--judge-rubric=legacy'],
+    env: { MAELSTROM_ENABLE_LLM_JUDGE: 'true' },
+    exitCode: 0,
+  },
+  {
+    name: 'disabled environment ignores legacy configuration',
+    args: [],
+    env: {
+      MAELSTROM_ENABLE_LLM_JUDGE: 'false',
+      MAELSTROM_LLM_JUDGE_RUBRIC: 'legacy',
+      MAELSTROM_LLM_JUDGE_PROVIDER: 'openai',
+    },
+    exitCode: 0,
+  },
+  {
+    name: 'explicit surface overrides legacy environment and retains missing-credential exit',
+    args: ['--judge-provider=openai', '--judge-rubric=surface'],
+    env: { MAELSTROM_LLM_JUDGE_RUBRIC: 'legacy' },
+    exitCode: 2,
+  },
+  {
+    name: 'supported surface preserves configured judge and explicit model',
+    args: [
+      '--judge-provider=openai',
+      '--judge-rubric=surface',
+      '--judge-model=explicit',
+    ],
+    env: {
+      OPENAI_API_KEY: 'unused-test-key',
+      MAELSTROM_LLM_JUDGE_RUBRIC: 'legacy',
+      MAELSTROM_LLM_JUDGE_MODEL: 'environment',
+    },
+    exitCode: 0,
+  },
+])('stage CLI preflight: $name', async (fixture) => {
+  const keys = [
+    'OPENAI_API_KEY',
+    'MAELSTROM_ENABLE_LLM_JUDGE',
+    'MAELSTROM_LLM_JUDGE_PROVIDER',
+    'MAELSTROM_LLM_JUDGE_MODEL',
+    'MAELSTROM_LLM_JUDGE_RUBRIC',
+  ];
+  const previous = keys.map((key) => process.env[key]);
+  for (const key of keys) delete process.env[key];
+  Object.assign(process.env, fixture.env);
+  const configure = mock(configureJudge);
+  const configureStage = mock(async () => ({ module: stage, meta: {} }));
+  const run = mock(async (_options: StageEvalOptions) => []);
+  const stage = {
+    name: 'fake',
+    variants: ['one'],
+    configure: configureStage,
+    run,
+  } as unknown as RegisteredStageEval;
+  const exit = spyOn(process, 'exit').mockImplementation((code) => {
+    throw new Error(`exit ${code}`);
+  });
+  const error = spyOn(console, 'error').mockImplementation(() => {});
+  const log = spyOn(console, 'log').mockImplementation(() => {});
+  const deny = () => {
+    throw new Error('No provider calls permitted');
+  };
+  const network = spyOn(globalThis, 'fetch').mockImplementation(
+    Object.assign(deny, { preconnect: deny }),
+  );
+  try {
+    const invocation = runStageEvalCli(
+      [stage],
+      ['bun', 'stage-cli', '--stage=fake', '--case=swap', ...fixture.args],
+      configure,
+    );
+    if (fixture.exitCode)
+      await expect(invocation).rejects.toThrow(`exit ${fixture.exitCode}`);
+    else await invocation;
+    if (fixture.exitCode === 1) {
+      expect(error).toHaveBeenCalledWith(
+        'Stage judging supports only the surface rubric',
+      );
+      expect(configure).not.toHaveBeenCalled();
+      expect(configureStage).not.toHaveBeenCalled();
+    } else {
+      expect(configure).toHaveBeenCalledTimes(1);
+      expect(configureStage).toHaveBeenCalledTimes(1);
+    }
+    if (fixture.exitCode === 2)
+      expect(error).toHaveBeenCalledWith(
+        'stage eval skipped: missing OPENAI_API_KEY',
+      );
+    expect(run).toHaveBeenCalledTimes(fixture.exitCode ? 0 : 1);
+    if (!fixture.exitCode) {
+      const options = run.mock.calls[0][0];
+      if ('OPENAI_API_KEY' in fixture.env) {
+        expect(options.judge?.provenance).toEqual({
+          kind: 'llm',
+          provider: 'openai',
+          model: 'explicit',
+        });
+        expect(options.judgeRubric).toBe('surface');
+      } else {
+        expect(options.judge).toBeUndefined();
+        expect(options.judgeRubric).toBeUndefined();
+      }
+    }
+    expect(network).not.toHaveBeenCalled();
+  } finally {
+    exit.mockRestore();
+    error.mockRestore();
+    log.mockRestore();
+    network.mockRestore();
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
+  }
 });
 
 test('OpenAI executes native dimensions once without invented probabilities, and separately supports the legacy scalar rubric', async () => {

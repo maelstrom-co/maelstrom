@@ -142,14 +142,17 @@ export function validateGrader(input: {
   readonly records: readonly RunRecord[];
   readonly grades: readonly GradedResponse[];
 }): GraderValidation {
-  const usable = new Map<string, GraderGrade>();
+  const usable = new Map<string, GradedResponse>();
   for (const entry of input.grades)
     if (isCurrent(entry.grade) && entry.grade.dimensions)
-      usable.set(keyOf(entry), entry.grade);
+      usable.set(keyOf(entry), entry);
 
+  const contributors = new Set<GradedResponse>();
   const matched = input.labels.flatMap((label) => {
-    const grade = usable.get(keyOf(label));
-    return grade?.dimensions ? [{ label, dimensions: grade.dimensions }] : [];
+    const entry = usable.get(keyOf(label));
+    if (!entry?.grade.dimensions) return [];
+    contributors.add(entry);
+    return [{ label, dimensions: entry.grade.dimensions }];
   });
   const rho = {} as Record<GraderDimension, number | undefined>;
   const meanAbsoluteError = {} as Record<GraderDimension, number | undefined>;
@@ -181,18 +184,25 @@ export function validateGrader(input: {
       rule === undefined
     )
       continue;
-    const grade = usable.get(keyOf(record))?.dimensions;
-    if (grade === undefined) continue;
+    const entry = usable.get(keyOf(record));
+    const grade = entry?.grade.dimensions;
+    if (!entry || !grade) continue;
+    contributors.add(entry);
     total += 1;
     if (grade.arrangement_match.score >= PASS_THRESHOLD === rule.pass)
       agree += 1;
   }
 
-  const source = input.grades[0]?.provenance;
+  const sources = [...contributors].map((entry) => entry.provenance);
+  const source = sources[0];
+  const unbound = sources.every((provenance) => provenance === undefined);
   const sameSource =
-    source &&
-    input.grades.every(
-      (entry) => JSON.stringify(entry.provenance) === JSON.stringify(source),
+    source !== undefined &&
+    sources.every(
+      (provenance) =>
+        provenance?.kind === source.kind &&
+        provenance.provider === source.provider &&
+        provenance.model === source.model,
     );
   return {
     ...(sameSource && { provenance: source }),
@@ -204,6 +214,7 @@ export function validateGrader(input: {
     meanAbsoluteError,
     agreement: { agree, total },
     passed:
+      (unbound || sameSource) &&
       matched.length >= MIN_LABELS &&
       gateRho !== undefined &&
       gateRho >= MIN_RANK_CORRELATION &&

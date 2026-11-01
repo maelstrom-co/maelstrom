@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { deferred, type Stage } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
+import type { Judge } from './plugin.js';
 import { type EvaluationResult, evaluateSample } from './runtime/evaluate.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
 import {
@@ -482,6 +483,105 @@ test('optional secondary judge sees actual isolated-stage evidence, including fa
       .filter((record) => record.outcome === 'deferred')
       .every((record) => record.judge?.status === 'scored'),
   ).toBe(true);
+});
+
+test('legacy stage rubrics are rejected by runs and reusable adapters before preparation or provider calls', async () => {
+  const shout = shoutModule();
+  let preparations = 0;
+  let providerCalls = 0;
+  const module: typeof shout = {
+    ...shout,
+    async prepare(...args) {
+      preparations++;
+      return shout.prepare(...args);
+    },
+    makeDeps(...args) {
+      providerCalls++;
+      return shout.makeDeps(...args);
+    },
+  };
+  const score: Judge['score'] = async () => {
+    providerCalls++;
+    return { answers: {}, calls: [] };
+  };
+  const judges: (Judge | undefined)[] = [
+    undefined,
+    { score },
+    { score, provenance: { kind: 'heuristic', provider: 'heuristic' } },
+  ];
+  const scenarios = selectScenarios('development', ['swap']);
+  for (const judge of judges) {
+    await expect(
+      runStageEval(module, {
+        scenarios,
+        variants: ['upper'],
+        repeats: 1,
+        judge,
+        judgeRubric: 'legacy',
+      }),
+    ).rejects.toThrow('Stage judging supports only the surface rubric');
+    const result = await evaluateSample(
+      { runId: 'legacy', caseId: 'swap', runtimeId: 'upper', sample: 1 },
+      registerStageEval(module).adapter({
+        scenario: scenarios[0],
+        variant: 'upper',
+        provenance: 'test',
+        judge,
+        judgeRubric: 'legacy',
+      }),
+    );
+    expect(result.execution).toBe('invalid');
+    expect(result.error).toEqual({
+      phase: 'preflight',
+      message: 'Stage judging supports only the surface rubric',
+    });
+  }
+  expect(preparations).toBe(0);
+  expect(providerCalls).toBe(0);
+});
+
+test('stage judge receives the recorded expected deferral without recomputing it', async () => {
+  const shout = shoutModule();
+  let expectations = 0;
+  const evidence: Readonly<Record<string, unknown>>[] = [];
+  const records = await runStageEval(
+    {
+      ...shout,
+      expectedDeferral(scenario) {
+        expectations++;
+        return shout.expectedDeferral?.(scenario);
+      },
+    },
+    {
+      scenarios: selectScenarios('development', ['preserve', 'swap']),
+      variants: ['upper', 'defer'],
+      repeats: 1,
+      concurrency: 3,
+      judge: {
+        async score(input) {
+          evidence.push(input.state);
+          return {
+            answers: { stage_alignment: { score: 4, probabilities: {} } },
+            calls: [],
+          };
+        },
+      },
+    },
+  );
+  expect(expectations).toBe(records.length);
+  expect(evidence).toHaveLength(4);
+  for (const state of evidence) {
+    const variant = 'deferral' in state ? 'defer' : 'upper';
+    const record = records.find(
+      (record) =>
+        record.scenarioId === state.input && record.variant === variant,
+    );
+    expect(record).toBeDefined();
+    expect(state.expectedDeferral).toBe(record?.expectedDeferral);
+    expect(state.expectedDeferral).toBe(
+      state.input === 'preserve' ? 'shout/too_quiet' : undefined,
+    );
+  }
 });
 
 test('secondary evidence serialization cannot turn a real stage deferral into an execution failure', async () => {

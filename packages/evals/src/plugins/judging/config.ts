@@ -2,6 +2,7 @@ import {
   type JudgeConfig,
   type JudgeRubric,
   MissingJudgeEnvironment,
+  resolveJudgeSelection,
 } from '../../core/judge.js';
 import type { Judge } from '../../core/plugin.js';
 import { createTypeSafeJudge } from '../jev/typesafe-judge.js';
@@ -12,32 +13,13 @@ export function configureJudge(
   explicit: JudgeConfig,
   env: Readonly<Record<string, string | undefined>>,
 ): { readonly judge?: Judge; readonly judgeRubric?: JudgeRubric } {
-  const invoked =
-    explicit.provider !== undefined ||
-    explicit.model !== undefined ||
-    explicit.rubric !== undefined;
-  const flag = env.MAELSTROM_ENABLE_LLM_JUDGE?.trim().toLowerCase();
-  if (
-    explicit.enabled === undefined &&
-    !invoked &&
-    flag !== undefined &&
-    !['true', 'false', '1', '0', ''].includes(flag)
-  )
-    throw new Error('MAELSTROM_ENABLE_LLM_JUDGE must be true/false or 1/0');
-  const enabled =
-    explicit.enabled ?? (invoked || flag === 'true' || flag === '1');
-  if (!enabled) return {};
-  const legacy = explicit.enabled === undefined && !invoked;
+  const selection = resolveJudgeSelection(explicit, env);
+  if (!selection) return {};
+  const judgeRubric = selection.rubric;
   const provider =
     explicit.provider ??
     env.MAELSTROM_LLM_JUDGE_PROVIDER ??
-    (legacy ? 'heuristic' : 'typesafe');
-  const judgeRubric =
-    explicit.rubric ??
-    env.MAELSTROM_LLM_JUDGE_RUBRIC ??
-    (legacy ? 'legacy' : 'surface');
-  if (judgeRubric !== 'surface' && judgeRubric !== 'legacy')
-    throw new Error('Judge rubric must be surface or legacy');
+    (selection.legacyDefaults ? 'heuristic' : 'typesafe');
   if (provider === 'heuristic') {
     if (judgeRubric !== 'legacy')
       throw new Error('Heuristic judging requires the legacy text rubric');
