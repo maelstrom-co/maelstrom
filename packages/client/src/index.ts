@@ -96,6 +96,11 @@ export {
 export type { CommandProcessorOptions } from './lib/command-processor/command-processor.types.js';
 // Layout Manager
 export { applyLayout } from './lib/command-processor/layout-manager.js';
+// Connector types (client-specific transport interfaces)
+export type {
+  ApplicationActionOutcome,
+  ApplicationSettlement,
+} from './lib/connection-manager/application-settlement.js';
 // Connection Manager
 export type { ConnectionManagerEvents } from './lib/connection-manager/connection-manager.js';
 export { ConnectionManager } from './lib/connection-manager/connection-manager.js';
@@ -105,7 +110,6 @@ export type {
   ConnectionManagerOptions,
   ConnectionOptions,
 } from './lib/connection-manager/connection-manager.types.js';
-// Connector types (client-specific transport interfaces)
 export type {
   AcknowledgedAssistantConnector,
   AssistantMessage,
