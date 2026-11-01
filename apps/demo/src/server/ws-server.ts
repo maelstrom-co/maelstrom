@@ -11,6 +11,8 @@
  * keep the handleEnvelope/encodeEnvelope path shared with the hosted transport
  * (`src/worker/session-do.ts`) through `dispatchFrame`.
  */
+
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   createDiagnosticConnection,
@@ -65,6 +67,7 @@ export interface SocketData {
   agent?: AgentTransport;
   sessionId?: SessionId;
   closed?: boolean;
+  workspace?: AguiWorkspaceSession;
   diagnostics?: DiagnosticConnection;
   helloReceived: boolean;
   reportMetadata?: boolean;
@@ -99,6 +102,7 @@ export function createWebSocketHandlers(
       ws.data.closed = true;
       ws.data.agent?.connection.close();
       ws.data.agent = undefined;
+      ws.data.workspace?.close();
       ws.data.diagnostics?.dispose();
       ws.data.diagnostics = undefined;
       ws.data.browserApiKey = undefined;
@@ -109,6 +113,23 @@ export function createWebSocketHandlers(
       if (ws.data.closed) return;
       const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
+        workspace: {
+          active: () => ws.data.workspace !== undefined,
+          session: (threadId) => {
+            if (ws.data.sessionId && ws.data.sessionId !== threadId)
+              throw new Error('Workspace session mismatch');
+            ws.data.sessionId = SessionId(threadId);
+            ws.data.workspace ??= new AguiWorkspaceSession(threadId);
+            return ws.data.workspace;
+          },
+          send: (event) =>
+            ws.send(
+              redactSecrets(JSON.stringify(event), [
+                ...secrets,
+                ...(browserApiKey ? [browserApiKey] : []),
+              ]),
+            ),
+        },
         helloReceived: ws.data.helloReceived,
         handle: async (engine, frame) => {
           if (ws.data.closed) return null;

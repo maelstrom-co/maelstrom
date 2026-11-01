@@ -9,7 +9,7 @@
  * owned by the Effect services under `./session/`:
  *
  *   - `Connections` holds keys per connection, tracks rehello declines, and
- *     buffers at most one triggering frame per socket.
+ *     reserves one native frame and one workspace frame per socket during rehello.
  *   - `Engines` owns the object-scoped engine cache and its last-socket
  *     teardown rule.
  *   - `EngineFactory` is the typed-error boundary: a failed engine build can
@@ -40,6 +40,11 @@
  * intermittent and unreproducible.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { readWorkspaceRun } from '@maelstrom-co/agui-protocol';
+import {
+  AguiWorkspaceSession,
+  rejectWorkspaceRun,
+} from '@maelstrom-co/agui-server';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
@@ -97,6 +102,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #agents = new WeakMap<WebSocket, AgentTransport>();
   readonly #closed = new WeakSet<WebSocket>();
   readonly #epochs = new WeakMap<WebSocket, object>();
+  readonly #workspaces = new WeakMap<WebSocket, AguiWorkspaceSession>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -151,6 +157,13 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   #closeConnection(ws: WebSocket): void {
     this.#closed.add(ws);
     this.#epochs.delete(ws);
+    try {
+      this.#workspaces.get(ws)?.close();
+    } catch {
+      console.error('[session-do] Workspace retirement checkpoint failed');
+    } finally {
+      this.#workspaces.delete(ws);
+    }
     this.#agents.get(ws)?.connection.close();
     this.#agents.delete(ws);
   }
@@ -188,7 +201,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const connections = yield* Connections;
       const engines = yield* Engines;
 
-      if (this.#closed.has(ws)) return;
+      if (this.#closed.has(ws) || connections.retired(ws)) return;
       const epoch = this.#epochs.get(ws) ?? {};
       this.#epochs.set(ws, epoch);
       const key = connections.keyOf(ws);
@@ -206,6 +219,32 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const dispatched = yield* Effect.tryPromise({
         try: () =>
           dispatchFrame(raw, {
+            workspace: {
+              active: () =>
+                this.#workspaces.has(ws) ||
+                connections.markerOf(ws)?.workspace !== undefined,
+              session: (threadId) => {
+                const connection = connections.markerOf(ws);
+                if (connection?.sessionId !== threadId)
+                  throw new Error('Workspace session mismatch');
+                let workspace = this.#workspaces.get(ws);
+                if (!workspace) {
+                  workspace = new AguiWorkspaceSession(
+                    threadId,
+                    connection.workspace,
+                    (checkpoint) => {
+                      ws.serializeAttachment({
+                        ...connection,
+                        workspace: checkpoint,
+                      });
+                    },
+                  );
+                  this.#workspaces.set(ws, workspace);
+                }
+                return workspace;
+              },
+              send: (event) => this.#send(ws, JSON.stringify(event), key),
+            },
             helloReceived: key !== null,
             getEngine: () =>
               key ? Effect.runPromise(engines.forApiKey(key)) : null,
@@ -260,7 +299,12 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
               ),
       }).pipe(Effect.result);
 
-      if (this.#closed.has(ws) || this.#epochs.get(ws) !== epoch) return;
+      if (
+        this.#closed.has(ws) ||
+        this.#epochs.get(ws) !== epoch ||
+        connections.retired(ws)
+      )
+        return;
       if (Result.isFailure(dispatched)) {
         // Safe to log precisely because the factory redacted the message:
         // without a server-side line, a deployment where every visitor's
@@ -273,7 +317,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             ? 'engine construction failed'
             : 'frame dispatch failed';
         console.error(`[session-do] ${label}: ${failure.message}`);
-        this.#send(ws, encodeEngineErrorReply(raw, failure.message), key);
+        this.#replyError(ws, raw, failure.message, key);
         return;
       }
       const result = dispatched.success;
@@ -283,15 +327,20 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           this.#agents.get(ws)?.connection.close();
           this.#agents.delete(ws);
           this.#epochs.set(ws, {});
-          connections.markHello(
-            ws,
-            result.frame.apiKey,
-            result.frame.sessionId,
-          );
-          // Replay whatever triggered the rehello, so the visitor's request
-          // is answered rather than silently lost.
-          const pending = connections.takePending(ws);
-          if (pending !== undefined) {
+          try {
+            connections.markHello(
+              ws,
+              result.frame.apiKey,
+              result.frame.sessionId,
+            );
+          } catch {
+            this.#closeConnection(ws);
+            ws.close(1008, 'Session checkpoint rejected');
+            yield* this.#teardown(ws);
+            return;
+          }
+          for (const pending of connections.takePending(ws)) {
+            if (connections.retired(ws)) return;
             yield* this.#onMessage(ws, pending);
           }
           return;
@@ -307,32 +356,27 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           // request to die on the client's correlator timeout with no
           // diagnostic at all.
           connections.markDecline(ws);
-          const pending = connections.takePending(ws);
-          if (pending !== undefined) this.#replyPreHello(ws, pending);
+          for (const pending of connections.takePending(ws))
+            this.#replyPreHello(ws, pending);
           return;
         }
         case 'rehello': {
-          if (!connections.bufferPending(ws, raw)) {
-            // A rehello for this socket is already outstanding and this
-            // frame raced its answer. Only one frame can be buffered, so
-            // this one gets an immediate reply instead — an accurate
-            // "re-authenticating" error, not the key-drawer copy, which
-            // would be a lie while the client's hello is in flight. The
-            // ORIGINAL buffered frame stays put and is replayed when that
-            // hello lands.
-            this.#send(
-              ws,
-              encodeEngineErrorReply(raw, REAUTHENTICATING_ERROR),
-              key,
-            );
-            return;
+          const buffered = connections.bufferPending(
+            ws,
+            raw,
+            readWorkspaceRun(raw) ? 'workspace' : 'native',
+          );
+          if (buffered === 'full') {
+            this.#replyError(ws, raw, REAUTHENTICATING_ERROR, key);
+          } else if (buffered === 'first') {
+            ws.send(JSON.stringify({ type: 'playground.rehello' }));
           }
-          ws.send(JSON.stringify({ type: 'playground.rehello' }));
           return;
         }
         case 'close':
           this.#closeConnection(ws);
           ws.close(result.code, result.reason);
+          yield* this.#teardown(ws);
           return;
         case 'reply':
           this.#send(ws, result.wire, key);
@@ -356,6 +400,15 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    * close for traffic that isn't even a protocol envelope.
    */
   #replyPreHello(ws: WebSocket, raw: string): void {
+    const input = readWorkspaceRun(raw);
+    if (input) {
+      rejectWorkspaceRun(
+        input,
+        (event) => this.#send(ws, JSON.stringify(event), null),
+        'No API key set — open the key drawer to add one.',
+      );
+      return;
+    }
     const outcome = resolvePreHelloDispatch(raw);
     if (outcome.kind === 'close') {
       ws.close(1002, 'expected playground.hello as the first frame');
@@ -374,5 +427,16 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    */
   #send(ws: WebSocket, wire: string, key: string | null): void {
     if (!this.#closed.has(ws)) ws.send(redactSecrets(wire, key ?? undefined));
+  }
+
+  #replyError(ws: WebSocket, raw: string, message: string, key: string | null) {
+    const input = readWorkspaceRun(raw);
+    if (input)
+      rejectWorkspaceRun(
+        input,
+        (event) => this.#send(ws, JSON.stringify(event), key),
+        message,
+      );
+    else this.#send(ws, encodeEngineErrorReply(raw, message), key);
   }
 }
