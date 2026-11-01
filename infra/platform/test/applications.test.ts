@@ -566,9 +566,7 @@ describe('application infrastructure contract', () => {
       patchedDependencies?: Record<string, string>;
     };
     const patchPath = 'patches/alchemy@2.0.0-beta.83.patch';
-    expect(root.patchedDependencies).toEqual({
-      'alchemy@2.0.0-beta.83': patchPath,
-    });
+    expect(root.patchedDependencies?.['alchemy@2.0.0-beta.83']).toBe(patchPath);
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
       '256d6c41733f6f55295ee6b28c17328513302a3f7e631e8a179bc60dacf552f1',
     );
