@@ -1,0 +1,48 @@
+{
+  "extends": ["../../.oxlintrc.json"],
+  "rules": {
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@tanstack/ai",
+            "importNames": ["chat"],
+            "message": "Keep model loops in the explicit Engine, planner, and application boundaries listed in packages/engine/src/lib/agent-session/chat-import-boundary.test.ts."
+          },
+          { "name": "@maelstrom-co/agui" },
+          { "name": "@maelstrom-co/demo-vessels" },
+          { "name": "@maelstrom-co/client" },
+          { "name": "@maelstrom-co/react" },
+          { "name": "@maelstrom-co/react-realtime" },
+          { "name": "@maelstrom-co/realtime" },
+          { "name": "@maelstrom-co/realtime-livekit" },
+          { "name": "@maelstrom-co/realtime-openai" },
+          { "name": "@maelstrom-co/realtime-openai-live" },
+          { "name": "@maelstrom-co/realtime-vad" },
+          { "name": "@maelstrom-co/devtools" },
+          { "name": "@maelstrom-co/react-devtools" }
+        ],
+        "patterns": [
+          {
+            "group": [
+              "@maelstrom-co/agui/**",
+              "@maelstrom-co/demo-vessels/**",
+              "@maelstrom-co/client/**",
+              "@maelstrom-co/react/**",
+              "@maelstrom-co/react-realtime/**",
+              "@maelstrom-co/realtime/**",
+              "@maelstrom-co/realtime-livekit/**",
+              "@maelstrom-co/realtime-openai/**",
+              "@maelstrom-co/realtime-openai-live/**",
+              "@maelstrom-co/realtime-vad/**",
+              "@maelstrom-co/devtools/**",
+              "@maelstrom-co/react-devtools/**"
+            ],
+            "message": "Server and worker packages cannot import browser packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+          }
+        ]
+      }
+    ]
+  }
+}
