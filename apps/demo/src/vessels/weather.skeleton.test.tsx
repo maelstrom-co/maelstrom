@@ -18,6 +18,17 @@ describe('WeatherSkeleton', () => {
     expect(strip?.querySelector('.vessel-card')).toBeNull();
   });
 
+  it('announces loading from the strip, where the card label is hidden', () => {
+    const { container } = render(
+      <WeatherSkeleton vesselId="weather-skeleton-test" />,
+    );
+    const status = container.querySelector(
+      '.weather-skeleton__strip [role="status"]',
+    );
+    expect(status?.textContent).toBe('Loading weather...');
+    expect(status?.classList.contains('sr-only')).toBe(true);
+  });
+
   it('keeps its pulse off for reduced motion', () => {
     const { container } = render(
       <WeatherSkeleton vesselId="weather-skeleton-test" />,

@@ -24,6 +24,9 @@ export function WeatherSkeleton(_props: { vesselId: string }) {
         </VesselCard>
       </div>
       <div className="weather-skeleton__strip weather-compact h-full">
+        <span role="status" className="sr-only">
+          Loading weather...
+        </span>
         <div className="weather-compact__row animate-pulse motion-reduce:animate-none">
           <div className="h-4 w-4 shrink-0 bg-white/5 rounded-full" />
           <div className="h-5 w-10 shrink-0 bg-white/5 rounded" />

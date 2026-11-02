@@ -1274,9 +1274,18 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Visually hidden, not display: none, so screen readers still get the place. */
 @container (max-width: 18rem) {
   .weather-compact__location {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 }
 

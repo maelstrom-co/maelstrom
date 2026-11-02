@@ -113,6 +113,39 @@ test.describe('at 1024x768', () => {
     });
 });
 
+test('hides the location visually but keeps it for screen readers in a narrow compact strip', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name === 'mobile',
+    'A one-sixth column needs the 18-column desktop Chart',
+  );
+  await stubPlanner(page, () => ({
+    tree: ['V:5,1', 'ID:map-main', 'ID:weather-main'],
+    instances: mapAndWeather('compact'),
+  }));
+  await openDemoWithKey(page);
+  await submitIntent(page, INTENT);
+
+  const weather = page.locator('[data-instance-id="weather-main"]');
+  await expect(
+    weather.locator('[data-weather-variant="compact"]'),
+  ).toBeVisible();
+  await expectNoClipping(weather);
+  await expectReadableInside(weather, weather.getByText(/^72°/), 'temperature');
+  const location = weather.getByText('San Francisco, United States');
+  await expect(location).toHaveCount(1);
+  const box = await location.boundingBox();
+  expect(
+    box,
+    'location stays rendered for the accessibility tree',
+  ).not.toBeNull();
+  expect(box?.width ?? 0, 'location is visually hidden').toBeLessThanOrEqual(1);
+  expect(
+    await location.evaluate((node) => getComputedStyle(node).display),
+  ).not.toBe('none');
+});
+
 test('shows a one-row loading skeleton while compact weather loads', async ({
   page,
 }) => {
