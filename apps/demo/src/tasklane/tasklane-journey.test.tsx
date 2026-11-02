@@ -30,6 +30,7 @@ import {
   __resetProjectTasksStoreForTests,
   getProjectTasksSnapshot,
   type ProjectTask,
+  projectTaskActions,
   taskReferenceLabel,
 } from './stores/project-tasks.store';
 import { __resetTasklaneActivityForTests } from './tasklane-activity';
@@ -320,6 +321,33 @@ describe('Tasklane journey from feedback to my priorities', () => {
     await ask('Give the tasks more room');
     await waitFor(() => expect(receipt().textContent).toBe(''));
     expect(receipt().isConnected).toBe(true);
+  });
+
+  it('refuses a planned change to a task edited by hand while the Planner was working', async () => {
+    setPlaygroundKey('sk-tasklane-edit-during-plan-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    engine.plans.set('Make the README urgent', () => {
+      const seenByPlanner = label('Update demo README');
+      projectTaskActions.assignTask('TL-1', 'sam');
+      return plan(['setUrgency', { task: seenByPlanner, urgency: 'high' }]);
+    });
+    await ask('Make the README urgent');
+
+    await waitFor(() =>
+      expect(receipt().getAttribute('data-tone')).toBe('problem'),
+    );
+    expect(receipt().textContent).toContain(
+      'Couldn\'t change the urgency of "Update demo README" because it changed',
+    );
+    expect(task('Update demo README')).toMatchObject({
+      assigneeId: 'sam',
+      urgency: 'normal',
+    });
   });
 
   it('marks a planned Action that never ran as not confirmed', async () => {

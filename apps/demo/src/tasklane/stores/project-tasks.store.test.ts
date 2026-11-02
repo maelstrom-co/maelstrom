@@ -377,13 +377,13 @@ describe('published references', () => {
     );
   });
 
-  it('accepts labels remembered at the start of a request even after they change within it', () => {
-    const atStart = taskReferenceLabel(firstTask());
+  it('accepts labels remembered for a response even after its own Actions change them', () => {
+    const remembered = taskReferenceLabel(firstTask());
     rememberRequestReferences();
-    expect(projectTaskActions.assignTask(atStart, 'chris')).toMatchObject({
+    expect(projectTaskActions.assignTask(remembered, 'chris')).toMatchObject({
       ok: true,
     });
-    expect(projectTaskActions.addToMyPriorities(atStart)).toMatchObject({
+    expect(projectTaskActions.addToMyPriorities(remembered)).toMatchObject({
       ok: true,
       previousPosition: null,
     });

@@ -174,9 +174,9 @@ export function __resetProjectTasksStoreForTests(): void {
 }
 
 /**
- * Remembers the labels published when a request starts. A plan may name a
- * task by the label it was shown even after an earlier step in the same plan
- * changed that task's status.
+ * Remembers the current labels when a response arrives, before its Actions
+ * run. A plan may name a task by that label even after an earlier step in the
+ * same plan changed that task's status.
  */
 export function rememberRequestReferences(): void {
   requestReferences = new Set(

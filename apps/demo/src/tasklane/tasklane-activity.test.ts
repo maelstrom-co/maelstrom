@@ -20,6 +20,7 @@ describe('direct interactions', () => {
     recordChange('assignTask', {
       kind: 'reassigned',
       subject: 'Write demo copy',
+      subjectId: 'Write demo copy',
       detail: 'Alex',
     });
     expect(getLatestReceipt()).toEqual({
@@ -30,6 +31,7 @@ describe('direct interactions', () => {
     recordChange('setUrgency', {
       kind: 'urgency',
       subject: 'Write demo copy',
+      subjectId: 'Write demo copy',
       detail: 'high',
     });
     expect(getLatestReceipt()?.text).toBe(
@@ -55,7 +57,11 @@ describe('request windows', () => {
   it('aggregates same-kind changes in one request', () => {
     openRequestWindow('r1');
     for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('createTask', { kind: 'created', subject });
+      recordChange('createTask', {
+        kind: 'created',
+        subject,
+        subjectId: subject,
+      });
     }
     planRequestWindow('r1', [
       'createTask',
@@ -75,11 +81,13 @@ describe('request windows', () => {
     recordChange('createTask', {
       kind: 'created',
       subject: 'Improve the demo',
+      subjectId: 'Improve the demo',
     });
     for (const subject of ['A', 'B', 'C', 'D']) {
       recordChange('setParent', {
         kind: 'moved',
         subject,
+        subjectId: subject,
         detail: 'Improve the demo',
       });
     }
@@ -93,11 +101,16 @@ describe('request windows', () => {
       recordChange('assignTask', {
         kind: 'assigned',
         subject,
+        subjectId: subject,
         detail: 'Chris',
       });
     }
     for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('addToMyPriorities', { kind: 'prioritised', subject });
+      recordChange('addToMyPriorities', {
+        kind: 'prioritised',
+        subject,
+        subjectId: subject,
+      });
     }
     closeRequestWindow();
     expect(getLatestReceipt()?.text).toBe(
@@ -107,23 +120,47 @@ describe('request windows', () => {
 
   it('uses singular phrasing for one change of each kind', () => {
     openRequestWindow('r1');
-    recordChange('updateTask', { kind: 'described', subject: 'A' });
-    recordChange('setParent', { kind: 'moved', subject: 'B', detail: null });
+    recordChange('updateTask', {
+      kind: 'described',
+      subject: 'A',
+      subjectId: 'A',
+    });
+    recordChange('setParent', {
+      kind: 'moved',
+      subject: 'B',
+      subjectId: 'B',
+      detail: null,
+    });
     recordChange('removeFromMyPriorities', {
       kind: 'deprioritised',
       subject: 'C',
+      subjectId: 'C',
     });
     recordChange('addToMyPriorities', {
       kind: 'reprioritised',
       subject: 'D',
+      subjectId: 'D',
       detail: '2',
     });
-    recordChange('removeTask', { kind: 'removed', subject: 'E' });
-    recordChange('assignTask', { kind: 'unassigned', subject: 'F' });
-    recordChange('updateTask', { kind: 'renamed', subject: 'G' });
+    recordChange('removeTask', {
+      kind: 'removed',
+      subject: 'E',
+      subjectId: 'E',
+    });
+    recordChange('assignTask', {
+      kind: 'unassigned',
+      subject: 'F',
+      subjectId: 'F',
+    });
+    recordChange('updateTask', {
+      kind: 'renamed',
+      subject: 'G',
+      subjectId: 'G',
+    });
     recordChange('replaceFeedback', {
       kind: 'feedback',
       subject: 'feedback',
+      subjectId: 'feedback',
       detail: 'truncated',
     });
     closeRequestWindow();
@@ -143,16 +180,62 @@ describe('request windows', () => {
 
   it('pluralises descriptions', () => {
     openRequestWindow('r1');
-    recordChange('updateTask', { kind: 'described', subject: 'A' });
-    recordChange('updateTask', { kind: 'described', subject: 'B' });
+    recordChange('updateTask', {
+      kind: 'described',
+      subject: 'A',
+      subjectId: 'A',
+    });
+    recordChange('updateTask', {
+      kind: 'described',
+      subject: 'B',
+      subjectId: 'B',
+    });
     closeRequestWindow();
     expect(getLatestReceipt()?.text).toBe('✓ Updated 2 descriptions');
   });
 
+  it('counts a task changed twice the same way as one task', () => {
+    openRequestWindow('r1');
+    for (let step = 0; step < 2; step += 1) {
+      recordChange('setUrgency', {
+        kind: 'urgency',
+        subject: 'Write demo copy',
+        subjectId: 'TL-1',
+        detail: 'high',
+      });
+    }
+    closeRequestWindow();
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Set "Write demo copy" to high urgency',
+    );
+  });
+
+  it('counts different tasks that share a title separately', () => {
+    openRequestWindow('r1');
+    for (const subjectId of ['TL-1', 'TL-2']) {
+      recordChange('setUrgency', {
+        kind: 'urgency',
+        subject: 'Write demo copy',
+        subjectId,
+        detail: 'high',
+      });
+    }
+    closeRequestWindow();
+    expect(getLatestReceipt()?.text).toBe('✓ Set 2 tasks to high urgency');
+  });
+
   it('puts failures first and never reports them as success', () => {
     openRequestWindow('r1');
-    recordChange('updateTask', { kind: 'described', subject: 'A' });
-    recordChange('updateTask', { kind: 'described', subject: 'B' });
+    recordChange('updateTask', {
+      kind: 'described',
+      subject: 'A',
+      subjectId: 'A',
+    });
+    recordChange('updateTask', {
+      kind: 'described',
+      subject: 'B',
+      subjectId: 'B',
+    });
     recordFailure(
       'updateTask',
       'Couldn\'t update "Write demo copy" because it changed: now assigned to Alex',
@@ -171,6 +254,7 @@ describe('request windows', () => {
     recordChange('assignTask', {
       kind: 'assigned',
       subject: 'A',
+      subjectId: 'A',
       detail: 'Chris',
     });
     expect(getLatestReceipt()?.text).toBe('✓ Assigned "A" to Chris');
@@ -191,7 +275,11 @@ describe('request windows', () => {
   });
 
   it('shows no line for a layout-only request', () => {
-    recordChange('createTask', { kind: 'created', subject: 'Earlier' });
+    recordChange('createTask', {
+      kind: 'created',
+      subject: 'Earlier',
+      subjectId: 'Earlier',
+    });
     openRequestWindow('r1');
     planRequestWindow('r1', []);
     closeRequestWindow();
@@ -217,9 +305,17 @@ describe('request windows', () => {
 
   it('closes the previous window when the next request starts', () => {
     openRequestWindow('r1');
-    recordChange('createTask', { kind: 'created', subject: 'A' });
+    recordChange('createTask', {
+      kind: 'created',
+      subject: 'A',
+      subjectId: 'A',
+    });
     openRequestWindow('r2');
-    recordChange('createTask', { kind: 'created', subject: 'B' });
+    recordChange('createTask', {
+      kind: 'created',
+      subject: 'B',
+      subjectId: 'B',
+    });
     closeRequestWindow();
     expect(getLatestReceipt()?.text).toBe('✓ Created "B"');
   });

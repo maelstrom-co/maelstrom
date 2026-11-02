@@ -21,6 +21,8 @@ export interface ChangeDescription {
   readonly kind: ChangeKind;
   /** The task title, or "feedback". */
   readonly subject: string;
+  /** The task id, or "feedback". Receipts count distinct subjects, not entries. */
+  readonly subjectId: string;
   /** Kind-specific detail: parent title (null for top level), assignee name, urgency, priority position, or "truncated". */
   readonly detail?: string | null;
 }
@@ -277,7 +279,7 @@ function summariseChanges(changes: readonly ChangeDescription[]): string[] {
 
 function describeGroup(group: readonly ChangeDescription[]): string {
   const [first] = group as [ChangeDescription, ...ChangeDescription[]];
-  const count = group.length;
+  const count = new Set(group.map((change) => change.subjectId)).size;
   const one = count === 1;
   const subject = `"${first.subject}"`;
   const tasks = `${count} tasks`;

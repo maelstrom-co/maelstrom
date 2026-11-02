@@ -44,7 +44,11 @@ const VERBS: Readonly<Record<string, string>> = {
  */
 export function reportCreateTask(result: CreateTaskResult) {
   if (!result.ok) return fail('createTask', result);
-  recordChange('createTask', { kind: 'created', subject: result.task.title });
+  recordChange('createTask', {
+    kind: 'created',
+    subject: result.task.title,
+    subjectId: result.task.id,
+  });
   return ok(undefined);
 }
 
@@ -71,14 +75,16 @@ export function reportPriorityChange(
     return ok(undefined);
   }
   const subject = result.task.title;
+  const subjectId = result.task.id;
   if (action === 'removeFromMyPriorities') {
-    recordChange(action, { kind: 'deprioritised', subject });
+    recordChange(action, { kind: 'deprioritised', subject, subjectId });
   } else if (result.previousPosition === null) {
-    recordChange(action, { kind: 'prioritised', subject });
+    recordChange(action, { kind: 'prioritised', subject, subjectId });
   } else {
     recordChange(action, {
       kind: 'reprioritised',
       subject,
+      subjectId,
       detail: String(result.position),
     });
   }
@@ -87,7 +93,11 @@ export function reportPriorityChange(
 
 export function reportRemoveTask(result: RemoveTaskResult) {
   if (!result.ok) return fail('removeTask', result);
-  recordChange('removeTask', { kind: 'removed', subject: result.task.title });
+  recordChange('removeTask', {
+    kind: 'removed',
+    subject: result.task.title,
+    subjectId: result.task.id,
+  });
   return ok(undefined);
 }
 
@@ -106,6 +116,7 @@ export function reportReplaceFeedback(result: FeedbackMutationResult) {
   recordChange('replaceFeedback', {
     kind: 'feedback',
     subject: 'feedback',
+    subjectId: 'feedback',
     detail: result.truncated ? 'truncated' : null,
   });
   return ok(undefined);
@@ -152,14 +163,15 @@ function describeTaskChange(
   task: ProjectTask,
 ): ChangeDescription {
   const subject = task.title;
+  const subjectId = task.id;
   switch (action) {
     case 'updateTask': {
       const renamed = previous.title !== task.title;
       const described = previous.description !== task.description;
-      if (renamed && described) return { kind: 'edited', subject };
+      if (renamed && described) return { kind: 'edited', subject, subjectId };
       return renamed
-        ? { kind: 'renamed', subject: previous.title }
-        : { kind: 'described', subject };
+        ? { kind: 'renamed', subject: previous.title, subjectId }
+        : { kind: 'described', subject, subjectId };
     }
     case 'setParent': {
       const parent = task.parentId
@@ -167,16 +179,23 @@ function describeTaskChange(
             (candidate) => candidate.id === task.parentId,
           )
         : undefined;
-      return { kind: 'moved', subject, detail: parent?.title ?? null };
+      return {
+        kind: 'moved',
+        subject,
+        subjectId,
+        detail: parent?.title ?? null,
+      };
     }
     case 'assignTask':
-      if (task.assigneeId === null) return { kind: 'unassigned', subject };
+      if (task.assigneeId === null)
+        return { kind: 'unassigned', subject, subjectId };
       return {
         kind: previous.assigneeId === null ? 'assigned' : 'reassigned',
         subject,
+        subjectId,
         detail: assigneeLabel(task.assigneeId),
       };
     case 'setUrgency':
-      return { kind: 'urgency', subject, detail: task.urgency };
+      return { kind: 'urgency', subject, subjectId, detail: task.urgency };
   }
 }

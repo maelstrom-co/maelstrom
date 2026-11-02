@@ -40,17 +40,21 @@ export const tasklaneRequestActivity: MaelstromExtension<
             (reason) => reason.type === 'user_intent',
           );
           if (!fromUser) return;
-          rememberRequestReferences();
           openRequestWindow(String(requestId));
         },
       );
+      // Labels are remembered when the response arrives, before its Actions
+      // run, so a hand edit made while the Planner worked still makes the
+      // label it saw stale.
       const stopCompleted = requests.on(
         'processing_completed',
-        ({ requestId, response }) =>
+        ({ requestId, response }) => {
+          rememberRequestReferences();
           planRequestWindow(
             String(requestId),
             response.executionPlan.map((step) => String(step.action)),
-          ),
+          );
+        },
       );
       const stopError = requests.on('error', ({ requestId }) =>
         failRequestWindow(String(requestId), "Couldn't complete the request"),
