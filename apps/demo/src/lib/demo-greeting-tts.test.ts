@@ -81,7 +81,7 @@ afterEach(() => {
 describe('DEMO_GREETING_TTS_PAYLOAD', () => {
   it('is exactly the five allowed fields with fixed natural-delivery values', () => {
     expect(DEMO_GREETING).toBe(
-      "Hi, I'm the Maelstrom demo assistant, how can I help you today?",
+      "Hi, I'm Dayline, your daily planner, powered by Maelstrom. What would you like to get done today?",
     );
     expect(DEMO_GREETING_TTS_PAYLOAD).toEqual({
       model: 'gpt-4o-mini-tts',

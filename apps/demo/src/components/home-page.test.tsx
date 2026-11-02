@@ -65,6 +65,7 @@ vi.doMock('./demo-header', () => ({
 vi.doMock('./first-run-hint', () => ({ FirstRunHint: () => null }));
 vi.doMock('./intent-input', () => ({ IntentInput: () => null }));
 vi.doMock('./keyless-demo', () => ({ KeylessDemo: () => null }));
+vi.doMock('./suggestion-chips', () => ({ SuggestionChips: () => null }));
 vi.doMock('./vessel-option-sync', () => ({ VesselOptionSync: () => null }));
 vi.doMock('./voice-provider-select', () => ({
   VoiceProviderSelect: () => null,

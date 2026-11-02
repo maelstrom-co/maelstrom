@@ -10,7 +10,7 @@ import type {
 import type { DemoVoiceProvider } from './voice-provider';
 
 export const LIVE_OPENING_INSTRUCTIONS =
-  'In English, briefly introduce yourself as Maelstrom and offer to arrange this workspace.';
+  'In English, briefly introduce yourself as Dayline, a daily planner powered by Maelstrom, and ask what the user would like to get done today.';
 
 export interface DemoVoiceSession {
   readonly provider: DemoVoiceProvider;

@@ -217,9 +217,9 @@ describe('/shop without a key', () => {
     expect(screen.getByText('Your cart is empty.')).toBeTruthy();
     expect(screen.getByRole('status', { name: /key required/i })).toBeTruthy();
 
-    expect(screen.queryByText('Interactive preview')).toBeNull();
+    expect(screen.queryByText('Sample app')).toBeNull();
     expect(
-      screen.queryByText('Arrange a workspace around what you need.'),
+      screen.queryByText('Plan your day by saying what you need.'),
     ).toBeNull();
     expect(screen.queryByText('Day view')).toBeNull();
     expect(screen.queryByText('Design review')).toBeNull();

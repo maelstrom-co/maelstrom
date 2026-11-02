@@ -19,8 +19,17 @@ export function DemoHeader({ children }: Readonly<{ children: ReactNode }>) {
     >
       <div className="demo-header-row flex items-center justify-between gap-4">
         <div className="demo-brand">
-          <h1 className="eyebrow">Maelstrom Demo</h1>
-          <p className="text-sm text-ink-2 mt-1">AI-Orchestrated Dynamic UI</p>
+          <h1 className="eyebrow">Dayline</h1>
+          <p className="mt-1">
+            <a className="powered-by-badge" href="https://maelstrom-ai.co">
+              <img
+                src="/brand/powered-by-badge-dark.svg"
+                alt="Powered by Maelstrom"
+                width={135}
+                height={28}
+              />
+            </a>
+          </p>
         </div>
         <nav className="demo-nav" aria-label="Demo resources">
           {DEMO_LINKS.map((link) => {

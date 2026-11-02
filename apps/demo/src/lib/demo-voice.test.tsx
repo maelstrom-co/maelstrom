@@ -29,6 +29,7 @@ import { createMockConnector } from './__tests__/mock-connector';
 import {
   demoVoiceOpening,
   demoVoiceSession,
+  LIVE_OPENING_INSTRUCTIONS,
   registerDemoVoice,
 } from './demo-voice';
 import { diagnosticCapture } from './diagnostic-capture';
@@ -842,3 +843,12 @@ function capturedEvents(): Array<{
 function captured(kind: string) {
   return capturedEvents().filter((entry) => entry.kind === kind);
 }
+
+it('asks Live to introduce Dayline as a planner powered by Maelstrom', () => {
+  expect(LIVE_OPENING_INSTRUCTIONS).toBe(
+    'In English, briefly introduce yourself as Dayline, a daily planner powered by Maelstrom, and ask what the user would like to get done today.',
+  );
+  expect(demoVoiceOpening('unused')({ provider: 'live' } as never)).toEqual({
+    generatedOpening: { instructions: LIVE_OPENING_INSTRUCTIONS },
+  });
+});

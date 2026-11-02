@@ -4,7 +4,7 @@ import { withFetchTimeout } from './fetch-timeout';
 
 /** One-time spoken greeting text — exact string for TTS and captions. */
 export const DEMO_GREETING =
-  "Hi, I'm the Maelstrom demo assistant, how can I help you today?";
+  "Hi, I'm Dayline, your daily planner, powered by Maelstrom. What would you like to get done today?";
 
 /** Shared Realtime + TTS recommended built-in voice for the demo. */
 export const DEMO_OPENAI_VOICE = 'cedar' as const satisfies OpenAIBuiltInVoice;
