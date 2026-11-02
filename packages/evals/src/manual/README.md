@@ -631,6 +631,63 @@ bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manu
 bunx nx run-many -t test,typecheck,check -p demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
 ```
 
+## Manual weather below the map, very small
+
+`weather-below-map-small.ts` sends the exact day-planner request “Put weather below
+the map and make it very small” to the current Engine and `llmPlanner` and scores
+the shipped Layout. It exists to reproduce the reported case where weather could
+not be made small beneath the map, and to measure a fix.
+
+Unlike the other runners it uses the **demo's own prompt and catalog**. The
+appended rules are `PLAYGROUND_SYSTEM_RULES`, imported at runtime from
+`apps/demo/src/server/planner-system-rules.ts`, and the catalog is the six current
+day-planner Vessel definitions (calendar, weather, journal, tasks, map, labs),
+loaded through fixed runtime import URLs and validated with `VesselSchema`. The
+intent goes through the demo's own `withBrowserCalendarContext`, with a fixed
+calendar value (2026-11-02, `Europe/Warsaw`) recorded in the configuration, so the
+Planner sees the same intent text the demo sends. The identity is still the
+default Maelstrom identity.
+
+Three cases, each a fresh Engine and session with one dispatch per sample:
+
+- `desktop-map-open-weather-absent`: calendar (`day`) beside map (`overview`) over
+  tasks (`list`), no weather, on the measured desktop Chart (18 × 7).
+- `desktop-map-beside-weather`: map (`overview`) beside weather (`current`), 18 × 7.
+- `mobile-map-beside-weather`: the same, on the measured mobile Chart (4 × 5).
+
+The Chart sizes come from `apps/demo/e2e/weather-compact.e2e.ts` (“measures the
+Chart”), which reads `context.chartDimensions` from the hosted build at the
+Playwright desktop and mobile viewports.
+
+Dry run prints the full configuration and initial requests without reading a key:
+
+```sh
+bun --no-env-file --conditions=@maelstrom-co/source packages/evals/src/manual/weather-below-map-small.ts
+```
+
+Live, after confirming the capped key, with `--samples 1..10` per case and an
+optional `--case <id>`:
+
+```sh
+bun --no-env-file --conditions=@maelstrom-co/source packages/evals/src/manual/weather-below-map-small.ts --live --confirm-capped-key --samples 5 --case desktop-map-beside-weather
+```
+
+The model pin, endpoint checks, 2,048-token bound, timeouts and the one-dispatch
+`manualTransport` gate are the same as D17. Total dispatches are printed to stderr.
+A failed sample is recorded as incomplete and is not replaced. A live run exits
+nonzero when any sample is incomplete or fails.
+
+### What gets scored
+
+Weather and map Instances are found by Vessel, because the Planner names a weather
+Instance it adds. A sample passes when both are visible, weather is `below` the
+map, weather takes at most 0.15 of the Chart, and the weather to map area ratio is
+at most 0.35. The weather Variant, any `show*` Action on weather, the tree, each
+Instance rect in cells and the `userMessage` are recorded without being scored.
+The summary gives pass count, median weather share, Variants seen and tree counts,
+overall and per case. Whether the weather is readable in the region it gets is
+covered by the e2e, not by this runner.
+
 ## Optional judge for every manual probe
 
 D02, D14, D17, D25, D33, D35 and the Weather probes honor
