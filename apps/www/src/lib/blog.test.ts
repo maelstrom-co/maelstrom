@@ -12,8 +12,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
 import { glob, type Loader } from 'astro/loaders';
 import { JSDOM } from 'jsdom';
+
 import {
   addExtraPost,
   outputText,
@@ -29,129 +31,127 @@ import {
 } from './blog';
 import { blogLoader } from './blog-loader';
 
-test.each([
-  'empty-scan',
-  'unlink',
-  'change',
-  'invalid-correction',
-])('glob bootstrap retains in-flight %s and installs handlers once', async (scenario) => {
-  const root = await mkdtemp(join(tmpdir(), 'blog-loader-'));
-  try {
-    const path = join(root, 'post.mdx');
-    const watcher = Object.assign(new EventEmitter(), { add() {} });
-    const entries = new Map<string, { id: string; data: unknown }>();
-    const errors: string[] = [];
-    const entered = Promise.withResolvers<void>();
-    const resume = Promise.withResolvers<void>();
-    let paused = false;
-    let loads = 0;
-    let writes = 0;
-    const delegate = glob({ base: root, pattern: '*.mdx' });
-    const context = {
-      config: {
-        root: pathToFileURL(`${root}/`),
-        srcDir: pathToFileURL(`${root}/`),
-      },
-      collection: 'blog',
-      watcher,
-      logger: {
-        warn() {},
-        info() {},
-        error: (error: string) => errors.push(error),
-      },
-      store: {
-        keys: () => entries.keys(),
-        get: (id: string) => entries.get(id),
-        set: (entry: { id: string; data: unknown }) => {
-          writes++;
-          entries.set(entry.id, entry);
+test.each(['empty-scan', 'unlink', 'change', 'invalid-correction'])(
+  'glob bootstrap retains in-flight %s and installs handlers once',
+  async (scenario) => {
+    const root = await mkdtemp(join(tmpdir(), 'blog-loader-'));
+    try {
+      const path = join(root, 'post.mdx');
+      const watcher = Object.assign(new EventEmitter(), { add() {} });
+      const entries = new Map<string, { id: string; data: unknown }>();
+      const errors: string[] = [];
+      const entered = Promise.withResolvers<void>();
+      const resume = Promise.withResolvers<void>();
+      let paused = false;
+      let loads = 0;
+      let writes = 0;
+      const delegate = glob({ base: root, pattern: '*.mdx' });
+      const context = {
+        config: {
+          root: pathToFileURL(`${root}/`),
+          srcDir: pathToFileURL(`${root}/`),
         },
-        delete: (id: string) => entries.delete(id),
-        clear: () => entries.clear(),
-      },
-      generateDigest: (contents: string) => contents,
-      parseData: ({ data }: { data: { title: string } }) => {
-        if (data.title === 'invalid') throw new Error('invalid title');
-        return data;
-      },
-      entryTypes: new Map([
-        [
-          '.mdx',
-          {
-            async getEntryInfo({ contents }: { contents: string }) {
-              if (!paused && scenario !== 'empty-scan') {
-                paused = true;
-                entered.resolve();
-                await resume.promise;
-              }
-              return { body: '', data: { title: contents } };
-            },
+        collection: 'blog',
+        watcher,
+        logger: {
+          warn() {},
+          info() {},
+          error: (error: string) => errors.push(error),
+        },
+        store: {
+          keys: () => entries.keys(),
+          get: (id: string) => entries.get(id),
+          set: (entry: { id: string; data: unknown }) => {
+            writes++;
+            entries.set(entry.id, entry);
           },
-        ],
-      ]),
-    } as unknown as Parameters<Loader['load']>[0];
-    const loader = blogLoader(
-      {
-        name: delegate.name,
-        async load(context) {
-          loads++;
-          if (!paused && scenario === 'empty-scan') {
-            paused = true;
-            entered.resolve();
-            await resume.promise;
-          }
-          await delegate.load(context);
+          delete: (id: string) => entries.delete(id),
+          clear: () => entries.clear(),
         },
-      },
-      () => root,
-      async () => (await readdir(root)).includes('post.mdx'),
-    );
-    await loader.load(context);
-    await writeFile(
-      path,
-      scenario === 'invalid-correction' ? 'invalid' : 'first',
-    );
-    const loading = Promise.all(
-      watcher.listeners('add').map((listener) => listener(path)),
-    );
-    await entered.promise;
-    if (scenario === 'empty-scan' || scenario === 'unlink') {
-      await rm(path);
-      watcher.emit('unlink', path);
-    } else {
-      await writeFile(path, 'corrected');
-      watcher.emit('change', path);
-    }
-    resume.resolve();
-    await loading;
-    if (scenario === 'empty-scan' || scenario === 'unlink') {
-      expect(entries.size).toBe(0);
-      await writeFile(path, 'corrected');
-      await Promise.all(
+        generateDigest: (contents: string) => contents,
+        parseData: ({ data }: { data: { title: string } }) => {
+          if (data.title === 'invalid') throw new Error('invalid title');
+          return data;
+        },
+        entryTypes: new Map([
+          [
+            '.mdx',
+            {
+              async getEntryInfo({ contents }: { contents: string }) {
+                if (!paused && scenario !== 'empty-scan') {
+                  paused = true;
+                  entered.resolve();
+                  await resume.promise;
+                }
+                return { body: '', data: { title: contents } };
+              },
+            },
+          ],
+        ]),
+      } as unknown as Parameters<Loader['load']>[0];
+      const loader = blogLoader(
+        {
+          name: delegate.name,
+          async load(context) {
+            loads++;
+            if (!paused && scenario === 'empty-scan') {
+              paused = true;
+              entered.resolve();
+              await resume.promise;
+            }
+            await delegate.load(context);
+          },
+        },
+        () => root,
+        async () => (await readdir(root)).includes('post.mdx'),
+      );
+      await loader.load(context);
+      await writeFile(
+        path,
+        scenario === 'invalid-correction' ? 'invalid' : 'first',
+      );
+      const loading = Promise.all(
         watcher.listeners('add').map((listener) => listener(path)),
       );
+      await entered.promise;
+      if (scenario === 'empty-scan' || scenario === 'unlink') {
+        await rm(path);
+        watcher.emit('unlink', path);
+      } else {
+        await writeFile(path, 'corrected');
+        watcher.emit('change', path);
+      }
+      resume.resolve();
+      await loading;
+      if (scenario === 'empty-scan' || scenario === 'unlink') {
+        expect(entries.size).toBe(0);
+        await writeFile(path, 'corrected');
+        await Promise.all(
+          watcher.listeners('add').map((listener) => listener(path)),
+        );
+      }
+      expect(entries.get('post')?.data).toEqual({ title: 'corrected' });
+      expect(errors.length).toBe(scenario === 'invalid-correction' ? 1 : 0);
+      expect(loads).toBe(scenario === 'invalid-correction' ? 2 : 1);
+      for (const event of ['add', 'change', 'unlink'])
+        expect(watcher.listenerCount(event)).toBe(1);
+      const before = writes;
+      await writeFile(path, 'ordinary change');
+      await Promise.all(
+        watcher.listeners('change').map((listener) => listener(path)),
+      );
+      expect(writes).toBe(before + 1);
+      expect(entries.get('post')?.data).toEqual({ title: 'ordinary change' });
+      await rm(path);
+      await Promise.all(
+        watcher.listeners('unlink').map((listener) => listener(path)),
+      );
+      expect(entries.size).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-    expect(entries.get('post')?.data).toEqual({ title: 'corrected' });
-    expect(errors.length).toBe(scenario === 'invalid-correction' ? 1 : 0);
-    expect(loads).toBe(scenario === 'invalid-correction' ? 2 : 1);
-    for (const event of ['add', 'change', 'unlink'])
-      expect(watcher.listenerCount(event)).toBe(1);
-    const before = writes;
-    await writeFile(path, 'ordinary change');
-    await Promise.all(
-      watcher.listeners('change').map((listener) => listener(path)),
-    );
-    expect(writes).toBe(before + 1);
-    expect(entries.get('post')?.data).toEqual({ title: 'ordinary change' });
-    await rm(path);
-    await Promise.all(
-      watcher.listeners('unlink').map((listener) => listener(path)),
-    );
-    expect(entries.size).toBe(0);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 const metadata = {
   title: 'Fixture title',
@@ -361,28 +361,27 @@ test('actual collection builds production, a distinct-image extra post, and cach
   });
 }, 300_000);
 
-test.each([
-  '2026-02-30',
-  '"2026-02-30"',
-  '"2025-02-29"',
-  '2024-02-29',
-])('real YAML rejects date %s through collection schema validation', async (date) => {
-  expect.assertions(2);
-  await withBlogBuild(async ({ root, build, inject }) => {
-    await inject();
-    const path = join(root, 'src/content/blog/fixture-alpha.mdx');
-    await writeFile(
-      path,
-      (await readFile(path, 'utf8')).replace(/^date:.*$/m, `date: ${date}`),
-    );
-    try {
-      build();
-    } catch (error) {
-      expect(String(error)).toContain('date');
-      expect(String(error)).toContain('does not match collection schema');
-    }
-  });
-}, 180_000);
+test.each(['2026-02-30', '"2026-02-30"', '"2025-02-29"', '2024-02-29'])(
+  'real YAML rejects date %s through collection schema validation',
+  async (date) => {
+    expect.assertions(2);
+    await withBlogBuild(async ({ root, build, inject }) => {
+      await inject();
+      const path = join(root, 'src/content/blog/fixture-alpha.mdx');
+      await writeFile(
+        path,
+        (await readFile(path, 'utf8')).replace(/^date:.*$/m, `date: ${date}`),
+      );
+      try {
+        build();
+      } catch (error) {
+        expect(String(error)).toContain('date');
+        expect(String(error)).toContain('does not match collection schema');
+      }
+    });
+  },
+  180_000,
+);
 
 test('real YAML accepts a quoted leap day and preserves its chronological position', async () => {
   await withBlogBuild(async ({ root, output, build, inject }) => {

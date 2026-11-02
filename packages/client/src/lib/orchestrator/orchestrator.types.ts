@@ -4,6 +4,7 @@ import {
   type TilingLayout,
   type VesselDefinition,
 } from '@maelstrom-co/protocol';
+
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 import type { IntentQueueOptions } from './intent-scheduler.types.js';
 

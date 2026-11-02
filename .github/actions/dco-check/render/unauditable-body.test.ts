@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { COMMENT_MARKER } from './comment-marker.ts';
 import { CONTRIBUTING_DCO_URL } from './contributing-dco-url.ts';
 import { unauditableBody } from './unauditable-body.ts';

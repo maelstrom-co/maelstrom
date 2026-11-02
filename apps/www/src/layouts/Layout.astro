@@ -1,5 +1,6 @@
 ---
 import { isWaitlistProductionHostname } from '@maelstrom-co/platform-infra/waitlist-contract';
+
 import Nav from '../components/Nav.astro';
 import PostHog from '../components/PostHog.astro';
 import ShaderBackground from '../components/ShaderBackground.astro';
@@ -73,9 +74,16 @@ const jsonLd = JSON.stringify({
 
     <!-- Open Graph -->
     <meta property="og:type" content={article ? 'article' : 'website'} />
-    {article && <meta property="article:published_time" content={article.date.toISOString()} />}
+    {article && (
+      <meta
+        property="article:published_time"
+        content={article.date.toISOString()}
+      />
+    )}
     {article && <meta property="article:author" content={article.authorUrl} />}
-    {article?.labels.map((label) => <meta property="article:tag" content={label} />)}
+    {article?.labels.map((label) => (
+      <meta property="article:tag" content={label} />
+    ))}
     <meta property="og:url" content={canonicalURL} />
     <meta property="og:site_name" content="Maelstrom" />
     <meta property="og:locale" content="en_US" />
@@ -94,7 +102,6 @@ const jsonLd = JSON.stringify({
 
     <!-- Structured Data -->
     <script is:inline type="application/ld+json" set:html={jsonLd} />
-
     {analytics && <PostHog />}
   </head>
   <body class="bg-abyss text-text font-sans antialiased overflow-x-clip">

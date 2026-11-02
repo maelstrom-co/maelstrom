@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { DISCORD_INVITE_URL } from '../data/discord-invite';
 import { GET } from './discord';
 

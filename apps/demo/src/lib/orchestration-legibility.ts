@@ -3,6 +3,7 @@ import type {
   MaelstromExtensionContext,
 } from '@maelstrom-co/react';
 import { useCallback, useSyncExternalStore } from 'react';
+
 import {
   DEFAULT_CLEAR_AFTER_MS,
   useTouchedInstances,

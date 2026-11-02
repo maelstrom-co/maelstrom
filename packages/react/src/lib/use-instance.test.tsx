@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
@@ -11,6 +12,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { CAPABILITY_NOTE } from './capability-note';
 import { FIRST_RUN_EXAMPLES } from './first-run-hint';

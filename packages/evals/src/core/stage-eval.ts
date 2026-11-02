@@ -1,4 +1,5 @@
 import type { ParseArgsOptionDescriptor } from 'node:util';
+
 import {
   isDeferred,
   type Logger,
@@ -8,12 +9,13 @@ import {
   type StageContext,
 } from '@maelstrom-co/engine';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
+
+import { type EvaluationJudgeResult, judgeNotRun } from './judge-result.js';
 import {
   type JudgeRubric,
   judgeEvidence,
   validateJudgeSelection,
 } from './judge.js';
-import { type EvaluationJudgeResult, judgeNotRun } from './judge-result.js';
 import {
   createOperationalCollector,
   type OperationalTelemetry,

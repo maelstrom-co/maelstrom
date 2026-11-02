@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { findByFuzzyTitle } from '../../vessels/find-by-fuzzy-title';
 import {
   CATALOG_PRODUCTS,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+
 import type {
   AdapterDiagnosticObservation,
   AdapterVoiceObservation,
@@ -9,6 +10,7 @@ import type {
   LiveSessionConfig,
 } from '@maelstrom-co/realtime-protocol/openai-live';
 import { install } from '@sinonjs/fake-timers';
+
 import { OpenAILiveTransport } from './live-transport.js';
 
 function deferred<T>() {
@@ -371,20 +373,20 @@ test('malformed function arguments preserve receipt facts without exposing arbit
   expect(observations).toHaveLength(1);
 });
 describe('startup cannot outlive its explicit generation', () => {
-  test.each([
-    'failed',
-    'closed',
-  ])('terminal peer %s bypasses disconnect grace', async (state) => {
-    const h = harness();
-    const ready = h.start();
-    await tick();
-    h.started();
-    await ready;
-    h.peer.connectionState = state;
-    h.peer.dispatchEvent(new Event('connectionstatechange'));
-    expect(h.mic.stopped).toBe(1);
-    expect(h.peer.closed).toBe(true);
-  });
+  test.each(['failed', 'closed'])(
+    'terminal peer %s bypasses disconnect grace',
+    async (state) => {
+      const h = harness();
+      const ready = h.start();
+      await tick();
+      h.started();
+      await ready;
+      h.peer.connectionState = state;
+      h.peer.dispatchEvent(new Event('connectionstatechange'));
+      expect(h.mic.stopped).toBe(1);
+      expect(h.peer.closed).toBe(true);
+    },
+  );
 
   test('End releases media during grace and its old deadline cannot close a replacement', async () => {
     const h = harness();
@@ -422,48 +424,51 @@ describe('startup cannot outlive its explicit generation', () => {
   test.each([
     'session.input_transcript.delta',
     'session.output_transcript.delta',
-  ])('%s rejects oversized identities instead of silently losing transcript evidence', async (type) => {
-    const h = harness();
-    const fragments: AdapterVoiceObservation[] = [];
-    const errors: unknown[] = [];
-    h.transport.observations.subscribe((event) => fragments.push(event));
-    h.transport.on((event) => {
-      if (event.type === 'error') errors.push(event.error);
-    });
-    const ready = h.start();
-    await tick();
-    h.started();
-    await ready;
-    h.peer.channel.event(type, {
-      event_id: 'a'.repeat(256),
-      delta: 'exact',
-      start_ms: 0,
-      end_ms: 1,
-    });
-    expect(fragments.filter((event) => event.type === 'fragment')).toEqual([
-      {
-        type: 'fragment',
-        fragment: {
-          id: 'a'.repeat(256),
-          text: 'exact',
-          startMs: 0,
-          endMs: 1,
-          role: type.includes('input') ? 'user' : 'assistant',
-          speakerId: type.includes('input') ? 'user' : 'assistant',
+  ])(
+    '%s rejects oversized identities instead of silently losing transcript evidence',
+    async (type) => {
+      const h = harness();
+      const fragments: AdapterVoiceObservation[] = [];
+      const errors: unknown[] = [];
+      h.transport.observations.subscribe((event) => fragments.push(event));
+      h.transport.on((event) => {
+        if (event.type === 'error') errors.push(event.error);
+      });
+      const ready = h.start();
+      await tick();
+      h.started();
+      await ready;
+      h.peer.channel.event(type, {
+        event_id: 'a'.repeat(256),
+        delta: 'exact',
+        start_ms: 0,
+        end_ms: 1,
+      });
+      expect(fragments.filter((event) => event.type === 'fragment')).toEqual([
+        {
+          type: 'fragment',
+          fragment: {
+            id: 'a'.repeat(256),
+            text: 'exact',
+            startMs: 0,
+            endMs: 1,
+            role: type.includes('input') ? 'user' : 'assistant',
+            speakerId: type.includes('input') ? 'user' : 'assistant',
+          },
         },
-      },
-    ]);
-    h.peer.channel.event(type, {
-      event_id: 'a'.repeat(257),
-      delta: 'lost',
-      start_ms: 1,
-      end_ms: 2,
-    });
-    expect(errors).toMatchObject([{ code: 'invalid_event' }]);
-    expect(fragments.filter((event) => event.type === 'fragment')).toHaveLength(
-      1,
-    );
-  });
+      ]);
+      h.peer.channel.event(type, {
+        event_id: 'a'.repeat(257),
+        delta: 'lost',
+        start_ms: 1,
+        end_ms: 2,
+      });
+      expect(errors).toMatchObject([{ code: 'invalid_event' }]);
+      expect(
+        fragments.filter((event) => event.type === 'fragment'),
+      ).toHaveLength(1);
+    },
+  );
 
   test('recovers the same peer during a non-extending disconnect grace period', async () => {
     const h = harness();
@@ -495,68 +500,67 @@ describe('startup cannot outlive its explicit generation', () => {
     }
   });
 
-  test.each([
-    'peer',
-    'audio',
-    'microphone',
-  ])('cancellation inside the %s factory disposes returned resources before further startup', async (stage) => {
-    const peer = new Peer();
-    const mic = new Track();
-    const permission = deferred<MediaStream>();
-    const calls: string[] = [];
-    const states: string[] = [];
-    let paused = 0;
-    const audio = {
-      srcObject: new Stream(),
-      pause() {
-        paused++;
-      },
-    };
-    const cancel = (factory: string) => {
-      calls.push(factory);
-      if (stage === factory) void transport.disconnect();
-    };
-    const transport = new OpenAILiveTransport({
-      createPeer: () => {
-        cancel('peer');
-        return peer as unknown as RTCPeerConnection;
-      },
-      createAudio: () => {
-        cancel('audio');
-        return audio as unknown as HTMLAudioElement;
-      },
-      getMicrophone: () => {
-        cancel('microphone');
-        return permission.promise;
-      },
-      exchange: () => {
-        throw new Error('cancelled startup must not exchange');
-      },
-    });
-    all.push(transport);
-    transport.on((event) => {
-      if (event.type === 'state') states.push(event.state);
-    });
-    await expect(transport.connect(config)).rejects.toMatchObject({
-      code: 'aborted',
-    });
-    permission.resolve(new Stream([mic]) as unknown as MediaStream);
-    await tick();
-    expect(peer.closed).toBe(true);
-    expect(calls).toEqual(
-      ['peer', 'audio', 'microphone'].slice(
-        0,
-        ['peer', 'audio', 'microphone'].indexOf(stage) + 1,
-      ),
-    );
-    expect(states).toEqual(['idle']);
-    expect(transport.getSnapshot().state).toBe('closed');
-    if (stage !== 'peer') {
-      expect(paused).toBeGreaterThan(0);
-      expect(audio.srcObject).toBeNull();
-    }
-    if (stage === 'microphone') expect(mic.stopped).toBe(1);
-  });
+  test.each(['peer', 'audio', 'microphone'])(
+    'cancellation inside the %s factory disposes returned resources before further startup',
+    async (stage) => {
+      const peer = new Peer();
+      const mic = new Track();
+      const permission = deferred<MediaStream>();
+      const calls: string[] = [];
+      const states: string[] = [];
+      let paused = 0;
+      const audio = {
+        srcObject: new Stream(),
+        pause() {
+          paused++;
+        },
+      };
+      const cancel = (factory: string) => {
+        calls.push(factory);
+        if (stage === factory) void transport.disconnect();
+      };
+      const transport = new OpenAILiveTransport({
+        createPeer: () => {
+          cancel('peer');
+          return peer as unknown as RTCPeerConnection;
+        },
+        createAudio: () => {
+          cancel('audio');
+          return audio as unknown as HTMLAudioElement;
+        },
+        getMicrophone: () => {
+          cancel('microphone');
+          return permission.promise;
+        },
+        exchange: () => {
+          throw new Error('cancelled startup must not exchange');
+        },
+      });
+      all.push(transport);
+      transport.on((event) => {
+        if (event.type === 'state') states.push(event.state);
+      });
+      await expect(transport.connect(config)).rejects.toMatchObject({
+        code: 'aborted',
+      });
+      permission.resolve(new Stream([mic]) as unknown as MediaStream);
+      await tick();
+      expect(peer.closed).toBe(true);
+      expect(calls).toEqual(
+        ['peer', 'audio', 'microphone'].slice(
+          0,
+          ['peer', 'audio', 'microphone'].indexOf(stage) + 1,
+        ),
+      );
+      expect(states).toEqual(['idle']);
+      expect(transport.getSnapshot().state).toBe('closed');
+      if (stage !== 'peer') {
+        expect(paused).toBeGreaterThan(0);
+        expect(audio.srcObject).toBeNull();
+      }
+      if (stage === 'microphone') expect(mic.stopped).toBe(1);
+    },
+  );
 
   test('listener failure reporting stops when an error listener replaces the generation', async () => {
     const h = harness();
@@ -579,79 +583,79 @@ describe('startup cannot outlive its explicit generation', () => {
     expect(h.transport.getSnapshot().generation).toBe(2);
     expect(received).toEqual([]);
   });
-  test.each([
-    'exchange',
-    'playback',
-  ])('replacement between wait resolution and the %s continuation retains its own snapshot', async (stage) => {
-    const previous = globalThis.MediaStream;
-    globalThis.MediaStream = Stream as unknown as typeof MediaStream;
-    const exchange = deferred<LiveExchangeResponse>();
-    const playback = deferred<void>();
-    const peers: Peer[] = [];
-    let calls = 0;
-    const transport = new OpenAILiveTransport({
-      closeTimeoutMs: 5,
-      createPeer: () => {
-        const peer = new Peer();
-        peers.push(peer);
-        return peer as unknown as RTCPeerConnection;
-      },
-      createAudio: () =>
-        ({
-          play: () => playback.promise,
-          pause() {},
-        }) as unknown as HTMLAudioElement,
-      getMicrophone: async () =>
-        new Stream([new Track()]) as unknown as MediaStream,
-      exchange: () =>
-        ++calls === 1 ? exchange.promise : new Promise(() => {}),
-    });
-    all.push(transport);
-    try {
-      const initial = transport.connect(config);
-      void initial.catch(() => {});
-      await tick();
-      if (stage === 'playback') {
-        exchange.resolve({
-          session: { id: 'OLD_SESSION' },
-          transport: { type: 'webrtc', sdp: 'v=0\r\n' },
-        });
+  test.each(['exchange', 'playback'])(
+    'replacement between wait resolution and the %s continuation retains its own snapshot',
+    async (stage) => {
+      const previous = globalThis.MediaStream;
+      globalThis.MediaStream = Stream as unknown as typeof MediaStream;
+      const exchange = deferred<LiveExchangeResponse>();
+      const playback = deferred<void>();
+      const peers: Peer[] = [];
+      let calls = 0;
+      const transport = new OpenAILiveTransport({
+        closeTimeoutMs: 5,
+        createPeer: () => {
+          const peer = new Peer();
+          peers.push(peer);
+          return peer as unknown as RTCPeerConnection;
+        },
+        createAudio: () =>
+          ({
+            play: () => playback.promise,
+            pause() {},
+          }) as unknown as HTMLAudioElement,
+        getMicrophone: async () =>
+          new Stream([new Track()]) as unknown as MediaStream,
+        exchange: () =>
+          ++calls === 1 ? exchange.promise : new Promise(() => {}),
+      });
+      all.push(transport);
+      try {
+        const initial = transport.connect(config);
+        void initial.catch(() => {});
         await tick();
-        peers[0]!.channel.event('session.started', {
-          session: { id: 'OLD_SESSION' },
-        });
-        await initial;
-        peers[0]!.dispatchEvent(
-          Object.assign(new Event('track'), { track: new Track() }),
+        if (stage === 'playback') {
+          exchange.resolve({
+            session: { id: 'OLD_SESSION' },
+            transport: { type: 'webrtc', sdp: 'v=0\r\n' },
+          });
+          await tick();
+          peers[0]!.channel.event('session.started', {
+            session: { id: 'OLD_SESSION' },
+          });
+          await initial;
+          peers[0]!.dispatchEvent(
+            Object.assign(new Event('track'), { track: new Track() }),
+          );
+          await tick();
+        }
+        if (stage === 'exchange')
+          exchange.resolve({
+            session: { id: 'OLD_SESSION' },
+            transport: { type: 'webrtc', sdp: 'v=0\r\n' },
+          });
+        else playback.resolve();
+        queueMicrotask(() =>
+          queueMicrotask(() => {
+            void transport.disconnect();
+            peers[0]!.channel.close();
+            void transport.connect(config).catch(() => {});
+          }),
         );
         await tick();
-      }
-      if (stage === 'exchange')
-        exchange.resolve({
-          session: { id: 'OLD_SESSION' },
-          transport: { type: 'webrtc', sdp: 'v=0\r\n' },
+        expect(transport.getSnapshot()).toMatchObject({
+          generation: 2,
+          state: 'connecting',
+          playback: 'unavailable',
+          finalization: 'pending',
         });
-      else playback.resolve();
-      queueMicrotask(() =>
-        queueMicrotask(() => {
-          void transport.disconnect();
-          peers[0]!.channel.close();
-          void transport.connect(config).catch(() => {});
-        }),
-      );
-      await tick();
-      expect(transport.getSnapshot()).toMatchObject({
-        generation: 2,
-        state: 'connecting',
-        playback: 'unavailable',
-        finalization: 'pending',
-      });
-      expect(transport.getSnapshot().sessionId).toBeUndefined();
-      expect(peers[0]!.closed).toBe(true);
-    } finally {
-      globalThis.MediaStream = previous;
-    }
-  });
+        expect(transport.getSnapshot().sessionId).toBeUndefined();
+        expect(peers[0]!.closed).toBe(true);
+      } finally {
+        globalThis.MediaStream = previous;
+      }
+    },
+  );
   test('an exchange abort listener can connect a replacement without old teardown overwriting its state or media', async () => {
     const peers: Peer[] = [];
     const tracks: Track[] = [];

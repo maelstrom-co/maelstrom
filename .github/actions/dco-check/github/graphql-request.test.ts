@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { createGraphqlRequest } from './graphql-request.ts';
 import type { Request } from './request.ts';
 

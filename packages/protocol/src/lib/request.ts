@@ -5,7 +5,6 @@ import type { ChartDimensions } from './chart.ts';
 import { ChartDimensionsSchema } from './chart.ts';
 // Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
 // keeps IDE hover/jump-to-definition uniform across resolvers.
-import type { ChartRequestMessage } from './engine-message.ts';
 import type { InstanceId } from './instance.ts';
 import type { JsonValue } from './json-value.ts';
 import { JsonValueSchema } from './json-value.ts';
@@ -22,9 +21,9 @@ import {
   VesselInstanceSnapshotSchema,
 } from './schemas.ts';
 import type { VariantName } from './variant-name.ts';
+import type { VesselId } from './vessel-id.ts';
 import type { Vessel } from './vessel.ts';
 import { VesselSchema } from './vessel.ts';
-import type { VesselId } from './vessel-id.ts';
 
 // ---------------------------------------------------------------------------
 // Update reasons

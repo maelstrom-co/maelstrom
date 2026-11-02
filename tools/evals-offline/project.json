@@ -1,10 +1,7 @@
 {
   "name": "evals-offline",
   "projectType": "library",
-  "implicitDependencies": [
-    "@maelstrom-co/evals",
-    "@maelstrom-co/client"
-  ],
+  "implicitDependencies": ["@maelstrom-co/evals", "@maelstrom-co/client"],
   "targets": {
     "test": {
       "command": "bun test --conditions=@maelstrom-co/source tools/evals-offline",
@@ -12,9 +9,7 @@
     },
     "typecheck": {
       "command": "tsc -p tools/evals-offline/tsconfig.json --noEmit",
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "cache": false
     }
   }

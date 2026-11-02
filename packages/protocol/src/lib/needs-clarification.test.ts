@@ -24,18 +24,17 @@ describe('NeedsClarificationSchema', () => {
     if (result.success) expect<unknown>(result.data).toEqual(value);
   });
 
-  test.each([
-    '',
-    '   ',
-    '\n\t',
-  ])('rejects the blank question %p', (question) => {
-    expect(
-      NeedsClarificationSchema.safeParse({
-        type: 'needs_clarification',
-        question,
-      }).success,
-    ).toBe(false);
-  });
+  test.each(['', '   ', '\n\t'])(
+    'rejects the blank question %p',
+    (question) => {
+      expect(
+        NeedsClarificationSchema.safeParse({
+          type: 'needs_clarification',
+          question,
+        }).success,
+      ).toBe(false);
+    },
+  );
 
   test('rejects a missing question', () => {
     expect(

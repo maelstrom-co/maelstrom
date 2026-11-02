@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { createPages } from './pages.ts';
 import { PaginationLimitError } from './pagination-limit-error.ts';
 import type { Request } from './request.ts';

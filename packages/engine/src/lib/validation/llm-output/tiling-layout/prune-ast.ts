@@ -6,7 +6,6 @@ import {
 
 import { assertNever } from '../../../assert-never.js';
 import type { DroppedLayoutEntry } from '../healed-layout.js';
-
 import type { Ast, PruneTask } from './ast.js';
 
 /**

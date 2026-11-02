@@ -188,8 +188,8 @@ export function piEvidence(text: string, binding?: PiBinding) {
       typeof sessions[0].cwd === 'string';
     let valid = Boolean(
       binding &&
-        headersValid &&
-        resolve(sessions[0].cwd) === resolve(binding.cwd),
+      headersValid &&
+      resolve(sessions[0].cwd) === resolve(binding.cwd),
     );
     const contentText = (content: unknown): string => {
       if (typeof content === 'string') return content;
@@ -463,7 +463,7 @@ export function piEvidence(text: string, binding?: PiBinding) {
       valid = false;
     const activated = Boolean(
       binding &&
-        [...receipts].some((path) => binding.guides[path].kind === 'migration'),
+      [...receipts].some((path) => binding.guides[path].kind === 'migration'),
     );
     return {
       usage,
@@ -507,32 +507,32 @@ export function compareMigration(
 ) {
   const eligible = Boolean(
     baseline.model &&
-      baseline.traceBound &&
-      treatment.traceBound &&
-      baseline.submissionBound &&
-      treatment.submissionBound &&
-      baseline.sessionId &&
-      treatment.sessionId &&
-      baseline.sessionId !== treatment.sessionId &&
-      baseline.model === treatment.model &&
-      !baseline.activated &&
-      baseline.guideExposure === false &&
-      baseline.sdkGuidesReceived?.length === 0 &&
-      treatment.activated &&
-      treatment.sdkGuidesReceived?.some(
-        (path) =>
-          path ===
-            'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md' ||
-          path === 'vendor/react/skills/maelstrom-react-sdk/SKILL.md',
-      ) &&
-      baseline.reviewApproved &&
-      treatment.reviewApproved &&
-      baseline.reviewHash &&
-      baseline.reviewHash === treatment.reviewHash &&
-      baseline.passed &&
-      treatment.passed &&
-      baseline.usage &&
-      treatment.usage,
+    baseline.traceBound &&
+    treatment.traceBound &&
+    baseline.submissionBound &&
+    treatment.submissionBound &&
+    baseline.sessionId &&
+    treatment.sessionId &&
+    baseline.sessionId !== treatment.sessionId &&
+    baseline.model === treatment.model &&
+    !baseline.activated &&
+    baseline.guideExposure === false &&
+    baseline.sdkGuidesReceived?.length === 0 &&
+    treatment.activated &&
+    treatment.sdkGuidesReceived?.some(
+      (path) =>
+        path ===
+          'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md' ||
+        path === 'vendor/react/skills/maelstrom-react-sdk/SKILL.md',
+    ) &&
+    baseline.reviewApproved &&
+    treatment.reviewApproved &&
+    baseline.reviewHash &&
+    baseline.reviewHash === treatment.reviewHash &&
+    baseline.passed &&
+    treatment.passed &&
+    baseline.usage &&
+    treatment.usage,
   );
   return {
     eligible,

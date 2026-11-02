@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { calculateOrderTotals, SEED_ORDERS } from './fixtures';
 
 describe('calculateOrderTotals', () => {
@@ -38,9 +39,10 @@ describe('calculateOrderTotals', () => {
 });
 
 describe('SEED_ORDERS', () => {
-  it.each(
-    SEED_ORDERS.map((order) => [order.id, order] as const),
-  )('%s carries the totals of its items', (_id, order) => {
-    expect(order.totals).toEqual(calculateOrderTotals(order.items));
-  });
+  it.each(SEED_ORDERS.map((order) => [order.id, order] as const))(
+    '%s carries the totals of its items',
+    (_id, order) => {
+      expect(order.totals).toEqual(calculateOrderTotals(order.items));
+    },
+  );
 });

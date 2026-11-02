@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import {
   consoleLogger,
   createEngine,
@@ -19,6 +20,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { armRegistry, pluginOf } from './arms.js';
 import {
   GRADER_DIMENSIONS,
@@ -30,8 +32,8 @@ import {
   type ShippedResponse,
 } from './grader.js';
 import type { StageRecord } from './instrument.js';
-import { judgeProvenance } from './judge.js';
 import { evaluationJudgeSchema, type JudgeProvenance } from './judge-result.js';
+import { judgeProvenance } from './judge.js';
 import type { PlannerEvalPlugin } from './plugin.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';

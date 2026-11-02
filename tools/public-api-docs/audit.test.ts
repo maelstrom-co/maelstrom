@@ -345,17 +345,16 @@ describe('forbidden public documentation prose', () => {
     expect((await auditArtifactFiles([declaration])).findings).toEqual([]);
   });
 
-  test.each([
-    'RFC-9110',
-    'ISO-8601',
-    'ECMA-262',
-  ])('allows the public standard reference %s', async (reference) => {
-    const { declaration } = await emitDeclaration(
-      `/** Follows ${reference}. */\nexport class Engine {}`,
-    );
+  test.each(['RFC-9110', 'ISO-8601', 'ECMA-262'])(
+    'allows the public standard reference %s',
+    async (reference) => {
+      const { declaration } = await emitDeclaration(
+        `/** Follows ${reference}. */\nexport class Engine {}`,
+      );
 
-    expect((await auditArtifactFiles([declaration])).findings).toEqual([]);
-  });
+      expect((await auditArtifactFiles([declaration])).findings).toEqual([]);
+    },
+  );
 });
 
 describe('packed package qualification', () => {
@@ -537,23 +536,28 @@ describe('packed package qualification', () => {
       'nested fallback array member',
       { '.': ['./dist/index.js', { import: ['./dist/fallback.js', 42] }] },
     ],
-  ])('returns an invalid-tarball error for a malformed %s export', async (_label, exports) => {
-    const tarball = await createTarball(
-      '@fixture/malformed-export',
-      { exports },
-      {
-        'dist/index.d.ts': 'export declare const clean = true;',
-        'dist/index.js': 'export const clean = true;',
-        'dist/fallback.js': 'export const fallback = true;',
-      },
-    );
+  ])(
+    'returns an invalid-tarball error for a malformed %s export',
+    async (_label, exports) => {
+      const tarball = await createTarball(
+        '@fixture/malformed-export',
+        { exports },
+        {
+          'dist/index.d.ts': 'export declare const clean = true;',
+          'dist/index.js': 'export const clean = true;',
+          'dist/fallback.js': 'export const fallback = true;',
+        },
+      );
 
-    const report = await auditPackedPackage(tarball);
+      const report = await auditPackedPackage(tarball);
 
-    expect(report.errors.map(({ rule }) => rule)).toEqual(['invalid-tarball']);
-    expect(report.findings).toEqual([]);
-    expect(report.scanned).toEqual([]);
-  });
+      expect(report.errors.map(({ rule }) => rule)).toEqual([
+        'invalid-tarball',
+      ]);
+      expect(report.findings).toEqual([]);
+      expect(report.scanned).toEqual([]);
+    },
+  );
 
   test('accepts null blockers and recursively valid fallback arrays', async () => {
     const tarball = await createTarball(
@@ -924,27 +928,30 @@ describe('packed package qualification', () => {
       { peerDependencies: { 'invalid-peer': 'file:../peer' } },
       'peerDependencies.invalid-peer uses consumer-invalid dependency specifier file:../peer.',
     ],
-  ])('rejects an invalid %s protocol before installing the packed consumer', async (_label, manifest, expectedError) => {
-    const tarball = await createTarball(
-      '@fixture/consumer-protocol',
-      {
-        ...manifest,
-        exports: {
-          '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+  ])(
+    'rejects an invalid %s protocol before installing the packed consumer',
+    async (_label, manifest, expectedError) => {
+      const tarball = await createTarball(
+        '@fixture/consumer-protocol',
+        {
+          ...manifest,
+          exports: {
+            '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+          },
         },
-      },
-      { 'dist/index.d.ts': 'export {};', 'dist/index.js': 'export {};' },
-    );
+        { 'dist/index.d.ts': 'export {};', 'dist/index.js': 'export {};' },
+      );
 
-    const result = await installPackedConsumer(
-      [{ name: '@fixture/consumer-protocol', tarball }],
-      await temporaryRoot(),
-    );
+      const result = await installPackedConsumer(
+        [{ name: '@fixture/consumer-protocol', tarball }],
+        await temporaryRoot(),
+      );
 
-    expect(result.errors).toEqual([
-      `@fixture/consumer-protocol: ${expectedError}`,
-    ]);
-  });
+      expect(result.errors).toEqual([
+        `@fixture/consumer-protocol: ${expectedError}`,
+      ]);
+    },
+  );
 
   test.each([
     ['null', null],
@@ -952,23 +959,28 @@ describe('packed package qualification', () => {
     ['number', 1],
     ['boolean', true],
     ['malformed dependencies', { name: '@fixture/invalid', dependencies: [] }],
-  ])('returns structured errors for a %s packed manifest', async (_label, manifest) => {
-    const tarball = await createTarballWithManifest(
-      '@fixture/invalid',
-      JSON.stringify(manifest),
-      {},
-    );
+  ])(
+    'returns structured errors for a %s packed manifest',
+    async (_label, manifest) => {
+      const tarball = await createTarballWithManifest(
+        '@fixture/invalid',
+        JSON.stringify(manifest),
+        {},
+      );
 
-    const report = await auditPackedPackage(tarball);
-    const consumer = await installPackedConsumer(
-      [{ name: '@fixture/invalid', tarball }],
-      await temporaryRoot(),
-    );
+      const report = await auditPackedPackage(tarball);
+      const consumer = await installPackedConsumer(
+        [{ name: '@fixture/invalid', tarball }],
+        await temporaryRoot(),
+      );
 
-    expect(report.errors.map(({ rule }) => rule)).toEqual(['invalid-tarball']);
-    expect(consumer.errors).toHaveLength(1);
-    expect(consumer.errors[0]).toContain('Invalid package/package.json');
-  });
+      expect(report.errors.map(({ rule }) => rule)).toEqual([
+        'invalid-tarball',
+      ]);
+      expect(consumer.errors).toHaveLength(1);
+      expect(consumer.errors[0]).toContain('Invalid package/package.json');
+    },
+  );
 });
 
 describe('package selection', () => {
@@ -1055,17 +1067,17 @@ describe('package selection', () => {
     );
   });
 
-  test.each([
-    [['--packed-consumer']],
-    [['--typedoc', '--packed-consumer']],
-  ])('the audit CLI rejects packed consumer checks without declarations: %p', (arguments_) => {
-    const result = runTool('audit.ts', arguments_);
+  test.each([[['--packed-consumer']], [['--typedoc', '--packed-consumer']]])(
+    'the audit CLI rejects packed consumer checks without declarations: %p',
+    (arguments_) => {
+      const result = runTool('audit.ts', arguments_);
 
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr.toString()).toContain(
-      '--packed-consumer requires --declarations.',
-    );
-  });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toContain(
+        '--packed-consumer requires --declarations.',
+      );
+    },
+  );
 });
 
 test('stripInternal comparison distinguishes identical output from rejected drift', async () => {

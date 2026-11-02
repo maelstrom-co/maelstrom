@@ -1,9 +1,6 @@
 import {
   type ChartDimensions,
   type ChartRequest,
-  // Referenced via `{@link}` in the JSDoc below — type-only import keeps IDE
-  // hover/jump-to-definition uniform across resolvers.
-  type ChartRequestMessage,
   type GridLayout,
   InstanceId,
   type LayoutMode,

@@ -8,6 +8,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { expect, test } from '@playwright/test';
+
 import { DEMO_LOCATIONS, HOME } from '../src/lib/locations';
 
 test('loads the map and its bundled worker under hosted CSP', async ({

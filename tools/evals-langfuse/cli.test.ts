@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
 import { createOperationalCollector } from '../../packages/evals/src/core/operational-telemetry.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
 import type { EvaluationJudgeResult } from '../../packages/evals/src/core/runtime/judge-result.js';
@@ -267,20 +268,23 @@ test.each([
   ['timeout-ms', '1001'],
   ['shutdown-timeout-ms', '101'],
   ['max-in-flight', '2'],
-])('approval binds changed %s before credential access', async (flag, value) => {
-  const { approval } = await preview();
-  expect(
-    await runLangfuseCli(
-      publishArgs(approval, { [flag]: value }),
-      dependencies(),
-    ),
-  ).toEqual({
-    exitCode: 2,
-    output: { status: 'invalid', code: 'approval_mismatch' },
-  });
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-});
+])(
+  'approval binds changed %s before credential access',
+  async (flag, value) => {
+    const { approval } = await preview();
+    expect(
+      await runLangfuseCli(
+        publishArgs(approval, { [flag]: value }),
+        dependencies(),
+      ),
+    ).toEqual({
+      exitCode: 2,
+      output: { status: 'invalid', code: 'approval_mismatch' },
+    });
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+  },
+);
 
 test('changed summary content invalidates approval; omitted raw evidence never becomes a recording', async () => {
   const { approval } = await preview();
@@ -353,18 +357,21 @@ test.each([
   ['shutdown-timeout-ms', '60001'],
   ['max-in-flight', '17'],
   ['max-in-flight', '-1'],
-])('invalid %s configuration fails before credential access', async (flag, value) => {
-  const { approval } = await preview();
-  const response = await runLangfuseCli(
-    publishArgs(approval, { [flag]: value }),
-    dependencies(),
-  );
-  expect(response.exitCode).toBe(2);
-  expect(response.output.code).toBe('invalid_configuration');
-  expectNoSecrets(response);
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-});
+])(
+  'invalid %s configuration fails before credential access',
+  async (flag, value) => {
+    const { approval } = await preview();
+    const response = await runLangfuseCli(
+      publishArgs(approval, { [flag]: value }),
+      dependencies(),
+    );
+    expect(response.exitCode).toBe(2);
+    expect(response.output.code).toBe('invalid_configuration');
+    expectNoSecrets(response);
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+  },
+);
 
 test('publish requires explicit approval; preview cannot accidentally publish, overwrite or follow output symlinks', async () => {
   const { path, json } = await preview();
@@ -412,18 +419,21 @@ test.each(
     { ...result(), cleanupError: {} },
     { ...result(), evaluation: 'success' },
   ].map((value) => [value]),
-)('malformed result %# is rejected without echoing its values', async (value) => {
-  await writeFile(input, JSON.stringify(value));
-  const response = await runLangfuseCli(
-    publishArgs('a'.repeat(64)),
-    dependencies(),
-  );
-  expect(response).toEqual({
-    exitCode: 2,
-    output: { status: 'invalid', code: 'invalid_input' },
-  });
-  expect(credentialReads).toEqual([]);
-});
+)(
+  'malformed result %# is rejected without echoing its values',
+  async (value) => {
+    await writeFile(input, JSON.stringify(value));
+    const response = await runLangfuseCli(
+      publishArgs('a'.repeat(64)),
+      dependencies(),
+    );
+    expect(response).toEqual({
+      exitCode: 2,
+      output: { status: 'invalid', code: 'invalid_input' },
+    });
+    expect(credentialReads).toEqual([]);
+  },
+);
 
 test('bounded regular-file UTF-8 JSON input only, with no input-path or parser-error logging', async () => {
   for (const value of [
@@ -489,44 +499,42 @@ test('missing credentials and startup exceptions are sanitized', async () => {
   expectNoSecrets(broken);
 });
 
-test.each([
-  'failed',
-  'partial',
-  'uncertain',
-  'throw',
-] as const)('fake SDK %s is sanitized, sent once without retries and shut down', async (kind) => {
-  const { approval } = await preview();
-  let calls = 0;
-  const response = await runLangfuseCli(
-    publishArgs(approval),
-    dependencies({
-      async batch(request, options) {
-        calls++;
-        expect(options.maxRetries).toBe(0);
-        if (kind === 'throw') throw new Error('SECRET SDK ERROR');
-        return {
-          successes:
-            kind === 'partial'
-              ? [{ id: request.batch[0].id, status: 201 }]
-              : [],
-          errors:
-            kind === 'failed'
-              ? request.batch.map(({ id }) => ({
-                  id,
-                  status: 400,
-                  message: 'SECRET REJECTION',
-                }))
-              : [],
-        };
-      },
-    }),
-  );
-  expect(calls).toBe(1);
-  expect(response.exitCode).toBe(kind === 'failed' ? 1 : 3);
-  expect(response.output.status).toBe(kind === 'throw' ? 'uncertain' : kind);
-  expect(response.output.shutdown).toBe('closed');
-  expectNoSecrets(response);
-});
+test.each(['failed', 'partial', 'uncertain', 'throw'] as const)(
+  'fake SDK %s is sanitized, sent once without retries and shut down',
+  async (kind) => {
+    const { approval } = await preview();
+    let calls = 0;
+    const response = await runLangfuseCli(
+      publishArgs(approval),
+      dependencies({
+        async batch(request, options) {
+          calls++;
+          expect(options.maxRetries).toBe(0);
+          if (kind === 'throw') throw new Error('SECRET SDK ERROR');
+          return {
+            successes:
+              kind === 'partial'
+                ? [{ id: request.batch[0].id, status: 201 }]
+                : [],
+            errors:
+              kind === 'failed'
+                ? request.batch.map(({ id }) => ({
+                    id,
+                    status: 400,
+                    message: 'SECRET REJECTION',
+                  }))
+                : [],
+          };
+        },
+      }),
+    );
+    expect(calls).toBe(1);
+    expect(response.exitCode).toBe(kind === 'failed' ? 1 : 3);
+    expect(response.output.status).toBe(kind === 'throw' ? 'uncertain' : kind);
+    expect(response.output.shutdown).toBe('closed');
+    expectNoSecrets(response);
+  },
+);
 
 test('a transport still pending after abort reports uncertain delivery and shutdown', async () => {
   const overrides = { 'timeout-ms': '5', 'shutdown-timeout-ms': '5' };
@@ -554,32 +562,32 @@ test('a transport still pending after abort reports uncertain delivery and shutd
   finish({ successes: [], errors: [] });
 });
 
-test.each([
-  'uncertain',
-  'throw',
-] as const)('accepted delivery with %s shutdown never returns success', async (kind) => {
-  const { approval } = await preview();
-  let shutdowns = 0;
-  const response = await runLangfuseCli(publishArgs(approval), {
-    ...dependencies(),
-    startSink: () => ({
-      async publish() {
-        return { status: 'accepted' };
-      },
-      async shutdown() {
-        shutdowns++;
-        if (kind === 'throw') throw new Error('SECRET');
-        return 'uncertain';
-      },
-    }),
-  });
-  expect(response).toMatchObject({
-    exitCode: 3,
-    output: { status: 'accepted', shutdown: 'uncertain' },
-  });
-  expect(shutdowns).toBe(1);
-  expectNoSecrets(response);
-});
+test.each(['uncertain', 'throw'] as const)(
+  'accepted delivery with %s shutdown never returns success',
+  async (kind) => {
+    const { approval } = await preview();
+    let shutdowns = 0;
+    const response = await runLangfuseCli(publishArgs(approval), {
+      ...dependencies(),
+      startSink: () => ({
+        async publish() {
+          return { status: 'accepted' };
+        },
+        async shutdown() {
+          shutdowns++;
+          if (kind === 'throw') throw new Error('SECRET');
+          return 'uncertain';
+        },
+      }),
+    });
+    expect(response).toMatchObject({
+      exitCode: 3,
+      output: { status: 'accepted', shutdown: 'uncertain' },
+    });
+    expect(shutdowns).toBe(1);
+    expectNoSecrets(response);
+  },
+);
 
 test('real Node entry previews with SDK import/network denied, does not load .env, and emits JSON exit codes', async () => {
   const hook = join(directory, 'deny-sdk.mjs');
@@ -622,15 +630,14 @@ globalThis.fetch = () => { throw new Error('NETWORK MUST NOT RUN'); };\n`,
   });
 });
 
-test.each([
-  true,
-  false,
-])('standalone SDK startup masks ambient debug and flush controls (debug=%s), then restores them', async (debug) => {
-  const { approval } = await preview();
-  const hook = join(directory, 'intercept-sdk.mjs');
-  await writeFile(
-    hook,
-    `
+test.each([true, false])(
+  'standalone SDK startup masks ambient debug and flush controls (debug=%s), then restores them',
+  async (debug) => {
+    const { approval } = await preview();
+    const hook = join(directory, 'intercept-sdk.mjs');
+    await writeFile(
+      hook,
+      `
 const controls = ['LANGFUSE_DEBUG', 'LANGFUSE_LOG_LEVEL', 'LANGFUSE_FLUSH_AT', 'LANGFUSE_FLUSH_INTERVAL'];
 const original = controls.map((name) => [name, process.env[name]]);
 let sends = 0;
@@ -651,41 +658,42 @@ process.once('exit', () => {
   if (original.some(([name, value]) => process.env[name] !== value)) throw new Error('SDK ENVIRONMENT NOT RESTORED');
 });
 `,
-  );
-  const response = spawnSync(
-    'node',
-    [
-      '--import',
-      hook,
-      resolve('tools/evals-langfuse/cli.ts'),
-      ...publishArgs(approval),
-    ],
-    {
-      encoding: 'utf8',
-      env: {
-        PATH: process.env.PATH ?? '',
-        LANGFUSE_PUBLIC_KEY: 'SECRET PUBLIC',
-        LANGFUSE_SECRET_KEY: 'SECRET PRIVATE',
-        LANGFUSE_LOG_LEVEL: 'DEBUG',
-        ...(debug
-          ? {
-              LANGFUSE_DEBUG: 'true',
-              LANGFUSE_FLUSH_AT: 'INVALID FLUSH COUNT',
-              LANGFUSE_FLUSH_INTERVAL: 'INVALID FLUSH INTERVAL',
-            }
-          : {}),
+    );
+    const response = spawnSync(
+      'node',
+      [
+        '--import',
+        hook,
+        resolve('tools/evals-langfuse/cli.ts'),
+        ...publishArgs(approval),
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH ?? '',
+          LANGFUSE_PUBLIC_KEY: 'SECRET PUBLIC',
+          LANGFUSE_SECRET_KEY: 'SECRET PRIVATE',
+          LANGFUSE_LOG_LEVEL: 'DEBUG',
+          ...(debug
+            ? {
+                LANGFUSE_DEBUG: 'true',
+                LANGFUSE_FLUSH_AT: 'INVALID FLUSH COUNT',
+                LANGFUSE_FLUSH_INTERVAL: 'INVALID FLUSH INTERVAL',
+              }
+            : {}),
+        },
       },
-    },
-  );
-  expect(response.status).toBe(0);
-  expect(response.stderr).toBe('');
-  expectNoSecrets(response.stdout);
-  expect(JSON.parse(response.stdout)).toMatchObject({
-    status: 'accepted',
-    shutdown: 'closed',
-    approvalSha256: approval,
-  });
-});
+    );
+    expect(response.status).toBe(0);
+    expect(response.stderr).toBe('');
+    expectNoSecrets(response.stdout);
+    expect(JSON.parse(response.stdout)).toMatchObject({
+      status: 'accepted',
+      shutdown: 'closed',
+      approvalSha256: approval,
+    });
+  },
+);
 
 test('native Node publishes through the real sink with a borrowed fake transport only', async () => {
   const { approval } = await preview();
@@ -1073,65 +1081,68 @@ test.each([
     ...plannerJudge,
     scores: [{ name: 'request_satisfied', value: 2, min: 0, max: 1 }],
   },
-])('full planner import rejects invalid or raw judge evidence %o before publication', async (judge) => {
-  const overrides = await fullPlannerInput([plannerRecord({ judge })]);
-  const { importFullPlannerRun } = await import('./full-planner-run.ts');
-  const records = await readFile(join(directory, 'records.json'));
-  const summary = await readFile(join(directory, 'summary.json'));
-  expect(() => importFullPlannerRun(records, summary, 1)).toThrow();
-  const outcome = await runLangfuseCli(
-    [
-      ...args(overrides),
-      '--preview-out',
-      join(directory, 'invalid-preview.json'),
-    ],
-    dependencies(),
-  );
-  expect(outcome.exitCode).not.toBe(0);
-  expect(starts).toBe(0);
-  expect(credentialReads).toEqual([]);
-  expectNoSecrets(outcome);
-});
+])(
+  'full planner import rejects invalid or raw judge evidence %o before publication',
+  async (judge) => {
+    const overrides = await fullPlannerInput([plannerRecord({ judge })]);
+    const { importFullPlannerRun } = await import('./full-planner-run.ts');
+    const records = await readFile(join(directory, 'records.json'));
+    const summary = await readFile(join(directory, 'summary.json'));
+    expect(() => importFullPlannerRun(records, summary, 1)).toThrow();
+    const outcome = await runLangfuseCli(
+      [
+        ...args(overrides),
+        '--preview-out',
+        join(directory, 'invalid-preview.json'),
+      ],
+      dependencies(),
+    );
+    expect(outcome.exitCode).not.toBe(0);
+    expect(starts).toBe(0);
+    expect(credentialReads).toEqual([]);
+    expectNoSecrets(outcome);
+  },
+);
 
-test.each([
-  'records.json',
-  'summary.json',
-])('exact %s bytes, including omitted fields and whitespace, bind run identity and approval', async (file) => {
-  const overrides = await fullPlannerInput();
-  const first = await preview(overrides);
-  const before = JSON.parse(first.json);
-  const path = join(directory, file);
-  await writeFile(path, `${await readFile(path, 'utf8')}\n`);
-  const changed = await preview(overrides);
-  const after = JSON.parse(changed.json);
-  expect(after.source.runId).not.toBe(before.source.runId);
-  expect(after.publications[0].publicationId).not.toBe(
-    before.publications[0].publicationId,
-  );
-  expect(changed.approval).not.toBe(first.approval);
-  expect(
-    (
-      await runLangfuseCli(
-        publishArgs(first.approval, overrides),
-        dependencies(),
-      )
-    ).output.code,
-  ).toBe('approval_mismatch');
-  if (file === 'records.json') {
-    const records = JSON.parse(await readFile(path, 'utf8'));
-    records[0].rawOutput = 'CHANGED PRIVATE RAW';
-    await writeFile(path, JSON.stringify(records));
-  } else {
-    const summary = JSON.parse(await readFile(path, 'utf8'));
-    summary.meta.private = 'CHANGED PRIVATE META';
-    await writeFile(path, JSON.stringify(summary));
-  }
-  const rawChanged = await preview(overrides);
-  expect(rawChanged.approval).not.toBe(changed.approval);
-  expect(rawChanged.json).not.toContain('PRIVATE');
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-});
+test.each(['records.json', 'summary.json'])(
+  'exact %s bytes, including omitted fields and whitespace, bind run identity and approval',
+  async (file) => {
+    const overrides = await fullPlannerInput();
+    const first = await preview(overrides);
+    const before = JSON.parse(first.json);
+    const path = join(directory, file);
+    await writeFile(path, `${await readFile(path, 'utf8')}\n`);
+    const changed = await preview(overrides);
+    const after = JSON.parse(changed.json);
+    expect(after.source.runId).not.toBe(before.source.runId);
+    expect(after.publications[0].publicationId).not.toBe(
+      before.publications[0].publicationId,
+    );
+    expect(changed.approval).not.toBe(first.approval);
+    expect(
+      (
+        await runLangfuseCli(
+          publishArgs(first.approval, overrides),
+          dependencies(),
+        )
+      ).output.code,
+    ).toBe('approval_mismatch');
+    if (file === 'records.json') {
+      const records = JSON.parse(await readFile(path, 'utf8'));
+      records[0].rawOutput = 'CHANGED PRIVATE RAW';
+      await writeFile(path, JSON.stringify(records));
+    } else {
+      const summary = JSON.parse(await readFile(path, 'utf8'));
+      summary.meta.private = 'CHANGED PRIVATE META';
+      await writeFile(path, JSON.stringify(summary));
+    }
+    const rawChanged = await preview(overrides);
+    expect(rawChanged.approval).not.toBe(changed.approval);
+    expect(rawChanged.json).not.toContain('PRIVATE');
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+  },
+);
 
 test.each([
   ['destination', 'another'],
@@ -1171,16 +1182,19 @@ test.each(
     [plannerRecord({ error: null })],
     [plannerRecord(), plannerRecord({ scenarioId: 'x'.repeat(20_000) })],
   ].map((records) => [records]),
-)('entire full batch validates before any credential access or send %#', async (records) => {
-  const overrides = await fullPlannerInput(records);
-  const response = await runLangfuseCli(
-    publishArgs('a'.repeat(64), overrides),
-    dependencies(),
-  );
-  expect(response.output.code).toBe('invalid_input');
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-});
+)(
+  'entire full batch validates before any credential access or send %#',
+  async (records) => {
+    const overrides = await fullPlannerInput(records);
+    const response = await runLangfuseCli(
+      publishArgs('a'.repeat(64), overrides),
+      dependencies(),
+    );
+    expect(response.output.code).toBe('invalid_input');
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+  },
+);
 
 test('full batch count, combined input bytes and preview bytes are bounded independently', async () => {
   const overrides = await fullPlannerInput(
@@ -1289,32 +1303,35 @@ test.each([
   ['scenario mismatch', { arms: 'baseline', repeats: 1, scenarios: 2 }],
   ['repeat mismatch', { arms: 'baseline', repeats: 2, scenarios: 1 }],
   ['arm mismatch', { arms: 'baseline, staged', repeats: 1, scenarios: 1 }],
-] as const)('native count metadata rejects %s before approval, credentials or send', async (_name, meta) => {
-  const overrides = await fullPlannerInput();
-  const { approval } = await preview(overrides);
-  await writeFile(
-    join(directory, 'summary.json'),
-    JSON.stringify({ meta, summaries: [] }),
-  );
-  const path = join(directory, 'invalid-count-preview.json');
-  const invalid = {
-    exitCode: 2,
-    output: { status: 'invalid', code: 'invalid_input' },
-  } as const;
-  expect(
-    await runLangfuseCli(
-      [...args(overrides), '--preview-out', path],
-      dependencies(),
-    ),
-  ).toEqual(invalid);
-  await expect(stat(path)).rejects.toThrow();
-  expect(
-    await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
-  ).toEqual(invalid);
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-  expect(batches).toHaveLength(0);
-});
+] as const)(
+  'native count metadata rejects %s before approval, credentials or send',
+  async (_name, meta) => {
+    const overrides = await fullPlannerInput();
+    const { approval } = await preview(overrides);
+    await writeFile(
+      join(directory, 'summary.json'),
+      JSON.stringify({ meta, summaries: [] }),
+    );
+    const path = join(directory, 'invalid-count-preview.json');
+    const invalid = {
+      exitCode: 2,
+      output: { status: 'invalid', code: 'invalid_input' },
+    } as const;
+    expect(
+      await runLangfuseCli(
+        [...args(overrides), '--preview-out', path],
+        dependencies(),
+      ),
+    ).toEqual(invalid);
+    await expect(stat(path)).rejects.toThrow();
+    expect(
+      await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
+    ).toEqual(invalid);
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+    expect(batches).toHaveLength(0);
+  },
+);
 
 test('native count metadata rejects excess records instead of approving a matching prefix', async () => {
   const overrides = await fullPlannerInput([
@@ -1340,59 +1357,62 @@ test('native count metadata rejects excess records instead of approving a matchi
 test.each([
   ['undeclared arm', { arm: 'undeclared' }],
   ['repeat above declared maximum', { repeat: 3 }],
-])('full planner import rejects %s with unchanged counts and unique tuples before credentials or publication', async (_label, invalid) => {
-  const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
-    [1, 2].flatMap((repeat) =>
-      ['baseline', 'staged'].map((arm) =>
-        plannerRecord({ scenarioId, repeat, arm }),
+])(
+  'full planner import rejects %s with unchanged counts and unique tuples before credentials or publication',
+  async (_label, invalid) => {
+    const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
+      [1, 2].flatMap((repeat) =>
+        ['baseline', 'staged'].map((arm) =>
+          plannerRecord({ scenarioId, repeat, arm }),
+        ),
       ),
-    ),
-  );
-  const overrides = await fullPlannerInput(records);
-  const { approval } = await preview(overrides);
-  const summary = await readFile(join(directory, 'summary.json'));
-  const changed = records.map((record, index) =>
-    index === 0 ? { ...record, ...invalid } : record,
-  );
-  expect(changed).toHaveLength(records.length);
-  expect(
-    new Set(
-      changed.map((record) =>
-        JSON.stringify([record.scenarioId, record.arm, record.repeat]),
+    );
+    const overrides = await fullPlannerInput(records);
+    const { approval } = await preview(overrides);
+    const summary = await readFile(join(directory, 'summary.json'));
+    const changed = records.map((record, index) =>
+      index === 0 ? { ...record, ...invalid } : record,
+    );
+    expect(changed).toHaveLength(records.length);
+    expect(
+      new Set(
+        changed.map((record) =>
+          JSON.stringify([record.scenarioId, record.arm, record.repeat]),
+        ),
+      ).size,
+    ).toBe(records.length);
+    await writeFile(join(directory, 'records.json'), JSON.stringify(changed));
+    expect(await readFile(join(directory, 'summary.json'))).toEqual(summary);
+    const { importFullPlannerRun } = await import('./full-planner-run.ts');
+    expect(() =>
+      importFullPlannerRun(
+        Buffer.from(JSON.stringify(changed)),
+        summary,
+        records.length,
       ),
-    ).size,
-  ).toBe(records.length);
-  await writeFile(join(directory, 'records.json'), JSON.stringify(changed));
-  expect(await readFile(join(directory, 'summary.json'))).toEqual(summary);
-  const { importFullPlannerRun } = await import('./full-planner-run.ts');
-  expect(() =>
-    importFullPlannerRun(
-      Buffer.from(JSON.stringify(changed)),
-      summary,
-      records.length,
-    ),
-  ).toThrow('Invalid planner record');
-  const path = join(directory, 'invalid-membership-preview.json');
-  const invalidInput = {
-    exitCode: 2,
-    output: { status: 'invalid', code: 'invalid_input' },
-  } as const;
-  expect(
-    await runLangfuseCli(
-      [...args(overrides), '--preview-out', path],
-      dependencies(),
-    ),
-  ).toEqual(invalidInput);
-  await expect(stat(path)).rejects.toThrow();
-  expect(
-    await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
-  ).toEqual(invalidInput);
-  expect(credentialReads).toEqual([]);
-  expect(starts).toBe(0);
-  expect(batches).toEqual([]);
-  expect(datasets).toEqual([]);
-  expect(datasetItems).toEqual([]);
-});
+    ).toThrow('Invalid planner record');
+    const path = join(directory, 'invalid-membership-preview.json');
+    const invalidInput = {
+      exitCode: 2,
+      output: { status: 'invalid', code: 'invalid_input' },
+    } as const;
+    expect(
+      await runLangfuseCli(
+        [...args(overrides), '--preview-out', path],
+        dependencies(),
+      ),
+    ).toEqual(invalidInput);
+    await expect(stat(path)).rejects.toThrow();
+    expect(
+      await runLangfuseCli(publishArgs(approval, overrides), dependencies()),
+    ).toEqual(invalidInput);
+    expect(credentialReads).toEqual([]);
+    expect(starts).toBe(0);
+    expect(batches).toEqual([]);
+    expect(datasets).toEqual([]);
+    expect(datasetItems).toEqual([]);
+  },
+);
 
 test('a matching selected-scenario subset previews both structurally consistent record counts', async () => {
   const records = ['selected-1', 'selected-2'].flatMap((scenarioId) =>
@@ -1420,53 +1440,56 @@ test.each([
   ['uncertain', 3, 'uncertain', 1],
   ['accepted,failed', 3, 'partial', 2],
   ['accepted,uncertain', 3, 'partial', 2],
-] as const)('sequential full publication %s retains receipts, stops early and reports unsent rows', async (sequence, exitCode, status, count) => {
-  const overrides = await fullPlannerInput(
-    [1, 2, 3].map((repeat) =>
-      plannerRecord({ repeat, score: { pass: true, failures: [] } }),
-    ),
-  );
-  const { approval } = await preview(overrides);
-  const statuses = sequence.split(',');
-  let calls = 0;
-  let active = false;
-  const response = await runLangfuseCli(
-    publishArgs(approval, overrides),
-    dependencies({
-      async batch(request, options) {
-        expect(active).toBe(false);
-        active = true;
-        const status = statuses[Math.min(calls++, statuses.length - 1)];
-        expect(options.maxRetries).toBe(0);
-        await Promise.resolve();
-        active = false;
-        return {
-          successes:
-            status === 'accepted'
-              ? request.batch.map(({ id }) => ({ id, status: 201 }))
-              : status === 'partial'
-                ? [{ id: request.batch[0].id, status: 201 }]
+] as const)(
+  'sequential full publication %s retains receipts, stops early and reports unsent rows',
+  async (sequence, exitCode, status, count) => {
+    const overrides = await fullPlannerInput(
+      [1, 2, 3].map((repeat) =>
+        plannerRecord({ repeat, score: { pass: true, failures: [] } }),
+      ),
+    );
+    const { approval } = await preview(overrides);
+    const statuses = sequence.split(',');
+    let calls = 0;
+    let active = false;
+    const response = await runLangfuseCli(
+      publishArgs(approval, overrides),
+      dependencies({
+        async batch(request, options) {
+          expect(active).toBe(false);
+          active = true;
+          const status = statuses[Math.min(calls++, statuses.length - 1)];
+          expect(options.maxRetries).toBe(0);
+          await Promise.resolve();
+          active = false;
+          return {
+            successes:
+              status === 'accepted'
+                ? request.batch.map(({ id }) => ({ id, status: 201 }))
+                : status === 'partial'
+                  ? [{ id: request.batch[0].id, status: 201 }]
+                  : [],
+            errors:
+              status === 'failed'
+                ? request.batch.map(({ id }) => ({
+                    id,
+                    status: 400,
+                    message: 'SECRET REJECTION',
+                  }))
                 : [],
-          errors:
-            status === 'failed'
-              ? request.batch.map(({ id }) => ({
-                  id,
-                  status: 400,
-                  message: 'SECRET REJECTION',
-                }))
-              : [],
-        };
-      },
-    }),
-  );
-  expect(response).toMatchObject({
-    exitCode,
-    output: { status, shutdown: 'closed', unsent: 3 - count },
-  });
-  expect(response.output.receipts).toHaveLength(count);
-  expect(calls).toBe(count);
-  expectNoSecrets(response);
-});
+          };
+        },
+      }),
+    );
+    expect(response).toMatchObject({
+      exitCode,
+      output: { status, shutdown: 'closed', unsent: 3 - count },
+    });
+    expect(response.output.receipts).toHaveLength(count);
+    expect(calls).toBe(count);
+    expectNoSecrets(response);
+  },
+);
 
 test('full import timeout stops subsequent publications and preserves shutdown uncertainty', async () => {
   const overrides = {

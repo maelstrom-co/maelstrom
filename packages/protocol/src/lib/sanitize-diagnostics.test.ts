@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { DiagnosticEventSchema } from './diagnostics.js';
 import { sanitizeDiagnosticValue } from './sanitize-diagnostics.js';
 
@@ -34,15 +35,16 @@ test('omits absent optional fields so a diagnostic capture can be decoded again'
   ).toEqual({ metadata: { count: 1 } });
 });
 
-test.each([
-  1, 8, 16384,
-])('truncation stays inside the configured string bound of %s', (limit) => {
-  const result = sanitizeDiagnosticValue('x'.repeat(limit + 1), {
-    maxStringCharacters: limit,
-  });
-  expect(typeof result).toBe('string');
-  expect((result as string).length).toBeLessThanOrEqual(limit);
-});
+test.each([1, 8, 16384])(
+  'truncation stays inside the configured string bound of %s',
+  (limit) => {
+    const result = sanitizeDiagnosticValue('x'.repeat(limit + 1), {
+      maxStringCharacters: limit,
+    });
+    expect(typeof result).toBe('string');
+    expect((result as string).length).toBeLessThanOrEqual(limit);
+  },
+);
 
 test('long metadata remains a valid diagnostic event after truncation', () => {
   const result = sanitizeDiagnosticValue({

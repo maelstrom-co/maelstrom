@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+
 import type { TelemetryFact } from '@maelstrom-co/telemetry';
+
 import { createOperationalCollector } from './operational-telemetry.js';
 import {
   unavailableOperationalTelemetry,

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { act, cleanup, renderHook } from '@testing-library/react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { useStoreSelector } from './use-store-selector.js';
 

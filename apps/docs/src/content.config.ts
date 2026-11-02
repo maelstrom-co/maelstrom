@@ -1,7 +1,8 @@
-import { defineCollection } from 'astro:content';
 import { docsLoader } from '@astrojs/starlight/loaders';
 import { docsSchema } from '@astrojs/starlight/schema';
 import { z } from 'astro/zod';
+import { defineCollection } from 'astro:content';
+
 import { createPromptCollectionLoader } from '../tools/prompts/collection-loader';
 import type { PromptMetadata } from '../tools/prompts/library';
 

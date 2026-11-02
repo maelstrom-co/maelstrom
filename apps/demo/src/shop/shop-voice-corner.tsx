@@ -1,5 +1,6 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { MouseEvent } from 'react';
+
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';

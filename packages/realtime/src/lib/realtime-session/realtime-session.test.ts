@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+
 import type {
   CapabilitySnapshot,
   IntentResult,
@@ -22,6 +23,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
+
 import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
@@ -37,13 +39,13 @@ import type {
   TurnModeEvent,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
+import { RealtimeSessionMemory } from './realtime-session-memory.js';
 import { RealtimeSession } from './realtime-session.js';
 import type {
   GreetingState,
   RealtimeInstance,
   SubmitIntentResult,
 } from './realtime-session.types.js';
-import { RealtimeSessionMemory } from './realtime-session-memory.js';
 import type { SessionEvent } from './session-event-bus.js';
 import { VoiceObservationStore } from './voice-observation-store.js';
 

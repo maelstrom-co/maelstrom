@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { Effect, Layer } from 'effect';
+
 import { isWaitlistToken } from '../lib/waitlist-token';
 import { ConfirmWorkflow } from './confirm-workflow';
 import type { AccessReceipt } from './waitlist-repository';

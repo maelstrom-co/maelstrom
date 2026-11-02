@@ -5,6 +5,7 @@ import {
 import { Context, Data, Duration, Effect, Layer, Option } from 'effect';
 import { HttpClient } from 'effect/http/HttpClient';
 import * as HttpClientRequest from 'effect/http/HttpClientRequest';
+
 import { readProperty } from './read-property';
 
 const SITEVERIFY_URL =

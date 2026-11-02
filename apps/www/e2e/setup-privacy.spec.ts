@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+
 import { expect, test } from '@playwright/test';
 import type { PostHog } from 'posthog-js';
 

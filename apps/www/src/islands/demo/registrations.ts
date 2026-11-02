@@ -1,12 +1,13 @@
 import { vessel } from '@maelstrom-co/react';
-import CalendarComponent from './vessels/CalendarComponent';
+
 import { calendarVessel } from './vessels/calendar.vessel';
-import NotesComponent from './vessels/NotesComponent';
+import CalendarComponent from './vessels/CalendarComponent';
 import { notesVessel } from './vessels/notes.vessel';
-import TasksComponent from './vessels/TasksComponent';
+import NotesComponent from './vessels/NotesComponent';
 import { tasksVessel } from './vessels/tasks.vessel';
-import WeatherComponent from './vessels/WeatherComponent';
+import TasksComponent from './vessels/TasksComponent';
 import { weatherVessel } from './vessels/weather.vessel';
+import WeatherComponent from './vessels/WeatherComponent';
 
 export const weatherEntry = vessel(weatherVessel, WeatherComponent);
 export const calendarEntry = vessel(calendarVessel, CalendarComponent);

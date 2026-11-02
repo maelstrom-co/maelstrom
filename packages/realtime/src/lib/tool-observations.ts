@@ -5,6 +5,7 @@ import {
   type OperationalMetadata,
   operationalKinds,
 } from '@maelstrom-co/telemetry/integration';
+
 import type { RealtimeSession } from './realtime-session/realtime-session.js';
 import type { ToolCallEvent } from './realtime-session/session-event-bus.js';
 import {

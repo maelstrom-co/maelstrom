@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+
 import type { Page } from '@playwright/test';
+
 import { initialNavigationURL } from '../runner-target.ts';
 import { installControlledMicrophoneReference } from './controlled-reference-microphone.ts';
 import { observeProtocol } from './evidence.ts';

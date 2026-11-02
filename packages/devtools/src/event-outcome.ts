@@ -3,6 +3,7 @@ import type {
   TelemetryOutcome,
 } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
+
 import type { PanelEvent } from './panel-model.js';
 import { requestTerminalStatus } from './request-lifecycle.js';
 

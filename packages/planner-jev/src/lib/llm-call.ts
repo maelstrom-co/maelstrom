@@ -10,6 +10,7 @@ import { err, ok, type Result } from '@maelstrom-co/protocol';
 import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
 import { chat, convertSchemaToJsonSchema } from '@tanstack/ai';
 import type { z } from 'zod';
+
 import { observeAdapter } from './observe-adapter.js';
 import { recentHistory } from './questions.js';
 import type { CompletionLlm } from './stages/stage-deps.js';

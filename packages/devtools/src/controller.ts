@@ -5,11 +5,12 @@ import {
   sanitizeDiagnosticValue,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
-import { DiagnosticCapture } from './capture.js';
+
 import {
   assertCaptureImportSize,
   projectCaptureEvents,
 } from './capture-import.js';
+import { DiagnosticCapture } from './capture.js';
 import { createDevtools as createDisabledDevtools } from './disabled.js';
 import { layoutSnapshot } from './layout-snapshot.js';
 import {

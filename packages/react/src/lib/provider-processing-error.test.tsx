@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import {
   ActionName,
   InstanceId,
@@ -8,6 +9,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMaelstromContext } from './context.js';

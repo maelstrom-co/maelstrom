@@ -4,7 +4,6 @@ import type {
   TelemetryMeasurement,
   TelemetryRecord,
 } from './types.js';
-
 import {
   telemetryErrorCategories,
   telemetryLayoutModes,

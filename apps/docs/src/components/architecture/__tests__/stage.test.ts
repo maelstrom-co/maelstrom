@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { anchor, POS } from '../stage';
 
 describe('anchor', () => {

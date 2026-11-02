@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   REQUIRED_WORKER_BINDINGS,
   type RequiredWorkerBinding,

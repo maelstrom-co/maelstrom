@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { normalizeEmail } from './normalize-email.ts';
 
 describe('normalizeEmail', () => {

@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
@@ -42,6 +43,7 @@ import { ShopKeylessPreview } from './shop-keyless-preview';
 import { ShopOptionSync } from './shop-option-sync';
 import { ShopVoiceCorner } from './shop-voice-corner';
 import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
+
 import './shop.css';
 
 export function ShopPage() {
@@ -314,7 +316,7 @@ function ShopWorkspace({
     return () => {
       live = false;
     };
-  // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
+    // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   return (

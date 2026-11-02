@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+
 import { test } from '@playwright/test';
+
 import { installPageDiagnostics } from './page-diagnostics.ts';
 
 test('sanitizes synthetic document, console, error, and request diagnostics before attachment', async ({

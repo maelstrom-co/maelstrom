@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { readConfig } from './read-config.ts';
 
 describe('readConfig', () => {

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { type Order, SEED_ORDERS } from './fixtures';
 
 interface OrdersState {

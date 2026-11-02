@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, posix, resolve } from 'node:path';
+
 import { unzipSync } from 'fflate';
 
 const ARCHIVE_PREFIX = 'apps/docs/skills/';

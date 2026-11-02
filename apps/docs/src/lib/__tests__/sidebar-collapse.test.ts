@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
 import {
   ANIMATING_ATTRIBUTE,
   ANIMATION_FALLBACK_MS,

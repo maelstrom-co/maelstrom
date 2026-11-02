@@ -1,5 +1,6 @@
 import type { LLMContextMessage } from '@maelstrom-co/engine';
 import type { ChartRequest } from '@maelstrom-co/protocol';
+
 import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
 

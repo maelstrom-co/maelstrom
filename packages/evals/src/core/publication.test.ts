@@ -7,6 +7,7 @@ import {
   test,
 } from 'bun:test';
 import { createHash } from 'node:crypto';
+
 import { createOperationalCollector } from './operational-telemetry.js';
 import {
   createEvaluationPublisher,
@@ -678,27 +679,30 @@ test.each(
     { expectedDeferral: false, private: 'raw text' },
     { expectedDeferral: false, toJSON: 'raw text' },
   ].map((value) => [value]),
-)('rejects metadata outside the boolean allowlist %# before review', (metadata) => {
-  let reviews = 0;
-  expect(() =>
-    prepareEvaluationPublication(result(), {
-      destinationId: 'synthetic-one',
-      artifactId: 'summary',
-      preparedAt,
-      metadata: metadata as Parameters<
-        typeof prepareEvaluationPublication
-      >[1]['metadata'],
-      policy: {
-        ...policy,
-        review() {
-          reviews++;
-          return true;
+)(
+  'rejects metadata outside the boolean allowlist %# before review',
+  (metadata) => {
+    let reviews = 0;
+    expect(() =>
+      prepareEvaluationPublication(result(), {
+        destinationId: 'synthetic-one',
+        artifactId: 'summary',
+        preparedAt,
+        metadata: metadata as Parameters<
+          typeof prepareEvaluationPublication
+        >[1]['metadata'],
+        policy: {
+          ...policy,
+          review() {
+            reviews++;
+            return true;
+          },
         },
-      },
-    }),
-  ).toThrow();
-  expect(reviews).toBe(0);
-});
+      }),
+    ).toThrow();
+    expect(reviews).toBe(0);
+  },
+);
 
 test('publication metadata rejects getters without invoking them', () => {
   let reads = 0;

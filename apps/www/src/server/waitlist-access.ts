@@ -1,4 +1,5 @@
 import { Data, Effect } from 'effect';
+
 import { hashWaitlistToken, isWaitlistToken } from '../lib/waitlist-token';
 import { WaitlistRepository } from './waitlist-repository';
 

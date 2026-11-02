@@ -2,6 +2,7 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
 import { copyBrowserVadAssets } from '../vad-assets.js';
 
 interface CliOutput {

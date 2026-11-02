@@ -12,6 +12,7 @@ import type {
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
 import type { Result, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import { ok } from '@maelstrom-co/protocol';
+
 import type {
   GreetingCoordinator,
   GreetingRunDisposition,
@@ -31,6 +32,11 @@ import type {
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import { isRealtimeGreetingAdapter } from './provider-adapter.types.js';
+import {
+  RealtimeSessionMemory,
+  recoveryMemorySubscriber,
+  type VoiceRecoveryOutcome,
+} from './realtime-session-memory.js';
 import type {
   GreetingState,
   RealtimeInstance,
@@ -38,11 +44,6 @@ import type {
   SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
-import {
-  RealtimeSessionMemory,
-  recoveryMemorySubscriber,
-  type VoiceRecoveryOutcome,
-} from './realtime-session-memory.js';
 import {
   SessionEventBus,
   type SessionEventSource,

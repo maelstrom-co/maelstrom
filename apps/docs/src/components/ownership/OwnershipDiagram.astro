@@ -124,116 +124,108 @@ const edgeDescriptions = resolved.map(({ edge, from, to }) => {
         aria-label={summary}
       >
         <defs>
-          {
-            kinds.map((kind) => (
-              <marker
-                id={`${id}-head-${kind}`}
-                class={`own-head own-head--${kind}`}
-                viewBox="0 0 9 9"
-                refX="8"
-                refY="4.5"
-                markerWidth="9"
-                markerHeight="9"
-                markerUnits="userSpaceOnUse"
-                orient="auto-start-reverse"
-              >
-                <path d="M0,0 L9,4.5 L0,9 z" />
-              </marker>
-            ))
-          }
+          {kinds.map((kind) => (
+            <marker
+              id={`${id}-head-${kind}`}
+              class={`own-head own-head--${kind}`}
+              viewBox="0 0 9 9"
+              refX="8"
+              refY="4.5"
+              markerWidth="9"
+              markerHeight="9"
+              markerUnits="userSpaceOnUse"
+              orient="auto-start-reverse"
+            >
+              <path d="M0,0 L9,4.5 L0,9 z" />
+            </marker>
+          ))}
         </defs>
 
         <g class="own-bands" aria-hidden="true">
-          {
-            bands.map((band) => (
-              <g class={`own-band own-band--${band.tone}`}>
-                <rect
-                  class="own-band__fill"
-                  x={band.x}
-                  y={0}
-                  width={band.width}
-                  height={stage.h}
-                />
-                <text class="own-band__label" x={band.x + 18} y={40}>
-                  {band.label}
-                </text>
-              </g>
-            ))
-          }
+          {bands.map((band) => (
+            <g class={`own-band own-band--${band.tone}`}>
+              <rect
+                class="own-band__fill"
+                x={band.x}
+                y={0}
+                width={band.width}
+                height={stage.h}
+              />
+              <text class="own-band__label" x={band.x + 18} y={40}>
+                {band.label}
+              </text>
+            </g>
+          ))}
         </g>
 
         <g class="own-edges" aria-hidden="true">
-          {
-            resolved.map(({ edge, d, label, block }) => (
-              <g class={`own-edge own-edge--${edge.kind}`}>
-                <path class="own-rail" d={d} />
-                {block ? (
-                  // No arrowhead and no travelling comet: nothing moves along a
-                  // path that does not exist. The bar is what carries the claim.
-                  <line
-                    class="own-block"
-                    x1={block.x1}
-                    y1={block.y1}
-                    x2={block.x2}
-                    y2={block.y2}
-                  />
-                ) : (
-                  <path
-                    class="own-flow"
-                    d={d}
-                    pathLength={100}
-                    marker-end={`url(#${id}-head-${edge.kind})`}
-                    marker-start={
-                      edge.direction === 'both'
-                        ? `url(#${id}-head-${edge.kind})`
-                        : undefined
-                    }
-                  />
-                )}
-                {edge.label && (
-                  <text class="own-edge__label" x={label.x} y={label.y}>
-                    {edge.label}
-                  </text>
-                )}
-              </g>
-            ))
-          }
+          {resolved.map(({ edge, d, label, block }) => (
+            <g class={`own-edge own-edge--${edge.kind}`}>
+              <path class="own-rail" d={d} />
+              {block ? (
+                // No arrowhead and no travelling comet: nothing moves along a
+                // path that does not exist. The bar is what carries the claim.
+                <line
+                  class="own-block"
+                  x1={block.x1}
+                  y1={block.y1}
+                  x2={block.x2}
+                  y2={block.y2}
+                />
+              ) : (
+                <path
+                  class="own-flow"
+                  d={d}
+                  pathLength={100}
+                  marker-end={`url(#${id}-head-${edge.kind})`}
+                  marker-start={
+                    edge.direction === 'both'
+                      ? `url(#${id}-head-${edge.kind})`
+                      : undefined
+                  }
+                />
+              )}
+              {edge.label && (
+                <text class="own-edge__label" x={label.x} y={label.y}>
+                  {edge.label}
+                </text>
+              )}
+            </g>
+          ))}
         </g>
 
         <g class="own-nodes" aria-hidden="true">
-          {
-            nodes.map((node) => {
-              const r = nodeRect(node);
-              return (
-                <foreignObject
-                  class="own-node-fo"
-                  x={r.x}
-                  y={r.y}
-                  width={r.width}
-                  height={r.height}
-                >
-                  <div class={`own-node own-node--${node.tone}`}>
-                    <span class="own-node__label">{node.label}</span>
-                    {node.detail && (
-                      <span class="own-node__detail">{node.detail}</span>
-                    )}
-                    {(node.holds || node.lifetime) && (
-                      <span class="own-node__meta">
-                        {node.holds && (
-                          <span class="own-node__badge own-node__badge--secret">
-                            {node.holds}
-                          </span>
-                        )}
-                        {node.lifetime && (
-                          <span class="own-node__badge">{node.lifetime}</span>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </foreignObject>
-              );
-            })
-          }
+          {nodes.map((node) => {
+            const r = nodeRect(node);
+            return (
+              <foreignObject
+                class="own-node-fo"
+                x={r.x}
+                y={r.y}
+                width={r.width}
+                height={r.height}
+              >
+                <div class={`own-node own-node--${node.tone}`}>
+                  <span class="own-node__label">{node.label}</span>
+                  {node.detail && (
+                    <span class="own-node__detail">{node.detail}</span>
+                  )}
+                  {(node.holds || node.lifetime) && (
+                    <span class="own-node__meta">
+                      {node.holds && (
+                        <span class="own-node__badge own-node__badge--secret">
+                          {node.holds}
+                        </span>
+                      )}
+                      {node.lifetime && (
+                        <span class="own-node__badge">{node.lifetime}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </foreignObject>
+            );
+          })}
         </g>
       </svg>
     </div>
@@ -246,8 +238,12 @@ const edgeDescriptions = resolved.map(({ edge, from, to }) => {
       the plain-text docs export actually read. */}
   <div class="own-sr">
     <ul>
-      {nodeDescriptions.map((description) => <li>{description}</li>)}
-      {edgeDescriptions.map((description) => <li>{description}</li>)}
+      {nodeDescriptions.map((description) => (
+        <li>{description}</li>
+      ))}
+      {edgeDescriptions.map((description) => (
+        <li>{description}</li>
+      ))}
     </ul>
   </div>
 </figure>
@@ -335,7 +331,10 @@ const edgeDescriptions = resolved.map(({ edge, from, to }) => {
   }
   .own-band__label {
     fill: var(--own-band-label);
-    font: 600 14px ui-sans-serif, system-ui, sans-serif;
+    font:
+      600 14px ui-sans-serif,
+      system-ui,
+      sans-serif;
     letter-spacing: 2.5px;
     text-transform: uppercase;
   }
@@ -428,7 +427,10 @@ const edgeDescriptions = resolved.map(({ edge, from, to }) => {
 
   .own-edge__label {
     fill: var(--own-node-text);
-    font: 600 15px ui-sans-serif, system-ui, sans-serif;
+    font:
+      600 15px ui-sans-serif,
+      system-ui,
+      sans-serif;
     text-anchor: middle;
     /* Stroke the text in the panel colour and paint it under the glyphs, so a
        label stays readable where it sits on top of its own rail. */

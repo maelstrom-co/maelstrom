@@ -13,7 +13,9 @@ import MaelstromLogo from './MaelstromLogo.astro';
       {navLinks.map((link) => (
         <a
           href={link.href}
-          data-playground-source={link.label === 'Playground' ? 'navigation' : undefined}
+          data-playground-source={
+            link.label === 'Playground' ? 'navigation' : undefined
+          }
           target={link.href.startsWith('http') ? '_blank' : undefined}
           rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
         >
@@ -25,7 +27,13 @@ import MaelstromLogo from './MaelstromLogo.astro';
         GitHub
       </a>
     </nav>
-    <a href="/#get-started" class="btn btn-primary nav-cta" data-start-source="navigation">Get started</a>
+    <a
+      href="/#get-started"
+      class="btn btn-primary nav-cta"
+      data-start-source="navigation"
+    >
+      Get started
+    </a>
     <button
       type="button"
       class="nav-toggle"
@@ -34,7 +42,15 @@ import MaelstromLogo from './MaelstromLogo.astro';
       aria-expanded="false"
       aria-controls="nav-links"
     >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        aria-hidden="true"
+      >
         <line x1="3" y1="6" x2="21" y2="6"></line>
         <line x1="3" y1="12" x2="21" y2="12"></line>
         <line x1="3" y1="18" x2="21" y2="18"></line>
@@ -64,9 +80,9 @@ import MaelstromLogo from './MaelstromLogo.astro';
       toggle.addEventListener('click', () =>
         setOpen(!nav.classList.contains('nav-open')),
       );
-      links.querySelectorAll('a').forEach((a) =>
-        a.addEventListener('click', () => setOpen(false)),
-      );
+      links
+        .querySelectorAll('a')
+        .forEach((a) => a.addEventListener('click', () => setOpen(false)));
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && nav.classList.contains('nav-open')) {
           setOpen(false);

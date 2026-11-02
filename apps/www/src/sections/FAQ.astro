@@ -26,6 +26,7 @@ const FAQS = [
   },
 ];
 ---
+
 <section class="faq">
   <div class="container">
     <div class="how-head">
@@ -51,27 +52,29 @@ const FAQS = [
   </div>
 </section>
 <script>
-  const questions = Array.from(document.querySelectorAll<HTMLElement>(".faq-q"));
+  const questions = Array.from(
+    document.querySelectorAll<HTMLElement>('.faq-q'),
+  );
   questions.forEach((question, idx) => {
-    question.addEventListener("keydown", (e) => {
+    question.addEventListener('keydown', (e) => {
       switch (e.key) {
-        case "ArrowDown":
+        case 'ArrowDown':
           e.preventDefault();
           questions[(idx + 1) % questions.length].focus();
           break;
-        case "ArrowUp":
+        case 'ArrowUp':
           e.preventDefault();
           questions[(idx - 1 + questions.length) % questions.length].focus();
           break;
-        case "Home":
+        case 'Home':
           e.preventDefault();
           questions[0].focus();
           break;
-        case "End":
+        case 'End':
           e.preventDefault();
           questions[questions.length - 1].focus();
           break;
-        case "Escape": {
+        case 'Escape': {
           const item = question.closest('details');
           if (item) item.open = false;
           break;

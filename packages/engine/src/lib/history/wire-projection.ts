@@ -1,4 +1,5 @@
 import type { SessionHistoryEntry } from '@maelstrom-co/protocol';
+
 import { assertNever } from '../assert-never.js';
 import { extractUserIntent } from './history-manager.js';
 import type { HistoryEntry } from './history-store.js';

@@ -1,16 +1,18 @@
 import { afterAll, afterEach, expect, spyOn, test } from 'bun:test';
+
 // oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 // oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { createDevtools, type DevtoolsOptions } from '@maelstrom-co/devtools';
-// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
-import { connectDevtoolsBridge } from '@maelstrom-co/devtools/mcp-bridge';
 import {
   MAX_BRIDGE_BYTES,
   ReadResultSchema,
 } from '@maelstrom-co/devtools-protocol';
+// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
+import { connectDevtoolsBridge } from '@maelstrom-co/devtools/mcp-bridge';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+
 import { createDevtoolsMcpServer } from './index.js';
 
 function app() {
@@ -104,19 +106,19 @@ function recoveryText(result: Awaited<ReturnType<Client['callTool']>>) {
   return block.text;
 }
 
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('clients identify the installed implementation version over %s', async (protocol) => {
-  const { client } = await setup({}, protocol);
-  const metadata = await Bun.file(
-    new URL('../package.json', import.meta.url),
-  ).json();
-  expect(client.getServerVersion()).toMatchObject({
-    name: 'maelstrom-devtools',
-    version: metadata.version,
-  });
-});
+test.each(['legacy', '2026-07-28'] as const)(
+  'clients identify the installed implementation version over %s',
+  async (protocol) => {
+    const { client } = await setup({}, protocol);
+    const metadata = await Bun.file(
+      new URL('../package.json', import.meta.url),
+    ).json();
+    expect(client.getServerVersion()).toMatchObject({
+      name: 'maelstrom-devtools',
+      version: metadata.version,
+    });
+  },
+);
 
 test('large event pages bound encoding work and preserve every event across cursors', async () => {
   const { tools, client, targetId } = await setup();
@@ -257,20 +259,20 @@ test('an oversized leading event reports a size failure instead of skipping to s
   expect(page.isError).toBe(true);
 });
 
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('discovery teaches clients to inspect one app without changing scope over %s', async (protocol) => {
-  const { client, host } = await setup({}, protocol);
-  const instructions = client.getInstructions();
-  expect(instructions).toMatch(
-    /list_targets[\s\S]*list_apps[\s\S]*query_events[\s\S]*get_request/,
-  );
-  expect(instructions).toContain('reportedId');
-  expect(instructions).toContain('untrusted data');
-  expect(instructions).toContain('one recovery attempt');
-  expect(instructions).not.toContain(host.pairingToken);
-});
+test.each(['legacy', '2026-07-28'] as const)(
+  'discovery teaches clients to inspect one app without changing scope over %s',
+  async (protocol) => {
+    const { client, host } = await setup({}, protocol);
+    const instructions = client.getInstructions();
+    expect(instructions).toMatch(
+      /list_targets[\s\S]*list_apps[\s\S]*query_events[\s\S]*get_request/,
+    );
+    expect(instructions).toContain('reportedId');
+    expect(instructions).toContain('untrusted data');
+    expect(instructions).toContain('one recovery attempt');
+    expect(instructions).not.toContain(host.pairingToken);
+  },
+);
 
 test('an explicitly paired collector appears as an inspectable target over MCP', async () => {
   const host = await createDevtoolsMcpServer({
@@ -322,185 +324,204 @@ test('MCP lists app lifetimes without exposing their structural snapshots', asyn
   expect(JSON.stringify(result)).not.toContain('snapshot');
 });
 
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('a query isolates one app even when another app reports the same request identity over %s', async (protocol) => {
-  const { tools, client, targetId } = await setup({}, protocol);
-  const first = app();
-  const second = app();
-  releases.push(tools.attach(first), tools.attach(second));
-  const appId = (await listedApps(client, targetId))[0].id;
-  first.diagnostics.emitDiagnostic(
-    'client.request.started',
-    { marker: 'first' },
-    undefined,
-    'shared-request',
-  );
-  second.diagnostics.emitDiagnostic(
-    'client.request.started',
-    { marker: 'second' },
-    undefined,
-    'shared-request',
-  );
-  const result = await client.callTool({
-    name: 'query_events',
-    arguments: {
+test.each(['legacy', '2026-07-28'] as const)(
+  'a query isolates one app even when another app reports the same request identity over %s',
+  async (protocol) => {
+    const { tools, client, targetId } = await setup({}, protocol);
+    const first = app();
+    const second = app();
+    releases.push(tools.attach(first), tools.attach(second));
+    const appId = (await listedApps(client, targetId))[0].id;
+    first.diagnostics.emitDiagnostic(
+      'client.request.started',
+      { marker: 'first' },
+      undefined,
+      'shared-request',
+    );
+    second.diagnostics.emitDiagnostic(
+      'client.request.started',
+      { marker: 'second' },
+      undefined,
+      'shared-request',
+    );
+    const result = await client.callTool({
+      name: 'query_events',
+      arguments: {
+        targetId,
+        appId,
+        view: 'requests',
+        criteria: { kind: 'client.request.started' },
+      },
+    });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      data: {
+        kind: 'events',
+        matched: 1,
+        events: [
+          {
+            kind: 'client.request.started',
+            appId,
+            requestId: 'shared-request',
+            metadata: { marker: 'first' },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('second');
+  },
+);
+
+test.each(['legacy', '2026-07-28'] as const)(
+  'paging keeps its original evidence when new activity arrives over %s',
+  async (protocol) => {
+    const { tools, client, targetId } = await setup({}, protocol);
+    const first = app();
+    releases.push(tools.attach(first));
+    const appId = (await listedApps(client, targetId))[0].id;
+    for (let order = 0; order < 3; order++)
+      first.diagnostics.emitDiagnostic('app.sample', { order });
+    const args = {
       targetId,
       appId,
-      view: 'requests',
-      criteria: { kind: 'client.request.started' },
-    },
-  });
-  expect(result.structuredContent).toMatchObject({
-    ok: true,
-    data: {
-      kind: 'events',
-      matched: 1,
-      events: [
-        {
-          kind: 'client.request.started',
-          appId,
-          requestId: 'shared-request',
-          metadata: { marker: 'first' },
+      limit: 1,
+      criteria: { kind: 'app.sample' },
+    };
+    const firstPage = ReadResultSchema.parse(
+      (await client.callTool({ name: 'query_events', arguments: args }))
+        .structuredContent,
+    );
+    if (!firstPage.ok || firstPage.data.kind !== 'events')
+      throw new Error('Expected event page.');
+    expect(firstPage.data).toMatchObject({
+      matched: 3,
+      remaining: 2,
+      events: [{ metadata: { order: 0 } }],
+    });
+    expect('cursor' in firstPage.data && firstPage.data.cursor).toBeString();
+    first.diagnostics.emitDiagnostic('app.sample', { order: 3 });
+    const cursor = (
+      firstPage.data as typeof firstPage.data & { cursor: string }
+    ).cursor;
+    const secondPage = await client.callTool({
+      name: 'query_events',
+      arguments: { ...args, cursor },
+    });
+    expect(secondPage.structuredContent).toMatchObject({
+      ok: true,
+      data: { matched: 3, remaining: 1, events: [{ metadata: { order: 1 } }] },
+    });
+  },
+);
+
+test.each(['legacy', '2026-07-28'] as const)(
+  'request inspection reports producer timings and keeps reused identities ambiguous over %s',
+  async (protocol) => {
+    const { tools, client, targetId } = await setup({}, protocol);
+    const first = app();
+    releases.push(tools.attach(first));
+    const appId = (await listedApps(client, targetId))[0].id;
+    first.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      'request',
+    );
+    first.diagnostics.emitDiagnostic(
+      'client.response.received',
+      { source: 'request', outcome: 'succeeded', durationMs: 123 },
+      undefined,
+      'request',
+    );
+    first.diagnostics.emitDiagnostic(
+      'client.response.applied',
+      {
+        source: 'request',
+        actionFailures: 0,
+        skippedActions: 0,
+        durationMs: 2,
+      },
+      undefined,
+      'request',
+    );
+    const args = { targetId, appId, requestId: 'request' };
+    const result = await client.callTool({
+      name: 'get_request',
+      arguments: args,
+    });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      data: {
+        request: {
+          requestId: 'request',
+          outcome: 'applied',
+          roundTrip: { kind: 'reported', durationMs: 123 },
+          application: { kind: 'reported', durationMs: 2 },
         },
-      ],
-    },
-  });
-  expect(JSON.stringify(result)).not.toContain('second');
-});
-
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('paging keeps its original evidence when new activity arrives over %s', async (protocol) => {
-  const { tools, client, targetId } = await setup({}, protocol);
-  const first = app();
-  releases.push(tools.attach(first));
-  const appId = (await listedApps(client, targetId))[0].id;
-  for (let order = 0; order < 3; order++)
-    first.diagnostics.emitDiagnostic('app.sample', { order });
-  const args = { targetId, appId, limit: 1, criteria: { kind: 'app.sample' } };
-  const firstPage = ReadResultSchema.parse(
-    (await client.callTool({ name: 'query_events', arguments: args }))
-      .structuredContent,
-  );
-  if (!firstPage.ok || firstPage.data.kind !== 'events')
-    throw new Error('Expected event page.');
-  expect(firstPage.data).toMatchObject({
-    matched: 3,
-    remaining: 2,
-    events: [{ metadata: { order: 0 } }],
-  });
-  expect('cursor' in firstPage.data && firstPage.data.cursor).toBeString();
-  first.diagnostics.emitDiagnostic('app.sample', { order: 3 });
-  const cursor = (firstPage.data as typeof firstPage.data & { cursor: string })
-    .cursor;
-  const secondPage = await client.callTool({
-    name: 'query_events',
-    arguments: { ...args, cursor },
-  });
-  expect(secondPage.structuredContent).toMatchObject({
-    ok: true,
-    data: { matched: 3, remaining: 1, events: [{ metadata: { order: 1 } }] },
-  });
-});
-
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('request inspection reports producer timings and keeps reused identities ambiguous over %s', async (protocol) => {
-  const { tools, client, targetId } = await setup({}, protocol);
-  const first = app();
-  releases.push(tools.attach(first));
-  const appId = (await listedApps(client, targetId))[0].id;
-  first.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'request',
-  );
-  first.diagnostics.emitDiagnostic(
-    'client.response.received',
-    { source: 'request', outcome: 'succeeded', durationMs: 123 },
-    undefined,
-    'request',
-  );
-  first.diagnostics.emitDiagnostic(
-    'client.response.applied',
-    { source: 'request', actionFailures: 0, skippedActions: 0, durationMs: 2 },
-    undefined,
-    'request',
-  );
-  const args = { targetId, appId, requestId: 'request' };
-  const result = await client.callTool({
-    name: 'get_request',
-    arguments: args,
-  });
-  expect(result.structuredContent).toMatchObject({
-    ok: true,
-    data: {
-      request: {
-        requestId: 'request',
-        outcome: 'applied',
-        roundTrip: { kind: 'reported', durationMs: 123 },
-        application: { kind: 'reported', durationMs: 2 },
       },
-    },
-  });
-  first.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'request',
-  );
-  const reused = await client.callTool({
-    name: 'get_request',
-    arguments: args,
-  });
-  expect(reused.structuredContent).toMatchObject({
-    ok: true,
-    data: {
-      request: {
-        outcome: 'ambiguous',
-        roundTrip: { kind: 'unreported', reason: 'ambiguous' },
+    });
+    first.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      'request',
+    );
+    const reused = await client.callTool({
+      name: 'get_request',
+      arguments: args,
+    });
+    expect(reused.structuredContent).toMatchObject({
+      ok: true,
+      data: {
+        request: {
+          outcome: 'ambiguous',
+          roundTrip: { kind: 'unreported', reason: 'ambiguous' },
+        },
       },
-    },
-  });
-});
+    });
+  },
+);
 
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('Clear tells clients to restart paging without mixing snapshots over %s', async (protocol) => {
-  const { tools, client, targetId } = await setup({}, protocol);
-  const first = app();
-  releases.push(tools.attach(first));
-  const appId = (await listedApps(client, targetId))[0].id;
-  for (let order = 0; order < 3; order++)
-    first.diagnostics.emitDiagnostic('app.sample', { order });
-  const args = { targetId, appId, limit: 1, criteria: { kind: 'app.sample' } };
-  const result = ReadResultSchema.parse(
-    (await client.callTool({ name: 'query_events', arguments: args }))
-      .structuredContent,
-  );
-  if (!result.ok || result.data.kind !== 'events')
-    throw new Error('Expected event page.');
-  tools.clear();
-  first.diagnostics.emitDiagnostic('app.sample', { order: 99 });
-  const next = await client.callTool({
-    name: 'query_events',
-    arguments: { ...args, cursor: result.data.cursor },
-  });
-  expect(next.structuredContent).toEqual({ ok: false, error: 'stale_cursor' });
-  expect(next.isError).toBe(true);
-  expect(next.content[0]).toEqual({
-    type: 'text',
-    text: JSON.stringify({ ok: false, error: 'stale_cursor' }),
-  });
-  expect(recoveryText(next)).toContain('without cursor');
-  expect(recoveryText(next)).toContain('new snapshot');
-});
+test.each(['legacy', '2026-07-28'] as const)(
+  'Clear tells clients to restart paging without mixing snapshots over %s',
+  async (protocol) => {
+    const { tools, client, targetId } = await setup({}, protocol);
+    const first = app();
+    releases.push(tools.attach(first));
+    const appId = (await listedApps(client, targetId))[0].id;
+    for (let order = 0; order < 3; order++)
+      first.diagnostics.emitDiagnostic('app.sample', { order });
+    const args = {
+      targetId,
+      appId,
+      limit: 1,
+      criteria: { kind: 'app.sample' },
+    };
+    const result = ReadResultSchema.parse(
+      (await client.callTool({ name: 'query_events', arguments: args }))
+        .structuredContent,
+    );
+    if (!result.ok || result.data.kind !== 'events')
+      throw new Error('Expected event page.');
+    tools.clear();
+    first.diagnostics.emitDiagnostic('app.sample', { order: 99 });
+    const next = await client.callTool({
+      name: 'query_events',
+      arguments: { ...args, cursor: result.data.cursor },
+    });
+    expect(next.structuredContent).toEqual({
+      ok: false,
+      error: 'stale_cursor',
+    });
+    expect(next.isError).toBe(true);
+    expect(next.content[0]).toEqual({
+      type: 'text',
+      text: JSON.stringify({ ok: false, error: 'stale_cursor' }),
+    });
+    expect(recoveryText(next)).toContain('without cursor');
+    expect(recoveryText(next)).toContain('new snapshot');
+  },
+);
 
 test('disposing a collector makes its retained snapshot unavailable through the bridge', async () => {
   const { tools, client, targetId } = await setup();
@@ -516,24 +537,24 @@ test('disposing a collector makes its retained snapshot unavailable through the 
   });
 });
 
-test.each([
-  'token',
-  'origin',
-] as const)('pairing rejects an unauthorized %s', async (invalid) => {
-  const host = await createDevtoolsMcpServer({
-    origin: 'http://localhost:4321',
-  });
-  releases.push(() => host.close());
-  const tools = createDevtools();
-  releases.push(() => tools.dispose());
-  if (invalid === 'origin') browserOrigin = 'http://localhost:4322';
-  await expect(
-    connectDevtoolsBridge(tools, {
-      endpoint: host.endpoint,
-      token: invalid === 'token' ? '0'.repeat(64) : host.pairingToken,
-    }),
-  ).rejects.toThrow('pairing failed');
-});
+test.each(['token', 'origin'] as const)(
+  'pairing rejects an unauthorized %s',
+  async (invalid) => {
+    const host = await createDevtoolsMcpServer({
+      origin: 'http://localhost:4321',
+    });
+    releases.push(() => host.close());
+    const tools = createDevtools();
+    releases.push(() => tools.dispose());
+    if (invalid === 'origin') browserOrigin = 'http://localhost:4322';
+    await expect(
+      connectDevtoolsBridge(tools, {
+        endpoint: host.endpoint,
+        token: invalid === 'token' ? '0'.repeat(64) : host.pairingToken,
+      }),
+    ).rejects.toThrow('pairing failed');
+  },
+);
 
 test.each([
   'ws://example.com:123/devtools',
@@ -574,44 +595,44 @@ test('reconnecting creates a fresh target and never aliases the disconnected han
   });
 });
 
-test.each([
-  'legacy',
-  '2026-07-28',
-] as const)('MCP preserves application redaction and cannot stop a human recording over %s', async (protocol) => {
-  const { tools, client, targetId, disconnect } = await setup(
-    {
-      redact: (value) =>
-        JSON.parse(
-          JSON.stringify(value).replaceAll('private-marker', '[REDACTED]'),
-        ),
-    },
-    protocol,
-  );
-  const first = app();
-  releases.push(tools.attach(first));
-  const appId = (await listedApps(client, targetId))[0].id;
-  tools.startCapture();
-  first.diagnostics.emitDiagnostic(
-    'client.request.started',
-    { marker: 'private-marker' },
-    () => ({ intent: 'private-recorded-content' }),
-    'request',
-  );
-  const before = tools.capture.getSnapshot();
-  const result = await client.callTool({
-    name: 'get_request',
-    arguments: { targetId, appId, requestId: 'request' },
-  });
-  expect(result.structuredContent).toMatchObject({
-    ok: true,
-    data: { events: [{ metadata: { marker: '[REDACTED]' } }] },
-  });
-  expect(JSON.stringify(result)).not.toContain('private-marker');
-  expect(JSON.stringify(result)).not.toContain('private-recorded-content');
-  disconnect();
-  expect(tools.capture.getSnapshot()).toEqual(before);
-  expect(tools.capture.getSnapshot().active).toBe(true);
-});
+test.each(['legacy', '2026-07-28'] as const)(
+  'MCP preserves application redaction and cannot stop a human recording over %s',
+  async (protocol) => {
+    const { tools, client, targetId, disconnect } = await setup(
+      {
+        redact: (value) =>
+          JSON.parse(
+            JSON.stringify(value).replaceAll('private-marker', '[REDACTED]'),
+          ),
+      },
+      protocol,
+    );
+    const first = app();
+    releases.push(tools.attach(first));
+    const appId = (await listedApps(client, targetId))[0].id;
+    tools.startCapture();
+    first.diagnostics.emitDiagnostic(
+      'client.request.started',
+      { marker: 'private-marker' },
+      () => ({ intent: 'private-recorded-content' }),
+      'request',
+    );
+    const before = tools.capture.getSnapshot();
+    const result = await client.callTool({
+      name: 'get_request',
+      arguments: { targetId, appId, requestId: 'request' },
+    });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      data: { events: [{ metadata: { marker: '[REDACTED]' } }] },
+    });
+    expect(JSON.stringify(result)).not.toContain('private-marker');
+    expect(JSON.stringify(result)).not.toContain('private-recorded-content');
+    disconnect();
+    expect(tools.capture.getSnapshot()).toEqual(before);
+    expect(tools.capture.getSnapshot().active).toBe(true);
+  },
+);
 
 test('a cursor cannot change its app, event view, or criteria', async () => {
   const { tools, client, targetId } = await setup();
@@ -829,32 +850,32 @@ test('app handles preserve pseudonymized correlation without exposing internal l
   });
 });
 
-test.each([
-  '[REDACTED]',
-  'same-app',
-])('unavailable or colliding projected identities stay unknown: %s', async (alias) => {
-  const { tools, client, targetId } = await setup({
-    redact: (value) =>
-      JSON.parse(JSON.stringify(value), (key, item) =>
-        key === 'clientId' ? alias : item,
-      ),
-  });
-  releases.push(tools.attach(app()), tools.attach(app()));
-  const apps = await listedApps(client, targetId);
-  expect(apps.map((item) => item.identity)).toEqual(
-    alias === '[REDACTED]'
-      ? ['unavailable', 'unavailable']
-      : ['ambiguous', 'ambiguous'],
-  );
-  const result = await client.callTool({
-    name: 'query_events',
-    arguments: { targetId, appId: apps[0].id },
-  });
-  expect(result.structuredContent).toEqual({
-    ok: false,
-    error: 'evidence_unavailable',
-  });
-});
+test.each(['[REDACTED]', 'same-app'])(
+  'unavailable or colliding projected identities stay unknown: %s',
+  async (alias) => {
+    const { tools, client, targetId } = await setup({
+      redact: (value) =>
+        JSON.parse(JSON.stringify(value), (key, item) =>
+          key === 'clientId' ? alias : item,
+        ),
+    });
+    releases.push(tools.attach(app()), tools.attach(app()));
+    const apps = await listedApps(client, targetId);
+    expect(apps.map((item) => item.identity)).toEqual(
+      alias === '[REDACTED]'
+        ? ['unavailable', 'unavailable']
+        : ['ambiguous', 'ambiguous'],
+    );
+    const result = await client.callTool({
+      name: 'query_events',
+      arguments: { targetId, appId: apps[0].id },
+    });
+    expect(result.structuredContent).toEqual({
+      ok: false,
+      error: 'evidence_unavailable',
+    });
+  },
+);
 
 test('a reused projected name never revives an expired app handle', async () => {
   const { tools, client, targetId } = await setup({

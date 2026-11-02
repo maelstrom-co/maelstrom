@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import {
   createDevtools,
@@ -33,8 +34,9 @@ function event(
 function mount(tools: Devtools) {
   const unmount = mountDevtools(tools);
   cleanups.push(() => tools.dispose(), unmount);
-  const shadow = document.querySelector('[data-maelstrom-devtools]')!
-    .shadowRoot!;
+  const shadow = document.querySelector(
+    '[data-maelstrom-devtools]',
+  )!.shadowRoot!;
   const click = (name: string, scope: ParentNode = shadow) => {
     const target = Array.from(scope.querySelectorAll('button')).find(
       (node) => (node.getAttribute('aria-label') ?? node.textContent) === name,
@@ -142,62 +144,63 @@ test('both selected comparison events expose their full JSON at the same time', 
   ).toBe(true);
 });
 
-test.each([
-  'A',
-  'B',
-] as const)('a redacted phase in %s stays selected until that observation expires', async (selectedSide) => {
-  const tools = createDevtools({
-    initialIsOpen: true,
-    maxRequestEvents: 4,
-    maxActivityEvents: 4,
-    redact: (value) =>
-      value && typeof value === 'object' && 'kind' in value && 'id' in value
-        ? { ...value, id: '[REDACTED]' }
-        : value,
-  });
-  const { client } = attach(tools);
-  client.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'anchor',
-  );
-  const emit = (kind: string, marker: number) =>
+test.each(['A', 'B'] as const)(
+  'a redacted phase in %s stays selected until that observation expires',
+  async (selectedSide) => {
+    const tools = createDevtools({
+      initialIsOpen: true,
+      maxRequestEvents: 4,
+      maxActivityEvents: 4,
+      redact: (value) =>
+        value && typeof value === 'object' && 'kind' in value && 'id' in value
+          ? { ...value, id: '[REDACTED]' }
+          : value,
+    });
+    const { client } = attach(tools);
     client.diagnostics.emitDiagnostic(
-      kind,
-      { command: 'set_layout', marker },
+      'client.request.started',
+      {},
       undefined,
-      'request',
+      'anchor',
     );
-  emit('client.request.started', 0);
-  emit('client.command.started', 1);
-  emit('client.command.completed', 2);
-  const { click, pick, side } = mount(tools);
-  if (selectedSide === 'B') pick('anchor');
-  click('Compare request');
-  if (selectedSide === 'B') pick('request');
-  const phase = side(selectedSide).querySelector('.phase-select');
-  if (!phase) throw new Error('Missing selected phase');
-  fireEvent.click(phase);
-  click(`${selectedSide} event JSON: Raw JSON`);
-  const raw = () => side(selectedSide).querySelector('.json-raw')?.textContent;
-  expect(raw()).toContain('"marker": 0');
-  expect(raw()).toContain('[REDACTED]');
+    const emit = (kind: string, marker: number) =>
+      client.diagnostics.emitDiagnostic(
+        kind,
+        { command: 'set_layout', marker },
+        undefined,
+        'request',
+      );
+    emit('client.request.started', 0);
+    emit('client.command.started', 1);
+    emit('client.command.completed', 2);
+    const { click, pick, side } = mount(tools);
+    if (selectedSide === 'B') pick('anchor');
+    click('Compare request');
+    if (selectedSide === 'B') pick('request');
+    const phase = side(selectedSide).querySelector('.phase-select');
+    if (!phase) throw new Error('Missing selected phase');
+    fireEvent.click(phase);
+    click(`${selectedSide} event JSON: Raw JSON`);
+    const raw = () =>
+      side(selectedSide).querySelector('.json-raw')?.textContent;
+    expect(raw()).toContain('"marker": 0');
+    expect(raw()).toContain('[REDACTED]');
 
-  emit('client.command.completed', 3);
-  await waitFor(() => expect(raw()).toContain('"marker": 0'));
+    emit('client.command.completed', 3);
+    await waitFor(() => expect(raw()).toContain('"marker": 0'));
 
-  emit('client.command.completed', 4);
+    emit('client.command.completed', 4);
 
-  await waitFor(() =>
-    expect(raw()).toContain('The selected event is no longer retained.'),
-  );
-  expect(raw()).not.toContain('"marker": 1');
-  expect(
-    side(selectedSide).querySelectorAll('.phase-select[aria-pressed="true"]')
-      .length,
-  ).toBe(0);
-});
+    await waitFor(() =>
+      expect(raw()).toContain('The selected event is no longer retained.'),
+    );
+    expect(raw()).not.toContain('"marker": 1');
+    expect(
+      side(selectedSide).querySelectorAll('.phase-select[aria-pressed="true"]')
+        .length,
+    ).toBe(0);
+  },
+);
 
 test('a retained comparison phase stays selected after returning to Requests and remounting', () => {
   const tools = createDevtools({ initialIsOpen: true });
@@ -287,39 +290,39 @@ test('entering comparison preserves a phase page independently of the selected e
   );
 });
 
-test.each([
-  'bars',
-  'timings',
-])('comparison reads the latest %s preference even without another render', (control) => {
-  const { shadow, click, side } = recording(
-    Array.from({ length: 205 }, (_, index) =>
-      event(`stage-${index}`, 'request', 'engine.stage.completed', {
-        stage: 'plan',
-        outcome: 'succeeded',
-        durationMs: 1,
-      }),
-    ),
-  );
-  if (control === 'bars')
-    fireEvent.change(
-      shadow.querySelector('.request-phases input[type="checkbox"]')!,
-      { target: { checked: false } },
+test.each(['bars', 'timings'])(
+  'comparison reads the latest %s preference even without another render',
+  (control) => {
+    const { shadow, click, side } = recording(
+      Array.from({ length: 205 }, (_, index) =>
+        event(`stage-${index}`, 'request', 'engine.stage.completed', {
+          stage: 'plan',
+          outcome: 'succeeded',
+          durationMs: 1,
+        }),
+      ),
     );
-  else click('Show more stage timings');
-  click('Compare request');
-  if (control === 'bars')
-    expect(
-      side('A').querySelector<HTMLInputElement>(
-        '.request-phases input[type="checkbox"]',
-      )?.checked,
-    ).toBe(false);
-  else
-    expect(
-      side('A').querySelector(
-        '[aria-label="Engine stage timings"] [role="status"]',
-      )?.textContent,
-    ).toBe('Showing 205 of 205 stage timings');
-});
+    if (control === 'bars')
+      fireEvent.change(
+        shadow.querySelector('.request-phases input[type="checkbox"]')!,
+        { target: { checked: false } },
+      );
+    else click('Show more stage timings');
+    click('Compare request');
+    if (control === 'bars')
+      expect(
+        side('A').querySelector<HTMLInputElement>(
+          '.request-phases input[type="checkbox"]',
+        )?.checked,
+      ).toBe(false);
+    else
+      expect(
+        side('A').querySelector(
+          '[aria-label="Engine stage timings"] [role="status"]',
+        )?.textContent,
+      ).toBe('Showing 205 of 205 stage timings');
+  },
+);
 
 test('comparison preserves the displayed first page when the latest event is selected implicitly', () => {
   const { shadow, click, side } = recording(
@@ -539,64 +542,67 @@ test('comparison phases label one-sided operations without collapsing repeated A
   expect(rows[0].textContent).toContain('Correspondence unknown');
 });
 
-test.each([
-  'client',
-  'request',
-])('a deleted %s identity leaves counterpart attribution unknown', (missing) => {
-  const action = event(
-    'unattributed',
-    missing === 'request' ? undefined : 'b',
-    'client.action.completed',
-    {
-      clientId: missing === 'client' ? undefined : 'app',
-      action: 'open',
-      instanceId: 'calendar',
-      outcome: 'succeeded',
-    },
-  );
-  const { click, pick, side } = recording([
-    event('a-start', 'a', 'client.request.started'),
-    event('a-action', 'a', 'client.action.completed', {
-      action: 'open',
-      instanceId: 'calendar',
-      outcome: 'succeeded',
-    }),
-    event('a-end', 'a', 'client.response.applied'),
-    event('b-start', 'b', 'client.request.started'),
-    action,
-    event('b-end', 'b', 'client.response.applied'),
-  ]);
-  click('Compare request');
-  pick('a');
-  expect(
-    side('B').querySelectorAll('.phase-table tbody tr')[1].textContent,
-  ).toContain('Unknown — incomplete A evidence');
-});
+test.each(['client', 'request'])(
+  'a deleted %s identity leaves counterpart attribution unknown',
+  (missing) => {
+    const action = event(
+      'unattributed',
+      missing === 'request' ? undefined : 'b',
+      'client.action.completed',
+      {
+        clientId: missing === 'client' ? undefined : 'app',
+        action: 'open',
+        instanceId: 'calendar',
+        outcome: 'succeeded',
+      },
+    );
+    const { click, pick, side } = recording([
+      event('a-start', 'a', 'client.request.started'),
+      event('a-action', 'a', 'client.action.completed', {
+        action: 'open',
+        instanceId: 'calendar',
+        outcome: 'succeeded',
+      }),
+      event('a-end', 'a', 'client.response.applied'),
+      event('b-start', 'b', 'client.request.started'),
+      action,
+      event('b-end', 'b', 'client.response.applied'),
+    ]);
+    click('Compare request');
+    pick('a');
+    expect(
+      side('B').querySelectorAll('.phase-table tbody tr')[1].textContent,
+    ).toContain('Unknown — incomplete A evidence');
+  },
+);
 
 test.each([
   ['custom.phase.completed', 'Unknown — incomplete A evidence'],
   ['app.heartbeat', 'Unmatched in retained A evidence'],
-])('unattributed %s evidence does not invent custom phase correspondence', (kind, expected) => {
-  const { click, pick, side } = recording([
-    event('a-start', 'a', 'client.request.started'),
-    event('a-custom', 'a', 'custom.phase.completed'),
-    event('a-end', 'a', 'client.response.applied'),
-    event('b-start', 'b', 'client.request.started'),
-    event('unattributed', undefined, kind),
-    event('b-end', 'b', 'client.response.applied'),
-  ]);
-  click('Compare request');
-  pick('a');
-  const row = Array.from(
-    side('B').querySelectorAll('.phase-table tbody tr'),
-  ).find((node) =>
-    node
-      .querySelector('.phase-select')
-      ?.textContent?.includes('Custom phase completed'),
-  );
-  if (!row) throw new Error('Missing custom request phase');
-  expect(row.querySelector('.phase-counterpart')?.textContent).toBe(expected);
-});
+])(
+  'unattributed %s evidence does not invent custom phase correspondence',
+  (kind, expected) => {
+    const { click, pick, side } = recording([
+      event('a-start', 'a', 'client.request.started'),
+      event('a-custom', 'a', 'custom.phase.completed'),
+      event('a-end', 'a', 'client.response.applied'),
+      event('b-start', 'b', 'client.request.started'),
+      event('unattributed', undefined, kind),
+      event('b-end', 'b', 'client.response.applied'),
+    ]);
+    click('Compare request');
+    pick('a');
+    const row = Array.from(
+      side('B').querySelectorAll('.phase-table tbody tr'),
+    ).find((node) =>
+      node
+        .querySelector('.phase-select')
+        ?.textContent?.includes('Custom phase completed'),
+    );
+    if (!row) throw new Error('Missing custom request phase');
+    expect(row.querySelector('.phase-counterpart')?.textContent).toBe(expected);
+  },
+);
 
 test('both requests expose their recorded arguments together without starting capture', () => {
   const { tools, click, pick, side } = recording(
@@ -657,40 +663,45 @@ test.each([
   'Layout changes',
   'Observed issues',
   'Compare observed event counts',
-])('the %s disclosure keeps focus when selected-request evidence updates', async (name) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  const { client } = attach(tools);
-  client.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'request',
-  );
-  client.diagnostics.emitDiagnostic(
-    'engine.stage.failed',
-    { stage: 'plan', outcome: 'failed' },
-    undefined,
-    'request',
-  );
-  const { shadow, click, side } = mount(tools);
-  click('Compare request');
-  const disclosure = () =>
-    Array.from(
-      (name === 'Compare observed event counts'
-        ? shadow
-        : side('A')
-      ).querySelectorAll('summary'),
-    ).find((node) => node.textContent?.startsWith(name))!;
-  disclosure().focus();
-  expect(shadow.activeElement === disclosure()).toBe(true);
-  client.diagnostics.emitDiagnostic(
-    'client.command.completed',
-    { command: 'execute_actions' },
-    undefined,
-    'request',
-  );
-  await waitFor(() => expect(shadow.activeElement === disclosure()).toBe(true));
-});
+])(
+  'the %s disclosure keeps focus when selected-request evidence updates',
+  async (name) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    const { client } = attach(tools);
+    client.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      'request',
+    );
+    client.diagnostics.emitDiagnostic(
+      'engine.stage.failed',
+      { stage: 'plan', outcome: 'failed' },
+      undefined,
+      'request',
+    );
+    const { shadow, click, side } = mount(tools);
+    click('Compare request');
+    const disclosure = () =>
+      Array.from(
+        (name === 'Compare observed event counts'
+          ? shadow
+          : side('A')
+        ).querySelectorAll('summary'),
+      ).find((node) => node.textContent?.startsWith(name))!;
+    disclosure().focus();
+    expect(shadow.activeElement === disclosure()).toBe(true);
+    client.diagnostics.emitDiagnostic(
+      'client.command.completed',
+      { command: 'execute_actions' },
+      undefined,
+      'request',
+    );
+    await waitFor(() =>
+      expect(shadow.activeElement === disclosure()).toBe(true),
+    );
+  },
+);
 
 test('closing comparison clears detached content inspectors before later evidence changes', () => {
   const { tools, click, side } = recording([
@@ -795,34 +806,34 @@ test('a comparison JSON control keeps focus when request details refresh', async
   expect(control.isConnected).toBe(true);
 });
 
-test.each([
-  '[REDACTED]',
-  undefined,
-])('an unreadable event kind %s cannot establish a missing counterpart', (kind) => {
-  const { click, pick, side } = recording([
-    event('a-start', 'a', 'client.request.started'),
-    event('a-action', 'a', 'client.action.completed', {
-      action: 'open',
-      instanceId: 'calendar',
-      outcome: 'succeeded',
-    }),
-    event('a-end', 'a', 'client.response.applied'),
-    event('b-start', 'b', 'client.request.started'),
-    {
-      ...event('b-hidden', 'b', 'client.action.completed', {
+test.each(['[REDACTED]', undefined])(
+  'an unreadable event kind %s cannot establish a missing counterpart',
+  (kind) => {
+    const { click, pick, side } = recording([
+      event('a-start', 'a', 'client.request.started'),
+      event('a-action', 'a', 'client.action.completed', {
         action: 'open',
         instanceId: 'calendar',
+        outcome: 'succeeded',
       }),
-      kind,
-    },
-    event('b-end', 'b', 'client.response.applied'),
-  ]);
-  click('Compare request');
-  pick('a');
-  expect(
-    side('B').querySelectorAll('.phase-table tbody tr')[1].textContent,
-  ).toContain('Unknown — incomplete A evidence');
-});
+      event('a-end', 'a', 'client.response.applied'),
+      event('b-start', 'b', 'client.request.started'),
+      {
+        ...event('b-hidden', 'b', 'client.action.completed', {
+          action: 'open',
+          instanceId: 'calendar',
+        }),
+        kind,
+      },
+      event('b-end', 'b', 'client.response.applied'),
+    ]);
+    click('Compare request');
+    pick('a');
+    expect(
+      side('B').querySelectorAll('.phase-table tbody tr')[1].textContent,
+    ).toContain('Unknown — incomplete A evidence');
+  },
+);
 
 test('counterpart uncertainty survives eviction of unattributed live activity', () => {
   const tools = createDevtools({

@@ -53,7 +53,7 @@ export function getPcm16WavMetadata(wav: Buffer): Pcm16WavMetadata {
     | { channels: number; sampleRate: number; bitsPerSample: number }
     | undefined;
   let dataLength: number | undefined;
-  for (let offset = 12; offset + 8 <= wav.length; ) {
+  for (let offset = 12; offset + 8 <= wav.length;) {
     const chunkId = wav.toString('ascii', offset, offset + 4);
     const chunkLength = wav.readUInt32LE(offset + 4);
     const chunkStart = offset + 8;

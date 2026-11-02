@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   validateWeatherTransitionChain,
   type WeatherTransitionChainData,

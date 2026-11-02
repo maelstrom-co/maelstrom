@@ -1,18 +1,19 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import { plural } from '../plural';
-import {
-  FEEDBACK_CHARACTER_LIMIT,
-  feedbackActions,
-  useFeedbackStore,
-} from '../stores/feedback.store';
 import {
   type FeedbackCoverage,
   feedbackCoverage,
   isFeedbackQuote,
 } from '../stores/feedback-coverage';
+import {
+  FEEDBACK_CHARACTER_LIMIT,
+  feedbackActions,
+  useFeedbackStore,
+} from '../stores/feedback.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
 import { TasklaneCard } from '../tasklane-card';

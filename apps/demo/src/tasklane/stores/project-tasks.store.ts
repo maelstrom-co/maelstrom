@@ -1,5 +1,6 @@
 import { sanitizeControlChars } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
+
 import { FEEDBACK_CHARACTER_LIMIT } from './feedback.store';
 import {
   describeTeamChoices,

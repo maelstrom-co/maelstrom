@@ -8,6 +8,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
@@ -26,6 +27,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';

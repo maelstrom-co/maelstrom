@@ -1,4 +1,5 @@
 import { afterEach, beforeEach } from 'bun:test';
+
 import { JSDOM } from 'jsdom';
 
 // Create a single persistent jsdom instance whose globals are available at

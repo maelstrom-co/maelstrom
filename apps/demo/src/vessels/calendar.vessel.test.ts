@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { calendarVessel } from './calendar.vessel';
 
 describe('calendarVessel month variant', () => {

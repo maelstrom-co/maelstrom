@@ -129,4 +129,3 @@ export function assertBoundedClientValidation(
       'Client validation must reject oversized enums before parsing their entries.',
     );
 }
-

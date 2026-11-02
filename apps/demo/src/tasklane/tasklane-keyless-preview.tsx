@@ -1,8 +1,8 @@
 import { KeylessVoiceProviderSelect } from '../components/voice-provider-select';
 import { PersonChip } from './person-chip';
 import { plural } from './plural';
-import { useFeedbackStore } from './stores/feedback.store';
 import { isFeedbackQuote } from './stores/feedback-coverage';
+import { useFeedbackStore } from './stores/feedback.store';
 import {
   orderedTaskRows,
   useProjectTasksStore,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { AdoptPolicy, Unowned } from 'alchemy/AdoptPolicy';
 import { AlchemyContext } from 'alchemy/AlchemyContext';
 import * as Apply from 'alchemy/Apply';
@@ -27,20 +28,18 @@ const accountEnvironment = Layer.succeed(
   }),
 );
 
-interface Upstream
-  extends Resource<
-    'Probe.Upstream',
-    Record<string, never>,
-    { id: string },
-    { worker: string }
-  > {}
+interface Upstream extends Resource<
+  'Probe.Upstream',
+  Record<string, never>,
+  { id: string },
+  { worker: string }
+> {}
 const Upstream = Resource<Upstream>('Probe.Upstream');
-interface Worker
-  extends Resource<
-    'Cloudflare.Worker' | 'Hetzner.Volume',
-    { name: string; binding: string },
-    { name: string }
-  > {}
+interface Worker extends Resource<
+  'Cloudflare.Worker' | 'Hetzner.Volume',
+  { name: string; binding: string },
+  { name: string }
+> {}
 const Worker = Resource<Worker>('Cloudflare.Worker');
 const Volume = Resource<Worker>('Hetzner.Volume');
 
@@ -450,35 +449,33 @@ async function replaceWithLocalWorker(failFirst: boolean) {
 }
 
 describe('local Worker replacement isolation', () => {
-  test.each([
-    false,
-    true,
-  ])('switches a live Worker to a local provider without a cloud reader (retry: %s)', async (failFirst) => {
-    expect(await replaceWithLocalWorker(failFirst)).toEqual(
-      failFirst
-        ? ['local-start', 'local-start', 'live-delete']
-        : ['local-start', 'live-delete'],
-    );
-  });
+  test.each([false, true])(
+    'switches a live Worker to a local provider without a cloud reader (retry: %s)',
+    async (failFirst) => {
+      expect(await replaceWithLocalWorker(failFirst)).toEqual(
+        failFirst
+          ? ['local-start', 'local-start', 'live-delete']
+          : ['local-start', 'live-delete'],
+      );
+    },
+  );
 });
 
 describe('upstream deferred ownership checks with unresolved bindings', () => {
-  test.each([
-    'fresh',
-    'noop',
-    'update',
-    'deleting',
-  ] as const)('refuses a foreign Worker before reconciliation through the %s create producer', async (producer) => {
-    const result = await probe('foreign', {
-      resumeCreate: producer === 'fresh' ? undefined : producer,
-    });
-    expect(Exit.isFailure(result.exit)).toBe(true);
-    if (Exit.isFailure(result.exit))
-      expect(
-        result.exit.cause.reasons.find(Cause.isFailReason)?.error,
-      ).toMatchObject({ _tag: 'OwnedBySomeoneElse' });
-    expect(result.writes).toEqual([]);
-  });
+  test.each(['fresh', 'noop', 'update', 'deleting'] as const)(
+    'refuses a foreign Worker before reconciliation through the %s create producer',
+    async (producer) => {
+      const result = await probe('foreign', {
+        resumeCreate: producer === 'fresh' ? undefined : producer,
+      });
+      expect(Exit.isFailure(result.exit)).toBe(true);
+      if (Exit.isFailure(result.exit))
+        expect(
+          result.exit.cause.reasons.find(Cause.isFailReason)?.error,
+        ).toMatchObject({ _tag: 'OwnedBySomeoneElse' });
+      expect(result.writes).toEqual([]);
+    },
+  );
   test('refuses a foreign resource when precreate returns existing attributes', async () => {
     const result = await probe('foreign', { precreate: true });
     expect(Exit.isFailure(result.exit)).toBe(true);
@@ -562,21 +559,21 @@ describe('upstream deferred ownership checks with unresolved bindings', () => {
 });
 
 describe('provider isolation for Worker ownership checks', () => {
-  test.each([
-    false,
-    true,
-  ])('preserves ambient policy for non-Worker cyclic precreation (replace: %s)', async (replace) => {
-    const result = await probe('owned', {
-      nonWorker: true,
-      cycle: true,
-      precreate: true,
-      adopt: true,
-      override: false,
-      replace,
-    });
-    expect(Exit.isSuccess(result.exit)).toBe(true);
-    expect(result.adoptionPolicies).toEqual([true]);
-  });
+  test.each([false, true])(
+    'preserves ambient policy for non-Worker cyclic precreation (replace: %s)',
+    async (replace) => {
+      const result = await probe('owned', {
+        nonWorker: true,
+        cycle: true,
+        precreate: true,
+        adopt: true,
+        override: false,
+        replace,
+      });
+      expect(Exit.isSuccess(result.exit)).toBe(true);
+      expect(result.adoptionPolicies).toEqual([true]);
+    },
+  );
   test('does not use a generic provider read to find a replacement generation', async () => {
     const result = await probe('owned', { replace: true, nonWorker: true });
     expect(Exit.isSuccess(result.exit)).toBe(true);
@@ -637,25 +634,25 @@ describe('replacement ownership checks after resolving the new identity', () => 
     expect(result.deletions).toEqual([]);
     expect(result.state).toMatchObject({ attr: { name: 'existing-worker' } });
   });
-  test.each([
-    false,
-    true,
-  ])('refuses a foreign delete-first Worker before deleting the old generation (cyclic: %s)', async (cycle) => {
-    const result = await probe('foreign', {
-      replace: true,
-      deleteFirst: true,
-      cycle,
-      precreate: true,
-    });
-    expect(Exit.isFailure(result.exit)).toBe(true);
-    if (Exit.isFailure(result.exit))
-      expect(
-        result.exit.cause.reasons.find(Cause.isFailReason)?.error,
-      ).toMatchObject({ _tag: 'OwnedBySomeoneElse' });
-    expect(result.deletions).toEqual([]);
-    expect(result.writes).toEqual([]);
-    expect(result.precreates).toEqual([]);
-  });
+  test.each([false, true])(
+    'refuses a foreign delete-first Worker before deleting the old generation (cyclic: %s)',
+    async (cycle) => {
+      const result = await probe('foreign', {
+        replace: true,
+        deleteFirst: true,
+        cycle,
+        precreate: true,
+      });
+      expect(Exit.isFailure(result.exit)).toBe(true);
+      if (Exit.isFailure(result.exit))
+        expect(
+          result.exit.cause.reasons.find(Cause.isFailReason)?.error,
+        ).toMatchObject({ _tag: 'OwnedBySomeoneElse' });
+      expect(result.deletions).toEqual([]);
+      expect(result.writes).toEqual([]);
+      expect(result.precreates).toEqual([]);
+    },
+  );
 
   test('refuses an unresolved cyclic delete-first identity before cleanup or precreation', async () => {
     const result = await probe('owned', {
@@ -724,25 +721,24 @@ describe('replacement ownership checks after resolving the new identity', () => 
       adopt: true,
       output: { name: 'existing-worker' },
     },
-  ] as const)('reconciles an owned, absent, or explicitly adopted replacement', async ({
-    observation,
-    adopt,
-    output,
-  }) => {
-    const result = await probe(observation, { replace: true, adopt });
-    expect(Exit.isSuccess(result.exit)).toBe(true);
-    expect(result.reads).toEqual([
-      { name: 'existing-worker', binding: 'resolved-binding-id' },
-    ]);
-    expect(result.writes).toEqual([
-      {
-        news: { name: 'existing-worker', binding: 'resolved-binding-id' },
-        olds: undefined,
-        output,
-      },
-    ]);
-    expect(result.deletions).toEqual([{ name: 'old-worker' }]);
-  });
+  ] as const)(
+    'reconciles an owned, absent, or explicitly adopted replacement',
+    async ({ observation, adopt, output }) => {
+      const result = await probe(observation, { replace: true, adopt });
+      expect(Exit.isSuccess(result.exit)).toBe(true);
+      expect(result.reads).toEqual([
+        { name: 'existing-worker', binding: 'resolved-binding-id' },
+      ]);
+      expect(result.writes).toEqual([
+        {
+          news: { name: 'existing-worker', binding: 'resolved-binding-id' },
+          olds: undefined,
+          output,
+        },
+      ]);
+      expect(result.deletions).toEqual([{ name: 'old-worker' }]);
+    },
+  );
 });
 
 describe('Worker identity provenance through replacement garbage collection', () => {

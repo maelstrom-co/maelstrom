@@ -1,10 +1,11 @@
 ---
+import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
+import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
 import Search from 'virtual:starlight/components/Search';
 import SocialIcons from 'virtual:starlight/components/SocialIcons';
 import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
 import config from 'virtual:starlight/user-config';
-import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
-import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
+
 import { icons } from './icons';
 import MaelstromLogo from './MaelstromLogo.astro';
 import SidebarToggle from './SidebarToggle.astro';
@@ -38,7 +39,12 @@ const frameworks = [
   )}
 
   <framework-selector class="framework-selector">
-    <button type="button" class="framework-trigger" aria-expanded="false" aria-haspopup="listbox">
+    <button
+      type="button"
+      class="framework-trigger"
+      aria-expanded="false"
+      aria-haspopup="listbox"
+    >
       <span class="framework-icon" set:html={icons.react} />
       <span class="framework-label">React</span>
       <span class="framework-chevron" set:html={icons.chevronDown} />
@@ -157,7 +163,9 @@ const frameworks = [
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition:
+      border-color 0.15s,
+      background 0.15s;
   }
 
   .framework-trigger:hover {
@@ -218,7 +226,9 @@ const frameworks = [
     font-size: 0.8125rem;
     cursor: pointer;
     color: var(--sl-color-gray-3);
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
 
   .framework-menu li:hover {

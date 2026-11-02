@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { ok } from '@maelstrom-co/protocol';
 
 import {
@@ -48,18 +49,16 @@ describe('validateEngineConfig', () => {
     );
   });
 
-  test.each([
-    'debug',
-    'info',
-    'warn',
-    'error',
-  ] as const)('throws when required logger method %s is missing', (method) => {
-    const badLogger: Record<string, unknown> = { ...silentLogger };
-    delete badLogger[method];
-    expect(() =>
-      validateEngineConfig({ planner: stubPlanner, logger: badLogger }),
-    ).toThrow(new RegExp(`logger\\.${method}`));
-  });
+  test.each(['debug', 'info', 'warn', 'error'] as const)(
+    'throws when required logger method %s is missing',
+    (method) => {
+      const badLogger: Record<string, unknown> = { ...silentLogger };
+      delete badLogger[method];
+      expect(() =>
+        validateEngineConfig({ planner: stubPlanner, logger: badLogger }),
+      ).toThrow(new RegExp(`logger\\.${method}`));
+    },
+  );
 
   test('throws when logger method is not a function', () => {
     const badLogger = { ...silentLogger, error: 'not a function' };
@@ -73,11 +72,14 @@ describe('validateEngineConfig', () => {
     ['prompt', {}],
     ['modelOptions', {}],
     ['maxRetries', 1],
-  ])('rejects the %s key, which belongs to a planner or was removed', (key, value) => {
-    expect(() =>
-      validateEngineConfig({ planner: stubPlanner, [key]: value }),
-    ).toThrow(new RegExp(`unrecognized.*${key}|${key}.*unrecognized`, 'i'));
-  });
+  ])(
+    'rejects the %s key, which belongs to a planner or was removed',
+    (key, value) => {
+      expect(() =>
+        validateEngineConfig({ planner: stubPlanner, [key]: value }),
+      ).toThrow(new RegExp(`unrecognized.*${key}|${key}.*unrecognized`, 'i'));
+    },
+  );
 
   test('preserves extra logger fields (loose — pino/winston/bunyan)', () => {
     const pinoLike = {

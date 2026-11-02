@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   fakePluginWith,
   TOKYO_CANDIDATE,

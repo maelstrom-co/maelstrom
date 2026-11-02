@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { NeedsClarification } from '@maelstrom-co/protocol';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 
@@ -66,20 +67,21 @@ describe('withFallback', () => {
     ['ParseError', parseError('bad json', '{')],
     ['CancellationError', cancellationError('cancel', 'user')],
     ['ValidationError', validationError('bad', 'prompt')],
-  ] as Array<
-    [string, EngineError]
-  >)('%s from the primary is returned without running the fallback', async (_, failure) => {
-    const primary = recordingPlanner(failure);
-    const fallback = recordingPlanner('candidate');
+  ] as Array<[string, EngineError]>)(
+    '%s from the primary is returned without running the fallback',
+    async (_, failure) => {
+      const primary = recordingPlanner(failure);
+      const fallback = recordingPlanner('candidate');
 
-    const result = await withFallback(primary.planner, fallback.planner)(
-      makePlanningInput(),
-      makeStageContext(),
-    );
+      const result = await withFallback(primary.planner, fallback.planner)(
+        makePlanningInput(),
+        makeStageContext(),
+      );
 
-    expect(isErr(result) && result.error).toBe(failure);
-    expect(fallback.calls).toHaveLength(0);
-  });
+      expect(isErr(result) && result.error).toBe(failure);
+      expect(fallback.calls).toHaveLength(0);
+    },
+  );
 
   test('a Deferred from the primary runs the fallback with the same input and context', async () => {
     const primary = recordingPlanner(deferred('scope unsupported'));

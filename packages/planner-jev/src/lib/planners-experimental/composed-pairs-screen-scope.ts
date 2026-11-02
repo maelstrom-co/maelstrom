@@ -1,5 +1,7 @@
 import type { Planner } from '@maelstrom-co/engine';
+
 import { buildJevStagePlanner } from '../planners/jev-stage-planner.js';
+import { layoutComposedPairsAnswerableFractions } from '../stages-experimental/layout-composed-pairs-answerable-fractions.js';
 import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
@@ -9,7 +11,6 @@ import {
 } from '../stages/select-gated-screen-scope.js';
 import type { JevDeps } from '../stages/stage-deps.js';
 import type { GatedSelection } from '../stages/stage-types.js';
-import { layoutComposedPairsAnswerableFractions } from '../stages-experimental/layout-composed-pairs-answerable-fractions.js';
 
 /** What {@link buildComposedPairsScreenScopePlanner} takes beside its deps. */
 export interface ComposedPairsScreenScopeOptions extends ScreenScopeOptions {

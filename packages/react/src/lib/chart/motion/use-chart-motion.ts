@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import { useLayoutEffect, useRef } from 'react';
+
 import type { MotionRect } from './flip.js';
 import {
   computeFlipDelta,
@@ -140,6 +141,6 @@ export function useChartMotion(
         });
       }
     }
-  // oxlint-disable-next-line react/exhaustive-deps -- motion is read from the latest-render closure by design — a motion-only change must not retrigger measurement/animation; container ref access is intentional.
+    // oxlint-disable-next-line react/exhaustive-deps -- motion is read from the latest-render closure by design — a motion-only change must not retrigger measurement/animation; container ref access is intentional.
   }, [layoutKey, sizeKey, suppressed]);
 }

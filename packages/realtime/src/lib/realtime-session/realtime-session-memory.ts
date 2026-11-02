@@ -1,5 +1,6 @@
 import type { TimedTranscriptFragment } from '@maelstrom-co/client';
 import type { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+
 import type {
   SessionEventHandler,
   ToolLaterOutcomeType,

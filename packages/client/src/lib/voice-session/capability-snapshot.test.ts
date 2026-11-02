@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+
 import type { Vessel, VesselVariantDefinition } from '@maelstrom-co/protocol';
 import { ActionName, VariantName, VesselId } from '@maelstrom-co/protocol';
 

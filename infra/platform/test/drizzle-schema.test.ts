@@ -2,7 +2,9 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+
 import { waitlistRelations } from '../src/waitlist-schema.js';
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..');

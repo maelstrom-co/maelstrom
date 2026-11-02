@@ -9,6 +9,7 @@ import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { m } from '../lib/maelstrom';
 import { calendarActions, resetCalendarStore } from '../vessels/calendar.store';
 import {

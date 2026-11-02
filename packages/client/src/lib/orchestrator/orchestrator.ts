@@ -24,6 +24,7 @@ import {
   type VesselMutationReason,
 } from '@maelstrom-co/protocol';
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
+
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';

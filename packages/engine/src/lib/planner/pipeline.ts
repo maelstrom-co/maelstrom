@@ -2,13 +2,9 @@ import type { Result } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
 
 import { cancellationError } from '../errors.js';
-import type {
-  PipelineOutput,
-  PlannerCandidate,
-  PlannerOutput,
-} from './candidate.js';
+import type { PipelineOutput, PlannerOutput } from './candidate.js';
 import { stageName } from './instrument.js';
-import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
+import type { PlanningInput, Stage, StageError } from './stage.js';
 
 /**
  * Composes stages into a {@link Planner}, feeding each stage's output to the

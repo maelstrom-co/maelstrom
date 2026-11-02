@@ -1,5 +1,7 @@
 import { fileURLToPath } from 'node:url';
+
 import { test as base, expect, type Page } from '@playwright/test';
+
 import { enterAndSubmitApiKey, hasKeyEntryControl } from './key-bootstrap.ts';
 import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder';
 import { sessionAudioArtifacts } from './session-audio-artifacts.ts';

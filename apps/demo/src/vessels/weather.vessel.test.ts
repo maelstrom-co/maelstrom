@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { weatherVessel } from './weather.vessel';
 
 describe('weatherVessel hourly variant minSize', () => {
@@ -13,22 +14,20 @@ describe('weatherVessel hourly variant minSize', () => {
 });
 
 describe('weatherVessel location action', () => {
-  it.each([
-    'current',
-    'hourly',
-    'weekly',
-    'compact',
-  ] as const)('makes setLocation available in the %s variant without a transition', (variant) => {
-    const action = weatherVessel.variants[variant].actions.find(
-      ({ name }) => name === 'setLocation',
-    );
-    expect(action).toMatchObject({
-      name: 'setLocation',
-      description: expect.stringMatching(/^Try to load/),
-      parameters: [{ name: 'location', type: 'string' }],
-    });
-    expect(action).not.toHaveProperty('transitionsTo');
-  });
+  it.each(['current', 'hourly', 'weekly', 'compact'] as const)(
+    'makes setLocation available in the %s variant without a transition',
+    (variant) => {
+      const action = weatherVessel.variants[variant].actions.find(
+        ({ name }) => name === 'setLocation',
+      );
+      expect(action).toMatchObject({
+        name: 'setLocation',
+        description: expect.stringMatching(/^Try to load/),
+        parameters: [{ name: 'location', type: 'string' }],
+      });
+      expect(action).not.toHaveProperty('transitionsTo');
+    },
+  );
 });
 
 describe('weatherVessel compact variant', () => {
@@ -83,14 +82,14 @@ describe('weatherVessel compact variant', () => {
       );
   });
 
-  it.each([
-    ...fuller,
-    'compact',
-  ] as const)('describes the %s variant for the Planner', (variant) => {
-    expect(weatherVessel.variants[variant].description).toEqual(
-      expect.any(String),
-    );
-  });
+  it.each([...fuller, 'compact'] as const)(
+    'describes the %s variant for the Planner',
+    (variant) => {
+      expect(weatherVessel.variants[variant].description).toEqual(
+        expect.any(String),
+      );
+    },
+  );
 
   it('tells the Planner when to choose compact', () => {
     const description = weatherVessel.variants.compact.description ?? '';

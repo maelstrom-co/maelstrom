@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+
 import {
   buildLegacyAccounting,
   legacyObligationsSchema,

@@ -1,12 +1,9 @@
 import { expect, test } from 'bun:test';
 
-test.each([
-  'promise',
-  'thenable',
-  'throwing-then-getter',
-  'pending',
-] as const)('optional progress observers cannot crash or delay Actions: %s', (mode) => {
-  const probe = `
+test.each(['promise', 'thenable', 'throwing-then-getter', 'pending'] as const)(
+  'optional progress observers cannot crash or delay Actions: %s',
+  (mode) => {
+    const probe = `
       import { ActionManager } from '../../index.ts';
       import { ActionName, InstanceId, ok } from '@maelstrom-co/protocol';
       const manager = new ActionManager();
@@ -32,10 +29,11 @@ test.each([
       await new Promise(resolve => setTimeout(resolve, 10));
       console.log('Actions completed');
     `;
-  const child = Bun.spawnSync(
-    [process.execPath, '--no-env-file', '--eval', probe],
-    { cwd: import.meta.dir, timeout: 5000 },
-  );
-  expect(child.exitCode, child.stderr.toString()).toBe(0);
-  expect(child.stdout.toString()).toContain('Actions completed');
-});
+    const child = Bun.spawnSync(
+      [process.execPath, '--no-env-file', '--eval', probe],
+      { cwd: import.meta.dir, timeout: 5000 },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(child.stdout.toString()).toContain('Actions completed');
+  },
+);

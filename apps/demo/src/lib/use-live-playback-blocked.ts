@@ -1,6 +1,7 @@
 import type { RealtimeSession } from '@maelstrom-co/realtime';
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { useCallback, useSyncExternalStore } from 'react';
+
 import { demoVoiceSession } from './demo-voice';
 
 /** Whether the browser blocked GPT-Live output for this session, so a click is needed to resume it. */

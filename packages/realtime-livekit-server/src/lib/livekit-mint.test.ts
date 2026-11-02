@@ -7,6 +7,7 @@ import {
   spyOn,
   test,
 } from 'bun:test';
+
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
 // Capture the grant passed to AccessToken so the test can assert the token is

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { commit } from '../fixtures/commit.ts';
 import { COMMENT_MARKER } from './comment-marker.ts';
 import { renderComment } from './render-comment.ts';

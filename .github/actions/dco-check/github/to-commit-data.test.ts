@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { CommitPayloadError } from './commit-payload-error.ts';
 import { toCommitData } from './to-commit-data.ts';
 

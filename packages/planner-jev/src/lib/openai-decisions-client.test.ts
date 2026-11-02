@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import type { Instrument, InstrumentAttributes } from '@maelstrom-co/engine';
 import { isErr, isOk } from '@maelstrom-co/protocol';
+
 import {
   makeContext,
   makeInput,
@@ -658,25 +659,28 @@ describe('reply validation', () => {
     ],
   ];
 
-  test.each(
-    invalidReplies,
-  )('rejects %s as provider_invalid_reply tagged with its reason', async (_name, mutate, reason) => {
-    const { ask, recorded, logger, entries } = setup(replying(mutate(valid())));
-    const result = await ask('jevSelect', evaluation, ctx(logger));
-    expect(isErr(result) && result.error).toEqual({
-      _tag: 'Deferred',
-      reason: 'jevSelect/provider_invalid_reply',
-    });
-    expect(recorded[0]?.outcome).toBe('provider_invalid_reply');
-    expect(
-      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
-    ).toEqual({
-      stage: 'jevSelect',
-      reason: 'jevSelect/provider_invalid_reply',
-      detail: `invalid reply (${reason})`,
-      failure: { kind: 'invalid_reply', reason },
-    });
-  });
+  test.each(invalidReplies)(
+    'rejects %s as provider_invalid_reply tagged with its reason',
+    async (_name, mutate, reason) => {
+      const { ask, recorded, logger, entries } = setup(
+        replying(mutate(valid())),
+      );
+      const result = await ask('jevSelect', evaluation, ctx(logger));
+      expect(isErr(result) && result.error).toEqual({
+        _tag: 'Deferred',
+        reason: 'jevSelect/provider_invalid_reply',
+      });
+      expect(recorded[0]?.outcome).toBe('provider_invalid_reply');
+      expect(
+        entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+      ).toEqual({
+        stage: 'jevSelect',
+        reason: 'jevSelect/provider_invalid_reply',
+        detail: `invalid reply (${reason})`,
+        failure: { kind: 'invalid_reply', reason },
+      });
+    },
+  );
 });
 
 describe('refusals', () => {
@@ -951,18 +955,21 @@ describe('the key never leaks', () => {
       /logReplies/,
     ],
     ['a bad render', { apiKey: KEY, render: 'nope' as never }, /render/],
-  ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
-    let caught: unknown;
-    try {
-      createDecisionsClient(options as DecisionsClientOptions);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/^Invalid Decisions option: /);
-    expect((caught as Error).message).toMatch(pattern);
-    expect((caught as Error).message).not.toContain(KEY);
-  });
+  ])(
+    'construction rejects %s without echoing the key',
+    (_name, options, pattern) => {
+      let caught: unknown;
+      try {
+        createDecisionsClient(options as DecisionsClientOptions);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toMatch(/^Invalid Decisions option: /);
+      expect((caught as Error).message).toMatch(pattern);
+      expect((caught as Error).message).not.toContain(KEY);
+    },
+  );
 
   test('a 401 whose body echoes the key reaches no error, log, instrument attribute or call record', async () => {
     const echoing = (async () =>

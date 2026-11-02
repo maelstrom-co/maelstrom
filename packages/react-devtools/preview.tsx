@@ -11,6 +11,7 @@ import {
 import { createMaelstrom, defineVessel, vessel } from '@maelstrom-co/react';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+
 import { devtools } from './src/index.js';
 
 const instanceId = InstanceId('counter-main');

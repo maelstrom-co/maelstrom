@@ -1,4 +1,5 @@
 import { Store } from '@tanstack/store';
+
 import { isHosted } from './hosted-mode';
 
 export type DemoVoiceProvider = 'realtime' | 'live' | 'livekit';

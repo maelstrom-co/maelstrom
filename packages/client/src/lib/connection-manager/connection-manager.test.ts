@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import {
   type MaelstromResponse,
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import type { Unsubscribe } from '../types.js';
 import type { ConnectionManagerEvents } from './connection-manager.js';

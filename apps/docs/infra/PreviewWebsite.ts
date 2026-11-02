@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+
 import {
   WORKER_COMPATIBILITY_DATE,
   workerObservability,

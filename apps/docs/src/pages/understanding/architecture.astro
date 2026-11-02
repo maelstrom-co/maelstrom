@@ -1,5 +1,6 @@
 ---
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+
 import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagram';
 import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
@@ -21,7 +22,10 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     // Understanding pages (matching the sidebar order).
     editUrl:
       'https://github.com/maelstrom-co/maelstrom/edit/main/apps/docs/src/pages/understanding/architecture.astro',
-    prev: { link: '/understanding/comparison/', label: 'How Maelstrom compares' },
+    prev: {
+      link: '/understanding/comparison/',
+      label: 'How Maelstrom compares',
+    },
     next: {
       link: '/understanding/voice-architecture/',
       label: 'The voice boundary',
@@ -29,11 +33,11 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
   }}
 >
   <p>
-    Maelstrom turns a user's intent into a UI update. The client sends the current
-    Chart state and update reasons to an Engine host. A configured Planner
-    proposes changes, the Engine validates them, and the client applies the
-    accepted response. Play the diagram to follow a request, or select a package
-    to inspect its role.
+    Maelstrom turns a user's intent into a UI update. The client sends the
+    current Chart state and update reasons to an Engine host. A configured
+    Planner proposes changes, the Engine validates them, and the client applies
+    the accepted response. Play the diagram to follow a request, or select a
+    package to inspect its role.
   </p>
 
   <ArchitectureDiagram client:load />
@@ -42,11 +46,13 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
   <h3>It starts with a reason</h3>
   <p>
-    Every update begins with an <code>UpdateReason</code>, and there are three: a
-    <code>user_intent</code> (someone asks for something), a
+    Every update begins with an <code>UpdateReason</code>, and there are three:
+    a <code>user_intent</code> (someone asks for something), a
     <code>chart_resize</code> (the available grid changed), or a
     <code>vessel_mutation</code> (an Instance changed its active Variant).
-    <a href="/understanding/llm-orchestration/"><code>@maelstrom-co/client</code></a>
+    <a href="/understanding/llm-orchestration/">
+      <code>@maelstrom-co/client</code>
+    </a>
     batches the pending reasons and builds a <code>ChartRequest</code>. This
     snapshot contains Instance identities and Variants, the current layout,
     Chart dimensions in grid cells, registered Vessels, and the layout mode. A
@@ -56,15 +62,18 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
   <h3>The Planner proposes and the Engine validates</h3>
   <p>
-    <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> holds
-    no client layout state. It loads prior turns when history is configured and
-    passes the request to a Planner. The reference LLM Planner builds prompts
-    and calls a provider adapter; another Planner can use a different decision
-    process. The Engine validates the candidate and repairs recoverable layout
-    and Action problems.
+    <a href="/understanding/engine/">
+      <code>@maelstrom-co/engine</code>
+    </a>{' '}
+    holds no client layout state. It loads prior turns when history is
+    configured and passes the request to a Planner. The reference LLM Planner
+    builds prompts and calls a provider adapter; another Planner can use a
+    different decision process. The Engine validates the candidate and repairs
+    recoverable layout and Action problems.
   </p>
   <p>
-    The accepted <code>MaelstromResponse</code> contains a <code>userMessage</code>
+    The accepted <code>MaelstromResponse</code> contains a{' '}
+    <code>userMessage</code>
     for the user, a <code>rationale</code> for diagnostics, an
     <code>executionPlan</code>, and a <code>layout</code>. Its
     <code>requestId</code> identifies the originating message.
@@ -79,56 +88,66 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     effects from Actions that already ran.
   </p>
   <p>
-    A tiling response can introduce
-    an Instance and request an Action on it in the same response. Applying the
-    layout first establishes that Instance before the client waits for its
-    Action runner. The runner must register before the readiness timeout;
-    otherwise, the client skips the Action.
+    A tiling response can introduce an Instance and request an Action on it in
+    the same response. Applying the layout first establishes that Instance
+    before the client waits for its Action runner. The runner must register
+    before the readiness timeout; otherwise, the client skips the Action.
   </p>
 
   <h3>The loop closes</h3>
   <p>
-    Applying the response updates the UI. The Chart's <code>ResizeObserver</code>
+    Applying the response updates the UI. The Chart's{' '}
+    <code>ResizeObserver</code>
     watches its container. When the container's pixel size changes enough to
     change its whole-cell dimensions, the client sends a new
-    <code>chart_resize</code> request. That starts a separate Engine turn.
-    The client performs no inline size-reconciliation pass after Actions;
-    the Chart clips visual overflow with CSS.
+    <code>chart_resize</code> request. That starts a separate Engine turn. The
+    client performs no inline size-reconciliation pass after Actions; the Chart
+    clips visual overflow with CSS.
   </p>
 
   <h2>The vocabulary</h2>
   <dl>
-    <dt><strong>Vessel</strong></dt>
+    <dt>
+      <strong>Vessel</strong>
+    </dt>
     <dd>
-      A registered UI definition with an ID, a description, and a set of Variants.
-      The Planner uses these definitions to choose layouts and Actions. See the
+      A registered UI definition with an ID, a description, and a set of
+      Variants. The Planner uses these definitions to choose layouts and
+      Actions. See the
       <a href="/understanding/vessel-state-machine/">vessel state machine</a>.
     </dd>
-    <dt><strong>Variant</strong></dt>
+    <dt>
+      <strong>Variant</strong>
+    </dt>
     <dd>
-      One discrete state of a Vessel, carrying its props, the Actions available in
-      that Variant, and a <code>minSize</code>. The Engine checks this minimum
-      against the request's Variant snapshot when validating grid positions.
-      A local Action can switch to a larger Variant without resizing its
-      allocation; the client schedules replanning.
+      One discrete state of a Vessel, carrying its props, the Actions available
+      in that Variant, and a <code>minSize</code>. The Engine checks this
+      minimum against the request's Variant snapshot when validating grid
+      positions. A local Action can switch to a larger Variant without resizing
+      its allocation; the client schedules replanning.
     </dd>
-    <dt><strong>Action</strong></dt>
+    <dt>
+      <strong>Action</strong>
+    </dt>
     <dd>
       An operation the client runs on an Instance. It may move the Instance to
       another Variant via <code>transitionsTo</code>.
     </dd>
-    <dt><strong>Chart</strong></dt>
+    <dt>
+      <strong>Chart</strong>
+    </dt>
     <dd>
-      The container that displays Instances. Grid layouts use integer cells
-      (<code>rows</code> × <code>columns</code>). Tiling, the default, uses a tree
-      of <code>H</code>/<code>V</code> splits. The client converts either layout
-      to pixel bounds using the container dimensions.
+      The container that displays Instances. Grid layouts use integer cells (
+      <code>rows</code> × <code>columns</code>). Tiling, the default, uses a
+      tree of <code>H</code>/<code>V</code> splits. The client converts either
+      layout to pixel bounds using the container dimensions.
     </dd>
   </dl>
 
   <p>
-    <code>protocol</code> defines the shared contracts. <code>client</code> manages
-    requests and applies responses; <code>react</code> binds it to React.
+    <code>protocol</code> defines the shared contracts. <code>client</code>{' '}
+    manages requests and applies responses; <code>react</code> binds it to
+    React.
     <code>engine</code> coordinates planning and validation on the server, and
     <code>planner-llm</code> provides the reference LLM Planner.
   </p>
@@ -138,8 +157,8 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     DevTools observes the existing workflow. Its core package owns the bounded
     collector, explicit content capture, and shared browser panel. The React
     adapter owns attachment and mounting. Engine evidence crosses through the
-    protocol only when the server host authorizes forwarding for that connection.
-    Select an evidence path below to see who owns each step.
+    protocol only when the server host authorizes forwarding for that
+    connection. Select an evidence path below to see who owns each step.
   </p>
 
   <DevtoolsDiagram client:load />
@@ -148,15 +167,29 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     The default production entrypoints are inert. Explicit
     <code>/production</code> imports enable browser tools in every build;
     production Engine forwarding stays disabled. Follow the
-    <a href="/guides/devtools/">DevTools guide</a> for installation and recording.
+    <a href="/guides/devtools/">DevTools guide</a> for installation and
+    recording.
   </p>
 
   <h2>Where to go next</h2>
   <ul>
-    <li><a href="/getting-started/quick-start/">Quick start</a>: build a Chart.</li>
-    <li><a href="/getting-started/core-concepts/">Core concepts</a>: Vessels, Variants, and the Chart.</li>
-    <li><a href="/understanding/protocol/">The protocol</a>: Engine messages and wire envelopes.</li>
-    <li><a href="/understanding/engine/">The engine</a>: planning, validation, and history.</li>
-    <li><a href="/understanding/why-maelstrom/">Why Maelstrom</a>: the motivation.</li>
+    <li>
+      <a href="/getting-started/quick-start/">Quick start</a>: build a Chart.
+    </li>
+    <li>
+      <a href="/getting-started/core-concepts/">Core concepts</a>: Vessels,
+      Variants, and the Chart.
+    </li>
+    <li>
+      <a href="/understanding/protocol/">The protocol</a>: Engine messages and
+      wire envelopes.
+    </li>
+    <li>
+      <a href="/understanding/engine/">The engine</a>: planning, validation, and
+      history.
+    </li>
+    <li>
+      <a href="/understanding/why-maelstrom/">Why Maelstrom</a>: the motivation.
+    </li>
   </ul>
 </StarlightPage>

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { migrationReview } from './migration-review';
 
 test('independent review approval binds both frozen source submissions and never returns its rationale', () => {

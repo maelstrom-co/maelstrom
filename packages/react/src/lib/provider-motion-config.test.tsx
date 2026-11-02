@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { act, cleanup, render } from '@testing-library/react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { DEFAULT_MOTION } from './chart/motion/motion-config.js';

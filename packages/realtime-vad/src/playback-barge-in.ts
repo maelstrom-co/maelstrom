@@ -1,5 +1,5 @@
-import { type BrowserVad, createBrowserVad } from './browser-vad.js';
 import type { ResolvedBrowserVadConfig } from './browser-vad-config.js';
+import { type BrowserVad, createBrowserVad } from './browser-vad.js';
 
 /** Local speaker gating only; provider turn detection and cancellation remain unchanged. */
 export interface PlaybackBargeIn {

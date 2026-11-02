@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import {
   ActionName,
@@ -12,6 +13,7 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import { DiagnosticCapture } from './capture.js';
 import { createDevtools } from './controller.js';
 import { requestLayoutComparison } from './layout-comparison.js';
@@ -135,147 +137,150 @@ test.each([
   'redactor',
   'capture redactor',
   'composed redactor',
-] as const)('content %s failures cannot hide a recorded request outcome', (failure) => {
-  const redact = (value: unknown) => {
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      ('layoutSnapshot' in value || 'content' in value)
-    )
-      throw new Error('Content redaction unavailable');
-    return value;
-  };
-  const capture =
-    failure === 'composed redactor' ? new DiagnosticCapture() : undefined;
-  capture?.addRedactor(redact);
-  const { tools, client } = setup({
-    redact: failure === 'redactor' ? redact : undefined,
-    capture: failure === 'capture redactor' ? { redact } : capture,
-  });
-  tools.startCapture();
-  const requestId = MessageId('capture-failure');
-  client.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    requestId,
-  );
-  client.diagnostics.emitDiagnostic(
-    'client.command.started',
-    { command: 'set_layout' },
-    undefined,
-    requestId,
-  );
-  client.diagnostics.emitDiagnostic(
-    'client.response.applied',
-    {},
-    () => {
-      if (failure === 'reader') throw new Error('Content unavailable');
-      return { result: 'private-capture-content' };
-    },
-    requestId,
-  );
-  const state = tools.getSnapshot();
-  const request = groupRequests(panelEvents(state.requestActivity)).find(
-    (request) => request.requestId === requestId,
-  );
-  expect(request?.status).toBe('applied');
-  expect(
-    state.activity.some(
-      (event) =>
-        event.requestId === requestId &&
-        event.kind === 'client.response.applied',
-    ),
-  ).toBe(true);
-  const exported = tools.exportCapture();
-  expect(exported).not.toContain('private-capture-content');
-  const recording = recordingEvidence(JSON.parse(exported));
-  const recorded = recording.events.filter(
-    (event) => event.requestId === requestId,
-  );
-  expect(recorded.map((event) => event.kind)).toEqual([
-    'client.request.started',
-    'client.command.started',
-    'client.response.applied',
-  ]);
-  expect(recorded.at(-1)?.content).toBeUndefined();
-  expect(groupRequests(recording.events)[0]?.status).toBe('applied');
-  tools.capture.addRedactor((value) => {
-    if (
-      value !== null &&
-      typeof value === 'object' &&
-      'requestId' in value &&
-      value.requestId === 'blocked-capture'
-    )
-      throw new Error('Metadata is not permitted');
-    return value;
-  });
-  client.diagnostics.emitDiagnostic(
-    'client.response.applied',
-    {},
-    () => ({ value: 'private-capture-content' }),
-    MessageId('blocked-capture'),
-  );
-  const protectedRecording = recordingEvidence(
-    JSON.parse(tools.exportCapture()),
-  );
-  expect(
-    protectedRecording.events.some(
-      (event) => event.requestId === 'blocked-capture',
-    ),
-  ).toBe(false);
-});
+] as const)(
+  'content %s failures cannot hide a recorded request outcome',
+  (failure) => {
+    const redact = (value: unknown) => {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        ('layoutSnapshot' in value || 'content' in value)
+      )
+        throw new Error('Content redaction unavailable');
+      return value;
+    };
+    const capture =
+      failure === 'composed redactor' ? new DiagnosticCapture() : undefined;
+    capture?.addRedactor(redact);
+    const { tools, client } = setup({
+      redact: failure === 'redactor' ? redact : undefined,
+      capture: failure === 'capture redactor' ? { redact } : capture,
+    });
+    tools.startCapture();
+    const requestId = MessageId('capture-failure');
+    client.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      requestId,
+    );
+    client.diagnostics.emitDiagnostic(
+      'client.command.started',
+      { command: 'set_layout' },
+      undefined,
+      requestId,
+    );
+    client.diagnostics.emitDiagnostic(
+      'client.response.applied',
+      {},
+      () => {
+        if (failure === 'reader') throw new Error('Content unavailable');
+        return { result: 'private-capture-content' };
+      },
+      requestId,
+    );
+    const state = tools.getSnapshot();
+    const request = groupRequests(panelEvents(state.requestActivity)).find(
+      (request) => request.requestId === requestId,
+    );
+    expect(request?.status).toBe('applied');
+    expect(
+      state.activity.some(
+        (event) =>
+          event.requestId === requestId &&
+          event.kind === 'client.response.applied',
+      ),
+    ).toBe(true);
+    const exported = tools.exportCapture();
+    expect(exported).not.toContain('private-capture-content');
+    const recording = recordingEvidence(JSON.parse(exported));
+    const recorded = recording.events.filter(
+      (event) => event.requestId === requestId,
+    );
+    expect(recorded.map((event) => event.kind)).toEqual([
+      'client.request.started',
+      'client.command.started',
+      'client.response.applied',
+    ]);
+    expect(recorded.at(-1)?.content).toBeUndefined();
+    expect(groupRequests(recording.events)[0]?.status).toBe('applied');
+    tools.capture.addRedactor((value) => {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        'requestId' in value &&
+        value.requestId === 'blocked-capture'
+      )
+        throw new Error('Metadata is not permitted');
+      return value;
+    });
+    client.diagnostics.emitDiagnostic(
+      'client.response.applied',
+      {},
+      () => ({ value: 'private-capture-content' }),
+      MessageId('blocked-capture'),
+    );
+    const protectedRecording = recordingEvidence(
+      JSON.parse(tools.exportCapture()),
+    );
+    expect(
+      protectedRecording.events.some(
+        (event) => event.requestId === 'blocked-capture',
+      ),
+    ).toBe(false);
+  },
+);
 
-test.each([
-  false,
-  true,
-])('capture limits leave missing completion evidence unavailable (content rejected: %s)', async (rejectContent) => {
-  const { tools, client } = setup({
-    capture: {
-      maxEvents: 5,
-      redact: rejectContent
-        ? (value) => {
-            if (
-              value !== null &&
-              typeof value === 'object' &&
-              'content' in value
-            )
-              throw new Error('Content is not permitted');
-            return value;
-          }
-        : undefined,
-    },
-  });
-  await client.connect();
-  tools.startCapture();
-  client.diagnostics.emitDiagnostic(
-    'client.command.started',
-    { command: 'set_layout' },
-    undefined,
-    'bounded',
-  );
-  for (let i = 0; i < 10; i++) client.diagnostics.emitDiagnostic('app.noise');
-  client.diagnostics.emitDiagnostic(
-    'client.response.applied',
-    {},
-    undefined,
-    'bounded',
-  );
-  tools.stopCapture();
-  const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
-  expect(evidence.events.length).toBe(5);
-  expect(evidence.dropped).toBeGreaterThan(0);
-  const request = groupRequests(evidence.events).find(
-    (request) => request.requestId === 'bounded',
-  );
-  expect(request).toBeDefined();
-  expect(
-    request!.events.some((event) => event.kind === 'client.response.applied'),
-  ).toBe(false);
-  expect(requestLayoutComparison(request!, evidence.events).availability).toBe(
-    'unavailable',
-  );
-});
+test.each([false, true])(
+  'capture limits leave missing completion evidence unavailable (content rejected: %s)',
+  async (rejectContent) => {
+    const { tools, client } = setup({
+      capture: {
+        maxEvents: 5,
+        redact: rejectContent
+          ? (value) => {
+              if (
+                value !== null &&
+                typeof value === 'object' &&
+                'content' in value
+              )
+                throw new Error('Content is not permitted');
+              return value;
+            }
+          : undefined,
+      },
+    });
+    await client.connect();
+    tools.startCapture();
+    client.diagnostics.emitDiagnostic(
+      'client.command.started',
+      { command: 'set_layout' },
+      undefined,
+      'bounded',
+    );
+    for (let i = 0; i < 10; i++) client.diagnostics.emitDiagnostic('app.noise');
+    client.diagnostics.emitDiagnostic(
+      'client.response.applied',
+      {},
+      undefined,
+      'bounded',
+    );
+    tools.stopCapture();
+    const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
+    expect(evidence.events.length).toBe(5);
+    expect(evidence.dropped).toBeGreaterThan(0);
+    const request = groupRequests(evidence.events).find(
+      (request) => request.requestId === 'bounded',
+    );
+    expect(request).toBeDefined();
+    expect(
+      request!.events.some((event) => event.kind === 'client.response.applied'),
+    ).toBe(false);
+    expect(
+      requestLayoutComparison(request!, evidence.events).availability,
+    ).toBe('unavailable');
+  },
+);
 
 test('rejected layouts compare the actual surviving Chart instead of the proposed layout', async () => {
   const { tools, client } = setup(
@@ -492,29 +497,29 @@ function setup(
   return { tools, client, detach };
 }
 
-test.each([
-  'projected',
-  'removed',
-] as const)('application redaction removes retained session identity after detachment: %s', (policy) => {
-  const { tools, detach } = setup({
-    redact:
-      policy === 'removed'
-        ? () => null
-        : (value) =>
-            JSON.parse(
-              JSON.stringify(value).replaceAll(
-                'diagnostic-session',
-                '[REDACTED]',
+test.each(['projected', 'removed'] as const)(
+  'application redaction removes retained session identity after detachment: %s',
+  (policy) => {
+    const { tools, detach } = setup({
+      redact:
+        policy === 'removed'
+          ? () => null
+          : (value) =>
+              JSON.parse(
+                JSON.stringify(value).replaceAll(
+                  'diagnostic-session',
+                  '[REDACTED]',
+                ),
               ),
-            ),
-  });
-  expect(tools.getSnapshot().sessions[0]?.sessionId).toBe('[REDACTED]');
-  detach();
-  expect(tools.getSnapshot().sessions[0]?.active).toBe(false);
-  expect(JSON.stringify(tools.getSnapshot())).not.toContain(
-    'diagnostic-session',
-  );
-});
+    });
+    expect(tools.getSnapshot().sessions[0]?.sessionId).toBe('[REDACTED]');
+    detach();
+    expect(tools.getSnapshot().sessions[0]?.active).toBe(false);
+    expect(JSON.stringify(tools.getSnapshot())).not.toContain(
+      'diagnostic-session',
+    );
+  },
+);
 
 test('observes startup and correlates applied layout and successful Actions without recording intent content', async () => {
   const { tools, client } = setup();
@@ -728,42 +733,43 @@ test('disabled tools never attach or evaluate lazy content', () => {
   expect(tools.capture.getSnapshot().active).toBe(false);
 });
 
-test.each([
-  1, 2,
-])('legacy provider wire recordings remain read-only after producer migration: schema %s', (version) => {
-  const tools = createDevtools();
-  const capture = {
-    schemaVersion: 1,
-    active: false,
-    metadata: {},
-    events: [
-      {
-        kind: 'live_wire',
-        at: 1,
-        direction: 'received',
-        type: 'response.event',
-        peerId: 'legacy-peer',
-        delegationId: 'legacy-delegation',
-      },
-    ],
-  };
-  tools.importCapture(
-    JSON.stringify(version === 1 ? capture : { schemaVersion: 2, capture }),
-  );
-  expect(tools.getSnapshot().imported).toMatchObject({
-    capture: {
+test.each([1, 2])(
+  'legacy provider wire recordings remain read-only after producer migration: schema %s',
+  (version) => {
+    const tools = createDevtools();
+    const capture = {
+      schemaVersion: 1,
+      active: false,
+      metadata: {},
       events: [
         {
           kind: 'live_wire',
+          at: 1,
+          direction: 'received',
+          type: 'response.event',
           peerId: 'legacy-peer',
           delegationId: 'legacy-delegation',
         },
       ],
-    },
-  });
-  expect(tools.capture.getSnapshot().active).toBe(false);
-  tools.dispose();
-});
+    };
+    tools.importCapture(
+      JSON.stringify(version === 1 ? capture : { schemaVersion: 2, capture }),
+    );
+    expect(tools.getSnapshot().imported).toMatchObject({
+      capture: {
+        events: [
+          {
+            kind: 'live_wire',
+            peerId: 'legacy-peer',
+            delegationId: 'legacy-delegation',
+          },
+        ],
+      },
+    });
+    expect(tools.capture.getSnapshot().active).toBe(false);
+    tools.dispose();
+  },
+);
 
 test('terminal provider generations retain separate connection evidence', () => {
   const { tools, client } = setup();
@@ -810,26 +816,27 @@ test.each([
       metadata: { component: 'calendar', selection: { view: 'week' } },
     },
   },
-])('custom capture fields reopen without being mistaken for diagnostic envelopes: $name', ({
-  fields,
-}) => {
-  const tools = createDevtools();
-  releases.push(() => tools.dispose());
-  tools.startCapture();
-  tools.capture.record('app.event', fields);
-  tools.stopCapture();
+])(
+  'custom capture fields reopen without being mistaken for diagnostic envelopes: $name',
+  ({ fields }) => {
+    const tools = createDevtools();
+    releases.push(() => tools.dispose());
+    tools.startCapture();
+    tools.capture.record('app.event', fields);
+    tools.stopCapture();
 
-  for (const exported of [tools.exportCapture(), tools.capture.export()]) {
-    tools.importCapture(exported);
-    const imported = tools.getSnapshot().imported as {
-      capture: { events: unknown[] };
-    };
-    expect(imported.capture.events).toContainEqual(
-      expect.objectContaining({ kind: 'app.event', ...fields }),
-    );
-    expect(tools.capture.getSnapshot().active).toBe(false);
-  }
-});
+    for (const exported of [tools.exportCapture(), tools.capture.export()]) {
+      tools.importCapture(exported);
+      const imported = tools.getSnapshot().imported as {
+        capture: { events: unknown[] };
+      };
+      expect(imported.capture.events).toContainEqual(
+        expect.objectContaining({ kind: 'app.event', ...fields }),
+      );
+      expect(tools.capture.getSnapshot().active).toBe(false);
+    }
+  },
+);
 
 test('invalid event containers cannot replace an imported custom recording', () => {
   const tools = createDevtools();
@@ -1027,52 +1034,52 @@ test('capture forwarding follows both transport changes and new Provider lifetim
   expect(content.at(-1)).toBe(false);
 });
 
-test.each([
-  'all',
-  'selected',
-] as const)('one collector cannot revoke another recording permission: %s scope', (scope) => {
-  let contentEnabled = false;
-  const conn = Object.assign(connector(), {
-    subscribeDiagnostics: () => () => {},
-    setDiagnosticContent: (enabled: boolean) => {
-      contentEnabled = enabled;
-    },
-  });
-  const { tools: first, client } = setup({}, conn);
-  const second = createDevtools();
-  releases.push(() => second.dispose());
-  const start = (tools: ReturnType<typeof createDevtools>) =>
-    tools.startCapture(
-      scope === 'selected'
-        ? tools.getSnapshot().sessions.at(-1)?.id
-        : undefined,
-    );
-  start(first);
-  expect(contentEnabled).toBe(true);
-  const detachSecond = second.attach(client);
-  releases.push(detachSecond);
-  expect(contentEnabled).toBe(true);
-  start(second);
-  second.stopCapture();
-  expect(first.capture.getSnapshot().active).toBe(true);
-  expect(contentEnabled).toBe(true);
-  start(second);
-  first.stopCapture();
-  expect(second.capture.getSnapshot().active).toBe(true);
-  expect(contentEnabled).toBe(true);
-  start(first);
-  detachSecond();
-  expect(contentEnabled).toBe(true);
-  releases.push(second.attach(client));
-  first.stopCapture();
-  expect(contentEnabled).toBe(scope === 'all');
-  start(first);
-  start(second);
-  second.dispose();
-  expect(contentEnabled).toBe(true);
-  first.stopCapture();
-  expect(contentEnabled).toBe(false);
-});
+test.each(['all', 'selected'] as const)(
+  'one collector cannot revoke another recording permission: %s scope',
+  (scope) => {
+    let contentEnabled = false;
+    const conn = Object.assign(connector(), {
+      subscribeDiagnostics: () => () => {},
+      setDiagnosticContent: (enabled: boolean) => {
+        contentEnabled = enabled;
+      },
+    });
+    const { tools: first, client } = setup({}, conn);
+    const second = createDevtools();
+    releases.push(() => second.dispose());
+    const start = (tools: ReturnType<typeof createDevtools>) =>
+      tools.startCapture(
+        scope === 'selected'
+          ? tools.getSnapshot().sessions.at(-1)?.id
+          : undefined,
+      );
+    start(first);
+    expect(contentEnabled).toBe(true);
+    const detachSecond = second.attach(client);
+    releases.push(detachSecond);
+    expect(contentEnabled).toBe(true);
+    start(second);
+    second.stopCapture();
+    expect(first.capture.getSnapshot().active).toBe(true);
+    expect(contentEnabled).toBe(true);
+    start(second);
+    first.stopCapture();
+    expect(second.capture.getSnapshot().active).toBe(true);
+    expect(contentEnabled).toBe(true);
+    start(first);
+    detachSecond();
+    expect(contentEnabled).toBe(true);
+    releases.push(second.attach(client));
+    first.stopCapture();
+    expect(contentEnabled).toBe(scope === 'all');
+    start(first);
+    start(second);
+    second.dispose();
+    expect(contentEnabled).toBe(true);
+    first.stopCapture();
+    expect(contentEnabled).toBe(false);
+  },
+);
 
 test('stopping recording during control delivery cannot restore superseded forwarding', () => {
   let contentEnabled = false;
@@ -1110,81 +1117,84 @@ test('stopping recording during control delivery cannot restore superseded forwa
   expect(replayed).toEqual([false]);
 });
 
-test.each([
-  'all',
-  'selected',
-] as const)('a reentrant recording stop revokes permission on every attached client: %s', (scope) => {
-  const forwarding = [false, false];
-  const conn = (index: number) =>
-    Object.assign(connector(), {
-      subscribeDiagnostics: () => () => {},
-      setDiagnosticContent: (enabled: boolean) => {
-        forwarding[index] = enabled;
-      },
-    });
-  const { tools, client } = setup({}, conn(0));
-  const other = new Orchestrator(conn(1));
-  releases.push(() => other.dispose(), tools.attach(other));
-  releases.push(
-    client.diagnostics.observeControls((event) => {
-      if (
-        event.kind === 'devtools.capture.changed' &&
-        event.metadata.enabled === true
-      )
-        tools.stopCapture();
-    }),
-  );
-  tools.startCapture(
-    scope === 'selected' ? tools.getSnapshot().sessions[0]?.id : undefined,
-  );
-  expect(tools.capture.getSnapshot().active).toBe(false);
-  expect(forwarding).toEqual([false, false]);
-});
+test.each(['all', 'selected'] as const)(
+  'a reentrant recording stop revokes permission on every attached client: %s',
+  (scope) => {
+    const forwarding = [false, false];
+    const conn = (index: number) =>
+      Object.assign(connector(), {
+        subscribeDiagnostics: () => () => {},
+        setDiagnosticContent: (enabled: boolean) => {
+          forwarding[index] = enabled;
+        },
+      });
+    const { tools, client } = setup({}, conn(0));
+    const other = new Orchestrator(conn(1));
+    releases.push(() => other.dispose(), tools.attach(other));
+    releases.push(
+      client.diagnostics.observeControls((event) => {
+        if (
+          event.kind === 'devtools.capture.changed' &&
+          event.metadata.enabled === true
+        )
+          tools.stopCapture();
+      }),
+    );
+    tools.startCapture(
+      scope === 'selected' ? tools.getSnapshot().sessions[0]?.id : undefined,
+    );
+    expect(tools.capture.getSnapshot().active).toBe(false);
+    expect(forwarding).toEqual([false, false]);
+  },
+);
 
 test.each([
   ['selected', 'existing'],
   ['selected', 'later'],
   ['all', 'existing'],
   ['all', 'later'],
-] as const)('detaching a %s capture revokes content permission for %s observers', (scope, observer) => {
-  let contentEnabled = false;
-  const conn = Object.assign(connector(), {
-    subscribeDiagnostics: () => () => {},
-    setDiagnosticContent: (enabled: boolean) => {
-      contentEnabled = enabled;
-    },
-  });
-  const { tools, client, detach } = setup({}, conn);
-  const other = new Orchestrator(connector());
-  releases.push(() => other.dispose(), tools.attach(other));
-  if (observer === 'existing')
-    releases.push(client.diagnostics.subscribe(() => {}));
-  const id = tools.getSnapshot().sessions[0]?.id;
-  expect(id).toBeDefined();
-  tools.startCapture(scope === 'selected' ? id : undefined);
-  expect(contentEnabled).toBe(true);
+] as const)(
+  'detaching a %s capture revokes content permission for %s observers',
+  (scope, observer) => {
+    let contentEnabled = false;
+    const conn = Object.assign(connector(), {
+      subscribeDiagnostics: () => () => {},
+      setDiagnosticContent: (enabled: boolean) => {
+        contentEnabled = enabled;
+      },
+    });
+    const { tools, client, detach } = setup({}, conn);
+    const other = new Orchestrator(connector());
+    releases.push(() => other.dispose(), tools.attach(other));
+    if (observer === 'existing')
+      releases.push(client.diagnostics.subscribe(() => {}));
+    const id = tools.getSnapshot().sessions[0]?.id;
+    expect(id).toBeDefined();
+    tools.startCapture(scope === 'selected' ? id : undefined);
+    expect(contentEnabled).toBe(true);
 
-  detach();
-  if (observer === 'later')
-    releases.push(client.diagnostics.subscribe(() => {}));
+    detach();
+    if (observer === 'later')
+      releases.push(client.diagnostics.subscribe(() => {}));
 
-  expect(contentEnabled).toBe(false);
-  const replayed: boolean[] = [];
-  releases.push(
-    client.diagnostics.observeControls((event) => {
-      if (event.kind === 'devtools.capture.changed')
-        replayed.push(event.metadata.enabled === true);
-    }),
-  );
-  expect(replayed.at(-1)).toBe(false);
-  expect(tools.capture.getSnapshot().active).toBe(scope === 'all');
-  other.diagnostics.emit('client.remaining');
-  expect(
-    JSON.parse(tools.exportCapture()).capture.events.some(
-      (event: { kind: string }) => event.kind === 'client.remaining',
-    ),
-  ).toBe(scope === 'all');
-});
+    expect(contentEnabled).toBe(false);
+    const replayed: boolean[] = [];
+    releases.push(
+      client.diagnostics.observeControls((event) => {
+        if (event.kind === 'devtools.capture.changed')
+          replayed.push(event.metadata.enabled === true);
+      }),
+    );
+    expect(replayed.at(-1)).toBe(false);
+    expect(tools.capture.getSnapshot().active).toBe(scope === 'all');
+    other.diagnostics.emit('client.remaining');
+    expect(
+      JSON.parse(tools.exportCapture()).capture.events.some(
+        (event: { kind: string }) => event.kind === 'client.remaining',
+      ),
+    ).toBe(scope === 'all');
+  },
+);
 
 test('optional connector failures cannot abort replacement or duplicate later observations', async () => {
   const broken = Object.assign(connector(), {

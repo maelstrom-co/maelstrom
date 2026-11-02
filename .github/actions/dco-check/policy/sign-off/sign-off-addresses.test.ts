@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { signOffAddresses } from './sign-off-addresses.ts';
 
 describe('signOffAddresses', () => {

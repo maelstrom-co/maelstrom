@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
 import { commit } from '../fixtures/commit.ts';
 import type { Verdict } from '../policy/verdict.ts';
 import { CONTRIBUTING_DCO_URL } from './contributing-dco-url.ts';
@@ -41,26 +42,29 @@ describe('failBody', () => {
     ['Markdown emphasis', 'Ada **Lovelace** _the_ [first](https://x)'],
     ['an HTML tag', 'Ada <img src="https://attacker.example/x.png">'],
     ['a backslash before a pipe', 'Ada \\| Lovelace'],
-  ])('renders %s in an identity as inert text on a single row', (_label, authorName) => {
-    const body = renderComment(
-      [
-        {
-          commit: commit({ authorName }),
-          state: 'violation',
-          reason: 'missing-sign-off',
-        },
-      ],
-      false,
-    );
-    const rows = tableRows(body);
-    expect(rows).toHaveLength(1);
-    const cells = cellsOf(rows[0] ?? '');
-    expect(cells).toHaveLength(3);
-    // Exactly one code span: the two delimiters and nothing that could close
-    // it early and let the rest of the cell render as Markdown.
-    expect(backtickCount(cells[1] ?? '')).toBe(2);
-    expect(cells[1]).toContain('ada@example.com');
-  });
+  ])(
+    'renders %s in an identity as inert text on a single row',
+    (_label, authorName) => {
+      const body = renderComment(
+        [
+          {
+            commit: commit({ authorName }),
+            state: 'violation',
+            reason: 'missing-sign-off',
+          },
+        ],
+        false,
+      );
+      const rows = tableRows(body);
+      expect(rows).toHaveLength(1);
+      const cells = cellsOf(rows[0] ?? '');
+      expect(cells).toHaveLength(3);
+      // Exactly one code span: the two delimiters and nothing that could close
+      // it early and let the rest of the cell render as Markdown.
+      expect(backtickCount(cells[1] ?? '')).toBe(2);
+      expect(cells[1]).toContain('ada@example.com');
+    },
+  );
 
   it('renders a crafted sign-off address as inert text on a single row', () => {
     const body = renderComment(

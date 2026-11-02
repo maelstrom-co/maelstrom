@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import { buildSystemPrompt, llmPlanner } from '@maelstrom-co/planner-llm';
 import {
@@ -10,6 +11,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   assistantIdentityExpectationsSchema,
   assistantIdentityInputsSchema,

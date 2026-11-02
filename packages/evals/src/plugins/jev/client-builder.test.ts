@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { AskCall, Evaluation } from '@maelstrom-co/planner-jev/_internal';
 import {
   makeContext,
@@ -8,6 +9,7 @@ import {
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
 import { isOk } from '@maelstrom-co/protocol';
+
 import { typesafeClientBuilder } from './client-builder.js';
 import { typesafeSettings } from './typesafe-settings.js';
 

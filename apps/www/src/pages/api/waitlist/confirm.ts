@@ -1,8 +1,9 @@
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
 import type { APIRoute, AstroCookies } from 'astro';
+import { env } from 'cloudflare:workers';
 import { Effect, Layer } from 'effect';
+
 import { decodeConfirmRequest } from '../../../server/confirm-request';
 import { ConfirmWorkflow } from '../../../server/confirm-workflow';
 import { runOrErrorResponse } from '../../../server/run-or-error';

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { COMMENT_MARKER } from '../render/comment-marker.ts';
 import { markerCommentId } from './marker-comment-id.ts';
 

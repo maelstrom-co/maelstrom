@@ -1,6 +1,8 @@
 import { fileURLToPath } from 'node:url';
+
 import { createServer } from 'vite';
 import { expect, it, vi } from 'vitest';
+
 import { localLiveDevPlugin } from '../../local-live-dev-plugin';
 
 const password = 'fixture-local-password-not-a-provider-key';

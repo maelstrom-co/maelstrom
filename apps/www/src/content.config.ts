@@ -1,8 +1,10 @@
-import { defineCollection } from 'astro:content';
 import { glob as globFiles, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { glob } from 'astro/loaders';
+import { defineCollection } from 'astro:content';
+
 import { blogSchema, blogSlug } from './lib/blog';
 import { blogLoader } from './lib/blog-loader';
 

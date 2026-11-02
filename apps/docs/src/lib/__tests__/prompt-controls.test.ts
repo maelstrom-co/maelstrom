@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { JSDOM } from 'jsdom';
+
 import {
   copyPromptBody,
   downloadPromptBody,

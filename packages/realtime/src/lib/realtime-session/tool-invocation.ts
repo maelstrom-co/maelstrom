@@ -1,5 +1,6 @@
 import type { MessageId } from '@maelstrom-co/protocol';
 import type { OperationalOutcome } from '@maelstrom-co/telemetry/integration';
+
 import type { ToolCallEvent } from './session-event-bus.js';
 
 export interface ToolInvocation {

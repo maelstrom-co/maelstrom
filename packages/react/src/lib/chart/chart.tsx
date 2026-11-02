@@ -151,7 +151,7 @@ export function createChart(
           easing: exiting.easing,
           fill: 'forwards',
         });
-      // oxlint-disable-next-line react/exhaustive-deps -- deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
+        // oxlint-disable-next-line react/exhaustive-deps -- deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
       }, [Boolean(exiting)]);
 
       const vessel = useStore(orchestrator.vesselManager.store, (s) =>

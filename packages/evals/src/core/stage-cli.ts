@@ -1,7 +1,10 @@
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import { consoleLogger } from '@maelstrom-co/engine';
+
 import { assertEvaluationRuntime } from './ci-runtime.js';
+import { renderJudgeSummary, summarizeJudges } from './judge-result.js';
 import {
   type ConfigureJudge,
   type JudgeConfig,
@@ -9,8 +12,6 @@ import {
   resolveJudgeSelection,
   unconfiguredJudge,
 } from './judge.js';
-import { renderJudgeSummary, summarizeJudges } from './judge-result.js';
-
 import { type Suite, selectScenarios } from './scenarios.js';
 import {
   type RegisteredStageEval,

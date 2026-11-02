@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { resolveAssignee, type TeamMemberId } from './team';
 
 /** The value an assignee filter takes to show every team member's tasks again. */

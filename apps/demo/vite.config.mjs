@@ -10,7 +10,6 @@ import { defineConfig, loadEnv } from 'vite';
 import { browserVadAssetNamesForModel } from '../../packages/realtime-vad/src/vad-asset-manifest.ts';
 import { localLiveDevPlugin } from './local-live-dev-plugin.ts';
 import { HOSTED_VAD_MODEL } from './src/lib/hosted-vad-model.ts';
-
 import {
   createBuildPublicAssetsPlugin,
   createVadWebDevPlugin,

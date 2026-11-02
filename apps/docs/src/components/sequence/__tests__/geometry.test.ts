@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import {
   LANE_PADDING,
   LANE_WIDTH,
@@ -167,19 +168,22 @@ describe.each(MODELS)('the %s sequence', (_name, model) => {
 });
 
 describe('stageFor', () => {
-  it.each(
-    MODELS,
-  )('reserves room for every self-loop label in %s', (_name, model) => {
-    // The label origin fitting is not the invariant. A label anchored `start`
-    // grows rightwards from there, so the stage has to cover the whole reach —
-    // origin plus text — or SVG clips the words and reports nothing.
-    const stage = stageFor(model);
-    for (const step of model.steps) {
-      if (step.from !== step.to) continue;
-      const lane = model.participants.findIndex(({ id }) => id === step.from);
-      expect(laneX(lane) + SELF_LOOP_LABEL_REACH).toBeLessThanOrEqual(stage.w);
-    }
-  });
+  it.each(MODELS)(
+    'reserves room for every self-loop label in %s',
+    (_name, model) => {
+      // The label origin fitting is not the invariant. A label anchored `start`
+      // grows rightwards from there, so the stage has to cover the whole reach —
+      // origin plus text — or SVG clips the words and reports nothing.
+      const stage = stageFor(model);
+      for (const step of model.steps) {
+        if (step.from !== step.to) continue;
+        const lane = model.participants.findIndex(({ id }) => id === step.from);
+        expect(laneX(lane) + SELF_LOOP_LABEL_REACH).toBeLessThanOrEqual(
+          stage.w,
+        );
+      }
+    },
+  );
 
   it('widens the stage for a self-loop on the last participant', () => {
     const lastLane: SequenceModel = {

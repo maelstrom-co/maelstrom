@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+
 import {
   GetRequestSchema,
   ListAppsSchema,
@@ -17,6 +18,7 @@ import {
 import { McpServer } from '@modelcontextprotocol/server';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+
 import packageMetadata from '../package.json' with { type: 'json' };
 
 const packageVersion = packageMetadata.version;

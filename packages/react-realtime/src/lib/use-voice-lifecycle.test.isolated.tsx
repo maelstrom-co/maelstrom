@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import {
   type IntentSubmission,
   Orchestrator,
@@ -34,6 +35,7 @@ import type {
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { useState } from 'react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import {
   type MaelstromRealtimeOptions,
@@ -177,28 +179,28 @@ test('retained controls stop the replacement provider they connected', async () 
   expect(state.current().state).toBe('idle');
 });
 
-test.each([
-  false,
-  true,
-])('releases every session when the last consumer unmounts, reentrant: %s', async (reentrant) => {
-  const released: Provider[] = [];
-  let unmount = () => {};
-  const state = setup({
-    onSession:
-      (_session, { provider }) =>
-      () => {
-        released.push(provider);
-        if (reentrant && provider === 'first') unmount();
-      },
-  });
-  unmount = state.unmount;
+test.each([false, true])(
+  'releases every session when the last consumer unmounts, reentrant: %s',
+  async (reentrant) => {
+    const released: Provider[] = [];
+    let unmount = () => {};
+    const state = setup({
+      onSession:
+        (_session, { provider }) =>
+        () => {
+          released.push(provider);
+          if (reentrant && provider === 'first') unmount();
+        },
+    });
+    unmount = state.unmount;
 
-  await act(async () => state.current().switchProvider('second'));
-  if (!reentrant) state.unmount();
-  await act(async () => Promise.resolve());
+    await act(async () => state.current().switchProvider('second'));
+    if (!reentrant) state.unmount();
+    await act(async () => Promise.resolve());
 
-  expect(released).toEqual(['first', 'second']);
-});
+    expect(released).toEqual(['first', 'second']);
+  },
+);
 
 test('rejects a stored initial provider outside the configured list before attaching a session', () => {
   let attached = false;

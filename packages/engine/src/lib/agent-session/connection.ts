@@ -1,4 +1,5 @@
 import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
+
 import type { Logger } from '../logger.js';
 import { createInputAdmission } from './input-admission.js';
 import { createOrderedEmitter } from './ordered-emitter.js';

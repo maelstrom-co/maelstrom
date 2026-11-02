@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import {
   ActionName,
   ChartRequestMessage,
@@ -86,32 +87,33 @@ describe('application plan requirements', () => {
     expect(validatePlan).toHaveBeenCalledTimes(2);
   });
 
-  test.each([
-    false,
-    { max: 0 },
-    { max: 1 },
-  ] as const)('never ships unmet requirements with retry policy %p or records them as successful history', async (retry) => {
-    const planner = mock(async () => ok(buildGridResponse()));
-    const store = createInMemoryStore();
-    const engine = createEngine({
-      planner,
-      retry,
-      logger: silentLogger,
-      history: { store },
-      validatePlan: () => [missingView],
-    });
-    const message = gridMessage();
-    const result = await engine.handle(message);
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'validatePlan',
-      cause: [missingView],
-    });
-    expect(planner).toHaveBeenCalledTimes(retry === false ? 1 : retry.max + 1);
-    expect(await store.get(message.sessionId)).toEqual([]);
-  });
+  test.each([false, { max: 0 }, { max: 1 }] as const)(
+    'never ships unmet requirements with retry policy %p or records them as successful history',
+    async (retry) => {
+      const planner = mock(async () => ok(buildGridResponse()));
+      const store = createInMemoryStore();
+      const engine = createEngine({
+        planner,
+        retry,
+        logger: silentLogger,
+        history: { store },
+        validatePlan: () => [missingView],
+      });
+      const message = gridMessage();
+      const result = await engine.handle(message);
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'validatePlan',
+        cause: [missingView],
+      });
+      expect(planner).toHaveBeenCalledTimes(
+        retry === false ? 1 : retry.max + 1,
+      );
+      expect(await store.get(message.sessionId)).toEqual([]);
+    },
+  );
 
   test('checks the original request and healed layout with only accepted Actions', async () => {
     const validatePlan = mock<PlanValidator>(({ request, response }) => {
@@ -266,39 +268,38 @@ describe('application plan requirements', () => {
     }
   });
 
-  test.each([
-    'missing',
-    'blank',
-    'clarification',
-  ] as const)('keeps the delivery refusal for a %s reply without calling the application validator', async (outcome) => {
-    const { userMessage: _reply, ...replyless } = buildGridResponse();
-    const planner: ClarifyingPlanner = async () =>
-      ok(
-        outcome === 'clarification'
-          ? { type: 'needs_clarification', question: 'Which calendar?' }
-          : outcome === 'blank'
-            ? { ...replyless, userMessage: ' ' }
-            : replyless,
+  test.each(['missing', 'blank', 'clarification'] as const)(
+    'keeps the delivery refusal for a %s reply without calling the application validator',
+    async (outcome) => {
+      const { userMessage: _reply, ...replyless } = buildGridResponse();
+      const planner: ClarifyingPlanner = async () =>
+        ok(
+          outcome === 'clarification'
+            ? { type: 'needs_clarification', question: 'Which calendar?' }
+            : outcome === 'blank'
+              ? { ...replyless, userMessage: ' ' }
+              : replyless,
+        );
+      const validatePlan = mock<PlanValidator>(() => [missingView]);
+      const engine = createEngine({
+        planner,
+        validatePlan,
+        logger: silentLogger,
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('replyless-plan-validation'),
+          request: { ...makeGridRequest(), skipReply: true },
+        }),
       );
-    const validatePlan = mock<PlanValidator>(() => [missingView]);
-    const engine = createEngine({
-      planner,
-      validatePlan,
-      logger: silentLogger,
-    });
-    const result = await engine.handle(
-      ChartRequestMessage({
-        sessionId: SessionId('replyless-plan-validation'),
-        request: { ...makeGridRequest(), skipReply: true },
-      }),
-    );
 
-    expect(result).toMatchObject({
-      ok: false,
-      error: { _tag: 'ValidationError', field: 'skipReply' },
-    });
-    expect(validatePlan).not.toHaveBeenCalled();
-  });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: 'ValidationError', field: 'skipReply' },
+      });
+      expect(validatePlan).not.toHaveBeenCalled();
+    },
+  );
 
   test('still checks application requirements for a complete response to a skipReply request', async () => {
     const validatePlan = mock<PlanValidator>(() => [missingView]);
@@ -337,22 +338,25 @@ describe('application plan requirements', () => {
     async () => {
       throw new Error('async requirement failure');
     },
-  ])('fails closed without retrying a broken validator %#', async (validatePlan) => {
-    const planner = mock(async () => ok(buildGridResponse()));
-    const engine = createEngine({
-      planner,
-      logger: silentLogger,
-      validatePlan: invalid<PlanValidator>(validatePlan),
-    });
-    const result = await engine.handle(gridMessage());
-    expect(isErr(result)).toBe(true);
-    if (isErr(result))
-      expect(result.error).toMatchObject({
-        _tag: 'ValidationError',
-        field: 'validatePlan',
+  ])(
+    'fails closed without retrying a broken validator %#',
+    async (validatePlan) => {
+      const planner = mock(async () => ok(buildGridResponse()));
+      const engine = createEngine({
+        planner,
+        logger: silentLogger,
+        validatePlan: invalid<PlanValidator>(validatePlan),
       });
-    expect(planner).toHaveBeenCalledTimes(1);
-  });
+      const result = await engine.handle(gridMessage());
+      expect(isErr(result)).toBe(true);
+      if (isErr(result))
+        expect(result.error).toMatchObject({
+          _tag: 'ValidationError',
+          field: 'validatePlan',
+        });
+      expect(planner).toHaveBeenCalledTimes(1);
+    },
+  );
 
   test('a rejected cross-realm validator cannot crash the host process', () => {
     const probe = `

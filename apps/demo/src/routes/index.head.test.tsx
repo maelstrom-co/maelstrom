@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { Route as RootRoute } from './__root';
 import { Route } from './index';
 

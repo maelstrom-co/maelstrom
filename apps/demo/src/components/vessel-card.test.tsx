@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+
 import { ACCENT_HEX } from '../lib/design-tokens';
 import { VesselCard } from './vessel-card';
 

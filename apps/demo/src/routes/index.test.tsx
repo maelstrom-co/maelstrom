@@ -23,6 +23,7 @@ import {
   it,
   vi,
 } from 'vitest';
+
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { DEMO_GREETING, m } from '../lib/maelstrom';

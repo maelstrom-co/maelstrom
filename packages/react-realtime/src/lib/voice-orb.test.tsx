@@ -1,9 +1,11 @@
-import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
 import { defineVessel } from '@maelstrom-co/protocol';
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
+import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 
 // Same fake as use-voice.test.tsx (Task 9) — the module boundary
@@ -304,4 +306,3 @@ describe('VoiceOrb', () => {
     expect(session.connectCalls).toBe(1);
   });
 });
-

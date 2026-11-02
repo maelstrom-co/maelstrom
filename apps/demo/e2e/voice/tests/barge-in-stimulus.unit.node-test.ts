@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+
 import {
   type BargeInStimulus,
   prepareBargeInStimulus,
@@ -52,7 +53,7 @@ function fixture(channels = 2, frames = 80) {
 }
 
 function data(wav: Buffer): Buffer {
-  for (let offset = 12; offset < wav.length; ) {
+  for (let offset = 12; offset < wav.length;) {
     const length = wav.readUInt32LE(offset + 4);
     if (wav.toString('latin1', offset, offset + 4) === 'data')
       return wav.subarray(offset + 8, offset + 8 + length);

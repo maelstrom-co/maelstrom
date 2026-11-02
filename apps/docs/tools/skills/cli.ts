@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+
 import { installSkillsBundle, removeSkillsBundle } from './lifecycle';
 
 const BUNDLE_URL = 'https://docs.maelstrom-ai.co/agents/skills/bundle.zip';

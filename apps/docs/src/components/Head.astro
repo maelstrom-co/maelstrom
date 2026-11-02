@@ -1,12 +1,15 @@
 ---
 import { Font } from 'astro:assets';
 import { ClientRouter } from 'astro:transitions';
+
 import PostHog from './PostHog.astro';
 
 const { head } = Astro.locals.starlightRoute;
 ---
 
-{head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+{head.map(({ tag: Tag, attrs, content }) => (
+  <Tag {...attrs} set:html={content} />
+))}
 {/* Runs before first paint so focus mode never flashes open. Inline scripts
     cannot import, so the key and attribute are repeated here; a unit test in
     sidebar-collapse.test.ts fails if they drift. */}
@@ -24,8 +27,8 @@ const { head } = Astro.locals.starlightRoute;
 <ClientRouter />
 <PostHog />
 <script>
-  import { initTocPath, cleanupTocPath } from '../lib/toc-path';
   import { initSidebarCollapse } from '../lib/sidebar-collapse';
+  import { initTocPath, cleanupTocPath } from '../lib/toc-path';
 
   initTocPath();
   initSidebarCollapse();

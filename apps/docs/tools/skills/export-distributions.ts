@@ -1,5 +1,6 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+
 import { createPublicDistributions } from './distribution';
 
 const [destinationArgument, revision] = process.argv.slice(2);

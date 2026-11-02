@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import {
   assertRegistryMetadata,
   collectRegistryMetadataProblems,

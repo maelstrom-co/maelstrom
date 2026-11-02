@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
+
 import ts from 'typescript';
 
 const root = resolve(import.meta.dir, '../../../..');

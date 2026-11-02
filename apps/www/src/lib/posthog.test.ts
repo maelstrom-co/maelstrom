@@ -1,4 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
+
 import { captureWebsiteEvent } from './posthog';
 
 const original = Object.getOwnPropertyDescriptor(globalThis, 'window');

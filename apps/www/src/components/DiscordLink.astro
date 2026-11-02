@@ -26,11 +26,13 @@ const { source, class: className } = Astro.props;
 <script>
   import { captureWebsiteEvent } from '../lib/posthog';
 
-  document.querySelectorAll<HTMLAnchorElement>('[data-discord-source]').forEach((link) => {
-    link.addEventListener('click', () => {
-      captureWebsiteEvent('community_discord_invite_clicked', {
-        source: link.dataset.discordSource ?? 'unknown',
+  document
+    .querySelectorAll<HTMLAnchorElement>('[data-discord-source]')
+    .forEach((link) => {
+      link.addEventListener('click', () => {
+        captureWebsiteEvent('community_discord_invite_clicked', {
+          source: link.dataset.discordSource ?? 'unknown',
+        });
       });
     });
-  });
 </script>

@@ -20,6 +20,10 @@ const variants = {
 };
 ---
 
-<Element href={href} type={href ? undefined : 'button'} class:list={[baseClasses, variants[variant], className]}>
+<Element
+  href={href}
+  type={href ? undefined : 'button'}
+  class:list={[baseClasses, variants[variant], className]}
+>
   <slot />
 </Element>

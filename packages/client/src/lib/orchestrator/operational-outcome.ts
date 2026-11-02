@@ -1,4 +1,5 @@
 import type { OperationalOutcome } from '@maelstrom-co/telemetry/integration';
+
 import {
   connectorFailureKind,
   WireEngineError,
