@@ -1202,6 +1202,7 @@ function typeOf(event: AgentEvent): AgentEvent['type'] {
 function strayAcknowledgement() {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('stray-change'),
     chart: makeTilingRequest(),

@@ -39,8 +39,8 @@ export interface OpenConnectionOptions {
    * with `ui_applied`. Defaults to 30,000. Must be a positive integer no
    * greater than 2,147,483,647, or opening the connection throws. When it
    * elapses, the run finishes with code `ui_ack_timeout`, every queued
-   * utterance finishes as `cancelled`, and the next utterance plans against
-   * its own Chart.
+   * utterance finishes as `cancelled`, and the connection permanently stops
+   * admission. A fresh Chart or late acknowledgement cannot resume it.
    */
   readonly acknowledgementTimeoutMs?: number;
 }
@@ -58,7 +58,10 @@ export interface OpenConnectionOptions {
  *   to continue.
  * - Each UI change waits for acknowledgement for at most
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
- *   default. A timeout fails the run and cancels queued work.
+ *   default. A timeout or `unknown` batch status fails the run, cancels queued
+ *   work, and permanently stops admission. New inputs receive `session_stopped`.
+ *   A known Layout refusal (`failed`) fails only that run and permits later work.
+ * Opening another connection does not reconcile prior effects or authorize replay.
  */
 export interface AgentConnection {
   /** Accepts untrusted input. Resolves after handling it, without waiting for a later UI acknowledgement. */

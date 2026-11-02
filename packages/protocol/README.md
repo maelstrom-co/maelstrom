@@ -193,19 +193,19 @@ The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentIn
 
 ```ts
 type AgentInput =
-  | { type: 'utterance'; version: 1; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
-  | { type: 'ui_applied'; version: 1; changeId: ChangeId; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
+  | { type: 'utterance'; version: 2; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
+  | { type: 'ui_applied'; version: 2; changeId: ChangeId; status: 'applied' | 'failed' | 'unknown'; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
 
 type AgentEvent =
-  | { type: 'placeholder'; version: 1; inputId: MessageId; text: string }
-  | { type: 'accepted'; version: 1; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
-  | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
-  | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
-  | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
-  | { type: 'started'; version: 1; runId: RunId }
-  | { type: 'tool_call'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string }
-  | { type: 'tool_result'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
+  | { type: 'placeholder'; version: 2; inputId: MessageId; text: string }
+  | { type: 'accepted'; version: 2; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
+  | { type: 'message'; version: 2; runId: RunId; turnId: string; delta: string }
+  | { type: 'ui_change'; version: 2; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
+  | { type: 'finished'; version: 2; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
+  | { type: 'error'; version: 2; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
+  | { type: 'started'; version: 2; runId: RunId }
+  | { type: 'tool_call'; version: 2; runId: RunId; turnId: string; callId: CallId; name: string }
+  | { type: 'tool_result'; version: 2; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
 ```
 
 `AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
@@ -215,9 +215,19 @@ const frame = AgentInputMessage({ sessionId, input: utterance });
 ws.send(encodeEnvelope(frame));
 ```
 
-Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is unstable until the client event applier ships, and version bumps apply from then on. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
+Every member carries `version` equal to `AGENT_WIRE_VERSION` (2). Decoders reject every other version as `invalid_envelope`. Version 2 requires whole-batch `status`: a version 1 peer could discard that field and mistake uncertainty for success. Both peers must use version 2. New optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump, including while the browser event applier is experimental. `CallId` is distinct from the provider's `ToolCallId`.
 
-UI-only utterances start a server-minted run without a model loop. Their event order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after a valid `ui_applied`. In `accepted`, only `noise` has a null `runId`. The acknowledgement must contain one outcome per Action, in Execution Plan order. Failed outcomes end the run without a successful reply.
+UI-only utterances start a server-minted run without a model loop. Their success order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after matching `ui_applied` evidence. In `accepted`, only `noise` has a null `runId`.
+
+| Batch status | Required evidence | Connection outcome |
+| --- | --- | --- |
+| `applied` | Layout and every Action succeeded; one `{ ok: true }` per Action, in Execution Plan order. | Successful reply and continuation. |
+| `failed` | Layout refusal before Actions; no Action outcomes. This includes zero-Action batches. | `ui_apply_failed`; later work may continue using the acknowledged Chart. |
+| `unknown` | Partial or uncertain effects; outcomes may be an incomplete prefix, including none. | `ui_apply_unknown`; queued work is cancelled and admission stops permanently. |
+
+The decoder rejects missing status, `applied` with any false outcome, and `failed` with any outcome. The connection checks outcome count against the delivered plan: excess evidence or incomplete `applied` evidence leaves the change pending. `unknown` remains unknown even when every reported Action succeeded. `chart` carries the observed Chart after settlement, including a refused or partial change. Positional evidence trusts the browser to match each Action; it does not independently verify Action identities or durable business effects.
+
+Acknowledgement timeout also stops the connection. Late evidence or a fresh Chart cannot reopen it. See [Streaming connections](../engine/README.md#streaming-connections) for timing and admission limits.
 
 Agent runs send `placeholder`, then `accepted` with disposition `agent` and a non-null `runId`. `started` follows once the loop actually begins, which may be after a queue wait. `started` is sent for agent runs only, never for `ui_only` runs. While the loop runs, `message` deltas stream per `turnId` and each `tool_call` is followed by one `tool_result` with the same `callId`. A non-null `runId` in `accepted` is followed by exactly one `finished` for that run. A `tool_call` names the tool but carries no arguments. A `tool_result` reports `ok` and a `summary` that is not whitespace-only and at most 200 characters, and a failed call describes its cause in `summary`.
 
@@ -310,7 +320,7 @@ interface ActionExecution {
 }
 ```
 
-`requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply (in order) before the layout transition. `userMessage` is the natural-language summary the LLM produced for end users; `rationale` is the LLM's internal reasoning, useful for logging and debugging.
+`requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists Action invocations to apply in order after the Layout. `userMessage` is the natural-language summary the LLM produced for end users; `rationale` is the LLM's internal reasoning, useful for logging and debugging.
 
 `MaelstromResponse` always carries `userMessage`, whatever the request's `skipReply` flag.
 

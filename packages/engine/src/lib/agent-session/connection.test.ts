@@ -82,6 +82,7 @@ test('a UI-only reply waits for its own applied acknowledgement before claiming 
   now = 30;
   await connection.send({
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: change.changeId,
     chart: utterance().chart,
@@ -208,6 +209,7 @@ test('a repeated input never repeats its layout or spends another Planner call',
   if (!change) throw new Error('Missing change');
   await connection.send({
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: change.changeId,
     chart: utterance().chart,
@@ -244,6 +246,7 @@ test('invalid input and an unknown acknowledgement report their correlation with
     type: 'ui_applied',
     version: AGENT_WIRE_VERSION,
     changeId: 'unknown-change',
+    status: 'applied',
     chart: utterance().chart,
     actionOutcomes: [],
   });
@@ -385,6 +388,7 @@ test('queued utterances plan against the acknowledged Chart rather than an earli
     version: AGENT_WIRE_VERSION,
     changeId: change.changeId,
     chart: acknowledged,
+    status: 'applied',
     actionOutcomes: [],
   });
   await second;
@@ -463,6 +467,7 @@ test('a run that fails during planning leaves later queued utterances on the ack
     });
     await connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: makeTilingRequest({
@@ -503,6 +508,7 @@ test('a missing or failed Action outcome cannot turn a UI change into a successf
   if (!change) throw new Error('Missing change');
   await connection.send({
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: change.changeId,
     chart,
@@ -520,20 +526,21 @@ test('a missing or failed Action outcome cannot turn a UI change into a successf
     changeId: change.changeId,
     chart,
     actionOutcomes: [{ ok: false, error: 'untrusted-error-content' }],
+    status: 'unknown',
   });
   expect(events.at(-1)).toMatchObject({
     type: 'finished',
     runId: change.runId,
     ok: false,
     reason: 'error',
-    code: 'ui_apply_failed',
+    code: 'ui_apply_unknown',
   });
   expect(events.some((event) => event.type === 'message')).toBe(false);
   expect(JSON.stringify(events)).not.toContain('untrusted-error-content');
   connection.close();
 });
 
-test('an unacknowledged change times out once and releases the connection instead of waiting without a bound', async () => {
+test('an unacknowledged change times out once instead of waiting without a bound', async () => {
   const time = install({ toFake: ['setTimeout', 'clearTimeout'] });
   const events: AgentEvent[] = [];
   const connection = createEngine({
@@ -648,6 +655,7 @@ test('a throwing observer cannot strand a run or change event order for other ob
     if (!change) throw new Error('Missing change');
     await connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: utterance().chart,
@@ -690,6 +698,7 @@ test('observer-triggered inputs and acknowledgements keep one event order and re
       sends.push(
         connection.send({
           type: 'ui_applied',
+          status: 'applied',
           version: AGENT_WIRE_VERSION,
           changeId: event.changeId,
           chart: utterance().chart,
@@ -860,6 +869,7 @@ test('run diagnostics describe acknowledgement and termination without publishin
     if (!change) throw new Error('Missing UI change');
     await connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: utterance().chart,
@@ -919,6 +929,7 @@ test('host debug logs follow the event stream with correlation fields only and s
     if (!change) throw new Error('Missing UI change');
     await connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: utterance().chart,
@@ -1034,7 +1045,7 @@ test('diagnostic observers cannot put another input ahead of the input being acc
   }
 });
 
-test('a timeout cancels queued work, and the next input uses a fresh Chart instead of the uncertain one', async () => {
+test('a lost acknowledgement stops queued work, and neither late evidence nor a fresh Chart permits replay', async () => {
   const time = install({ toFake: ['setTimeout', 'clearTimeout'] });
   const planned: unknown[] = [];
   const events: AgentEvent[] = [];
@@ -1061,6 +1072,8 @@ test('a timeout cancels queued work, and the next input uses a fresh Chart inste
   });
   try {
     await connection.send(utterance());
+    const change = events.find((event) => event.type === 'ui_change');
+    if (!change) throw new Error('Missing UI change');
     const queued = connection.send({
       ...utterance(),
       inputId: MessageId('queued'),
@@ -1074,6 +1087,19 @@ test('a timeout cancels queued work, and the next input uses a fresh Chart inste
     ).toEqual(['error', 'cancelled']);
     expect(planned).toHaveLength(1);
     await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      status: 'applied',
+      chart: utterance().chart,
+      actionOutcomes: [],
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      code: 'unknown_change',
+      changeId: change.changeId,
+    });
+    await connection.send({
       ...utterance(),
       inputId: MessageId('fresh'),
       chart: makeTilingRequest({
@@ -1081,7 +1107,12 @@ test('a timeout cancels queued work, and the next input uses a fresh Chart inste
         layout: { type: 'tiling', tree: [], instances: [] },
       }),
     });
-    expect(planned[1]).toEqual({ type: 'tiling', tree: [], instances: [] });
+    expect(planned).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      code: 'session_stopped',
+      inputId: 'fresh',
+    });
   } finally {
     connection.close();
     expect(time.countTimers()).toBe(0);
@@ -1142,6 +1173,7 @@ test('an acknowledgement repeated from the run it finishes is unknown and cannot
   const acknowledge = (changeId: ChangeId) =>
     connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId,
       chart: utterance().chart,
@@ -1175,7 +1207,7 @@ test('an acknowledgement repeated from the run it finishes is unknown and cannot
   }
 });
 
-test('an utterance sent while a timed-out run finishes is not cancelled with the queued work', async () => {
+test('a reentrant utterance cannot restart planning while a timed-out run finishes', async () => {
   const time = install({ toFake: ['setTimeout', 'clearTimeout'] });
   const planned: unknown[] = [];
   const events: AgentEvent[] = [];
@@ -1227,18 +1259,21 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
         .filter((event) => event.type === 'finished')
         .map((event) => event.reason),
     ).toEqual(['error', 'cancelled']);
-    expect(events.at(-1)).toMatchObject({
-      type: 'ui_change',
-      runId: retried?.runId,
-    });
-    expect(planned[1]).toEqual({ type: 'tiling', tree: [], instances: [] });
+    expect(retried).toBeUndefined();
+    expect(events.filter((event) => event.type === 'error')).toMatchObject([
+      { inputId: 'retry', code: 'session_stopped' },
+    ]);
+    expect(planned).toHaveLength(1);
   } finally {
     connection.close();
     time.uninstall();
   }
 });
 
-const expectErrorObserverSendIsPlanned = async (trigger: unknown) => {
+const expectErrorObserverSendIsPlanned = async (
+  trigger: unknown,
+  code: string,
+) => {
   const events: AgentEvent[] = [];
   let plans = 0;
   const connection = createEngine({
@@ -1268,6 +1303,7 @@ const expectErrorObserverSendIsPlanned = async (trigger: unknown) => {
     expect(followUp).toBeDefined();
     await followUp;
     expect(plans).toBe(1);
+    expect(events[0]).toMatchObject({ type: 'error', code });
     expect(events.map((event) => event.type).slice(0, 4)).toEqual([
       'error',
       'placeholder',
@@ -1280,21 +1316,28 @@ const expectErrorObserverSendIsPlanned = async (trigger: unknown) => {
 };
 
 test('an utterance sent from an unknown acknowledgement error observer is planned without further input', async () => {
-  await expectErrorObserverSendIsPlanned({
-    type: 'ui_applied',
-    version: AGENT_WIRE_VERSION,
-    changeId: 'unknown-change',
-    chart: utterance().chart,
-    actionOutcomes: [],
-  });
+  await expectErrorObserverSendIsPlanned(
+    {
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: 'unknown-change',
+      chart: utterance().chart,
+      status: 'applied',
+      actionOutcomes: [],
+    },
+    'unknown_change',
+  );
 });
 
 test('an utterance sent from an admission rejection error observer is planned without further input', async () => {
-  await expectErrorObserverSendIsPlanned({
-    type: 'unknown',
-    version: AGENT_WIRE_VERSION,
-    inputId: 'bad-input',
-  });
+  await expectErrorObserverSendIsPlanned(
+    {
+      type: 'unknown',
+      version: AGENT_WIRE_VERSION,
+      inputId: 'bad-input',
+    },
+    'invalid_input',
+  );
 });
 
 test('an utterance queued behind a run is planned when an error observer sends a corrected acknowledgement', async () => {
@@ -1338,6 +1381,7 @@ test('an utterance queued behind a run is planned when an error observer sends a
           version: AGENT_WIRE_VERSION,
           changeId: change.changeId,
           chart,
+          status: 'applied',
           actionOutcomes: [{ ok: true }],
         });
       }
@@ -1347,6 +1391,7 @@ test('an utterance queued behind a run is planned when an error observer sends a
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart,
+      status: 'applied',
       actionOutcomes: [],
     });
     await queued;
