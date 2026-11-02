@@ -139,7 +139,7 @@ describe('Tasklane journey from feedback to my priorities', () => {
     });
     await waitFor(() =>
       expect(acceptedDescription(updateVesselSpy, 'source-feedback')).toContain(
-        'layout engine',
+        'real layout tool',
       ),
     );
 
