@@ -94,23 +94,48 @@ export async function weatherBelowMapRequest(
   entry: WeatherBelowMapCase,
 ): Promise<ChartRequest> {
   const vessels = await demoCatalog();
-  return entry.start === 'map-open-weather-absent'
-    ? request(intent, {
-        vessels,
-        instances: ['calendar', 'tasks', 'map'],
-        variants: { calendar: 'day', tasks: 'list', map: 'overview' },
-        tree: ['V', 'ID:calendar-main', 'H', 'ID:map-main', 'ID:tasks-main'],
-        columns: entry.columns,
-        rows: entry.rows,
-      })
-    : request(intent, {
-        vessels,
-        instances: ['map', 'weather'],
-        variants: { map: 'overview', weather: 'current' },
-        tree: ['V', 'ID:map-main', 'ID:weather-main'],
-        columns: entry.columns,
-        rows: entry.rows,
-      });
+  const bare =
+    entry.start === 'map-open-weather-absent'
+      ? request(intent, {
+          vessels,
+          instances: ['calendar', 'tasks', 'map'],
+          variants: { calendar: 'day', tasks: 'list', map: 'overview' },
+          tree: ['V', 'ID:calendar-main', 'H', 'ID:map-main', 'ID:tasks-main'],
+          columns: entry.columns,
+          rows: entry.rows,
+        })
+      : request(intent, {
+          vessels,
+          instances: ['map', 'weather'],
+          variants: { map: 'overview', weather: 'current' },
+          tree: ['V', 'ID:map-main', 'ID:weather-main'],
+          columns: entry.columns,
+          rows: entry.rows,
+        });
+  // The demo connector appends browser calendar context to every typed intent.
+  const calendar = await demoCalendarContext();
+  return calendar.withBrowserCalendarContext(
+    ChartRequestMessage({
+      sessionId: SessionId('calendar-context'),
+      id: MessageId('calendar-context'),
+      request: bare,
+    }),
+    calendar.context,
+  ).request;
+}
+
+/** 0 for a dry run or a live run where every sample completed and passed, else 1. */
+export function weatherRunExitCode(
+  report: Awaited<ReturnType<typeof runWeatherBelowMapSmall>>,
+): 0 | 1 {
+  if (report.mode !== 'live') return 0;
+  return report.samples.every(
+    (sample) =>
+      sample.result.completeness === 'complete' &&
+      sample.result.evaluation === 'pass',
+  )
+    ? 0
+    : 1;
 }
 
 /**
@@ -233,6 +258,7 @@ export async function runWeatherBelowMapSmall(
     caseId,
     model,
     intent,
+    calendarContext: (await demoCalendarContext()).context,
     samples: options.samples,
     cases: cases.map((entry, index) => ({
       ...entry,
@@ -488,6 +514,46 @@ async function loadDemoCatalog(): Promise<Vessel[]> {
   return definitions;
 }
 
+interface CalendarContext {
+  readonly localDate: string;
+  readonly timeZone: string;
+  readonly observedAt: string;
+}
+
+async function demoCalendarContext(): Promise<{
+  context: CalendarContext;
+  withBrowserCalendarContext: (
+    message: ChartRequestMessage,
+    calendar: CalendarContext,
+  ) => ChartRequestMessage;
+}> {
+  const module: {
+    browserCalendarContext?: unknown;
+    withBrowserCalendarContext?: unknown;
+  } = await import(
+    new URL(
+      '../../../../apps/demo/src/lib/calendar-context.ts',
+      import.meta.url,
+    ).href
+  );
+  if (
+    typeof module.browserCalendarContext !== 'function' ||
+    typeof module.withBrowserCalendarContext !== 'function'
+  )
+    throw new Error('Demo calendar context changed; review this manual runner');
+  // A fixed instant keeps the prompt identical across runs.
+  return {
+    context: module.browserCalendarContext(
+      new Date('2026-11-02T12:00:00.000Z'),
+      'Europe/Warsaw',
+    ),
+    withBrowserCalendarContext: module.withBrowserCalendarContext as (
+      message: ChartRequestMessage,
+      calendar: CalendarContext,
+    ) => ChartRequestMessage,
+  };
+}
+
 async function demoSystemRules(): Promise<string> {
   const module: { PLAYGROUND_SYSTEM_RULES?: unknown } = await import(
     new URL(
@@ -530,6 +596,7 @@ if (import.meta.main) {
     console.log(JSON.stringify(report, null, 2));
     if (report.mode === 'live')
       console.error(`Generation dispatches: ${report.generationDispatches}`);
+    process.exitCode = weatherRunExitCode(report);
   } catch {
     // Do not emit raw SDK, environment, or parse errors to the terminal.
     console.error(

@@ -643,7 +643,10 @@ appended rules are `PLAYGROUND_SYSTEM_RULES`, imported at runtime from
 `apps/demo/src/server/planner-system-rules.ts`, and the catalog is the six current
 day-planner Vessel definitions (calendar, weather, journal, tasks, map, labs),
 loaded through fixed runtime import URLs and validated with `VesselSchema`. The
-identity is still the default Maelstrom identity.
+intent goes through the demo's own `withBrowserCalendarContext`, with a fixed
+calendar value (2026-11-02, `Europe/Warsaw`) recorded in the configuration, so the
+Planner sees the same intent text the demo sends. The identity is still the
+default Maelstrom identity.
 
 Three cases, each a fresh Engine and session with one dispatch per sample:
 
@@ -671,7 +674,8 @@ bun --no-env-file --conditions=@maelstrom-co/source packages/evals/src/manual/we
 
 The model pin, endpoint checks, 2,048-token bound, timeouts and the one-dispatch
 `manualTransport` gate are the same as D17. Total dispatches are printed to stderr.
-A failed sample is recorded as incomplete and is not replaced.
+A failed sample is recorded as incomplete and is not replaced. A live run exits
+nonzero when any sample is incomplete or fails.
 
 ### What gets scored
 

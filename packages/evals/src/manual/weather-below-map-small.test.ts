@@ -12,6 +12,7 @@ import {
   scoreWeatherBelowMapSmall,
   WEATHER_BELOW_MAP_CASES,
   weatherBelowMapRequest,
+  weatherRunExitCode,
 } from './weather-below-map-small.js';
 
 const env = { OPENAI_API_KEY: 'synthetic-weather-key' };
@@ -252,7 +253,10 @@ test('start states use the real demo catalog, the measured Chart sizes and the e
     tree: ['V', 'ID:calendar-main', 'H', 'ID:map-main', 'ID:tasks-main'],
   });
   expect(absent.context.updateReasons).toEqual([
-    { type: 'user_intent', intent },
+    {
+      type: 'user_intent',
+      intent: `${intent}\n\nBrowser calendar context for this request: {"localDate":"2026-11-02","timeZone":"Europe/Warsaw","observedAt":"2026-11-02T12:00:00.000Z"}`,
+    },
   ]);
   const mobile = await weatherBelowMapRequest(WEATHER_BELOW_MAP_CASES[2]);
   expect(mobile.context.chartDimensions).toEqual({ columns: 4, rows: 5 });
@@ -351,6 +355,51 @@ test('live run dispatches once per sample with a fresh session and summarises th
     trees: { 'H:7,1 ID:map-main ID:weather-main': 2 },
   });
   expect(JSON.stringify(report)).not.toContain(env.OPENAI_API_KEY);
+  expect(weatherRunExitCode(report)).toBe(0);
+});
+
+test('the Planner receives the demo calendar context with the intent', async () => {
+  const bodies: string[] = [];
+  const send = mock<ManualFetch>(async (input, init) => {
+    const request =
+      input instanceof Request
+        ? new Request(input, init)
+        : new Request(String(input), init);
+    bodies.push(await request.text());
+    return sse(candidate(['H:7,1', 'ID:map-main', 'ID:weather-main']));
+  });
+  const report = await runWeatherBelowMapSmall(
+    [...live, '--case', 'desktop-map-beside-weather'],
+    env,
+    send,
+  );
+  expect(report.configuration.calendarContext).toEqual({
+    localDate: '2026-11-02',
+    timeZone: 'Europe/Warsaw',
+    observedAt: '2026-11-02T12:00:00.000Z',
+  });
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toContain('Browser calendar context for this request: ');
+  expect(bodies[0]).toContain('Europe/Warsaw');
+});
+
+test('the exit code is nonzero when any live sample fails or is incomplete', async () => {
+  const failing = await runWeatherBelowMapSmall(
+    [...live, '--case', 'desktop-map-beside-weather'],
+    env,
+    mock<ManualFetch>(async () =>
+      sse(candidate(['V:6,1', 'ID:map-main', 'ID:weather-main'])),
+    ),
+  );
+  expect(weatherRunExitCode(failing)).toBe(1);
+  const incomplete = await runWeatherBelowMapSmall(
+    [...live, '--case', 'desktop-map-beside-weather'],
+    env,
+    mock<ManualFetch>(async () => new Response('limit', { status: 429 })),
+  );
+  expect(weatherRunExitCode(incomplete)).toBe(1);
+  const dryRun = await runWeatherBelowMapSmall([], env, mock<ManualFetch>());
+  expect(weatherRunExitCode(dryRun)).toBe(0);
 });
 
 test('a failed dispatch is recorded as incomplete and is not retried', async () => {

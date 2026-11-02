@@ -75,8 +75,13 @@ test('measures the Chart', async ({ page }, testInfo) => {
     body: JSON.stringify(measurement, null, 2),
     contentType: 'application/json',
   });
-  expect(dimensions.columns).toBeGreaterThan(0);
-  expect(dimensions.rows).toBeGreaterThan(0);
+  // packages/evals/src/manual/weather-below-map-small.ts scores live samples at
+  // these sizes. Update both together when the demo Chart changes.
+  expect(dimensions).toEqual(
+    testInfo.project.name === 'mobile'
+      ? { columns: 4, rows: 5 }
+      : { columns: 18, rows: 7 },
+  );
 });
 
 test("renders weather readably below the map at the Planner's share", async ({
