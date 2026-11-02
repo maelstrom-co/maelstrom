@@ -257,6 +257,12 @@ test('keeps the shop tab title separate from Dayline', async ({
 test('offers work-focused suggestions on the populated screen', async ({
   page,
 }, testInfo) => {
+  // Saving the first key auto-starts voice. Without a microphone it fails and
+  // shows its alert above the dock, which must not cover the chips.
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () =>
+      Promise.reject(new DOMException('No microphone', 'NotFoundError'));
+  });
   await page.goto('/');
   const apiKeyInput = page.getByRole('textbox', { name: 'API key' });
   if (!(await apiKeyInput.isVisible())) {
@@ -277,6 +283,9 @@ test('offers work-focused suggestions on the populated screen', async ({
   ).toBeVisible({ timeout: 15_000 });
   await expect(suggestions.getByRole('button')).toHaveCount(3);
   expect((await band.boundingBox())?.height).toBe(40);
+  await expect(
+    page.locator('.connected-input').getByRole('alert'),
+  ).toBeVisible();
 
   const note =
     "Works today: arranging Dayline's views and running its Actions, like adding tasks, writing journal entries and moving events. In development: a longer-running agent that plans multi-step work on its own.";

@@ -60,8 +60,8 @@ export function KeylessDemo({
         </div>
       </DemoHeader>
 
-      <main className="keyless-main">
-        <div className="keyless-intro">
+      <main className="keyless-main dayline-keyless-main">
+        <div className="keyless-intro dayline-intro">
           <p className="eyebrow">Sample app</p>
           <h2>Plan your day by saying what you need.</h2>
           <p>
