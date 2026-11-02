@@ -61,10 +61,21 @@ export type TaskFailure =
       readonly ok: false;
       readonly reason: 'not_in_priorities';
       readonly task: ProjectTask;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'stale_reference';
+      readonly query: string;
+      readonly task: ProjectTask;
     };
 
 export type TaskChange =
-  | { readonly ok: true; readonly changed: boolean; readonly task: ProjectTask }
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly task: ProjectTask;
+      readonly previous: ProjectTask;
+    }
   | TaskFailure;
 
 export type CreateTaskResult =
@@ -77,6 +88,7 @@ export type PriorityChange =
       readonly changed: boolean;
       readonly task: ProjectTask;
       readonly position: number;
+      readonly previousPosition: number | null;
     }
   | TaskFailure;
 
@@ -91,7 +103,8 @@ export type RemoveTaskResult =
 export type TaskReferenceMatch =
   | { readonly kind: 'found'; readonly task: ProjectTask }
   | { readonly kind: 'not_found' }
-  | { readonly kind: 'ambiguous'; readonly candidates: readonly string[] };
+  | { readonly kind: 'ambiguous'; readonly candidates: readonly string[] }
+  | { readonly kind: 'stale'; readonly task: ProjectTask };
 
 export interface CreateTaskInput {
   readonly title: string;
@@ -131,10 +144,15 @@ const INITIAL_STATE: ProjectTasksState = {
 };
 
 const TASK_ID = /^(TL-\d+)\b/i;
+const PUBLISHED_LABEL = /^TL-\d+ .+ \([^()]+\)$/i;
 const NO_PARENT_WORDS = new Set([NO_PARENT, '', 'no parent', 'top level']);
 const MAX_LISTED_TASKS = 30;
+const PUBLISHED_TITLE_LIMIT = 60;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what must be replaced.
+const UNSAFE_LABEL_CHARACTERS = /[|\x00-\x1f\x7f]+/g;
 
 let state: ProjectTasksState = INITIAL_STATE;
+let requestReferences: ReadonlySet<string> = new Set();
 
 const listeners = new Set<() => void>();
 
@@ -151,13 +169,27 @@ export function getProjectTasksSnapshot(): ProjectTasksState {
 }
 
 export function __resetProjectTasksStoreForTests(): void {
+  requestReferences = new Set();
   setState(INITIAL_STATE);
+}
+
+/**
+ * Remembers the labels published when a request starts. A plan may name a
+ * task by the label it was shown even after an earlier step in the same plan
+ * changed that task's status.
+ */
+export function rememberRequestReferences(): void {
+  requestReferences = new Set(
+    state.tasks.map((task) => taskReferenceLabel(task)),
+  );
 }
 
 /**
  * Resolves a task reference: an id (`TL-3`), a published label that starts
  * with the id, an exact title, or a fuzzy title. An id that matches no task
- * is not retried as a title.
+ * is not retried as a title. A label whose status is neither current nor
+ * remembered from the request start is stale, because the task changed after
+ * the label was published.
  */
 export function resolveTaskReference(
   reference: string,
@@ -169,7 +201,15 @@ export function resolveTaskReference(
   const id = TASK_ID.exec(query)?.[1]?.toUpperCase();
   if (id) {
     const task = tasks.find((candidate) => candidate.id === id);
-    return task ? { kind: 'found', task } : { kind: 'not_found' };
+    if (!task) return { kind: 'not_found' };
+    if (
+      PUBLISHED_LABEL.test(query) &&
+      query !== taskReferenceLabel(task) &&
+      !requestReferences.has(query)
+    ) {
+      return { kind: 'stale', task };
+    }
+    return { kind: 'found', task };
   }
 
   const wanted = normalizeTitle(query);
@@ -179,12 +219,24 @@ export function resolveTaskReference(
   return matchFrom(findByFuzzyTitle(wanted, tasks));
 }
 
-/** `TL-1 Update demo README (Alex, normal, not in priorities)` */
+/**
+ * `TL-1 Update demo README (Alex, normal, not in priorities)`. The title is
+ * cleaned of option delimiters and control characters and shortened, so the
+ * label is safe as an enum value.
+ */
 export function taskReferenceLabel(
   task: ProjectTask,
   priorities: readonly string[] = state.myPriorities,
 ): string {
-  return `${task.id} ${task.title} (${assigneeLabel(task.assigneeId)}, ${task.urgency}, ${priorityLabel(task.id, priorities)})`;
+  return `${task.id} ${publishedTitle(task.title)} (${taskStatus(task, priorities)})`;
+}
+
+/** `Alex, normal, not in priorities` */
+export function taskStatus(
+  task: ProjectTask,
+  priorities: readonly string[] = state.myPriorities,
+): string {
+  return `${assigneeLabel(task.assigneeId)}, ${task.urgency}, ${priorityLabel(task.id, priorities)}`;
 }
 
 export function assigneeLabel(assigneeId: TeamMemberId | null): string {
@@ -347,8 +399,15 @@ export const projectTaskActions = {
     if (!found.ok) return found;
     const { task } = found;
     const current = state.myPriorities.indexOf(task.id);
-    if (position === undefined && current !== -1)
-      return { ok: true, changed: false, task, position: current + 1 };
+    const previousPosition = current === -1 ? null : current + 1;
+    if (position === undefined && previousPosition !== null)
+      return {
+        ok: true,
+        changed: false,
+        task,
+        position: previousPosition,
+        previousPosition,
+      };
 
     const others = state.myPriorities.filter((id) => id !== task.id);
     const index =
@@ -360,7 +419,7 @@ export const projectTaskActions = {
       next.some((id, i) => id !== state.myPriorities[i]) ||
       next.length !== state.myPriorities.length;
     if (changed) setState({ ...state, myPriorities: next });
-    return { ok: true, changed, task, position: index + 1 };
+    return { ok: true, changed, task, position: index + 1, previousPosition };
   },
 
   removeFromMyPriorities(reference: string): PriorityChange {
@@ -373,7 +432,13 @@ export const projectTaskActions = {
       ...state,
       myPriorities: state.myPriorities.filter((id) => id !== found.task.id),
     });
-    return { ok: true, changed: true, task: found.task, position: index + 1 };
+    return {
+      ok: true,
+      changed: true,
+      task: found.task,
+      position: index + 1,
+      previousPosition: index + 1,
+    };
   },
 
   /** Removes a task. Its children move to the top level rather than being removed. */
@@ -421,6 +486,8 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `Priority position must be a whole number of at least 1, got ${failure.position}.`;
     case 'not_in_priorities':
       return `${failure.task.id} ${failure.task.title} is not in your priorities.`;
+    case 'stale_reference':
+      return `"${failure.query}" is out of date. ${failure.task.id} is now "${taskReferenceLabel(failure.task)}". Use the current reference.`;
   }
 }
 
@@ -430,6 +497,13 @@ function lookup(
 ): { readonly ok: true; readonly task: ProjectTask } | TaskFailure {
   const match = resolveTaskReference(reference);
   if (match.kind === 'found') return { ok: true, task: match.task };
+  if (match.kind === 'stale')
+    return {
+      ok: false,
+      reason: 'stale_reference',
+      query: reference,
+      task: match.task,
+    };
   if (match.kind === 'ambiguous') {
     return {
       ok: false,
@@ -453,14 +527,24 @@ function replaceTask(
   const changed = (Object.keys(changes) as (keyof ProjectTask)[]).some(
     (key) => next[key] !== task[key],
   );
-  if (!changed) return { ok: true, changed: false, task };
+  if (!changed) return { ok: true, changed: false, task, previous: task };
   setState({
     ...state,
     tasks: state.tasks.map((candidate) =>
       candidate.id === task.id ? next : candidate,
     ),
   });
-  return { ok: true, changed: true, task: next };
+  return { ok: true, changed: true, task: next, previous: task };
+}
+
+function publishedTitle(title: string): string {
+  const clean = title
+    .replace(UNSAFE_LABEL_CHARACTERS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length > PUBLISHED_TITLE_LIMIT
+    ? `${clean.slice(0, PUBLISHED_TITLE_LIMIT).trimEnd()}...`
+    : clean;
 }
 
 function matchFrom(tasks: readonly ProjectTask[]): TaskReferenceMatch {

@@ -39,6 +39,8 @@ import { tasklaneM } from './maelstrom';
 import { TasklaneHeader } from './tasklane-header';
 import { TasklaneIntentForm } from './tasklane-intent-form';
 import { TasklaneKeylessPreview } from './tasklane-keyless-preview';
+import { TasklaneOptionSync } from './tasklane-option-sync';
+import { TasklaneReceiptLine } from './tasklane-receipt-line';
 import { TasklaneVoiceCorner } from './tasklane-voice-corner';
 import {
   TASKLANE_VOICE_PROVIDERS,
@@ -120,6 +122,7 @@ export function TasklanePage() {
           initialLayout={initialLayout}
           debug={debug}
         >
+          <TasklaneOptionSync />
           <TasklaneWorkspace
             onRequireKey={requireKey}
             onBlockedSubmit={handleBlockedSubmit}
@@ -354,6 +357,7 @@ function TasklaneWorkspace({
           onIntentChange={changeDraft}
           onSubmit={submit}
           submitLabel="Send"
+          receipt={<TasklaneReceiptLine />}
         />
       </footer>
     </div>

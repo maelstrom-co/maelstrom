@@ -1,4 +1,3 @@
-import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { VesselCard } from '../../components/vessel-card';
@@ -8,6 +7,7 @@ import {
   feedbackActions,
   useFeedbackStore,
 } from '../stores/feedback.store';
+import { reportReplaceFeedback } from '../task-action-receipts';
 import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
 export default function SourceFeedbackComponent({
@@ -20,12 +20,8 @@ export default function SourceFeedbackComponent({
   const restoreFocus = useRef(false);
 
   tasklaneM.useActions('source-feedback', instanceId, {
-    replaceFeedback: async ({ text: next }) => {
-      const result = feedbackActions.replaceFeedback(next);
-      return result.ok
-        ? ok(undefined)
-        : err(new Error('Feedback text cannot be empty.'));
-    },
+    replaceFeedback: async ({ text: next }) =>
+      reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
   });
 
   useEffect(() => {
