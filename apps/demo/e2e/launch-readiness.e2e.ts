@@ -275,7 +275,7 @@ test('offers work-focused suggestions on the populated screen', async ({
   ).toBeVisible();
 
   const band = page.getByTestId('suggestion-chip-band');
-  const suggestions = band.getByRole('group', { name: 'Suggestions' });
+  const suggestions = band.getByRole('list', { name: 'Suggestions' });
   await expect(
     suggestions.getByRole('button', {
       name: 'Move the design review to 11:00',
@@ -291,6 +291,10 @@ test('offers work-focused suggestions on the populated screen', async ({
   if (testInfo.project.name === 'mobile') {
     const info = band.getByRole('button', { name: 'What you can do' });
     await expect(info).toBeVisible();
+    const infoBounds = await info.boundingBox();
+    expect(
+      (infoBounds?.x ?? Infinity) + (infoBounds?.width ?? 0),
+    ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
     await info.click();
     await expect(band.getByText(note)).toBeVisible();
   } else {

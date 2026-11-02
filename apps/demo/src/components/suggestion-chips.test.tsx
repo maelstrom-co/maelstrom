@@ -27,7 +27,7 @@ describe('SuggestionChipBand', () => {
     );
 
     const chips = screen
-      .getByRole('group', { name: 'Suggestions' })
+      .getByRole('list', { name: 'Suggestions' })
       .querySelectorAll('button[data-suggestion]');
     expect([...chips].map((chip) => chip.textContent)).toEqual([
       ...FIRST_RUN_EXAMPLES,

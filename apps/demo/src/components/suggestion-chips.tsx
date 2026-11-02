@@ -39,20 +39,21 @@ export function SuggestionChipBand({
 
   return (
     <div data-testid="suggestion-chip-band" className="suggestion-chip-band">
-      <fieldset className="suggestion-chips" aria-label="Suggestions">
+      <ul className="suggestion-chips" aria-label="Suggestions">
         {!isProcessing &&
           FIRST_RUN_EXAMPLES.map((example) => (
-            <button
-              key={example}
-              type="button"
-              data-suggestion
-              className="suggestion-chip"
-              onClick={() => fillDraft(example)}
-            >
-              {example}
-            </button>
+            <li key={example}>
+              <button
+                type="button"
+                data-suggestion
+                className="suggestion-chip"
+                onClick={() => fillDraft(example)}
+              >
+                {example}
+              </button>
+            </li>
           ))}
-      </fieldset>
+      </ul>
       <div className="capability-note">
         <button
           type="button"

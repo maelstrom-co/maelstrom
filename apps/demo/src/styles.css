@@ -1088,8 +1088,10 @@ body {
 }
 
 /* Dayline identity and suggestion chips */
+/* A minmax(0) column keeps the intent input's intrinsic width from widening the page. */
 .demo-shell:has(> .suggestion-chip-band) {
   grid-template-rows: auto minmax(1px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .dayline-intro > p.keyless-capability-note {
@@ -1135,9 +1137,13 @@ body {
   gap: 8px;
   margin: 0;
   padding: 0;
-  border: 0;
+  list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.suggestion-chips > li {
+  flex: 0 0 auto;
 }
 
 .suggestion-chips::-webkit-scrollbar {
