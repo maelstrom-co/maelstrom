@@ -22,7 +22,7 @@
 .brand-preview { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 10rem; padding: 2rem; border-bottom: 1px solid var(--line-2); }
 .brand-preview img { display: block; height: auto; max-width: 100%; }
 .brand-surface-dark { background: #050810; }
-.brand-surface-light { background: #ffffff; }
+.brand-surface-light { background: #f1f4f8; }
 .brand-preview-badge img { width: 201px; }
 .brand-preview-lockup img { width: 240px; }
 .brand-preview-mark img { width: 96px; }

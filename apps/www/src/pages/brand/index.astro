@@ -152,7 +152,6 @@ function downloadsFor(asset: BrandAsset) {
 <Layout
   title="Powered by Maelstrom brand assets"
   description="Official assets for crediting Maelstrom in products, demos, and videos."
-  canonical="https://maelstrom-ai.co/brand/"
 >
   <main class="container brand-page">
     <header class="brand-header">
@@ -181,7 +180,7 @@ function downloadsFor(asset: BrandAsset) {
                 <h3>{asset.name}</h3>
                 <div class="brand-downloads">
                   {downloadsFor(asset).map((link) => (
-                    <a href={link.href} download>{link.label}</a>
+                    <a href={link.href} aria-label={`${asset.name}, ${link.label}`} download>{link.label}</a>
                   ))}
                 </div>
               </div>
