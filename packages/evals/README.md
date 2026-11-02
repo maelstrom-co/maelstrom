@@ -248,7 +248,7 @@ paid result, or full migration is claimed by these three data migrations.
 
 ### Pluggable publication and optional Langfuse sink
 
-`src/core/publication.ts` defines the internal `EvaluationResultSink` boundary **after** `evaluateSample` has returned, including cleanup. It is separate from execution/scoring, the existing report writers, and operational telemetry. Canonical cases/fixtures remain in the monorepo. The private [`tools/evals-langfuse`](../../tools/evals-langfuse/README.md) package provides an opt-in sink using the public `@langfuse/client` 5.13.1 batch API for self-hosted Langfuse OSS 3.163.0 on Node ≥24. It is not automatically activated: its CLI previews saved evidence and publishes only explicitly approved bytes; there is no provisioning, dataset sync, durable archive, or request to the user's deployment. A live smoke test needs explicit destination credentials and version assertion, a reviewed synthetic publication, and verification of deployment access, retention and receipt behavior. The core eval package's Node ≥20 baseline is unchanged.
+`src/core/publication.ts` defines the internal `EvaluationResultSink` boundary **after** `evaluateSample` has returned, including cleanup. It is separate from execution/scoring and operational telemetry. The local report writers also use this sink boundary. Canonical cases/fixtures remain in the monorepo. The private [`tools/evals-langfuse`](../../tools/evals-langfuse/README.md) package provides an opt-in sink using the public `@langfuse/client` 5.13.1 batch API for self-hosted Langfuse OSS 3.163.0 on Node ≥24. It is not automatically activated: its CLI previews saved evidence and publishes only explicitly approved bytes; there is no provisioning, dataset sync, durable archive, or request to the user's deployment. A live smoke test needs explicit destination credentials and version assertion, a reviewed synthetic publication, and verification of deployment access, retention and receipt behavior. The core eval package's Node ≥20 baseline is unchanged.
 
 The explicit sequence is:
 
@@ -262,7 +262,30 @@ The immutable JSON is canonicalized and SHA-256 hashed. `publicationKey` binds d
 
 `accepted`, `partial`, `failed` and `uncertain` are publication states, never eval verdicts. `accepted` means the sink's declared acknowledgment, not durable storage; a merely queued/flush-resolved SDK operation cannot honestly promise more than its delivery evidence. `failed` requires known rejection. Thrown/invalid sink responses and timeout return `uncertain` without copying raw exception messages. Deadline expiry requests abort but does not prove cancellation; a still-active timed-out send blocks another attempt. Late completion does not rewrite the returned receipt. Retrying a partial/failed/uncertain publication is an explicit caller action with the same ID/bytes, may require backend reconciliation, and **never reruns evaluation**. There is no automatic retry, storage, CLI activation, or sink registry.
 
-`src/core/publication.test.ts` uses synthetic in-memory sinks and denies global fetch. It covers bounded JSON/review rejection, partial/failure/timeout behavior, concurrent deduplication, conflicting bytes, immutable evidence, and independent re-export. Existing CLI and live-eval paths are unchanged.
+`src/core/publication.test.ts` uses synthetic in-memory sinks and denies global fetch. It covers bounded JSON/review rejection, partial/failure/timeout behavior, concurrent deduplication, conflicting bytes, immutable evidence, and independent re-export. Execution and scoring paths are unchanged.
+
+### Local Markdown report sink
+
+Both CLI completion hooks pass their finalized run identity to the existing report
+writers. The full planner report (including `paired.md`) and all six primary stage
+reports (`select`, `actions`, `layout` and their `decisions-*` counterparts) keep
+the same rendered statistics. Additional registered stage variants use the same
+writer. JSON records and summaries remain unchanged.
+
+`prepareMarkdownReportPublication` wraps rendered Markdown in a schema-v3,
+run-scoped `markdown-report` JSON envelope with run/report identity, preparation
+time and `mediaType: text/markdown`. It uses the same bounded exact-byte review,
+sealing and publisher as sample and telemetry publications; it invents no sample
+IDs. `createMarkdownFileSink` implements `EvaluationResultSink`, validates that
+envelope and writes only its Markdown to the caller-selected path. A failed or
+uncertain write fails reporting. No report is emitted for an incomplete run.
+
+Local writers approve only their rendered bytes and explicit local file destination,
+with a 16 MiB envelope cap. This is not approval to upload diagnostics elsewhere;
+reports can contain scenario text and provider failure details. The file sink does
+not promise fsync durability. Offline rebuilding creates a fresh report run identity
+unless one is supplied. Langfuse remains opt-in and rejects this new envelope without
+sending it; its sample and run-telemetry mappings are unchanged.
 
 ### Shared native lifecycle and operational evidence
 

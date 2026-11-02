@@ -15,6 +15,7 @@ import {
   createEvaluationPublisher,
   type PublicationStatus,
   prepareEvaluationPublication,
+  prepareMarkdownReportPublication,
   prepareRunTelemetryPublication,
 } from '../../packages/evals/src/core/publication.js';
 import {
@@ -832,4 +833,17 @@ test.each([
   gate.reject(new Error('PRIVATE LATE FAILURE'));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls).not.toContain('item');
+});
+
+test('rejects v3 Markdown reports without calling the transport', async () => {
+  const publication = prepareMarkdownReportPublication(
+    { runId: 'run', reportId: 'planner', markdown: '# Stats\n' },
+    {
+      destinationId: config.destinationId,
+      artifactId: 'report',
+      policy: { maxBytes: 4096, review: () => true },
+    },
+  );
+  expect(await publish(start(), publication)).toEqual({ status: 'failed' });
+  expect(requests).toHaveLength(0);
 });
