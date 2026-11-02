@@ -1086,3 +1086,159 @@ body {
     box-shadow: inset 0 0 0 2px var(--color-brand);
   }
 }
+
+/* Dayline identity and suggestion chips */
+/* A minmax(0) column keeps the intent input's intrinsic width from widening the page. */
+.demo-shell:has(> .suggestion-chip-band) {
+  grid-template-rows: auto minmax(1px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dayline-intro > p.keyless-capability-note {
+  padding-left: 12px;
+  border-left: 2px solid var(--line-2);
+  color: var(--color-ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Above Chart tiles (z-index 1) so Vessel overflow never covers the chips. */
+.suggestion-chip-band {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  height: 32px;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  background: var(--color-bg-1);
+}
+
+/* The open note popup must clear the dock overlays that sit above the band. */
+.suggestion-chip-band:has(.capability-note-text[data-open='true']) {
+  z-index: 4;
+}
+
+/* Dock overlays float above the chip band, over the Chart, instead of covering the chips. */
+.demo-shell:has(> .suggestion-chip-band) .connected-input {
+  z-index: 3;
+}
+
+.demo-shell:has(> .suggestion-chip-band) .connected-input .absolute[role='alert'] {
+  bottom: calc(100% + 32px);
+}
+
+.demo-shell:has(> .suggestion-chip-band) .assistant-response-layer {
+  bottom: calc(100% + 46px);
+}
+
+.powered-by-badge {
+  display: inline-flex;
+}
+
+.powered-by-badge img {
+  display: block;
+  width: auto;
+  height: 28px;
+}
+
+.suggestion-chips {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.suggestion-chips > li {
+  flex: 0 0 auto;
+}
+
+.suggestion-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.suggestion-chip {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.suggestion-chip:hover,
+.suggestion-chip:focus-visible {
+  border-color: var(--color-brand-2);
+  color: var(--color-ink);
+}
+
+.capability-note {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.capability-note-info {
+  display: none;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.capability-note-text {
+  margin: 0;
+  color: var(--color-ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1199px) {
+  .capability-note-info {
+    display: inline-flex;
+  }
+
+  .capability-note-text {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 40;
+    display: none;
+    width: min(320px, calc(100vw - 32px));
+    padding: 10px 12px;
+    white-space: normal;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--color-bg-2);
+    color: var(--color-ink-2);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .capability-note-text[data-open='true'] {
+    display: block;
+  }
+}

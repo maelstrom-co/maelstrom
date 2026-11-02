@@ -24,6 +24,18 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe('app identity', () => {
+  it('names Dayline as the app and Maelstrom as what powers it', () => {
+    const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
+    expect(getByRole('heading', { level: 1 }).textContent).toBe('Dayline');
+    const badge = getByRole('link', { name: 'Powered by Maelstrom' });
+    expect(badge.getAttribute('href')).toBe('https://maelstrom-ai.co');
+    const image = badge.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('/brand/powered-by-badge-dark.svg');
+    expect(image?.getAttribute('height')).toBe('28');
+  });
+});
+
 describe('community invitation', () => {
   it('opens Discord even on previews without sending test activity to production', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);

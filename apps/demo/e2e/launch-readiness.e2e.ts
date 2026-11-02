@@ -88,15 +88,35 @@ test('loads the keyless workspace cleanly without horizontal overflow', async ({
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await page.goto('/');
-  await expect(page.getByText('Interactive preview')).toBeVisible();
+  await expect(page).toHaveTitle('Dayline, powered by Maelstrom');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Dayline' }),
+  ).toBeVisible();
+  const badge = page.getByRole('link', { name: 'Powered by Maelstrom' });
+  await expect(badge).toBeVisible();
+  expect((await badge.getByRole('img').boundingBox())?.height).toBe(28);
+  await expect(page.getByText('Sample app')).toBeVisible();
+  await expect(
+    page.getByText("Maelstrom uses Dayline's own Vessels"),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Try adding tasks, writing journal entries'),
+  ).toBeVisible();
+  const hostAppBounds = await page
+    .getByText("Maelstrom uses Dayline's own Vessels")
+    .boundingBox();
+  const keyButtonBounds = await page
+    .getByRole('button', { name: 'Start interactive demo' })
+    .boundingBox();
+  expect(hostAppBounds?.y ?? Infinity).toBeLessThan(
+    keyButtonBounds?.y ?? -Infinity,
+  );
   await expect(page.getByLabel('Voice provider')).toHaveValue('live');
   await page.getByLabel('Voice provider').selectOption('realtime');
   await expect(page.getByLabel('Voice provider')).toHaveValue('realtime');
   await expect(page.getByText('DAY VIEW')).toBeVisible();
-  await expect(page.getByText('TASKS')).toBeVisible();
-  const intentInput = page.getByPlaceholder(
-    'Tell Maelstrom what you want to arrange...',
-  );
+  await expect(page.getByText('Tasks', { exact: true })).toBeVisible();
+  const intentInput = page.getByPlaceholder('What would you like to do?');
   await expect(intentInput).toBeVisible();
   const inputBounds = await intentInput.boundingBox();
   const viewport = page.viewportSize();
@@ -195,9 +215,7 @@ test('shows a visible seeded workspace after adding a key', async ({
   await expect(tasks).toBeVisible();
   const bounds = await calendar.boundingBox();
   expect(bounds?.height).toBeGreaterThan(0);
-  const connectedInput = page.getByPlaceholder(
-    'Tell Maelstrom what you want to arrange...',
-  );
+  const connectedInput = page.getByPlaceholder('What would you like to do?');
   const voiceOrb = page.getByRole('button', { name: 'Start voice' });
   const orbBounds = await voiceOrb.boundingBox();
   expect(orbBounds?.width).toBeGreaterThanOrEqual(44);
@@ -225,4 +243,94 @@ test('shows a visible seeded workspace after adding a key', async ({
   expect(
     consoleErrors.filter((message) => message.includes('current.rows')),
   ).toEqual([]);
+});
+
+test('keeps the shop tab title separate from Dayline', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'Title is viewport-neutral');
+  await page.goto('/shop');
+  await expect(
+    page.getByRole('heading', { name: 'Maelstrom Pet Shop' }),
+  ).toBeVisible();
+  await expect(page).toHaveTitle('Maelstrom Demo');
+});
+
+test('offers work-focused suggestions on the populated screen', async ({
+  page,
+}, testInfo) => {
+  // Saving the first key auto-starts voice. Without a microphone it fails and
+  // shows its alert above the dock, which must not cover the chips.
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () =>
+      Promise.reject(new DOMException('No microphone', 'NotFoundError'));
+  });
+  await page.goto('/');
+  const apiKeyInput = page.getByRole('textbox', { name: 'API key' });
+  if (!(await apiKeyInput.isVisible())) {
+    await page.getByRole('button', { name: 'API key' }).click();
+  }
+  await apiKeyInput.fill('sk-test-suggestion-chips-not-a-real-key-1234567890');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(
+    page.locator('[data-instance-id="calendar-main"]'),
+  ).toBeVisible();
+
+  const band = page.getByTestId('suggestion-chip-band');
+  const suggestions = band.getByRole('list', { name: 'Suggestions' });
+  await expect(
+    suggestions.getByRole('button', {
+      name: 'Move the design review',
+    }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(suggestions.getByRole('button')).toHaveCount(3);
+  expect((await band.boundingBox())?.height).toBe(32);
+  await expect(
+    page.locator('.connected-input').getByRole('alert'),
+  ).toBeVisible();
+
+  const note = 'Try adding tasks, writing journal entries or moving events.';
+  if (testInfo.project.name === 'mobile') {
+    const info = band.getByRole('button', { name: 'What you can do' });
+    await expect(info).toBeVisible();
+    const infoBounds = await info.boundingBox();
+    expect(
+      (infoBounds?.x ?? Infinity) + (infoBounds?.width ?? 0),
+    ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+    await info.click();
+    const popup = band.getByText(note);
+    await expect(popup).toBeVisible();
+    const popupOnTop = await popup.evaluate((element) => {
+      const { left, top, width, height } = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(left + width / 2, top + height / 2);
+      return hit !== null && element.contains(hit);
+    });
+    expect(popupOnTop).toBe(true);
+    await info.click();
+    await expect(band.getByText(note)).toBeHidden();
+    await expect(info).toHaveAttribute('aria-expanded', 'false');
+
+    await info.focus();
+    await page.keyboard.press('Enter');
+    await expect(band.getByText(note)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(band.getByText(note)).toBeHidden();
+    await expect(info).toBeFocused();
+    await expect(info).toHaveAttribute('aria-expanded', 'false');
+  } else {
+    await expect(band.getByText(note)).toBeVisible();
+  }
+
+  await suggestions
+    .getByRole('button', { name: 'Move the design review' })
+    .click();
+  const intent = page.locator('#demo-intent');
+  await expect(intent).toHaveValue('Move the design review to 11:00');
+  await expect(intent).toBeFocused();
+
+  const { clientWidth, scrollWidth } = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 });

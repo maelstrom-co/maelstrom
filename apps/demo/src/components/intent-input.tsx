@@ -178,7 +178,7 @@ export function IntentInput({
             list="demo-intent-examples"
             value={intent}
             onChange={(e) => changeDraft(e.target.value)}
-            placeholder="Tell Maelstrom what you want to arrange..."
+            placeholder="What would you like to do?"
             className="intent-pill min-w-0 flex-1 px-4 py-2.5"
           />
           <button
