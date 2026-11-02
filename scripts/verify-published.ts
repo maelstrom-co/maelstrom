@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { packedIntegrity } from './lib/packed-integrity.ts';
 import { parsePackedManifest } from './lib/packed-manifest.ts';
 import { waitForPublishedPackages } from './lib/published-packages.ts';
 import { resolveRegistry } from './lib/registry.ts';
@@ -42,6 +44,12 @@ const missing = waitForPublishedPackages(
   {
     version,
     registry,
+    integrities: new Map(
+      packages.map((pkg) => [
+        pkg.name,
+        packedIntegrity({ tarballPath: join(dirname(manifest), pkg.tarball) }),
+      ]),
+    ),
     attempts:
       values.attempts === undefined ? undefined : Number(values.attempts),
     timeoutMs:

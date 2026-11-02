@@ -129,6 +129,90 @@ export function isAlreadyPublished(
   }
 }
 
+/** Checks visibility and byte identity without treating an accepted upload as available. */
+export function hasPublishedIntegrity(
+  name: string,
+  version: string,
+  registry: string,
+  integrity: string,
+  timeoutMs = 30_000,
+): boolean {
+  let output: string;
+  if (!/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity))
+    throw new Error('Invalid expected tarball checksum');
+  try {
+    output = String(
+      execFileSync(
+        'npm',
+        [
+          'view',
+          `${name}@${version}`,
+          'version',
+          'dist.integrity',
+          '--registry',
+          registry,
+          '--json',
+          '--fetch-retries=1',
+        ],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: timeoutMs,
+          env: { ...process.env, NPM_CONFIG_USERCONFIG: '/dev/null' },
+        },
+      ),
+    );
+  } catch (error) {
+    const stderr = String((error as { stderr?: Buffer | string }).stderr ?? '');
+    const reason = /\bE401\b|\bE403\b/.test(stderr)
+      ? 'authentication failed'
+      : 'registry request failed';
+    if (
+      reason !== 'authentication failed' &&
+      shouldTreatNotFoundAsUnpublished(stderr, registry)
+    )
+      return false;
+    throw new Error(
+      `${name}: could not determine published tarball integrity (${reason}). Refusing to guess.`,
+    );
+  }
+  if (!output.trim())
+    throw new Error(
+      `${name}: registry returned no version or integrity metadata`,
+    );
+  let published: unknown;
+  try {
+    published = parseNpmField(output);
+  } catch {
+    throw new Error(
+      `${name}: registry returned invalid tarball integrity metadata`,
+    );
+  }
+  if (
+    typeof published !== 'object' ||
+    published === null ||
+    Array.isArray(published)
+  )
+    throw new Error(
+      `${name}: registry returned invalid tarball integrity metadata`,
+    );
+  const metadata = published as Record<string, unknown>;
+  if (metadata.version !== version)
+    throw new Error(`${name}: registry returned another version`);
+  const actualIntegrity = metadata['dist.integrity'];
+  if (
+    typeof actualIntegrity !== 'string' ||
+    !/^sha512-[A-Za-z0-9+/]{86}==$/.test(actualIntegrity)
+  )
+    throw new Error(
+      `${name}@${version}: published version has missing or invalid integrity`,
+    );
+  if (actualIntegrity !== integrity)
+    throw new Error(
+      `${name}@${version}: published bytes differ from the validated release tarball`,
+    );
+  return true;
+}
+
 export function parsePublishedVersion(
   output: string,
   name: string,

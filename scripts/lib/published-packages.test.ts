@@ -3,6 +3,31 @@ import { waitForPublishedPackages } from './published-packages.ts';
 
 const options = { version: '0.2.0', registry: 'https://registry.npmjs.org' };
 
+test('an incomplete checksum map cannot silently fall back to version-only verification', () => {
+  let probes = 0;
+  expect(() =>
+    waitForPublishedPackages(
+      ['first', 'second'],
+      {
+        ...options,
+        integrities: new Map([
+          ['first', `sha512-${Buffer.alloc(64).toString('base64')}`],
+        ]),
+      },
+      {
+        isPublished: () => {
+          probes++;
+          return true;
+        },
+        now: () => 0,
+        sleep: () => {},
+        log: () => {},
+      },
+    ),
+  ).toThrow('Every package requires');
+  expect(probes).toBe(0);
+});
+
 function registryFixture(
   check: (name: string, elapsedMs: number) => boolean,
   lookupMs = 0,
