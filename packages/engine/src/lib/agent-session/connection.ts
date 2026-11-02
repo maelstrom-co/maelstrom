@@ -41,7 +41,8 @@ export interface OpenConnectionOptions {
    * greater than 2,147,483,647, or opening the connection throws. On the
    * UI-only route, when it elapses, the run finishes with code
    * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
-   * next utterance plans against its own Chart. A loop-driven change of an
+   * connection permanently stops admission. A fresh Chart or late
+   * acknowledgement cannot resume it. A loop-driven change of an
    * Agent Run waits as long, then the next queued show starts on the last
    * acknowledged Chart while the runs carry on.
    */
@@ -61,9 +62,12 @@ export interface OpenConnectionOptions {
  *   to continue.
  * - Each UI change waits for acknowledgement for at most
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
- *   default. On the UI-only route a timeout fails the run and cancels queued
- *   work. On an agent connection a timeout of a loop-driven change only lets
- *   the next queued show start.
+ *   default. On the UI-only route, a timeout or `unknown` status fails the run, cancels queued
+ *   work, and permanently stops admission. New inputs receive `session_stopped`.
+ *   A known Layout refusal (`failed`) fails only that run and permits later work.
+ *   On an agent connection a timeout of a loop-driven change lets the next
+ *   queued show start.
+ * Opening another connection does not reconcile prior effects or authorize replay.
  */
 export interface AgentConnection {
   /**

@@ -21,6 +21,7 @@ const placeholder = {
 function uiApplied(changeId: string): AgentInput {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: changeId as ChangeId,
     chart: { width: 1, height: 1, instances: [] } as never,

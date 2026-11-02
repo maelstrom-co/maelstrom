@@ -502,6 +502,61 @@ describe('agent route through the Engine handle', () => {
       expect(model.requests).toHaveLength(3);
     });
 
+    test.each(['failed', 'unknown'] as const)(
+      'a %s show after run completion reports its outcome to the next turn without finishing twice',
+      async (status) => {
+        const model = scriptedTextAdapter([
+          scriptedToolTurn(
+            [{ id: 'c1', name: 'latest_order', args: {} }],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['The order was fetched.'], scriptedUsage(1, 1)),
+          scriptedTextTurn(
+            ['The screen result needs attention.'],
+            scriptedUsage(1, 1),
+          ),
+        ]);
+        const session = openAgentSession({
+          model: model.adapter,
+          tools: [orderTool({ intentFacts: orderFacts }).tool],
+          planner: addEventPlanner,
+        });
+        await session.send(
+          utterance('input-1', 'show my order', calendarChart()),
+        );
+        await waitUntil(() => uiChangesOf(session.received).length === 1);
+        const [change] = uiChangesOf(session.received);
+        if (!change) throw new Error('Missing show');
+        const runId = runIdOf(session.received, 'input-1');
+        const finished = () =>
+          session.received.filter(
+            (event) => event.type === 'finished' && event.runId === runId,
+          );
+        expect(finished()).toHaveLength(1);
+        await session.connection.send({
+          ...acknowledgementOf(change, calendarChart()),
+          status,
+          actionOutcomes: [],
+        });
+        expect(finished()).toHaveLength(1);
+        expect(session.received.at(-1)).toMatchObject({
+          type: 'error',
+          changeId: change.changeId,
+          runId,
+          code: status === 'failed' ? 'ui_apply_failed' : 'ui_apply_unknown',
+        });
+        await session.send(
+          utterance('input-2', 'what happened?', calendarChart()),
+        );
+        const nextPrompt = serializeLoosely(model.requests.at(-1));
+        expect(nextPrompt).toContain(
+          status === 'failed' ? 'Show failed:' : 'Show not confirmed:',
+        );
+        expect(nextPrompt).not.toContain('Screen updated:');
+        expect(session.plannerCalls()).toBe(1);
+      },
+    );
+
     test('show diagnostics carry the run owner and change id while the intent and screen note stay behind readContent', async () => {
       const intent = 'show me my last order';
       const model = scriptedTextAdapter([
@@ -640,7 +695,7 @@ describe('agent route through the Engine handle', () => {
           version: AGENT_WIRE_VERSION,
           changeId: firstChange.changeId,
           code: 'invalid_action_outcomes',
-          error: 'Expected one outcome per Action.',
+          error: 'Action evidence does not match the application status.',
         },
       ]);
       await settle();
@@ -2595,6 +2650,7 @@ function typeOf(event: AgentEvent): AgentEvent['type'] {
 function strayAcknowledgement() {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('stray-change'),
     chart: makeTilingRequest(),

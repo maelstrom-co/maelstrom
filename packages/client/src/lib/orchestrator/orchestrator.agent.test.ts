@@ -7,6 +7,7 @@ import {
   type AgentErrorEvent,
   type AgentEvent,
   type AgentFinishedEvent,
+  AgentInputSchema,
   type AgentMessageEvent,
   type AgentPlaceholderEvent,
   type AgentUiAppliedInput,
@@ -347,6 +348,8 @@ describe('Orchestrator agent path', () => {
       const acknowledgement = await applied;
 
       expect(completionOrder).toEqual(['fast step', 'slow step', 'slow fail']);
+      expect(acknowledgement.status).toBe('unknown');
+      expect(AgentInputSchema.safeParse(acknowledgement).success).toBe(true);
       expect(acknowledgement.actionOutcomes).toHaveLength(3);
       expect(acknowledgement.actionOutcomes).toEqual([
         { ok: true },
@@ -388,6 +391,8 @@ describe('Orchestrator agent path', () => {
       );
       const acknowledgement = await applied;
 
+      expect(acknowledgement.status).toBe('unknown');
+      expect(AgentInputSchema.safeParse(acknowledgement).success).toBe(true);
       expect(acknowledgement.actionOutcomes).toEqual([
         { ok: true },
         { ok: false, error: expect.stringMatching(/^skipped: /) },
@@ -398,55 +403,57 @@ describe('Orchestrator agent path', () => {
     }
   });
 
-  it('acknowledges a refused Layout with a not run outcome for every Action', async () => {
-    const agent = createMockAgentConnector();
-    const orchestrator = await connectedOrchestrator(agent.connector);
-    try {
-      let recordCalls = 0;
-      orchestrator.commandProcessor.registerRunner(mainBoard, {
-        record: () => {
-          recordCalls++;
-          return Promise.resolve<ActionResult>(ok(undefined));
-        },
-        expand: () => {
-          recordCalls++;
-          return Promise.resolve<ActionResult>(ok(undefined));
-        },
-      });
-      const duplicateLeafLayout: TilingLayout = {
-        type: 'tiling',
-        tree: ['H', tilingLeafToken(mainBoard), tilingLeafToken(mainBoard)],
-        instances: [
-          {
-            instanceId: mainBoard,
-            vesselId: VesselId('board'),
-            variant: VariantName('collapsed'),
+  it.each([false, true])(
+    'acknowledges Layout refusal without claiming Action execution (has Actions: %s)',
+    async (hasActions) => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        let recordCalls = 0;
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => {
+            recordCalls++;
+            return Promise.resolve<ActionResult>(ok(undefined));
           },
-        ],
-      };
+          expand: () => {
+            recordCalls++;
+            return Promise.resolve<ActionResult>(ok(undefined));
+          },
+        });
+        const duplicateLeafLayout: TilingLayout = {
+          type: 'tiling',
+          tree: ['H', tilingLeafToken(mainBoard), tilingLeafToken(mainBoard)],
+          instances: [
+            {
+              instanceId: mainBoard,
+              vesselId: VesselId('board'),
+              variant: VariantName('collapsed'),
+            },
+          ],
+        };
 
-      const applied = agent.nextInput('ui_applied');
-      agent.emit(
-        uiChange('change-refused', duplicateLeafLayout, [
-          step(mainBoard, 'record'),
-          step(mainBoard, 'expand'),
-        ]),
-      );
-      const acknowledgement = await applied;
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(
+          uiChange(
+            'change-refused',
+            duplicateLeafLayout,
+            hasActions
+              ? [step(mainBoard, 'record'), step(mainBoard, 'expand')]
+              : [],
+          ),
+        );
+        const acknowledgement = await applied;
 
-      expect(acknowledgement.changeId).toBe(ChangeId('change-refused'));
-      const notRun = {
-        ok: false,
-        error: expect.stringMatching(
-          /^not run: layout could not be applied: .*set_layout rejected/,
-        ),
-      };
-      expect(acknowledgement.actionOutcomes).toEqual([notRun, notRun]);
-      expect(recordCalls).toBe(0);
-    } finally {
-      await orchestrator.dispose();
-    }
-  });
+        expect(acknowledgement.changeId).toBe(ChangeId('change-refused'));
+        expect(acknowledgement.status).toBe('failed');
+        expect(acknowledgement.actionOutcomes).toEqual([]);
+        expect(AgentInputSchema.safeParse(acknowledgement).success).toBe(true);
+        expect(recordCalls).toBe(0);
+      } finally {
+        await orchestrator.dispose();
+      }
+    },
+  );
 
   it('reports the Chart from before a refused Layout even when another change is queued behind it', async () => {
     const agent = createMockAgentConnector();

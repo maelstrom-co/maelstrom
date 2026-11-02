@@ -337,6 +337,7 @@ export class AgentConversation {
       type: 'ui_applied',
       version: AGENT_WIRE_VERSION,
       changeId: event.changeId,
+      status: settled.batch.status,
       chart: settled.chart ?? this.#dependencies.buildChart(),
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
@@ -377,9 +378,7 @@ function toActionOutcomes(
   response: MaelstromResponse,
   settled: SettledAgentChange,
 ): AgentActionOutcome[] {
-  if (settled.batch.status === 'failed' && settled.actions === undefined) {
-    const error = `not run: layout could not be applied: ${settled.batch.error.message}`;
-    return response.executionPlan.map(() => ({ ok: false, error }));
-  }
-  return orderActionOutcomes(response.executionPlan, settled.actions ?? []);
+  if (settled.batch.status === 'failed' || settled.actions === undefined)
+    return [];
+  return orderActionOutcomes(response.executionPlan, settled.actions);
 }

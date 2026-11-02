@@ -45,6 +45,87 @@ const weekChart = calendarChart('week');
 const dayChart = calendarChart('day');
 
 describe('createPlannerShowQueue', () => {
+  test.each([
+    { status: 'failed' as const, actions: 0, outcomes: [] },
+    { status: 'failed' as const, actions: 2, outcomes: [] },
+    { status: 'unknown' as const, actions: 0, outcomes: [] },
+    { status: 'unknown' as const, actions: 2, outcomes: [{ ok: true }] },
+    { status: 'unknown' as const, actions: 1, outcomes: [{ ok: true }] },
+    {
+      status: 'unknown' as const,
+      actions: 2,
+      outcomes: [{ ok: true }, { ok: false }],
+    },
+  ])(
+    'settles $status with $actions Actions without claiming a screen update or replaying the show',
+    async ({ status, actions, outcomes }) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.queue.request(show(1));
+      harness.planner.respond(0, {
+        ...changeResponse(weekChart, actions),
+        layout: { type: 'tiling', tree: [], instances: [] },
+      });
+      const change = await harness.nextUiChange();
+      const idle = harness.queue.whenIdle();
+      harness.queue.acknowledge(
+        applied(change.changeId, dayChart, [...outcomes], status),
+      );
+      await idle;
+
+      expect(harness.notes).toHaveLength(1);
+      expect(harness.notes[0].text).toStartWith(
+        status === 'failed' ? 'Show failed:' : 'Show not confirmed:',
+      );
+      expect(harness.notes[0].text).not.toContain('Screen updated');
+      expect(harness.errors()).toMatchObject([
+        {
+          changeId: change.changeId,
+          runId: show(1).runId,
+          code: status === 'failed' ? 'ui_apply_failed' : 'ui_apply_unknown',
+        },
+      ]);
+      expect(harness.time.pending()).toBe(0);
+      harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+      expect(harness.errors()).toHaveLength(1);
+      expect(harness.planner.calls).toHaveLength(1);
+      harness.queue.request(show(2));
+      expect(harness.planner.input(1).request).toEqual(
+        buildShowRequest(dayChart, show(2).intent, show(2).intentFacts),
+      );
+      expect(harness.observed.at(-1)?.metadata.status).toBe(status);
+      harness.queue.close();
+    },
+  );
+
+  test.each(['close', 'enqueue'] as const)(
+    'records uncertainty before an error observer can %s',
+    async (reaction) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.queue.request(show(1));
+      harness.planner.respond(0, changeResponse(monthChart));
+      const change = await harness.nextUiChange();
+      harness.events.subscribe((event) => {
+        if (event.type !== 'error' || event.code !== 'ui_apply_unknown') return;
+        expect(harness.notes[0].text).toStartWith('Show not confirmed:');
+        if (reaction === 'close') harness.queue.close();
+        else harness.queue.request(show(2));
+      });
+      harness.queue.acknowledge(
+        applied(change.changeId, dayChart, [], 'unknown'),
+      );
+      expect(harness.planner.calls).toHaveLength(reaction === 'close' ? 1 : 2);
+      if (reaction === 'enqueue')
+        expect(harness.planner.input(1).request.instances).toEqual(
+          dayChart.instances,
+        );
+      harness.queue.close();
+      await harness.queue.whenIdle();
+      expect(harness.time.pending()).toBe(0);
+    },
+  );
+
   test('starts planning at once on the latest Chart with fresh ids', () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
@@ -198,7 +279,7 @@ describe('createPlannerShowQueue', () => {
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         code: 'invalid_action_outcomes',
-        error: 'Expected one outcome per Action.',
+        error: 'Action evidence does not match the application status.',
       },
     ]);
     expect(harness.sessionObserved).toEqual([]);
@@ -237,10 +318,7 @@ describe('createPlannerShowQueue', () => {
     const response = changeResponse(monthChart, 2);
     harness.planner.respond(0, response);
     const change = await harness.nextUiChange();
-    const outcomes: AgentActionOutcome[] = [
-      { ok: true },
-      { ok: false, error: 'browser failure detail' },
-    ];
+    const outcomes: AgentActionOutcome[] = [{ ok: true }, { ok: true }];
 
     harness.queue.acknowledge(applied(change.changeId, weekChart, outcomes));
 
@@ -793,7 +871,9 @@ describe('createPlannerShowQueue', () => {
     const change = await harness.nextUiChange();
     const outcomes: AgentActionOutcome[] = [{ ok: true }, { ok: false }];
 
-    harness.queue.acknowledge(applied(change.changeId, weekChart, outcomes));
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, outcomes, 'unknown'),
+    );
 
     expect(
       harness.observed.map(({ readContent: _, ...entry }) => entry),
@@ -817,6 +897,7 @@ describe('createPlannerShowQueue', () => {
           turnId: show(1).turnId,
           actions: 2,
           failed: 1,
+          status: 'unknown',
         },
       },
     ]);
@@ -1395,9 +1476,11 @@ function applied(
   changeId: ChangeId,
   chart: ChartRequest,
   actionOutcomes: AgentActionOutcome[],
+  status: AgentUiAppliedInput['status'] = 'applied',
 ): AgentUiAppliedInput {
   return {
     type: 'ui_applied',
+    status,
     version: AGENT_WIRE_VERSION,
     changeId,
     chart,

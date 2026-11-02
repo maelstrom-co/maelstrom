@@ -1587,6 +1587,7 @@ function showResponse(
 function applied(changeId: ChangeId, outcomes: number): AgentUiAppliedInput {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId,
     chart: makeTilingRequest(),

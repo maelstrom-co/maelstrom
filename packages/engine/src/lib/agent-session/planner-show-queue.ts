@@ -181,7 +181,11 @@ export function createPlannerShowQueue({
       }
       const { job, event, cancelTimeout } = state;
       const { executionPlan } = event.response;
-      if (input.actionOutcomes.length !== executionPlan.length) {
+      if (
+        input.actionOutcomes.length > executionPlan.length ||
+        (input.status === 'applied' &&
+          input.actionOutcomes.length !== executionPlan.length)
+      ) {
         diagnostics.run(
           job.show.runId,
           job.show.inputId,
@@ -196,7 +200,7 @@ export function createPlannerShowQueue({
           changeError(
             input.changeId,
             'invalid_action_outcomes',
-            'Expected one outcome per Action.',
+            'Action evidence does not match the application status.',
           ),
         );
         return;
@@ -204,12 +208,18 @@ export function createPlannerShowQueue({
       cancelTimeout();
       state = { phase: 'idle' };
       chart = input.chart;
-      const screenNote = describeScreenUpdate({
-        executionPlan,
-        actionOutcomes: input.actionOutcomes,
-        chart: input.chart,
-      });
+      const screenNote =
+        input.status === 'applied'
+          ? describeScreenUpdate({
+              executionPlan,
+              actionOutcomes: input.actionOutcomes,
+              chart: input.chart,
+            })
+          : input.status === 'failed'
+            ? 'Show failed: the Layout was refused before any Action ran.'
+            : 'Show not confirmed: application effects are uncertain. Inspect the existing state before repeating any mutation.';
       noteFor(job.show, screenNote);
+      if (closed) return;
       diagnostics.run(
         job.show.runId,
         job.show.inputId,
@@ -217,6 +227,7 @@ export function createPlannerShowQueue({
         {
           changeId: job.changeId,
           turnId: job.show.turnId,
+          status: input.status,
           actions: executionPlan.length,
           failed: input.actionOutcomes.filter((outcome) => !outcome.ok).length,
         },
@@ -226,6 +237,20 @@ export function createPlannerShowQueue({
           screenNote,
         }),
       );
+      if (closed) return;
+      if (input.status !== 'applied') {
+        events.emit({
+          ...changeError(
+            job.changeId,
+            input.status === 'failed' ? 'ui_apply_failed' : 'ui_apply_unknown',
+            input.status === 'failed'
+              ? 'The Layout was refused before any Action ran.'
+              : 'The UI change has an unknown outcome.',
+          ),
+          runId: job.show.runId,
+        });
+      }
+      if (closed) return;
       startNextShow();
     },
     whenIdle() {
