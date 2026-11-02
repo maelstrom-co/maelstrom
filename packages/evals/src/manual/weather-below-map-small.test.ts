@@ -38,7 +38,7 @@ afterEach(() => {
 
 const mapAndWeather = [
   { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
-  { instanceId: 'weather-main', vesselId: 'weather', variant: 'current' },
+  { instanceId: 'weather-main', vesselId: 'weather', variant: 'compact' },
 ];
 
 function candidate(
@@ -115,7 +115,7 @@ test('weather below the map at a small share passes every check', async () => {
     tree: 'H:7,1 ID:map-main ID:weather-main',
     weatherShare: 0.125,
     mapShare: 0.875,
-    weatherVariant: 'current',
+    weatherVariant: 'compact',
     weatherActions: [],
     userMessage: 'Weather is now below the map.',
   });
@@ -168,9 +168,13 @@ test('a weather Instance the Planner names itself is found by its Vessel', async
         ['H:7,1', 'ID:map-main', 'ID:weather-below-map'],
         [
           mapAndWeather[0],
-          { ...mapAndWeather[1], instanceId: 'weather-below-map' },
+          {
+            ...mapAndWeather[1],
+            instanceId: 'weather-below-map',
+            variant: 'current',
+          },
         ],
-        [{ instanceId: 'weather-below-map', action: 'showHourly' }],
+        [{ instanceId: 'weather-below-map', action: 'showCompact' }],
       ),
     ),
     await desktopBeside(),
@@ -180,7 +184,7 @@ test('a weather Instance the Planner names itself is found by its Vessel', async
     weatherInstanceId: 'weather-below-map',
     weatherShare: 0.125,
     weatherVariant: 'current',
-    weatherActions: ['showHourly'],
+    weatherActions: ['showCompact'],
   });
 });
 
@@ -192,7 +196,37 @@ test('missing response fails without measurements', async () => {
   });
 });
 
-test('Variant change and show Actions on weather are recorded without failing', async () => {
+test('a fuller weather Variant fails the compact check even when small and below', async () => {
+  const score = scoreWeatherBelowMapSmall(
+    shipped(
+      candidate(
+        ['H:7,1', 'ID:map-main', 'ID:weather-main'],
+        [mapAndWeather[0], { ...mapAndWeather[1], variant: 'current' }],
+      ),
+    ),
+    await desktopBeside(),
+  );
+  expect(score.outcome).toBe('fail');
+  expect(score.failures).toEqual([
+    'weather-main is not compact: Variant current, no showCompact Action',
+  ]);
+});
+
+test('a showCompact Action on weather satisfies the compact check', async () => {
+  const score = scoreWeatherBelowMapSmall(
+    shipped(
+      candidate(
+        ['H:7,1', 'ID:map-main', 'ID:weather-main'],
+        [mapAndWeather[0], { ...mapAndWeather[1], variant: 'current' }],
+        [{ instanceId: 'weather-main', action: 'showCompact' }],
+      ),
+    ),
+    await desktopBeside(),
+  );
+  expect(score.failures).toEqual([]);
+});
+
+test('Variant change and show Actions on weather are recorded', async () => {
   const score = scoreWeatherBelowMapSmall(
     shipped(
       candidate(
@@ -210,7 +244,9 @@ test('Variant change and show Actions on weather are recorded without failing', 
     ),
     await desktopBeside(),
   );
-  expect(score.outcome).toBe('pass');
+  expect(score.failures).toEqual([
+    'weather-main is not compact: Variant weekly, no showCompact Action',
+  ]);
   expect(score.measurements).toMatchObject({
     weatherVariant: 'weekly',
     weatherActions: ['showWeekly'],
@@ -351,7 +387,7 @@ test('live run dispatches once per sample with a fresh session and summarises th
     incomplete: 0,
     passed: 2,
     medianWeatherShare: 0.125,
-    variantsSeen: ['current'],
+    variantsSeen: ['compact'],
     trees: { 'H:7,1 ID:map-main ID:weather-main': 2 },
   });
   expect(JSON.stringify(report)).not.toContain(env.OPENAI_API_KEY);

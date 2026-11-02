@@ -43,7 +43,7 @@ const { default: WeatherComponent, weatherActionRunner } = await import(
 );
 
 function props(
-  variant: 'current' | 'hourly' | 'weekly',
+  variant: 'current' | 'hourly' | 'weekly' | 'compact',
 ): TypedVesselProps<typeof weatherVessel> {
   return {
     instanceId: `weather-test-${variant}`,
@@ -174,6 +174,79 @@ describe('weather variants', () => {
       'weather-test-weekly',
       weatherActionRunner,
     );
+  });
+});
+
+describe('compact weather strip', () => {
+  it('shows location, temperature and condition as visible text in one row', () => {
+    const { getByText, container } = render(
+      <WeatherComponent {...props('compact')} />,
+    );
+    expect(getByText('Paris, France')).toBeTruthy();
+    expect(getByText('18°')).toBeTruthy();
+    const condition = getByText('Fog');
+    expect(condition.className).not.toContain('sr-only');
+    expect(
+      container.querySelector('[data-weather-variant="compact"]'),
+    ).not.toBeNull();
+  });
+
+  it('does not use the card header chrome', () => {
+    const { container, queryByText } = render(
+      <WeatherComponent {...props('compact')} />,
+    );
+    expect(container.querySelector('.vessel-card')).toBeNull();
+    expect(queryByText('Weather')).toBeNull();
+    expect(container.textContent).not.toContain('km/h');
+  });
+
+  it('keeps loading and error notices reachable without a second line', () => {
+    storeState = {
+      ...storeState,
+      loadingLocation: 'Tokyo',
+      error: 'Could not load weather for "Tokyo".',
+    };
+    const { getByRole, container } = render(
+      <WeatherComponent {...props('compact')} />,
+    );
+    expect(getByRole('status').textContent).toContain(
+      'Loading weather for Tokyo',
+    );
+    expect(getByRole('alert').textContent).toContain(
+      'Could not load weather for "Tokyo".',
+    );
+    expect(container.textContent).toContain('18°');
+  });
+
+  it('registers weather actions for the compact instance', () => {
+    render(<WeatherComponent {...props('compact')} />);
+    expect(useActions).toHaveBeenCalledWith(
+      'weather',
+      'weather-test-compact',
+      weatherActionRunner,
+    );
+  });
+
+  it('renders the right view through compact, current, weekly and back', () => {
+    const view = render(<WeatherComponent {...props('compact')} />);
+    const shown = () => ({
+      compact:
+        view.container.querySelector('[data-weather-variant="compact"]') !==
+        null,
+      card: view.container.querySelector('.vessel-card') !== null,
+      text: view.container.textContent ?? '',
+    });
+    expect(shown()).toMatchObject({ compact: true, card: false });
+    view.rerender(<WeatherComponent {...props('current')} />);
+    expect(shown()).toMatchObject({ compact: false, card: true });
+    expect(shown().text).toContain('km/h');
+    view.rerender(<WeatherComponent {...props('weekly')} />);
+    expect(shown().text).toContain('Weekly Forecast');
+    view.rerender(<WeatherComponent {...props('hourly')} />);
+    expect(shown().text).toContain('Hourly Forecast');
+    view.rerender(<WeatherComponent {...props('compact')} />);
+    expect(shown()).toMatchObject({ compact: true, card: false });
+    expect(shown().text).not.toContain('Weekly Forecast');
   });
 });
 

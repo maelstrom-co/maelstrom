@@ -140,9 +140,10 @@ export function weatherRunExitCode(
 
 /**
  * Scores the shipped response: weather and map visible, weather below the map,
- * weather at most 15% of the Chart and at most 0.35 of the map's area. The
- * Instances are found by Vessel, since the Planner names an Instance it adds.
- * The weather Variant and its show Actions are recorded, not scored.
+ * weather at most 15% of the Chart and at most 0.35 of the map's area, and
+ * weather compact (shipped in the compact Variant, or a `showCompact` Action on
+ * it). The Instances are found by Vessel, since the Planner names an Instance
+ * it adds.
  */
 export function scoreWeatherBelowMapSmall(
   response: MaelstromResponse | undefined,
@@ -233,6 +234,14 @@ export function scoreWeatherBelowMapSmall(
       );
     failures.push(...ratio.failures);
   }
+  if (
+    weatherInstance &&
+    weatherInstance.variant !== 'compact' &&
+    !measurements.weatherActions.includes('showCompact')
+  )
+    failures.push(
+      `${weatherId} is not compact: Variant ${weatherInstance.variant}, no showCompact Action`,
+    );
   return {
     outcome: failures.length ? 'fail' : 'pass',
     failures,
@@ -269,7 +278,7 @@ export async function runWeatherBelowMapSmall(
     engineRetries: 0,
     sdkRetries: 0,
     maxGenerationDispatches: cases.length * options.samples,
-    deterministicPredicate: `visible(map-main, weather-main) + below(weather-main, map-main) + weather share <= ${maxWeatherShare} + weightRatio(weather-main, map-main) <= ${maxWeatherToMapRatio}`,
+    deterministicPredicate: `visible(map-main, weather-main) + below(weather-main, map-main) + weather share <= ${maxWeatherShare} + weightRatio(weather-main, map-main) <= ${maxWeatherToMapRatio} + weather compact (Variant or showCompact)`,
     budget: 'external capped key; not verified by this script',
     provenance:
       'current Engine + llmPlanner; default Maelstrom identity; demo system rules; current demo Vessel definitions',

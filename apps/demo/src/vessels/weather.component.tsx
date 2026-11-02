@@ -1,6 +1,6 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { Wind } from 'lucide-react';
+import { LoaderCircle, TriangleAlert, Wind } from 'lucide-react';
 import { useEffect } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
@@ -74,6 +74,57 @@ export default function WeatherComponent({
       )}
     </div>
   );
+
+  if (variant === 'compact') {
+    const CompactIcon = weatherCodeToIcon(weather.current.weatherCode);
+    return (
+      <div
+        data-weather-variant="compact"
+        className="weather-compact relative h-full overflow-hidden"
+      >
+        <div className={`sky-wash sky-wash--${skyClass}`} />
+        <div className="weather-compact__row relative">
+          <CompactIcon
+            aria-hidden="true"
+            size={18}
+            strokeWidth={1.75}
+            className="weather-compact__icon text-ink-2"
+          />
+          <span className="flex items-baseline gap-0.5 shrink-0">
+            <span className="temp-numeral text-lg font-bold leading-none">
+              {weather.current.temperature}°
+            </span>
+            <span className="text-xs text-ink-3">{temperatureUnit}</span>
+          </span>
+          <span className="weather-compact__condition text-sm text-ink-2">
+            {weatherCodeToLabel(weather.current.weatherCode)}
+          </span>
+          <span className="weather-compact__location text-xs font-mono text-ink-3">
+            {locationLabel}
+          </span>
+          <span role="status" className="sr-only">
+            {state.loadingLocation &&
+              `Loading weather for ${state.loadingLocation}...`}
+          </span>
+          {state.loadingLocation && (
+            <LoaderCircle
+              aria-hidden="true"
+              size={14}
+              className="shrink-0 animate-spin text-ink-3"
+            />
+          )}
+          {state.error && (
+            <span className="shrink-0 text-ink-2" title={state.error}>
+              <TriangleAlert aria-hidden="true" size={14} />
+              <span role="alert" className="sr-only">
+                {state.error}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (variant === 'hourly') {
     const hourlyTemps = weather.hourly.map((h) => h.temperature);
@@ -192,28 +243,28 @@ export default function WeatherComponent({
     >
       <div className={`sky-wash sky-wash--${skyClass}`} />
       {notices}
-      <div className="relative flex-1 flex flex-col items-center justify-center">
+      <div className="weather-current relative flex-1 flex flex-col items-center justify-center">
         <CurrentIcon
           aria-hidden="true"
           size={44}
           strokeWidth={1.75}
-          className="text-ink-2 mb-3"
+          className="weather-current__icon text-ink-2"
         />
         <span className="sr-only">
           {weatherCodeToLabel(weather.current.weatherCode)}
         </span>
         <div className="flex items-baseline gap-1">
-          <span className="temp-numeral text-6xl font-bold tracking-tight">
+          <span className="weather-current__temp temp-numeral font-bold tracking-tight">
             {weather.current.temperature}°
           </span>
           <span className="text-sm text-ink-3">{temperatureUnit}</span>
         </div>
         {today && (
-          <div className="text-xs text-ink-3 mt-1">
+          <div className="weather-current__extra text-xs text-ink-3 mt-1">
             H: {today.high}° L: {today.low}°
           </div>
         )}
-        <div className="mt-4 flex items-center gap-1.5 text-sm text-ink-2">
+        <div className="weather-current__extra mt-4 flex items-center gap-1.5 text-sm text-ink-2">
           <Wind size={14} strokeWidth={1.75} />
           {weather.current.windSpeed} {windUnit}
         </div>

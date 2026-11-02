@@ -681,9 +681,10 @@ nonzero when any sample is incomplete or fails.
 
 Weather and map Instances are found by Vessel, because the Planner names a weather
 Instance it adds. A sample passes when both are visible, weather is `below` the
-map, weather takes at most 0.15 of the Chart, and the weather to map area ratio is
-at most 0.35. The weather Variant, any `show*` Action on weather, the tree, each
-Instance rect in cells and the `userMessage` are recorded without being scored.
+map, weather takes at most 0.15 of the Chart, the weather to map area ratio is
+at most 0.35, and weather is compact: shipped in the `compact` Variant, or with a
+`showCompact` Action on it in the Execution Plan. Any `show*` Action on weather,
+the tree, each Instance rect in cells and the `userMessage` are also recorded.
 The summary gives pass count, median weather share, Variants seen and tree counts,
 overall and per case. Whether the weather is readable in the region it gets is
 covered by the e2e, not by this runner.
