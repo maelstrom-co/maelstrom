@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { readBoundedFile } from './lib/bounded-file.ts';
 import { packedIntegrity } from './lib/packed-integrity.ts';
 import { parsePackedManifest } from './lib/packed-manifest.ts';
 import { waitForPublishedPackages } from './lib/published-packages.ts';
@@ -34,7 +34,7 @@ if (!manifest) {
 }
 
 const packages = parsePackedManifest(
-  JSON.parse(readFileSync(manifest, 'utf8')) as unknown,
+  JSON.parse(readBoundedFile(manifest, 65_536).toString('utf8')) as unknown,
   version,
 );
 

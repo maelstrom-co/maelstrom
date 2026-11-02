@@ -6,6 +6,8 @@ type Step = {
   name?: string;
   if?: string;
   run?: string;
+  uses?: string;
+  with?: Record<string, unknown>;
   env?: Record<string, string>;
   'timeout-minutes'?: number;
 };
@@ -29,6 +31,57 @@ const readWorkflow = async (name: string): Promise<Workflow> =>
   Bun.YAML.parse(
     await Bun.file(`.github/workflows/${name}.yml`).text(),
   ) as Workflow;
+
+test.each([
+  'release',
+  'publish-pr',
+])('%s saves per-attempt records before waiting for registry visibility', async (name) => {
+  const publish = (await readWorkflow(name)).jobs.publish!;
+  const index = (step: string) =>
+    publish.steps.findIndex((value) => value.name === step);
+  const find = (step: string) => {
+    const result = publish.steps[index(step)];
+    if (!result) throw new Error(`Missing ${step}`);
+    return result;
+  };
+  const publication = name === 'release' ? 'Publish' : 'Publish packages';
+  const download = find('Download publication records');
+  const save = find('Save publication record');
+  const command = find(publication);
+  expect(index('Download publication records')).toBeLessThan(
+    index(publication),
+  );
+  expect(index(publication)).toBeLessThan(index('Save publication record'));
+  expect(index('Save publication record')).toBeLessThan(
+    index('Verify packages are live'),
+  );
+  expect(download.with?.pattern).toBe('npm-publication-records-*');
+  expect(download.with?.['digest-mismatch']).toBe('error');
+  expect(download.with?.['github-token']).toBeUndefined();
+  expect(download.with?.['run-id']).toBeUndefined();
+  expect(download.with?.repository).toBeUndefined();
+  expect(save.if).toContain('always()');
+  expect(save.with?.overwrite).toBe(false);
+  expect(save.with?.['retention-days']).toBe(7);
+  expect(save.with?.name).toBe(
+    'npm-publication-records-' + '$' + '{{ github.run_attempt }}',
+  );
+  expect(command.run).toContain('--publication-record "$PUBLICATION_RECORD"');
+  expect(command.run).toContain('--recovery-records "$RECOVERY_RECORDS"');
+  expect(command.run).toContain('--source-commit "$SOURCE_COMMIT"');
+  expect(command.env?.RECOVERY_RECORDS).toBe(
+    '$' + '{{ runner.temp }}/prior-publication-records',
+  );
+  expect(command.env?.PUBLICATION_RECORD).toBe(
+    '$' +
+      '{{ runner.temp }}/current-publication-record/publication-record.json',
+  );
+  expect(command.env?.SOURCE_COMMIT).toBe(
+    name === 'release'
+      ? '$' + '{{ needs.prepare.outputs.commit }}'
+      : '$' + '{{ github.event.pull_request.head.sha }}',
+  );
+});
 
 test.each([
   'release',

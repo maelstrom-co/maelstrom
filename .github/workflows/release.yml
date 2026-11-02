@@ -192,7 +192,7 @@ jobs:
     if: needs.prepare.outputs.version != ''
     runs-on: ubuntu-latest
     # Reserve scanning time even when earlier phases reach their limits.
-    timeout-minutes: 75
+    timeout-minutes: 80
     permissions:
       contents: read
       id-token: write
@@ -235,6 +235,15 @@ jobs:
           name: release-tarballs
           path: ${{ env.TARBALL_DIR }}
 
+      - name: Download publication records
+        timeout-minutes: 2
+        if: needs.prepare.outputs.dry_run != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: npm-publication-records-*
+          path: ${{ runner.temp }}/prior-publication-records
+          digest-mismatch: error
+
       - name: Setup npm for trusted publishing
         timeout-minutes: 4
         run: npm install --global npm@12.2.0 --ignore-scripts
@@ -259,6 +268,9 @@ jobs:
         # landed; npm versions are immutable, so re-publishing is a hard error.
         #
         env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          PUBLICATION_RECORD: ${{ runner.temp }}/current-publication-record/publication-record.json
+          RECOVERY_RECORDS: ${{ runner.temp }}/prior-publication-records
           VERSION: ${{ needs.prepare.outputs.version }}
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
@@ -269,10 +281,24 @@ jobs:
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
           --expected-version "$VERSION"
+          --publication-record "$PUBLICATION_RECORD"
+          --recovery-records "$RECOVERY_RECORDS"
+          --source-commit "$SOURCE_COMMIT"
           --tag "$DIST_TAG"
           --registry "$RELEASE_REGISTRY"
           --skip-published
           $DRY_RUN
+
+      - name: Save publication record
+        timeout-minutes: 2
+        if: always() && needs.prepare.outputs.dry_run != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-publication-records-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/current-publication-record/publication-record.json
+          if-no-files-found: ignore
+          retention-days: 7
+          overwrite: false
 
       - name: Verify packages are live
         timeout-minutes: 31
