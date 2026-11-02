@@ -95,13 +95,13 @@ test('loads the keyless workspace cleanly without horizontal overflow', async ({
   await expect(page.getByText('Powered by Maelstrom')).toBeVisible();
   await expect(page.getByText('Sample app')).toBeVisible();
   await expect(
-    page.getByText('Dayline, the host app, supplies the Vessels'),
+    page.getByText("Maelstrom uses Dayline's own Vessels"),
   ).toBeVisible();
   await expect(
-    page.getByText("Works today: arranging Dayline's views"),
+    page.getByText('Try adding tasks, writing journal entries'),
   ).toBeVisible();
   const hostAppBounds = await page
-    .getByText('Dayline, the host app, supplies the Vessels')
+    .getByText("Maelstrom uses Dayline's own Vessels")
     .boundingBox();
   const keyButtonBounds = await page
     .getByRole('button', { name: 'Start interactive demo' })
@@ -287,10 +287,9 @@ test('offers work-focused suggestions on the populated screen', async ({
     page.locator('.connected-input').getByRole('alert'),
   ).toBeVisible();
 
-  const note =
-    "Works today: arranging Dayline's views and running its Actions, like adding tasks, writing journal entries and moving events. In development: a longer-running agent that plans multi-step work on its own.";
+  const note = 'Try adding tasks, writing journal entries or moving events.';
   if (testInfo.project.name === 'mobile') {
-    const info = band.getByRole('button', { name: 'What works today' });
+    const info = band.getByRole('button', { name: 'What you can do' });
     await expect(info).toBeVisible();
     await info.click();
     await expect(band.getByText(note)).toBeVisible();

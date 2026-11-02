@@ -1092,25 +1092,6 @@ body {
   grid-template-rows: auto minmax(1px, 1fr) auto auto;
 }
 
-.dayline-keyless-main {
-  padding-top: 28px;
-  padding-bottom: 28px;
-}
-
-.dayline-intro h2 {
-  margin-bottom: 14px;
-}
-
-.dayline-intro > p:not(.eyebrow) {
-  margin-bottom: 14px;
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.dayline-intro > p:not(.eyebrow):last-of-type {
-  margin-bottom: 22px;
-}
-
 .dayline-intro > p.keyless-capability-note {
   padding-left: 12px;
   border-left: 2px solid var(--line-2);
@@ -1208,11 +1189,10 @@ body {
 }
 
 .capability-note-text {
-  width: 600px;
   margin: 0;
   color: var(--color-ink-3);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 @media (max-width: 1199px) {
@@ -1228,6 +1208,7 @@ body {
     display: none;
     width: min(320px, calc(100vw - 32px));
     padding: 10px 12px;
+    white-space: normal;
     border: 1px solid var(--line-2);
     border-radius: 10px;
     background: var(--color-bg-2);

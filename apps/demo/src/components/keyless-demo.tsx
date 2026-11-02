@@ -60,26 +60,19 @@ export function KeylessDemo({
         </div>
       </DemoHeader>
 
-      <main className="keyless-main dayline-keyless-main">
+      <main className="keyless-main">
         <div className="keyless-intro dayline-intro">
           <p className="eyebrow">Sample app</p>
           <h2>Plan your day by saying what you need.</h2>
           <p>
-            Dayline is a sample day planner with Maelstrom built in. You work
-            with its calendar, tasks and journal by typing or speaking, and
-            Maelstrom picks the right views and runs Dayline's own Actions for
-            you.
-          </p>
-          <p>
-            Dayline, the host app, supplies the Vessels (its views) and the
-            Actions they offer. Maelstrom does not connect other apps. A
-            developer embeds it in their own app.
+            Dayline is a sample day planner with Maelstrom built in. Say what
+            you need and Maelstrom uses Dayline's own Vessels (views) and
+            Actions to do it.
           </p>
           <p className="keyless-capability-note">{CAPABILITY_NOTE}</p>
           <p>
-            Add an OpenAI API key to try it. Start with GPT-Live for voice, or
-            choose another provider above. The key stays in this tab's memory
-            and is never persisted.
+            Add an OpenAI API key to try it. The key stays in this tab and is
+            never saved.
           </p>
           <button
             type="button"

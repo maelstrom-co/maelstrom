@@ -80,13 +80,13 @@ describe('SuggestionChipBand', () => {
     expect(band.className).toContain('suggestion-chip-band');
   });
 
-  it('states what works today and what is still in development', () => {
+  it('says what the visitor can try', () => {
     render(
       <SuggestionChipBand isProcessing={false} onIntentChange={vi.fn()} />,
     );
 
     expect(CAPABILITY_NOTE).toBe(
-      "Works today: arranging Dayline's views and running its Actions, like adding tasks, writing journal entries and moving events. In development: a longer-running agent that plans multi-step work on its own.",
+      'Try adding tasks, writing journal entries or moving events.',
     );
     expect(screen.getByText(CAPABILITY_NOTE)).toBeTruthy();
   });
@@ -101,7 +101,7 @@ describe('SuggestionChipBand', () => {
     render(
       <SuggestionChipBand isProcessing={false} onIntentChange={vi.fn()} />,
     );
-    const info = screen.getByRole('button', { name: 'What works today' });
+    const info = screen.getByRole('button', { name: 'What you can do' });
 
     expect(info.getAttribute('aria-describedby')).toBe(
       screen.getByText(CAPABILITY_NOTE).id,

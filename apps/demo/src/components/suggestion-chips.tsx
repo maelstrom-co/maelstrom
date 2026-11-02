@@ -57,7 +57,7 @@ export function SuggestionChipBand({
         <button
           type="button"
           className="capability-note-info"
-          aria-label="What works today"
+          aria-label="What you can do"
           aria-describedby={noteId}
           aria-expanded={noteOpen}
           onClick={() => setNoteOpen((open) => !open)}
