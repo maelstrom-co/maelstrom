@@ -1,10 +1,17 @@
 // The client's capability projection drops a parameter's options entirely
-// past either cap, so the published list is trimmed to fit both.
+// past either of its caps, and the Vessel schema rejects a definition with
+// more enum candidates than it accepts, so the published list fits all three.
 import {
   MAX_CAPABILITY_OPTION_COUNT,
   MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
 } from '@maelstrom-co/client';
+import { MAX_ACTION_PARAMETER_ENUM_CANDIDATES } from '@maelstrom-co/protocol';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
+
+const MAX_OPTION_COUNT = Math.min(
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
+);
 
 export function cleanOptionValues(
   values: readonly string[],
@@ -21,11 +28,11 @@ export function cleanOptionValues(
 
   let result = [...new Set(safe)];
 
-  if (result.length > MAX_CAPABILITY_OPTION_COUNT) {
+  if (result.length > MAX_OPTION_COUNT) {
     console.warn(
-      `[tasklane-option-publishing] ${label}: dropping ${result.length - MAX_CAPABILITY_OPTION_COUNT} of ${result.length} values to stay under the ${MAX_CAPABILITY_OPTION_COUNT}-option cap`,
+      `[tasklane-option-publishing] ${label}: dropping ${result.length - MAX_OPTION_COUNT} of ${result.length} values to stay under the ${MAX_OPTION_COUNT}-option cap`,
     );
-    result = result.slice(0, MAX_CAPABILITY_OPTION_COUNT);
+    result = result.slice(0, MAX_OPTION_COUNT);
   }
 
   const totalChars = result.reduce((sum, value) => sum + value.length, 0);

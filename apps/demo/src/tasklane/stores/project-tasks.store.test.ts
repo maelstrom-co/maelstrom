@@ -360,6 +360,34 @@ describe('published references', () => {
     });
   });
 
+  it('publishes next-line characters as spaces, the way the Planner sees them', () => {
+    projectTaskActions.createTask({ title: 'Split\u0085title' });
+    const created = getProjectTasksSnapshot().tasks[2];
+    if (!created) throw new Error('missing created task');
+    const label = taskReferenceLabel(created);
+    expect(label).toBe(
+      'TL-3 Split title (unassigned, normal, not in priorities)',
+    );
+    expect(resolveTaskReference(label)).toMatchObject({
+      kind: 'found',
+      task: { id: 'TL-3' },
+    });
+  });
+
+  it('marks a stale parent reference as the parent', () => {
+    const staleParent = taskReferenceLabel(firstTask());
+    projectTaskActions.assignTask('TL-1', 'sam');
+    expect(projectTaskActions.setParent('TL-2', staleParent)).toMatchObject({
+      ok: false,
+      reason: 'stale_reference',
+      role: 'parent',
+      task: { id: 'TL-1' },
+    });
+    expect(
+      projectTaskActions.updateTask(staleParent, { description: 'x' }),
+    ).toMatchObject({ reason: 'stale_reference', role: 'task' });
+  });
+
   it('refuses a label whose status no longer matches the task', () => {
     const before = taskReferenceLabel(firstTask());
     projectTaskActions.assignTask('TL-1', 'sam');

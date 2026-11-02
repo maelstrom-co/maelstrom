@@ -136,7 +136,9 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
     case 'ambiguous_parent':
       return `Couldn't tell which task "${failure.query}" means`;
     case 'stale_reference':
-      return `Couldn't ${verb} "${failure.task.title}" because it changed: now ${taskStatus(failure.task)}`;
+      return failure.role === 'parent'
+        ? `Couldn't use "${failure.task.title}" as the parent because it changed: now ${taskStatus(failure.task)}`
+        : `Couldn't ${verb} "${failure.task.title}" because it changed: now ${taskStatus(failure.task)}`;
     case 'cycle':
       return failure.task.id === failure.parent.id
         ? `Couldn't move "${failure.task.title}" under itself`

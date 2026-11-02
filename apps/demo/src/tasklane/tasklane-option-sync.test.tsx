@@ -4,7 +4,10 @@ import {
   MAX_CAPABILITY_OPTION_COUNT,
   MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
 } from '@maelstrom-co/client';
-import type { VesselDefinition } from '@maelstrom-co/protocol';
+import {
+  MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
+  type VesselDefinition,
+} from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +39,7 @@ const {
   TASK_SUMMARY_HEADING,
   TasklaneOptionSync,
 } = await import('./tasklane-option-sync');
+const { cleanOptionValues } = await import('./option-publishing');
 const {
   __resetProjectTasksStoreForTests,
   getProjectTasksSnapshot,
@@ -119,6 +123,19 @@ describe('projectTasksDefinition', () => {
       (labels ?? []).reduce((sum, label) => sum + label.length, 0),
     ).toBeLessThanOrEqual(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS);
     expect(labels?.[0]).toMatch(/^TL-1 /);
+  });
+
+  it('keeps short labels within the enum candidate limit the Vessel schema accepts', () => {
+    const values = Array.from(
+      { length: MAX_ACTION_PARAMETER_ENUM_CANDIDATES + 1 },
+      (_, i) => `TL-${i + 1}`,
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(cleanOptionValues(values, 'tasks')).toEqual(
+      values.slice(0, MAX_ACTION_PARAMETER_ENUM_CANDIDATES),
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it('publishes no enum when there are no tasks', () => {

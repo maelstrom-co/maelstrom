@@ -65,6 +65,8 @@ export type TaskFailure =
   | {
       readonly ok: false;
       readonly reason: 'stale_reference';
+      /** Whether the stale reference named the task being changed or its new parent. */
+      readonly role: 'task' | 'parent';
       readonly query: string;
       readonly task: ProjectTask;
     };
@@ -148,8 +150,10 @@ const PUBLISHED_LABEL = /^TL-\d+ .+ \([^()]+\)$/i;
 const NO_PARENT_WORDS = new Set([NO_PARENT, '', 'no parent', 'top level']);
 const MAX_LISTED_TASKS = 30;
 const PUBLISHED_TITLE_LIMIT = 60;
+// U+0085 is included because the client turns it into a space in the options
+// the Planner sees, and a label must come back exactly as it was published.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what must be replaced.
-const UNSAFE_LABEL_CHARACTERS = /[|\x00-\x1f\x7f]+/g;
+const UNSAFE_LABEL_CHARACTERS = /[|\x00-\x1f\x7f\x85]+/g;
 
 let state: ProjectTasksState = INITIAL_STATE;
 let requestReferences: ReadonlySet<string> = new Set();
@@ -501,6 +505,7 @@ function lookup(
     return {
       ok: false,
       reason: 'stale_reference',
+      role,
       query: reference,
       task: match.task,
     };
