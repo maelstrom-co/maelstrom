@@ -2,6 +2,34 @@ import { execFileSync } from 'node:child_process';
 
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
+/** Restricts anonymous checksum verification to public npm and local rehearsals. */
+export function assertIntegrityRegistry(registry: string): void {
+  let url: URL;
+  try {
+    url = new URL(registry);
+  } catch {
+    throw new Error('Invalid checksum verification registry URL');
+  }
+  const npm =
+    url.protocol === 'https:' &&
+    url.hostname === 'registry.npmjs.org' &&
+    !url.port &&
+    url.pathname === '/';
+  const local =
+    ['http:', 'https:'].includes(url.protocol) &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (
+    (!npm && !local) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(
+      'Checksum verification supports public npm and anonymous loopback rehearsal registries only',
+    );
+}
+
 /** Checks public package identity before a preview can claim a new name. */
 export function hasPublishedPackage(name: string, registry: string): boolean {
   try {
@@ -127,6 +155,94 @@ export function isAlreadyPublished(
         `Refusing to guess.\n${stderr.trim()}`,
     );
   }
+}
+
+/** Checks visibility and byte identity without treating an accepted upload as available. */
+export function hasPublishedIntegrity(
+  name: string,
+  version: string,
+  registry: string,
+  integrity: string,
+  timeoutMs = 30_000,
+): boolean {
+  assertIntegrityRegistry(registry);
+  const scope = name.match(/^(@[^/]+)\//)?.[1];
+  let output: string;
+  if (!/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity))
+    throw new Error('Invalid expected tarball checksum');
+  try {
+    output = String(
+      execFileSync(
+        'npm',
+        [
+          'view',
+          `${name}@${version}`,
+          'version',
+          'dist.integrity',
+          '--registry',
+          registry,
+          // npm otherwise prefers a configured scope registry over --registry.
+          ...(scope ? [`--${scope}:registry=${registry}`] : []),
+          '--json',
+          '--fetch-retries=1',
+        ],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: timeoutMs,
+          env: { ...process.env, NPM_CONFIG_USERCONFIG: '/dev/null' },
+        },
+      ),
+    );
+  } catch (error) {
+    const stderr = String((error as { stderr?: Buffer | string }).stderr ?? '');
+    const reason = /\bE401\b|\bE403\b/.test(stderr)
+      ? 'authentication failed'
+      : 'registry request failed';
+    if (
+      reason !== 'authentication failed' &&
+      shouldTreatNotFoundAsUnpublished(stderr, registry)
+    )
+      return false;
+    throw new Error(
+      `${name}: could not determine published tarball integrity (${reason}). Refusing to guess.`,
+    );
+  }
+  if (!output.trim())
+    throw new Error(
+      `${name}: registry returned no version or integrity metadata`,
+    );
+  let published: unknown;
+  try {
+    published = parseNpmField(output);
+  } catch {
+    throw new Error(
+      `${name}: registry returned invalid tarball integrity metadata`,
+    );
+  }
+  if (
+    typeof published !== 'object' ||
+    published === null ||
+    Array.isArray(published)
+  )
+    throw new Error(
+      `${name}: registry returned invalid tarball integrity metadata`,
+    );
+  const metadata = published as Record<string, unknown>;
+  if (metadata.version !== version)
+    throw new Error(`${name}: registry returned another version`);
+  const actualIntegrity = metadata['dist.integrity'];
+  if (
+    typeof actualIntegrity !== 'string' ||
+    !/^sha512-[A-Za-z0-9+/]{86}==$/.test(actualIntegrity)
+  )
+    throw new Error(
+      `${name}@${version}: published version has missing or invalid integrity`,
+    );
+  if (actualIntegrity !== integrity)
+    throw new Error(
+      `${name}@${version}: published bytes differ from the validated release tarball`,
+    );
+  return true;
 }
 
 export function parsePublishedVersion(

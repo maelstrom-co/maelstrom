@@ -1,4 +1,4 @@
-import { isAlreadyPublished } from './registry.ts';
+import { hasPublishedIntegrity, isAlreadyPublished } from './registry.ts';
 
 type VerificationOptions = {
   version: string;
@@ -6,10 +6,17 @@ type VerificationOptions = {
   timeoutMs?: number;
   retryDelayMs?: number;
   attempts?: number;
+  integrities?: ReadonlyMap<string, string>;
 };
 
 type VerificationDependencies = {
-  isPublished: typeof isAlreadyPublished;
+  isPublished: (
+    name: string,
+    version: string,
+    registry: string,
+    timeoutMs: number,
+    integrity?: string,
+  ) => boolean;
   now: () => number;
   sleep: (milliseconds: number) => void;
   log: (message: string) => void;
@@ -27,12 +34,24 @@ export function waitForPublishedPackages(
   names: readonly string[],
   options: VerificationOptions,
   dependencies: VerificationDependencies = {
-    isPublished: isAlreadyPublished,
+    isPublished: (name, version, registry, timeoutMs, integrity) =>
+      integrity
+        ? hasPublishedIntegrity(name, version, registry, integrity, timeoutMs)
+        : isAlreadyPublished(name, version, registry, timeoutMs),
     now: () => performance.now(),
     sleep: Bun.sleepSync,
     log: console.log,
   },
 ): string[] {
+  const integrities = options.integrities;
+  if (
+    integrities &&
+    names.some(
+      (name) =>
+        !/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrities.get(name) ?? ''),
+    )
+  )
+    throw new Error('Every package requires a valid tarball checksum');
   const timeoutMs = positiveInteger(
     options.timeoutMs ?? 30 * 60_000,
     '--timeout-ms',
@@ -58,6 +77,7 @@ export function waitForPublishedPackages(
           options.version,
           options.registry,
           Math.min(30_000, remainingMs),
+          options.integrities?.get(name),
         )
       ) {
         pending.delete(name);

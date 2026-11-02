@@ -4,10 +4,164 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertIntegrityRegistry,
   authenticationFailureHint,
+  hasPublishedIntegrity,
   parsePublishedVersion,
   shouldTreatNotFoundAsUnpublished,
 } from './registry.ts';
+
+test.each([
+  'https://registry.npmjs.org',
+  'http://localhost:4873',
+  'http://127.0.0.1:4873',
+  'http://[::1]:4873',
+])('anonymous checksum verification supports %s', (registry) => {
+  expect(() => assertIntegrityRegistry(registry)).not.toThrow();
+});
+
+test.each([
+  'https://npm.pkg.github.com',
+  'https://private.example/npm',
+  'https://user:password@registry.npmjs.org',
+  'https://registry.npmjs.org?token=fixture',
+  'http://registry.npmjs.org',
+])('unsupported or credential-bearing registry %s fails before a request', (registry) => {
+  const directory = mkdtempSync(join(tmpdir(), 'maelstrom-registry-policy-'));
+  const npm = join(directory, 'npm');
+  writeFileSync(npm, '#!/bin/sh\nexit 1\n');
+  chmodSync(npm, 0o755);
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${directory}:${previousPath}`;
+    expect(() =>
+      hasPublishedIntegrity(
+        '@maelstrom-co/react',
+        '1.2.3',
+        registry,
+        `sha512-${Buffer.alloc(64).toString('base64')}`,
+      ),
+    ).toThrow('public npm and anonymous loopback');
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+describe('hasPublishedIntegrity', () => {
+  const integrity = `sha512-${Buffer.alloc(64, 1).toString('base64')}`;
+  test.each([
+    {
+      name: 'ordinary integrity',
+      output: JSON.stringify({ version: '1.2.3', 'dist.integrity': integrity }),
+      status: 0,
+      expected: true,
+    },
+    {
+      name: 'npm 12 singleton integrity',
+      output: JSON.stringify([
+        { version: '1.2.3', 'dist.integrity': integrity },
+      ]),
+      status: 0,
+      expected: true,
+    },
+    {
+      name: 'not visible',
+      output: '',
+      error: 'npm error code E404',
+      status: 1,
+      expected: false,
+    },
+    {
+      name: 'empty successful lookup is unknown',
+      output: '',
+      status: 0,
+      message: 'no version or integrity',
+    },
+    {
+      name: 'visible version without integrity',
+      output: JSON.stringify({ version: '1.2.3' }),
+      status: 0,
+      message: 'missing or invalid integrity',
+    },
+    {
+      name: 'another version is not proof of this release',
+      output: JSON.stringify({ version: '9.9.9', 'dist.integrity': integrity }),
+      status: 0,
+      message: 'another version',
+    },
+    {
+      name: 'different bytes',
+      output: JSON.stringify({
+        version: '1.2.3',
+        'dist.integrity': `sha512-${Buffer.alloc(64, 2).toString('base64')}`,
+      }),
+      status: 0,
+      message: 'published bytes differ',
+    },
+    {
+      name: 'unauthorized',
+      output: '',
+      error: 'npm error code E401',
+      status: 1,
+      message: 'authentication failed',
+    },
+    {
+      name: 'authorization cannot be hidden by an incidental E404',
+      output: '',
+      error: 'npm error code E401\nupstream mentioned E404',
+      status: 1,
+      message: 'authentication failed',
+    },
+    {
+      name: 'invalid metadata',
+      output: '{broken json',
+      status: 0,
+      message: 'invalid tarball integrity metadata',
+    },
+  ])('$name', ({ output, error = '', status, expected, message }) => {
+    const directory = mkdtempSync(join(tmpdir(), 'maelstrom-integrity-'));
+    const npm = join(directory, 'npm');
+    writeFileSync(
+      npm,
+      '#!/bin/sh\nprintf "%s" "$FIELD_OUTPUT"\nprintf "%s" "$FIELD_ERROR" >&2\nexit "$FIELD_STATUS"\n',
+    );
+    chmodSync(npm, 0o755);
+    const previousPath = process.env.PATH;
+    const previous = [
+      process.env.FIELD_OUTPUT,
+      process.env.FIELD_ERROR,
+      process.env.FIELD_STATUS,
+    ];
+    try {
+      process.env.PATH = `${directory}:${previousPath}`;
+      process.env.FIELD_OUTPUT = output;
+      process.env.FIELD_ERROR = error;
+      process.env.FIELD_STATUS = String(status);
+      const check = () =>
+        hasPublishedIntegrity(
+          '@maelstrom-co/react',
+          '1.2.3',
+          'https://registry.npmjs.org',
+          integrity,
+        );
+      if (message !== undefined) expect(check).toThrow(message);
+      else expect(check()).toBe(expected);
+    } finally {
+      process.env.PATH = previousPath;
+      for (const [index, name] of [
+        'FIELD_OUTPUT',
+        'FIELD_ERROR',
+        'FIELD_STATUS',
+      ].entries()) {
+        const value = previous[index];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('isAlreadyPublished', () => {
   test('bounds a slow registry lookup so verification can honor its deadline', () => {
