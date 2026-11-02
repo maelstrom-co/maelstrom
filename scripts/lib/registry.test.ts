@@ -4,11 +4,49 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertIntegrityRegistry,
   authenticationFailureHint,
   hasPublishedIntegrity,
   parsePublishedVersion,
   shouldTreatNotFoundAsUnpublished,
 } from './registry.ts';
+
+test.each([
+  'https://registry.npmjs.org',
+  'http://localhost:4873',
+  'http://127.0.0.1:4873',
+  'http://[::1]:4873',
+])('anonymous checksum verification supports %s', (registry) => {
+  expect(() => assertIntegrityRegistry(registry)).not.toThrow();
+});
+
+test.each([
+  'https://npm.pkg.github.com',
+  'https://private.example/npm',
+  'https://user:password@registry.npmjs.org',
+  'https://registry.npmjs.org?token=fixture',
+  'http://registry.npmjs.org',
+])('unsupported or credential-bearing registry %s fails before a request', (registry) => {
+  const directory = mkdtempSync(join(tmpdir(), 'maelstrom-registry-policy-'));
+  const npm = join(directory, 'npm');
+  writeFileSync(npm, '#!/bin/sh\nexit 1\n');
+  chmodSync(npm, 0o755);
+  const previousPath = process.env.PATH;
+  try {
+    process.env.PATH = `${directory}:${previousPath}`;
+    expect(() =>
+      hasPublishedIntegrity(
+        '@maelstrom-co/react',
+        '1.2.3',
+        registry,
+        `sha512-${Buffer.alloc(64).toString('base64')}`,
+      ),
+    ).toThrow('public npm and anonymous loopback');
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 describe('hasPublishedIntegrity', () => {
   const integrity = `sha512-${Buffer.alloc(64, 1).toString('base64')}`;
@@ -79,7 +117,7 @@ describe('hasPublishedIntegrity', () => {
       name: 'invalid metadata',
       output: '{broken json',
       status: 0,
-      message: '',
+      message: 'invalid tarball integrity metadata',
     },
   ])('$name', ({ output, error = '', status, expected, message }) => {
     const directory = mkdtempSync(join(tmpdir(), 'maelstrom-integrity-'));

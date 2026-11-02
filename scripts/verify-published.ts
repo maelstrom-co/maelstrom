@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { packedIntegrity } from './lib/packed-integrity.ts';
 import { parsePackedManifest } from './lib/packed-manifest.ts';
 import { waitForPublishedPackages } from './lib/published-packages.ts';
-import { resolveRegistry } from './lib/registry.ts';
+import { assertIntegrityRegistry, resolveRegistry } from './lib/registry.ts';
 
 // A green publish step is not proof the registry serves the packages: a
 // partial publish, or one that failed after the tarball upload, both look the
@@ -39,6 +39,7 @@ const packages = parsePackedManifest(
 );
 
 const registry = resolveRegistry(values.registry);
+assertIntegrityRegistry(registry);
 const missing = waitForPublishedPackages(
   packages.map((pkg) => pkg.name),
   {
