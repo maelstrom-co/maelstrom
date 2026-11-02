@@ -26,9 +26,13 @@ afterEach(() => {
 
 describe('app identity', () => {
   it('names Dayline as the app and Maelstrom as what powers it', () => {
-    const { getByRole, getByText } = render(<DemoHeader>{null}</DemoHeader>);
+    const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
     expect(getByRole('heading', { level: 1 }).textContent).toBe('Dayline');
-    expect(getByText('Powered by Maelstrom')).toBeTruthy();
+    const badge = getByRole('link', { name: 'Powered by Maelstrom' });
+    expect(badge.getAttribute('href')).toBe('https://maelstrom-ai.co');
+    const image = badge.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('/brand/powered-by-badge-dark.svg');
+    expect(image?.getAttribute('height')).toBe('28');
   });
 });
 

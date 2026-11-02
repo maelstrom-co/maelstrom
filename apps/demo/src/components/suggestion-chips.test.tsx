@@ -9,6 +9,12 @@ import { SuggestionChipBand, SuggestionChips } from './suggestion-chips';
 
 const { m } = await import('../lib/maelstrom');
 
+const CHIP_LABELS = [
+  'Add a design review task',
+  'Write a journal entry',
+  'Move the design review',
+];
+
 afterEach(() => cleanup());
 
 function renderWithIntentInput(ui: React.ReactNode) {
@@ -29,7 +35,8 @@ describe('SuggestionChipBand', () => {
     const chips = screen
       .getByRole('list', { name: 'Suggestions' })
       .querySelectorAll('button[data-suggestion]');
-    expect([...chips].map((chip) => chip.textContent)).toEqual([
+    expect([...chips].map((chip) => chip.textContent)).toEqual(CHIP_LABELS);
+    expect([...chips].map((chip) => chip.getAttribute('title'))).toEqual([
       ...FIRST_RUN_EXAMPLES,
     ]);
   });
@@ -43,9 +50,7 @@ describe('SuggestionChipBand', () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole('button', { name: FIRST_RUN_EXAMPLES[2] }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: CHIP_LABELS[2] }));
 
     expect(onIntentChange).toHaveBeenCalledTimes(1);
     expect(onIntentChange).toHaveBeenCalledWith(FIRST_RUN_EXAMPLES[2]);
@@ -57,7 +62,7 @@ describe('SuggestionChipBand', () => {
       <SuggestionChipBand isProcessing={false} onIntentChange={vi.fn()} />,
     );
 
-    for (const example of FIRST_RUN_EXAMPLES) {
+    for (const example of CHIP_LABELS) {
       const chip = screen.getByRole('button', { name: example });
       expect(chip.tagName).toBe('BUTTON');
       expect(chip.getAttribute('type')).toBe('button');
@@ -74,9 +79,7 @@ describe('SuggestionChipBand', () => {
     rerender(<SuggestionChipBand isProcessing onIntentChange={vi.fn()} />);
 
     expect(screen.getByTestId('suggestion-chip-band')).toBe(band);
-    expect(
-      screen.queryByRole('button', { name: FIRST_RUN_EXAMPLES[0] }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: CHIP_LABELS[0] })).toBeNull();
     expect(band.className).toContain('suggestion-chip-band');
   });
 
@@ -122,8 +125,6 @@ describe('SuggestionChips', () => {
       </m.Provider>,
     );
 
-    expect(
-      screen.getByRole('button', { name: FIRST_RUN_EXAMPLES[0] }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: CHIP_LABELS[0] })).toBeTruthy();
   });
 });

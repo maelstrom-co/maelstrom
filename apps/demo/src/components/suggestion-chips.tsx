@@ -3,6 +3,12 @@ import { m } from '../lib/maelstrom';
 import { CAPABILITY_NOTE } from './capability-note';
 import { FIRST_RUN_EXAMPLES } from './first-run-hint';
 
+const SUGGESTIONS = [
+  { label: 'Add a design review task', prompt: FIRST_RUN_EXAMPLES[0] },
+  { label: 'Write a journal entry', prompt: FIRST_RUN_EXAMPLES[1] },
+  { label: 'Move the design review', prompt: FIRST_RUN_EXAMPLES[2] },
+] as const;
+
 interface SuggestionChipsProps {
   readonly onIntentChange: (intent: string) => void;
 }
@@ -41,15 +47,16 @@ export function SuggestionChipBand({
     <div data-testid="suggestion-chip-band" className="suggestion-chip-band">
       <ul className="suggestion-chips" aria-label="Suggestions">
         {!isProcessing &&
-          FIRST_RUN_EXAMPLES.map((example) => (
-            <li key={example}>
+          SUGGESTIONS.map(({ label, prompt }) => (
+            <li key={label}>
               <button
                 type="button"
                 data-suggestion
                 className="suggestion-chip"
-                onClick={() => fillDraft(example)}
+                title={prompt}
+                onClick={() => fillDraft(prompt)}
               >
-                {example}
+                {label}
               </button>
             </li>
           ))}

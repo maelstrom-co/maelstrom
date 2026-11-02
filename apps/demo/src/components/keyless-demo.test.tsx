@@ -27,7 +27,9 @@ describe('KeylessDemo', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Dayline' }),
     ).toBeTruthy();
-    expect(screen.getByText('Powered by Maelstrom')).toBeTruthy();
+    expect(
+      screen.getByRole('link', { name: 'Powered by Maelstrom' }),
+    ).toBeTruthy();
     expect(screen.getByText('Sample app')).toBeTruthy();
     expect(
       screen.getByRole('heading', {

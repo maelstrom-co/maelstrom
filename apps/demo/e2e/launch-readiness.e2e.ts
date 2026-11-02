@@ -92,7 +92,9 @@ test('loads the keyless workspace cleanly without horizontal overflow', async ({
   await expect(
     page.getByRole('heading', { level: 1, name: 'Dayline' }),
   ).toBeVisible();
-  await expect(page.getByText('Powered by Maelstrom')).toBeVisible();
+  const badge = page.getByRole('link', { name: 'Powered by Maelstrom' });
+  await expect(badge).toBeVisible();
+  expect((await badge.getByRole('img').boundingBox())?.height).toBe(28);
   await expect(page.getByText('Sample app')).toBeVisible();
   await expect(
     page.getByText("Maelstrom uses Dayline's own Vessels"),
@@ -278,11 +280,11 @@ test('offers work-focused suggestions on the populated screen', async ({
   const suggestions = band.getByRole('list', { name: 'Suggestions' });
   await expect(
     suggestions.getByRole('button', {
-      name: 'Move the design review to 11:00',
+      name: 'Move the design review',
     }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(suggestions.getByRole('button')).toHaveCount(3);
-  expect((await band.boundingBox())?.height).toBe(40);
+  expect((await band.boundingBox())?.height).toBe(32);
   await expect(
     page.locator('.connected-input').getByRole('alert'),
   ).toBeVisible();
@@ -302,7 +304,7 @@ test('offers work-focused suggestions on the populated screen', async ({
   }
 
   await suggestions
-    .getByRole('button', { name: 'Move the design review to 11:00' })
+    .getByRole('button', { name: 'Move the design review' })
     .click();
   const intent = page.locator('#demo-intent');
   await expect(intent).toHaveValue('Move the design review to 11:00');
