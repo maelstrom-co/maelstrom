@@ -129,6 +129,7 @@ it('the hosted socket streams a real Planner response and waits for its own ackn
       ws,
       frame({
         type: 'ui_applied',
+        status: 'applied',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         chart,
@@ -174,6 +175,7 @@ it('a hosted socket cannot submit another session or acknowledge another connect
       bw,
       frame({
         type: 'ui_applied',
+        status: 'applied',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         chart,
@@ -189,6 +191,7 @@ it('a hosted socket cannot submit another session or acknowledge another connect
       aw,
       frame({
         type: 'ui_applied',
+        status: 'applied',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         chart,
@@ -258,6 +261,7 @@ it('a hibernated socket reauthenticates before replaying its buffered agent inpu
       ws,
       frame({
         type: 'ui_applied',
+        status: 'applied',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         chart,
