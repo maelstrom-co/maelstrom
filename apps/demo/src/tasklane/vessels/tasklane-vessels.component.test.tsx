@@ -65,7 +65,7 @@ describe('Feedback Vessel', () => {
   it('shows the seeded feedback as quoted text', () => {
     render(<SourceFeedbackComponent {...props('source-feedback')} />);
     const quotes = screen.getByRole('region', { name: 'Feedback snapshot' });
-    expect(quotes.textContent).toContain('layout engine');
+    expect(quotes.textContent).toContain('real layout tool');
     expect(quotes.textContent).toContain(
       'Team note: maybe use the pet shop as the example app.',
     );

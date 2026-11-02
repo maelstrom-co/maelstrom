@@ -11,15 +11,16 @@ beforeEach(() => {
 });
 
 describe('feedback snapshot', () => {
-  it('seeds the reviewer quotes and one labelled team note within the limit', () => {
+  it('seeds labelled sample quotes and one team note within the limit', () => {
     const { text, truncated } = getFeedbackSnapshot();
     expect(truncated).toBe(false);
     expect(text.length).toBeLessThanOrEqual(FEEDBACK_CHARACTER_LIMIT);
-    expect(text).toContain('layout engine');
-    expect(text).toContain('personal preferences');
-    expect(text).toContain('non-human interactable');
-    expect(text).toContain('Todoist, ClickUp, or Jira');
-    expect(text).toContain('half the screen');
+    expect(text).toMatch(/^Sample feedback/);
+    expect(text).toContain('real layout tool');
+    expect(text).toContain('how I work');
+    expect(text).toContain('click and edit things');
+    expect(text).toContain('tracker my team already uses');
+    expect(text).toContain('small one-line version');
     expect(
       text
         .trimEnd()

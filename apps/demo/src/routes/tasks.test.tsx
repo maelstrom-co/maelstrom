@@ -163,7 +163,7 @@ describe('/tasks without a key', () => {
       name: 'Example Tasklane project',
     });
     expect(within(preview).getByText('Update demo README')).toBeTruthy();
-    expect(within(preview).getByText(/layout engine/)).toBeTruthy();
+    expect(within(preview).getByText(/real layout tool/)).toBeTruthy();
     expect(engine.requests).toHaveLength(0);
   });
 
@@ -191,7 +191,7 @@ describe('/tasks with a key', () => {
       name: 'Connection status: connected',
     });
     await waitFor(() => {
-      expect(instance(FEEDBACK)?.textContent).toContain('layout engine');
+      expect(instance(FEEDBACK)?.textContent).toContain('real layout tool');
       expect(instance(TASKS)?.textContent).toContain('Update demo README');
     });
     expect(screen.getByRole('heading', { name: 'Tasklane' })).toBeTruthy();

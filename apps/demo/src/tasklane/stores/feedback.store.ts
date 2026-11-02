@@ -16,17 +16,17 @@ export type FeedbackMutationResult =
   | { readonly ok: false; readonly reason: 'empty' };
 
 export const SEED_FEEDBACK = [
-  'Reviewer feedback on the Maelstrom demo:',
+  'Sample feedback on the Maelstrom demo, written for this example project:',
   '',
-  '"A great implementation of what I would consider a layout engine."',
+  '"Asking for more room and watching the panels rearrange feels like a real layout tool."',
   '',
-  '"Nice for giving the user the ability to work a UI to meet their personal preferences."',
+  '"I like that I can shape the screen around how I work."',
   '',
-  '"Also are the vessels intentional non-human interactable?"',
+  '"Can I also click and edit things inside the panels, or only ask for changes?"',
   '',
-  '"For tasks, could I build a widget that connects to other platforms where I manage tasks, like Todoist, ClickUp, or Jira?"',
+  '"Could a task panel sync with the tracker my team already uses?"',
   '',
-  '"I tried to put the weather under the map, and the weather widget, due to its height constraints and text sizes, required half the screen real estate. I couldn\'t change anything about that, even though I wanted it to be very small."',
+  '"The weather panel under the map takes up far too much space. I wanted a small one-line version and could not get one."',
   '',
   'Team note: maybe use the pet shop as the example app.',
 ].join('\n');
