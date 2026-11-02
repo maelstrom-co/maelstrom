@@ -166,6 +166,7 @@ export function hasPublishedIntegrity(
   timeoutMs = 30_000,
 ): boolean {
   assertIntegrityRegistry(registry);
+  const scope = name.match(/^(@[^/]+)\//)?.[1];
   let output: string;
   if (!/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity))
     throw new Error('Invalid expected tarball checksum');
@@ -180,6 +181,8 @@ export function hasPublishedIntegrity(
           'dist.integrity',
           '--registry',
           registry,
+          // npm otherwise prefers a configured scope registry over --registry.
+          ...(scope ? [`--${scope}:registry=${registry}`] : []),
           '--json',
           '--fetch-retries=1',
         ],
