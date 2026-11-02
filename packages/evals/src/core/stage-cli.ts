@@ -147,7 +147,7 @@ export async function runStageEvalCli(
     repeats,
     concurrency,
     ...(values.verbose === true && { logger: consoleLogger }),
-    report: ({ records }) =>
+    report: ({ records, runId }) =>
       writeStageReport(
         out,
         stage,
@@ -164,6 +164,7 @@ export async function runStageEvalCli(
           date: new Date().toISOString(),
         },
         stage.reportSections(records, variants),
+        runId,
       ),
     onRecord: (record) =>
       console.log(

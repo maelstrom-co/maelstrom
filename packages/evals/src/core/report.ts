@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pluginOf } from './arms.js';
@@ -13,6 +14,7 @@ import {
   renderJudgeSummary,
   summarizeJudges,
 } from './judge-result.js';
+import { writeMarkdownReport } from './markdown-report.js';
 import {
   extendOwned,
   type PlannerEvalPlugin,
@@ -384,6 +386,7 @@ export async function writeReport(
   records: readonly RunRecord[],
   meta: Readonly<Record<string, unknown>>,
   options: ReportOptions,
+  runId: string = randomUUID(),
 ): Promise<ArmSummary[]> {
   records = records.map((record) => ({
     ...record,
@@ -406,11 +409,16 @@ export async function writeReport(
       2,
     ),
   );
-  await writeFile(
-    join(out, 'report.md'),
-    renderMarkdown(summaries, meta, options),
-  );
-  await writeFile(join(out, 'paired.md'), renderPaired(records));
+  await writeMarkdownReport(join(out, 'report.md'), {
+    runId,
+    reportId: 'planner',
+    markdown: renderMarkdown(summaries, meta, options),
+  });
+  await writeMarkdownReport(join(out, 'paired.md'), {
+    runId,
+    reportId: 'planner-paired',
+    markdown: renderPaired(records),
+  });
   return summaries;
 }
 

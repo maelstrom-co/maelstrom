@@ -338,6 +338,70 @@ export function prepareRunTelemetryPublication(
   );
 }
 
+/** A completed run's rendered report, without fabricated case or sample identity. */
+export interface MarkdownReport {
+  /** Identity of the completed run, or a new identity for an offline report rebuild. */
+  readonly runId: string;
+  /** Report within the run, such as planner or stage-select. */
+  readonly reportId: string;
+  /** Full rendered Markdown, including any caller-approved diagnostics. */
+  readonly markdown: string;
+}
+
+/** Prepares bounded, reviewed Markdown in a distinct versioned JSON transport envelope. */
+export function prepareMarkdownReportPublication(
+  report: MarkdownReport,
+  options: {
+    readonly destinationId: string;
+    readonly artifactId: string;
+    readonly policy: PublicationPolicy;
+    readonly preparedAt?: string;
+  },
+): EvaluationPublication {
+  positiveInteger(options.policy.maxBytes);
+  const source = JSON.parse(boundedJson(report, options.policy.maxBytes));
+  if (
+    !source ||
+    Array.isArray(source) ||
+    Object.keys(source).some(
+      (key) => !['runId', 'reportId', 'markdown'].includes(key),
+    ) ||
+    typeof source.markdown !== 'string'
+  )
+    throw new Error('Invalid Markdown report');
+  for (const value of [
+    source.runId,
+    source.reportId,
+    options.destinationId,
+    options.artifactId,
+  ]) {
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      Buffer.byteLength(value) > options.policy.maxBytes
+    )
+      throw new Error('Invalid Markdown report identity');
+  }
+  const json = boundedJson(
+    {
+      schemaVersion: 3,
+      scope: 'run',
+      kind: 'markdown-report',
+      identity: { runId: source.runId, reportId: source.reportId },
+      preparedAt: preparationTime(options.preparedAt),
+      mediaType: 'text/markdown',
+      markdown: source.markdown,
+    },
+    options.policy.maxBytes,
+  );
+  return sealPublication(
+    json,
+    3,
+    JSON.stringify(['run', source.runId, source.reportId]),
+    options,
+  );
+}
+
 function sealPublication(
   json: string,
   version: number,

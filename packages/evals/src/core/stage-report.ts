@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -6,6 +7,7 @@ import {
   renderJudgeSummary,
   summarizeJudges,
 } from './judge-result.js';
+import { writeMarkdownReport } from './markdown-report.js';
 
 import type { StageRunMeta, StageTurnRecord } from './stage-eval.js';
 import { percentile, type Ratio, ratio, STAGE_RATIO } from './stats.js';
@@ -258,6 +260,7 @@ export async function writeStageReport(
   variants: readonly string[],
   meta: StageRunMeta,
   sections: readonly string[] = [],
+  runId: string = randomUUID(),
 ): Promise<void> {
   records = records.map((record) => ({
     ...record,
@@ -277,10 +280,11 @@ export async function writeStageReport(
     `${JSON.stringify(records, null, 2)}\n`,
   );
   await writeFile(join(out, 'meta.json'), `${JSON.stringify(meta, null, 2)}\n`);
-  await writeFile(
-    join(out, 'report.md'),
-    `${renderStageReport(subject, records, variants, meta, sections)}\n`,
-  );
+  await writeMarkdownReport(join(out, 'report.md'), {
+    runId,
+    reportId: `stage-${subject.stage}`,
+    markdown: `${renderStageReport(subject, records, variants, meta, sections)}\n`,
+  });
 }
 
 function scenarioCell(records: readonly StageTurnRecord[]): string {

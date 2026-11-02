@@ -224,7 +224,7 @@ export async function runEvalCli(
       replayThrough && {
         replay: { source: replay.source, through: replayThrough },
       }),
-    report: async ({ records }) => {
+    report: async ({ records, runId }) => {
       await writeReport(
         out,
         records,
@@ -242,6 +242,7 @@ export async function runEvalCli(
           }),
         },
         { plugins, graderValidation },
+        runId,
       );
     },
     onRecord: (record) =>
