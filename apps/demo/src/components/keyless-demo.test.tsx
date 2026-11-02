@@ -52,7 +52,7 @@ describe('KeylessDemo', () => {
       'Sample app',
       "Dayline is a sample day planner with Maelstrom built in. Say what you need and Maelstrom uses Dayline's own Vessels (views) and Actions to do it.",
       CAPABILITY_NOTE,
-      'Add an OpenAI API key to try it. The key stays in this tab and is never saved.',
+      'Add an OpenAI API key to try it. The key is sent to the demo server and held in memory only. It is not saved in browser storage.',
     ]);
     const keyButton = screen.getByRole('button', {
       name: 'Start interactive demo',

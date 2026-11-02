@@ -71,8 +71,8 @@ export function KeylessDemo({
           </p>
           <p className="keyless-capability-note">{CAPABILITY_NOTE}</p>
           <p>
-            Add an OpenAI API key to try it. The key stays in this tab and is
-            never saved.
+            Add an OpenAI API key to try it. The key is sent to the demo server
+            and held in memory only. It is not saved in browser storage.
           </p>
           <button
             type="button"
