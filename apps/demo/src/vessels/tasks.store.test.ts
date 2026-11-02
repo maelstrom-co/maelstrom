@@ -136,6 +136,35 @@ describe('resolveTaskReference', () => {
   });
 });
 
+describe('resolveTaskReference with id-like titles', () => {
+  it('matches a title that starts like an id instead of the id it resembles', () => {
+    tasksActions.addTask('T-2 retro follow-up', ['T-2.1 notes']);
+    const { tasks } = getTasksSnapshot();
+    expect(
+      resolveTaskReference(tasks, 'T-2 retro follow-up', 'task')?.task.id,
+    ).toBe('T-4');
+    expect(
+      resolveTaskReference(tasks, 'T-4 T-2 retro follow-up (open)', 'task')
+        ?.task.id,
+    ).toBe('T-4');
+    expect(
+      resolveTaskReference(tasks, 'T-2 Prep design review notes (open)', 'task')
+        ?.task.id,
+    ).toBe('T-2');
+    expect(
+      resolveTaskReference(tasks, 'T-2.1 notes', 'subtask')?.subtask?.id,
+    ).toBe('T-4.1');
+  });
+
+  it('finds a title that starts with an unknown id', () => {
+    tasksActions.addTask('T-99 cleanup');
+    expect(
+      resolveTaskReference(getTasksSnapshot().tasks, 'T-99 cleanup', 'task')
+        ?.task.id,
+    ).toBe('T-4');
+  });
+});
+
 describe('taskReferenceLabel', () => {
   it('formats id, title and status', () => {
     expect(
@@ -211,6 +240,16 @@ describe('task mutations', () => {
       ok: true,
       subtask: { id: 'T-2.1', title: 'Draft agenda', done: false },
     });
+  });
+
+  it('refuses a blank subtask title without changing the task', () => {
+    const before = getTasksSnapshot();
+    expect(tasksActions.addSubtask('T-2', '   ')).toEqual({
+      ok: false,
+      reason: 'blank_title',
+      query: '   ',
+    });
+    expect(getTasksSnapshot()).toBe(before);
   });
 
   it('returns not_found results instead of booleans', () => {

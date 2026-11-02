@@ -105,7 +105,7 @@ export function entryReferenceLabel(entry: JournalEntry): string {
 
 /**
  * Resolves an id (`J-2`), a published label (`J-2 Architecture review`) or a
- * title. An id that names nothing never falls back to a title match.
+ * title. A bare id that names nothing never falls back to a title match.
  */
 export function resolveEntryReference(
   entries: readonly JournalEntry[],
@@ -113,7 +113,14 @@ export function resolveEntryReference(
 ): JournalEntry | undefined {
   const trimmed = reference.trim();
   const id = ENTRY_ID_PATTERN.exec(trimmed)?.[1];
-  if (id) return entries.find((entry) => entry.id === id);
+  if (id) {
+    const byId = entries.find((entry) => entry.id === id);
+    const rest = trimmed.slice(id.length).trim();
+    if (!rest) return byId;
+    // A title may itself start like an id, so the prefix counts only when
+    // the rest names that same entry.
+    if (byId && byId.title.toLowerCase() === rest.toLowerCase()) return byId;
+  }
   return findByFuzzyTitle([...entries], trimmed);
 }
 

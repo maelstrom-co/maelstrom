@@ -4,6 +4,7 @@ import { Check } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
 import {
   describeAddedTask,
+  markDirectAction,
   recordChange,
   recordFailure,
   recordUnchanged,
@@ -109,11 +110,11 @@ export default function TasksComponent({
                 <TaskCheckbox
                   title={task.title}
                   done={task.done}
-                  onToggle={() =>
-                    executeAction(task.done ? 'uncheckTask' : 'checkTask', {
-                      task: task.id,
-                    })
-                  }
+                  onToggle={() => {
+                    const action = task.done ? 'uncheckTask' : 'checkTask';
+                    markDirectAction(source(action));
+                    executeAction(action, { task: task.id });
+                  }}
                 />
                 <span
                   className={
@@ -137,12 +138,13 @@ export default function TasksComponent({
                         title={sub.title}
                         done={sub.done}
                         subtask
-                        onToggle={() =>
-                          executeAction(
-                            sub.done ? 'uncheckSubtask' : 'checkSubtask',
-                            { subtask: sub.id },
-                          )
-                        }
+                        onToggle={() => {
+                          const action = sub.done
+                            ? 'uncheckSubtask'
+                            : 'checkSubtask';
+                          markDirectAction(source(action));
+                          executeAction(action, { subtask: sub.id });
+                        }}
                       />
                       <span
                         className={
@@ -184,7 +186,7 @@ function TaskCheckbox({
       type="button"
       role="checkbox"
       aria-checked={done}
-      aria-label={`Mark ${title} done`}
+      aria-label={title}
       onClick={onToggle}
       className={cn(
         'task-check shrink-0',
@@ -228,6 +230,10 @@ function subtaskOutcome(
   result: SubtaskChange,
   describe: (result: Extract<SubtaskChange, { ok: true }>) => string,
 ) {
+  if (!result.ok && result.reason === 'blank_title') {
+    recordFailure("Couldn't add a subtask without a title", source(action));
+    return err(new Error('subtaskTitle must not be blank'));
+  }
   if (!result.ok) return notFound(action, kind, result.query);
   if (result.changed) {
     recordChange(describe(result), source(action));

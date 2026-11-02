@@ -27,10 +27,15 @@ const TASKS_ONLY: TilingLayout = {
   instances: [TASKS_INSTANCE],
 };
 
+// The list step shows the journal alone, as a Planner would on a phone, so
+// its inline editor has room above the floating Maelstrom response.
 function withJournal(variant: 'entry' | 'list'): TilingLayout {
   return {
     type: 'tiling',
-    tree: ['H', 'ID:tasks-main', 'ID:journal-main'],
+    tree:
+      variant === 'entry'
+        ? ['H', 'ID:tasks-main', 'ID:journal-main']
+        : ['ID:journal-main'],
     instances: [
       TASKS_INSTANCE,
       {
@@ -164,20 +169,29 @@ test('completes the day-planner journey across conversation and clicks', async (
   await expect(receipt).toHaveText(
     '✓ Added "Prepare design review" with 2 subtasks',
   );
-  await expectStableDock(page, dockHeight, resizeRequests);
+  // The first request carries the initial Chart measurement, so its own
+  // chart_resize is expected and the baseline starts after it.
+  await expectStableDock(
+    page,
+    dockHeight,
+    resizeRequests,
+    resizeRequests.length,
+  );
 
   // Step 2: a direct click checks a subtask through the same Action.
   const subtask = page.getByRole('checkbox', {
-    name: 'Mark Check prototype done',
+    name: 'Check prototype',
   });
   await expect(subtask).toHaveAttribute('aria-checked', 'false');
+  let before = resizeRequests.length;
   await subtask.focus();
   await page.keyboard.press('Space');
   await expect(subtask).toHaveAttribute('aria-checked', 'true');
   await expect(receipt).toHaveText('✓ Checked subtask "Check prototype"');
-  await expectStableDock(page, dockHeight, resizeRequests);
+  await expectStableDock(page, dockHeight, resizeRequests, before);
 
   // Step 3: a request creates and writes a journal entry.
+  before = resizeRequests.length;
   await send(
     "Create a journal entry called Design review prep and write 'Prototype checked; questions still to prepare.'",
   );
@@ -187,26 +201,31 @@ test('completes the day-planner journey across conversation and clicks', async (
   await expect(page.getByLabel('Text of Design review prep')).toHaveValue(
     'Prototype checked; questions still to prepare.',
   );
-  await expectStableDock(page, dockHeight, resizeRequests);
+  await expectStableDock(page, dockHeight, resizeRequests, before);
 
   // A layout-only request shows no receipt line.
   await send('Show the journal list');
-  const row = page.getByRole('button', { name: /Architecture review/ });
+  const row = page.getByRole('button', { name: /Design review prep/ });
   await expect(row).toBeVisible();
   await expect(receipt).toHaveText('');
 
   // Step 4: open an entry by keyboard, edit it and save.
+  before = resizeRequests.length;
+  // The entry just written stays selected, so the list opens it already.
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
   await row.focus();
   await page.keyboard.press('Enter');
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Enter');
   await expect(row).toHaveAttribute('aria-expanded', 'true');
-  const editor = page.getByLabel('Text of Architecture review');
-  await editor.fill('Split the auth service after the design review.');
+  const editor = page.getByLabel('Text of Design review prep');
+  await editor.fill('Prototype checked. Questions drafted for the review.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(receipt).toHaveText(
-    '✓ Updated journal entry "Architecture review"',
+    '✓ Updated journal entry "Design review prep"',
   );
   await expect(row).toBeFocused();
-  await expectStableDock(page, dockHeight, resizeRequests);
+  await expectStableDock(page, dockHeight, resizeRequests, before);
   await expect(dock).toBeVisible();
 });
 
@@ -222,8 +241,9 @@ async function expectStableDock(
   page: Page,
   dockHeight: number,
   resizeRequests: number[],
+  before: number,
 ): Promise<void> {
-  const before = resizeRequests.length;
+  expect(resizeRequests.length).toBe(before);
   expect(await heightOf(page, '.connected-input')).toBe(dockHeight);
   await page.waitForTimeout(600);
   expect(resizeRequests.length).toBe(before);

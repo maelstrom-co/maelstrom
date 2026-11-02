@@ -57,6 +57,27 @@ describe('resolveEntryReference', () => {
   });
 });
 
+describe('resolveEntryReference with id-like titles', () => {
+  it('matches a title that starts like an id instead of the id it resembles', () => {
+    journalActions.createEntry('J-2 launch notes');
+    const { entries } = getJournalSnapshot();
+    expect(resolveEntryReference(entries, 'J-2 launch notes')?.id).toBe('J-3');
+    expect(resolveEntryReference(entries, 'J-3 J-2 launch notes')?.id).toBe(
+      'J-3',
+    );
+    expect(resolveEntryReference(entries, 'J-2 Architecture review')?.id).toBe(
+      'J-2',
+    );
+  });
+
+  it('finds a title that starts with an unknown id', () => {
+    journalActions.createEntry('J-99 retro');
+    expect(
+      resolveEntryReference(getJournalSnapshot().entries, 'J-99 retro')?.id,
+    ).toBe('J-3');
+  });
+});
+
 describe('journalActions.setEntryContent', () => {
   it('replaces the content instead of appending', () => {
     const result = journalActions.setEntryContent('J-1', 'Fresh text');

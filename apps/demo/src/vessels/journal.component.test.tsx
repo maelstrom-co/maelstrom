@@ -233,6 +233,51 @@ describe('JournalComponent list view', () => {
     expect(executeAction).not.toHaveBeenCalled();
   });
 
+  it('keeps the draft and the open row until the store confirms the save', async () => {
+    executeAction.mockImplementationOnce(async () => {});
+    render(<JournalComponent {...props('list')} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Sprint kickoff/ }));
+    });
+    fireEvent.change(screen.getByLabelText('Text of Sprint kickoff'), {
+      target: { value: 'Queued words' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+
+    const editor = screen.getByLabelText(
+      'Text of Sprint kickoff',
+    ) as HTMLTextAreaElement;
+    expect(editor.value).toBe('Queued words');
+
+    await invoke('editEntry', { entry: 'J-1', content: 'Queued words' });
+
+    expect(screen.queryByLabelText('Text of Sprint kickoff')).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: /Sprint kickoff/ }),
+    );
+  });
+
+  it('keeps the draft when the save never lands', async () => {
+    executeAction.mockImplementationOnce(async () => {});
+    render(<JournalComponent {...props('list')} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Sprint kickoff/ }));
+    });
+    fireEvent.change(screen.getByLabelText('Text of Sprint kickoff'), {
+      target: { value: 'Unsaved words' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(
+      (screen.getByLabelText('Text of Sprint kickoff') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Unsaved words');
+    expect(contentOf('J-1')).not.toBe('Unsaved words');
+  });
+
   it('cancels with the Cancel button', () => {
     render(<JournalComponent {...props('list')} />);
     act(() => {
@@ -260,6 +305,44 @@ describe('JournalComponent entry view editor', () => {
       content: 'Split auth later',
     });
     expect(contentOf('J-2')).toBe('Split auth later');
+  });
+
+  it('keeps the entry-view draft until the store confirms the save', async () => {
+    executeAction.mockImplementationOnce(async () => {});
+    journalActions.openEntry('J-2');
+    render(<JournalComponent {...props('entry')} />);
+    const editor = screen.getByLabelText(
+      'Text of Architecture review',
+    ) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'Pending words' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(editor.value).toBe('Pending words');
+    expect(
+      (screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    await invoke('editEntry', { entry: 'J-2', content: 'Pending words' });
+    expect(editor.value).toBe('Pending words');
+    expect(
+      (screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it('gives each tile showing the same entry its own editor id', () => {
+    journalActions.openEntry('J-1');
+    render(
+      <>
+        <JournalComponent {...props('entry')} />
+        <JournalComponent {...props('entry')} />
+      </>,
+    );
+    const editors = screen.getAllByLabelText('Text of Sprint kickoff');
+    expect(editors).toHaveLength(2);
+    expect(editors[0].id).not.toBe(editors[1].id);
   });
 
   it('shows dictated text in the editor while there is no unsaved draft', async () => {

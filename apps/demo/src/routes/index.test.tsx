@@ -1073,7 +1073,7 @@ describe('the seeded first screen', () => {
       tasksActions.addTask('Prepare design review', ['Check prototype']);
     });
     const checkbox = await screen.findByRole('checkbox', {
-      name: 'Mark Check prototype done',
+      name: 'Check prototype',
     });
     await act(async () => {
       fireEvent.click(checkbox);

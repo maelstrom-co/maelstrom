@@ -1,5 +1,5 @@
 import type { ActionExecution } from '@maelstrom-co/protocol';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetActionActivityForTests,
   type ActivityEntry,
@@ -9,6 +9,7 @@ import {
   endRequestWindow,
   getActivitySnapshot,
   latestReceiptParts,
+  markDirectAction,
   problemSummaryForWindow,
   recordChange,
   recordFailure,
@@ -177,6 +178,39 @@ describe('activity windows', () => {
     beginRequestWindow();
     endRequestWindow();
     expect(getActivitySnapshot().openWindowId).toBeNull();
+  });
+
+  it('keeps a direct action out of the request window that is open at the time', () => {
+    const request = beginRequestWindow('ticket-1');
+    markDirectAction({ vesselId: 'tasks', action: 'checkSubtask' });
+    recordChange('Checked subtask "Check prototype"', {
+      vesselId: 'tasks',
+      action: 'checkSubtask',
+    });
+    expect(text(latestReceiptParts(getActivitySnapshot()))).toBe(
+      '✓ Checked subtask "Check prototype"',
+    );
+
+    recordChange('Added "A"', TASKS);
+    endRequestWindow(request);
+    expect(text(latestReceiptParts(getActivitySnapshot()))).toBe('✓ Added "A"');
+  });
+
+  it('uses a direct mark once and lets it expire', () => {
+    vi.useFakeTimers();
+    try {
+      beginRequestWindow('ticket-1');
+      markDirectAction({ vesselId: 'tasks', action: 'checkTask' });
+      vi.advanceTimersByTime(10_000);
+      recordChange('Checked task "Ship this sprint"', {
+        vesselId: 'tasks',
+        action: 'checkTask',
+      });
+      const { entries, openWindowId } = getActivitySnapshot();
+      expect(entries[0].windowId).toBe(openWindowId);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('applies an execution plan attached after the window closed', () => {

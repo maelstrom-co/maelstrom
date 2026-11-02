@@ -1,8 +1,9 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import {
+  markDirectAction,
   recordChange,
   recordFailure,
   recordUnchanged,
@@ -81,8 +82,10 @@ export default function JournalComponent({
     },
   });
 
-  const saveEntry = (entry: JournalEntry, content: string) =>
+  const saveEntry = (entry: JournalEntry, content: string) => {
+    markDirectAction(source('editEntry'));
     executeAction('editEntry', { entry: entry.id, content });
+  };
 
   const isEntryView = variantProps.variant === 'entry';
   const activeEntry = entries.find((e) => e.id === activeEntryId);
@@ -146,7 +149,7 @@ export default function JournalComponent({
       label="Journal"
       meta={`${entries.length} entries`}
     >
-      <div className="flex-1 space-y-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {entries.map((entry) => {
           const expanded = entry.id === activeEntryId;
           return (
@@ -183,10 +186,8 @@ export default function JournalComponent({
                   <EntryEditor
                     entry={entry}
                     autoFocus
-                    onSave={async (content) => {
-                      await saveEntry(entry, content);
-                      closeRow(entry.id);
-                    }}
+                    onSave={(content) => saveEntry(entry, content)}
+                    onSaved={() => closeRow(entry.id)}
                     onCancel={() => closeRow(entry.id)}
                   />
                 </div>
@@ -204,56 +205,48 @@ function EntryEditor({
   ruled = false,
   autoFocus = false,
   onSave,
+  onSaved,
   onCancel,
 }: {
   entry: JournalEntry;
   ruled?: boolean;
   autoFocus?: boolean;
-  onSave: (content: string) => unknown;
+  onSave: (content: string) => void;
+  onSaved?: () => void;
   onCancel?: () => void;
 }) {
   // A null draft follows the stored text, so dictated words keep appearing
   // until the user starts typing.
   const [draft, setDraft] = useState<string | null>(null);
+  // executeAction only queues the edit, so the draft stays until the store
+  // holds the saved text. A skipped or failed save keeps the user's words.
+  const [pendingSave, setPendingSave] = useState<string | null>(null);
   const value = draft ?? entry.content;
-  const textareaId = `journal-editor-${entry.id}`;
+  const textareaId = useId();
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) editorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [autoFocus]);
+
+  useEffect(() => {
+    if (pendingSave === null || entry.content !== pendingSave) return;
+    setPendingSave(null);
+    setDraft(null);
+    onSaved?.();
+  }, [entry.content, pendingSave, onSaved]);
 
   const cancel = () => {
+    setPendingSave(null);
     setDraft(null);
     onCancel?.();
   };
 
   return (
-    <div className="flex flex-1 flex-col gap-2 min-h-0">
+    <div ref={editorRef} className="flex flex-1 flex-col gap-2 min-h-0">
       <label htmlFor={textareaId} className="sr-only">
         {`Text of ${entry.title}`}
       </label>
-      <textarea
-        id={textareaId}
-        value={value}
-        // biome-ignore lint/a11y/noAutofocus: the editor opens in response to the user activating its row.
-        autoFocus={autoFocus}
-        placeholder="Waiting for content..."
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Escape') return;
-          event.preventDefault();
-          cancel();
-        }}
-        className={
-          ruled
-            ? 'journal-editor ruled-paper flex-1 text-sm text-ink-2'
-            : 'journal-editor min-h-24 text-xs text-ink-2'
-        }
-        style={
-          ruled
-            ? {
-                backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent 25px, ${RULE_COLOR} 25px, ${RULE_COLOR} 26px)`,
-                lineHeight: '26px',
-              }
-            : undefined
-        }
-      />
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -265,15 +258,42 @@ function EntryEditor({
         <button
           type="button"
           disabled={draft === null || draft === entry.content}
-          onClick={async () => {
-            await onSave(value);
-            setDraft(null);
+          onClick={() => {
+            setPendingSave(value);
+            onSave(value);
           }}
           className="btn btn-primary min-h-8 px-3 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Save
         </button>
       </div>
+      <textarea
+        id={textareaId}
+        value={value}
+        // biome-ignore lint/a11y/noAutofocus: the editor opens in response to the user activating its row.
+        autoFocus={autoFocus}
+        placeholder="Waiting for content..."
+        rows={ruled ? undefined : 3}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          cancel();
+        }}
+        className={
+          ruled
+            ? 'journal-editor ruled-paper flex-1 text-sm text-ink-2'
+            : 'journal-editor text-xs text-ink-2'
+        }
+        style={
+          ruled
+            ? {
+                backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent 25px, ${RULE_COLOR} 25px, ${RULE_COLOR} 26px)`,
+                lineHeight: '26px',
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

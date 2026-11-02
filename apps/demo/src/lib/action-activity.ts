@@ -22,6 +22,8 @@ export interface ActivityWindow {
   readonly id: number;
   readonly owner: string | null;
   readonly open: boolean;
+  /** Increases each time a window closes; the receipt follows the latest. */
+  readonly closedOrder: number | null;
   readonly executionPlan: readonly ActionExecution[] | null;
 }
 
@@ -58,10 +60,13 @@ export const LOGGED_DATA_ACTIONS: ReadonlySet<string> = new Set([
 
 const RECEIPT_SEPARATOR = ' · ';
 const MAX_RETAINED_WINDOWS = 20;
+const DIRECT_MARK_TTL_MS = 5_000;
 
 let state: ActivityState = emptyState();
 let nextSequence = 1;
 let nextWindowId = 1;
+let nextClosedOrder = 1;
+let directMarks: { source: ActivitySource; expiresAt: number }[] = [];
 
 const listeners = new Set<() => void>();
 
@@ -80,7 +85,18 @@ export function getActivitySnapshot(): ActivityState {
 export function __resetActionActivityForTests(): void {
   nextSequence = 1;
   nextWindowId = 1;
+  nextClosedOrder = 1;
+  directMarks = [];
   setState(emptyState());
+}
+
+/**
+ * Call right before a click's executeAction. The handler runs later, possibly
+ * while an Engine request is open, so its entry would otherwise be folded
+ * into that request's receipt.
+ */
+export function markDirectAction(source: ActivitySource): void {
+  directMarks.push({ source, expiresAt: Date.now() + DIRECT_MARK_TTL_MS });
 }
 
 export function recordChange(text: string, source: ActivitySource): void {
@@ -115,13 +131,16 @@ export function beginRequestWindow(owner?: string): number {
     id: nextWindowId++,
     owner: owner ?? null,
     open: true,
+    closedOrder: null,
     executionPlan: null,
   };
   setState(
     retain({
       ...state,
       windows: [
-        ...state.windows.map((w) => (w.open ? { ...w, open: false } : w)),
+        ...state.windows.map((w) =>
+          w.open ? { ...w, open: false, closedOrder: nextClosedOrder++ } : w,
+        ),
         window,
       ],
       openWindowId: window.id,
@@ -143,7 +162,9 @@ export function endRequestWindow(windowId?: number): void {
   setState({
     ...state,
     windows: state.windows.map((w) =>
-      w.id === open.id ? { ...w, open: false } : w,
+      w.id === open.id
+        ? { ...w, open: false, closedOrder: nextClosedOrder++ }
+        : w,
     ),
     openWindowId: null,
   });
@@ -210,14 +231,16 @@ export function receiptParts(
 export function latestReceiptParts(activity: ActivityState): ReceiptPart[] {
   // An Engine turn nobody asked for, such as a chart_resize, keeps the last
   // receipt. A request the user made clears it when it changed nothing.
-  const latest = [...activity.windows]
-    .reverse()
-    .find(
-      (w) =>
-        !w.open &&
-        (w.owner !== null ||
-          activity.entries.some((entry) => entry.windowId === w.id)),
-    );
+  let latest: ActivityWindow | undefined;
+  for (const w of activity.windows) {
+    if (w.closedOrder === null) continue;
+    const counts =
+      w.owner !== null ||
+      activity.entries.some((entry) => entry.windowId === w.id);
+    if (counts && (!latest || w.closedOrder > (latest.closedOrder ?? 0))) {
+      latest = w;
+    }
+  }
   return latest ? partsForWindow(activity, latest) : [];
 }
 
@@ -273,11 +296,12 @@ function record(
   text: string,
   source: ActivitySource,
 ): void {
-  const open = findOpenWindow();
+  const open = consumeDirectMark(source) ? undefined : findOpenWindow();
   const window: ActivityWindow = open ?? {
     id: nextWindowId++,
     owner: null,
     open: false,
+    closedOrder: nextClosedOrder++,
     executionPlan: null,
   };
   const entry: ActivityEntry = {
@@ -295,6 +319,19 @@ function record(
       entries: [...state.entries, entry],
     }),
   );
+}
+
+function consumeDirectMark(source: ActivitySource): boolean {
+  const now = Date.now();
+  directMarks = directMarks.filter((mark) => mark.expiresAt > now);
+  const index = directMarks.findIndex(
+    (mark) =>
+      mark.source.vesselId === source.vesselId &&
+      mark.source.action === source.action,
+  );
+  if (index === -1) return false;
+  directMarks.splice(index, 1);
+  return true;
 }
 
 function retain(next: ActivityState): ActivityState {

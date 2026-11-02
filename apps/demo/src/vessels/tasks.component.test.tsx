@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetActionActivityForTests,
+  beginRequestWindow,
   getActivitySnapshot,
   latestReceiptParts,
 } from '../lib/action-activity';
@@ -130,11 +131,11 @@ describe('TasksComponent checkboxes', () => {
   it('renders tasks and subtasks as labelled checkboxes with their state', () => {
     render(<TasksComponent {...props()} />);
     const ci = screen.getByRole('checkbox', {
-      name: 'Mark Setup CI pipeline done',
+      name: 'Setup CI pipeline',
     });
     expect(ci.getAttribute('aria-checked')).toBe('true');
     const subtask = screen.getByRole('checkbox', {
-      name: 'Mark Check prototype done',
+      name: 'Check prototype',
     });
     expect(subtask.getAttribute('aria-checked')).toBe('false');
     expect(subtask.tagName).toBe('BUTTON');
@@ -144,7 +145,7 @@ describe('TasksComponent checkboxes', () => {
     render(<TasksComponent {...props()} />);
     await act(async () => {
       fireEvent.click(
-        screen.getByRole('checkbox', { name: 'Mark Check prototype done' }),
+        screen.getByRole('checkbox', { name: 'Check prototype' }),
       );
     });
 
@@ -153,7 +154,7 @@ describe('TasksComponent checkboxes', () => {
     });
     expect(
       screen
-        .getByRole('checkbox', { name: 'Mark Check prototype done' })
+        .getByRole('checkbox', { name: 'Check prototype' })
         .getAttribute('aria-checked'),
     ).toBe('true');
     expect(receipt()).toBe('✓ Checked subtask "Check prototype"');
@@ -162,7 +163,7 @@ describe('TasksComponent checkboxes', () => {
   it('toggles a task with the keyboard because the checkbox is a native button', async () => {
     render(<TasksComponent {...props()} />);
     const checkbox = screen.getByRole('checkbox', {
-      name: 'Mark Ship this sprint done',
+      name: 'Ship this sprint',
     });
     // Native buttons turn Space and Enter into a click; happy-dom does not
     // synthesise that, so the click stands in for the key activation.
@@ -183,12 +184,26 @@ describe('TasksComponent checkboxes', () => {
     expect(receipt()).toBe('✓ Unchecked task "Ship this sprint"');
   });
 
+  it('gives a click during an open request its own receipt', async () => {
+    const request = beginRequestWindow('ticket-1');
+    render(<TasksComponent {...props()} />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('checkbox', { name: 'Check prototype' }),
+      );
+    });
+    const { entries, openWindowId } = getActivitySnapshot();
+    expect(openWindowId).toBe(request);
+    expect(entries.at(-1)?.windowId).not.toBe(request);
+    expect(receipt()).toBe('✓ Checked subtask "Check prototype"');
+  });
+
   it('unchecks a done subtask', async () => {
     tasksActions.setSubtaskDone('T-4.2', true);
     render(<TasksComponent {...props()} />);
     await act(async () => {
       fireEvent.click(
-        screen.getByRole('checkbox', { name: 'Mark Write questions done' }),
+        screen.getByRole('checkbox', { name: 'Write questions' }),
       );
     });
     expect(executeAction).toHaveBeenCalledWith('uncheckSubtask', {
@@ -229,7 +244,7 @@ describe('Tasks Action handlers', () => {
 
     await act(async () => {
       fireEvent.click(
-        screen.getByRole('checkbox', { name: 'Mark Check prototype done' }),
+        screen.getByRole('checkbox', { name: 'Check prototype' }),
       );
     });
     expect(getTasksSnapshot().tasks[3].subtasks[0].done).toBe(false);
@@ -273,6 +288,17 @@ describe('Tasks Action handlers', () => {
     const result = await invoke('checkSubtask', { subtask: 'gym' });
     expect(result?.error?.message).toContain('T-4.1 Check prototype (open)');
     expect(receipt()).toBe('✗ Couldn\'t find subtask "gym"');
+  });
+
+  it('fails a blank subtask title with its own receipt', async () => {
+    render(<TasksComponent {...props()} />);
+    const result = await invoke('addSubtask', {
+      task: 'T-2',
+      subtaskTitle: ' ',
+    });
+    expect(result?.ok).toBe(false);
+    expect(result?.error?.message).toContain('subtaskTitle');
+    expect(receipt()).toBe("✗ Couldn't add a subtask without a title");
   });
 
   it('confirms an already-done task without claiming a change', async () => {

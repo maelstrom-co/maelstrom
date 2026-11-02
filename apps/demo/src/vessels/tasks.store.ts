@@ -26,9 +26,16 @@ export interface NotFound {
 
 export type TaskChange = { ok: true; changed: boolean; task: Task } | NotFound;
 
+export interface BlankTitle {
+  ok: false;
+  reason: 'blank_title';
+  query: string;
+}
+
 export type SubtaskChange =
   | { ok: true; changed: boolean; task: Task; subtask: Subtask }
-  | NotFound;
+  | NotFound
+  | BlankTitle;
 
 export interface TaskReferenceMatch {
   task: Task;
@@ -68,7 +75,7 @@ export function taskReferenceLabel(item: Subtask | Task): string {
 
 /**
  * Resolves an id (`T-2`, `T-4.1`), a published label
- * (`T-2 Prep design review notes (open)`) or a title. An id that names
+ * (`T-2 Prep design review notes (open)`) or a title. A bare id that names
  * nothing never falls back to a title match.
  */
 export function resolveTaskReference(
@@ -79,14 +86,16 @@ export function resolveTaskReference(
   const trimmed = reference.trim();
   const id = TASK_ID_PATTERN.exec(trimmed)?.[1];
   if (id) {
-    const isSubtaskId = id.includes('.');
-    if (isSubtaskId !== (kind === 'subtask')) return undefined;
-    for (const task of tasks) {
-      if (task.id === id) return { task };
-      const subtask = task.subtasks.find((s) => s.id === id);
-      if (subtask) return { task, subtask };
-    }
-    return undefined;
+    const byId = findTaskById(tasks, id, kind);
+    const rest = trimmed
+      .slice(id.length)
+      .trim()
+      .replace(STATUS_SUFFIX_PATTERN, '');
+    if (!rest) return byId;
+    // A title may itself start like an id, so the prefix counts only when
+    // the rest names that same item.
+    const named = byId?.subtask ?? byId?.task;
+    if (named && named.title.toLowerCase() === rest.toLowerCase()) return byId;
   }
 
   const title = trimmed.replace(STATUS_SUFFIX_PATTERN, '');
@@ -144,9 +153,13 @@ export const tasksActions = {
   addSubtask(taskReference: string, subtaskTitle: string): SubtaskChange {
     const match = resolveTaskReference(state.tasks, taskReference, 'task');
     if (!match) return notFound(taskReference);
+    const title = subtaskTitle.trim();
+    if (!title) {
+      return { ok: false, reason: 'blank_title', query: subtaskTitle };
+    }
     const subtask: Subtask = {
       id: `${match.task.id}.${match.task.subtasks.length + 1}`,
-      title: subtaskTitle.trim(),
+      title,
       done: false,
     };
     const task = { ...match.task, subtasks: [...match.task.subtasks, subtask] };
@@ -178,6 +191,20 @@ export const tasksActions = {
 
 const TASK_ID_PATTERN = /^(T-\d+(?:\.\d+)?)(?:\s|$)/;
 const STATUS_SUFFIX_PATTERN = /\s*\((?:open|done)\)$/;
+
+function findTaskById(
+  tasks: readonly Task[],
+  id: string,
+  kind: 'task' | 'subtask',
+): TaskReferenceMatch | undefined {
+  if (id.includes('.') !== (kind === 'subtask')) return undefined;
+  for (const task of tasks) {
+    if (task.id === id) return { task };
+    const subtask = task.subtasks.find((s) => s.id === id);
+    if (subtask) return { task, subtask };
+  }
+  return undefined;
+}
 
 function seedTasks(): Task[] {
   return SEED_TASKS.map((task) => ({ ...task, subtasks: [] }));
