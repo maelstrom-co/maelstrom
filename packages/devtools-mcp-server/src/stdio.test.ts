@@ -40,6 +40,13 @@ test.each([
   );
   try {
     await client.connect(transport);
+    const metadata = JSON.parse(
+      await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+    );
+    expect(client.getServerVersion()).toMatchObject({
+      name: 'maelstrom-devtools',
+      version: metadata.version,
+    });
     expect(client.getProtocolEra()).toBe(
       protocol === 'legacy' ? 'legacy' : 'modern',
     );
