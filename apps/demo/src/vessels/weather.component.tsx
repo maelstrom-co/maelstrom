@@ -110,7 +110,7 @@ export default function WeatherComponent({
             <LoaderCircle
               aria-hidden="true"
               size={14}
-              className="shrink-0 animate-spin text-ink-3"
+              className="shrink-0 animate-spin motion-reduce:animate-none text-ink-3"
             />
           )}
           {state.error && (

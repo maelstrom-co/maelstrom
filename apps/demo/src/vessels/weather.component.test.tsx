@@ -178,6 +178,16 @@ describe('weather variants', () => {
 });
 
 describe('compact weather strip', () => {
+  it('stops the loading spinner when reduced motion is requested', () => {
+    storeState = { ...storeState, loadingLocation: 'Tokyo' };
+    const { container } = render(<WeatherComponent {...props('compact')} />);
+    const spinner = container.querySelector('.animate-spin');
+    expect(spinner).not.toBeNull();
+    expect(spinner?.classList.contains('motion-reduce:animate-none')).toBe(
+      true,
+    );
+  });
+
   it('shows location, temperature and condition as visible text in one row', () => {
     const { getByText, container } = render(
       <WeatherComponent {...props('compact')} />,

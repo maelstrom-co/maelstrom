@@ -141,9 +141,8 @@ export function weatherRunExitCode(
 /**
  * Scores the shipped response: weather and map visible, weather below the map,
  * weather at most 15% of the Chart and at most 0.35 of the map's area, and
- * weather compact (shipped in the compact Variant, or a `showCompact` Action on
- * it). The Instances are found by Vessel, since the Planner names an Instance
- * it adds.
+ * weather shipped in the compact Variant. The Instances are found by Vessel,
+ * since the Planner names an Instance it adds.
  */
 export function scoreWeatherBelowMapSmall(
   response: MaelstromResponse | undefined,
@@ -234,13 +233,11 @@ export function scoreWeatherBelowMapSmall(
       );
     failures.push(...ratio.failures);
   }
-  if (
-    weatherInstance &&
-    weatherInstance.variant !== 'compact' &&
-    !measurements.weatherActions.includes('showCompact')
-  )
+  // The client renders the shipped Layout's Variant. An Execution Plan step
+  // alone does not switch it, so only the shipped Variant counts.
+  if (weatherInstance && weatherInstance.variant !== 'compact')
     failures.push(
-      `${weatherId} is not compact: Variant ${weatherInstance.variant}, no showCompact Action`,
+      `${weatherId} is not compact: shipped Variant ${weatherInstance.variant}`,
     );
   return {
     outcome: failures.length ? 'fail' : 'pass',
@@ -278,7 +275,7 @@ export async function runWeatherBelowMapSmall(
     engineRetries: 0,
     sdkRetries: 0,
     maxGenerationDispatches: cases.length * options.samples,
-    deterministicPredicate: `visible(map-main, weather-main) + below(weather-main, map-main) + weather share <= ${maxWeatherShare} + weightRatio(weather-main, map-main) <= ${maxWeatherToMapRatio} + weather compact (Variant or showCompact)`,
+    deterministicPredicate: `visible(map-main, weather-main) + below(weather-main, map-main) + weather share <= ${maxWeatherShare} + weightRatio(weather-main, map-main) <= ${maxWeatherToMapRatio} + weather shipped in the compact Variant`,
     budget: 'external capped key; not verified by this script',
     provenance:
       'current Engine + llmPlanner; default Maelstrom identity; demo system rules; current demo Vessel definitions',

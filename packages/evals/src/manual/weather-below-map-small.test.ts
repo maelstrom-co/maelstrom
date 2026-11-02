@@ -171,7 +171,6 @@ test('a weather Instance the Planner names itself is found by its Vessel', async
           {
             ...mapAndWeather[1],
             instanceId: 'weather-below-map',
-            variant: 'current',
           },
         ],
         [{ instanceId: 'weather-below-map', action: 'showCompact' }],
@@ -183,7 +182,7 @@ test('a weather Instance the Planner names itself is found by its Vessel', async
   expect(score.measurements).toMatchObject({
     weatherInstanceId: 'weather-below-map',
     weatherShare: 0.125,
-    weatherVariant: 'current',
+    weatherVariant: 'compact',
     weatherActions: ['showCompact'],
   });
 });
@@ -208,11 +207,11 @@ test('a fuller weather Variant fails the compact check even when small and below
   );
   expect(score.outcome).toBe('fail');
   expect(score.failures).toEqual([
-    'weather-main is not compact: Variant current, no showCompact Action',
+    'weather-main is not compact: shipped Variant current',
   ]);
 });
 
-test('a showCompact Action on weather satisfies the compact check', async () => {
+test('a showCompact Action without the compact Variant in the shipped Layout still fails', async () => {
   const score = scoreWeatherBelowMapSmall(
     shipped(
       candidate(
@@ -223,7 +222,11 @@ test('a showCompact Action on weather satisfies the compact check', async () => 
     ),
     await desktopBeside(),
   );
-  expect(score.failures).toEqual([]);
+  // The client renders the shipped Layout's Variant, so a plan step alone is
+  // not evidence that compact weather reaches the screen.
+  expect(score.failures).toEqual([
+    'weather-main is not compact: shipped Variant current',
+  ]);
 });
 
 test('Variant change and show Actions on weather are recorded', async () => {
@@ -245,7 +248,7 @@ test('Variant change and show Actions on weather are recorded', async () => {
     await desktopBeside(),
   );
   expect(score.failures).toEqual([
-    'weather-main is not compact: Variant weekly, no showCompact Action',
+    'weather-main is not compact: shipped Variant weekly',
   ]);
   expect(score.measurements).toMatchObject({
     weatherVariant: 'weekly',

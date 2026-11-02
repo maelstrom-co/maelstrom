@@ -113,6 +113,34 @@ test.describe('at 1024x768', () => {
     });
 });
 
+test('shows a one-row loading skeleton while compact weather loads', async ({
+  page,
+}) => {
+  let releaseChunk: () => void = () => undefined;
+  const chunkHeld = new Promise<void>((resolve) => {
+    releaseChunk = resolve;
+  });
+  await page.route('**/assets/weather.component-*.js', async (route) => {
+    await chunkHeld;
+    await route.continue();
+  });
+  await stubPlanner(page, () => ({
+    tree: ['H:7,1', 'ID:map-main', 'ID:weather-main'],
+    instances: mapAndWeather('compact'),
+  }));
+  await openDemoWithKey(page);
+  await submitIntent(page, INTENT);
+
+  const weather = page.locator('[data-instance-id="weather-main"]');
+  await expect(weather.locator('.weather-skeleton__strip')).toBeVisible();
+  await expect(weather.locator('.weather-skeleton__card')).toBeHidden();
+  await expectNoClipping(weather);
+  releaseChunk();
+  await expect(
+    weather.locator('[data-weather-variant="compact"]'),
+  ).toBeVisible();
+});
+
 test('switches between compact and fuller weather views through Actions', async ({
   page,
 }) => {
@@ -138,7 +166,8 @@ test('switches between compact and fuller weather views through Actions', async 
       action: 'showCurrent',
       tree: ['H', 'ID:map-main', 'ID:weather-main'],
       expectContent: async (weather) => {
-        await expect(weather.getByText(/km\/h|mph/)).toBeVisible();
+        // Wind and high/low drop out in short regions, so check the numeral.
+        await expect(weather.locator('.weather-current__temp')).toBeVisible();
         await expectReadableInside(
           weather,
           weather.getByText(/^72°/),
@@ -149,7 +178,8 @@ test('switches between compact and fuller weather views through Actions', async 
     {
       intent: 'Show the weekly forecast',
       action: 'showWeekly',
-      tree: ['H', 'ID:map-main', 'ID:weather-main'],
+      // Weekly declares minSize 8x3, so it gets the larger part of the Chart.
+      tree: ['H:1,2', 'ID:map-main', 'ID:weather-main'],
       expectContent: async (weather) => {
         await expect(weather.getByText('Weekly Forecast')).toBeVisible();
       },
@@ -240,11 +270,26 @@ async function settle(instance: Locator) {
     await Promise.all(
       chart
         .getAnimations({ subtree: true })
+        // Loading pulses repeat forever and never finish.
+        .filter(
+          (animation) =>
+            animation.effect?.getComputedTiming().iterations !== Infinity,
+        )
         .map((animation) => animation.finished.catch(() => undefined)),
     );
-    await new Promise((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(resolve)),
-    );
+    // Motion can start a frame after the Layout lands, so also wait until the
+    // Instance box stops moving for a few frames.
+    const frame = () =>
+      new Promise((resolve) => requestAnimationFrame(resolve));
+    let previous = '';
+    let still = 0;
+    for (let tries = 0; tries < 180 && still < 5; tries++) {
+      await frame();
+      const box = root.getBoundingClientRect();
+      const current = `${box.x},${box.y},${box.width},${box.height}`;
+      still = current === previous ? still + 1 : 0;
+      previous = current;
+    }
   });
 }
 

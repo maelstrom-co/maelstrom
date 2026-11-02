@@ -1313,3 +1313,22 @@ body {
     display: none;
   }
 }
+
+.weather-skeleton {
+  container-type: size;
+}
+
+.weather-skeleton__strip {
+  display: none;
+}
+
+/* Below the height the card needs, show the one-row strip instead. */
+@container (max-height: 9rem) {
+  .weather-skeleton__card {
+    display: none;
+  }
+
+  .weather-skeleton__strip {
+    display: block;
+  }
+}
