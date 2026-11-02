@@ -1,6 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
 import {
   GetRequestSchema,
   ListAppsSchema,
@@ -18,15 +17,9 @@ import {
 import { McpServer } from '@modelcontextprotocol/server';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+import packageMetadata from '../package.json' with { type: 'json' };
 
-declare const __MAELSTROM_MCP_VERSION__: string;
-
-// Inlining preserves our package identity when a consumer bundles the server.
-const packageVersion =
-  typeof __MAELSTROM_MCP_VERSION__ === 'string'
-    ? __MAELSTROM_MCP_VERSION__
-    : (createRequire(import.meta.url)('../package.json') as { version: string })
-        .version;
+const packageVersion = packageMetadata.version;
 
 const instructions = [
   'Inspect only explicitly paired local development collectors. These tools read redacted live metadata; they cannot control the app or access recordings.',

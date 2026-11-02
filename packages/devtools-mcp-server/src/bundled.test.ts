@@ -1,10 +1,13 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('bundled hosts identify the MCP package even when their own version differs', async () => {
+test.each([
+  'built',
+  'source',
+] as const)('bundled %s exports identify the MCP package even when the host version differs or is absent', async (entryPoint) => {
   const directory = await mkdtemp(join(tmpdir(), 'maelstrom-mcp-bundled-'));
   const packageRoot = resolve(import.meta.dirname, '..');
   const metadata = await Bun.file(join(packageRoot, 'package.json')).json();
@@ -19,18 +22,31 @@ test('bundled hosts identify the MCP package even when their own version differs
         type: 'module',
       }),
     );
+    const modules = join(directory, 'node_modules');
+    await mkdir(join(modules, '@maelstrom-co'), { recursive: true });
     await symlink(
-      join(packageRoot, 'node_modules'),
-      join(directory, 'node_modules'),
+      packageRoot,
+      join(modules, '@maelstrom-co/devtools-mcp-server'),
       'junction',
     );
+    await symlink(
+      resolve(packageRoot, '../devtools-protocol'),
+      join(modules, '@maelstrom-co/devtools-protocol'),
+      'junction',
+    );
+    for (const dependency of ['@modelcontextprotocol', 'ws', 'zod'])
+      await symlink(
+        join(packageRoot, 'node_modules', dependency),
+        join(modules, dependency),
+        'junction',
+      );
     const entry = join(directory, 'host.mjs');
     await writeFile(
       entry,
       `import assert from 'node:assert/strict';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { createDevtoolsMcpServer } from ${JSON.stringify(join(packageRoot, 'dist/index.js'))};
+import { createDevtoolsMcpServer } from '@maelstrom-co/devtools-mcp-server';
 const host = await createDevtoolsMcpServer({ origin: 'http://localhost:4321' });
 try {
   for (const protocol of ['legacy', '2026-07-28']) {
@@ -54,7 +70,13 @@ try {
       outdir: join(directory, 'dist'),
       target: 'node',
       format: 'esm',
-      external: ['@modelcontextprotocol/*', '@maelstrom-co/*', 'ws', 'zod'],
+      conditions: entryPoint === 'source' ? ['@maelstrom-co/source'] : [],
+      external: [
+        '@modelcontextprotocol/*',
+        '@maelstrom-co/devtools-protocol',
+        'ws',
+        'zod',
+      ],
     });
     expect(build.success, String(build.logs)).toBe(true);
     const output = build.outputs[0];
@@ -66,6 +88,18 @@ try {
     });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
+    await rm(join(directory, 'package.json'));
+    const withoutManifest = spawnSync(
+      'node',
+      [output!.path, metadata.version],
+      {
+        cwd: directory,
+        encoding: 'utf8',
+        timeout: 5_000,
+      },
+    );
+    expect(withoutManifest.error).toBeUndefined();
+    expect(withoutManifest.status, withoutManifest.stderr).toBe(0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
