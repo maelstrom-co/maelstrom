@@ -1080,7 +1080,7 @@ describe('the seeded first screen', () => {
     });
 
     await waitFor(() =>
-      expect(checkbox.getAttribute('aria-checked')).toBe('true'),
+      expect((checkbox as HTMLInputElement).checked).toBe(true),
     );
     await waitFor(
       () => {

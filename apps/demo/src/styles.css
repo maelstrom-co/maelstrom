@@ -1348,7 +1348,7 @@ body {
 .action-receipt-line {
   contain: inline-size;
   max-width: 56rem;
-  margin: 4px auto 0;
+  margin: 0 auto;
   padding: 0 4px;
   line-height: 24px;
   overflow: hidden;
@@ -1362,13 +1362,22 @@ body {
 }
 
 /* Interactive task checkboxes and journal editor */
-.task-check {
-  appearance: none;
-  padding: 0;
+.task-check-control {
+  position: relative;
+  display: inline-flex;
+}
+
+.task-check-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
-.task-check:focus-visible,
+.task-check-input:focus-visible + .task-check,
 .journal-row:focus-visible,
 .journal-editor:focus-visible {
   outline: 2px solid var(--color-brand-2);

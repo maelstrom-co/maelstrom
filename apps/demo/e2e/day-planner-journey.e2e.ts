@@ -182,11 +182,11 @@ test('completes the day-planner journey across conversation and clicks', async (
   const subtask = page.getByRole('checkbox', {
     name: 'Check prototype',
   });
-  await expect(subtask).toHaveAttribute('aria-checked', 'false');
+  await expect(subtask).not.toBeChecked();
   let before = resizeRequests.length;
   await subtask.focus();
   await page.keyboard.press('Space');
-  await expect(subtask).toHaveAttribute('aria-checked', 'true');
+  await expect(subtask).toBeChecked();
   await expect(receipt).toHaveText('✓ Checked subtask "Check prototype"');
   await expectStableDock(page, dockHeight, resizeRequests, before);
 

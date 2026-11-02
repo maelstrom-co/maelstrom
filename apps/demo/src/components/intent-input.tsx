@@ -175,7 +175,7 @@ export function IntentInput({
           scrim covered vessel flash borders, and in-flow height changes here
           would fire engine chart_resize. Captions always reserves a fixed band. */}
       <Captions />
-      <div className="demo-voice-band mx-auto mb-2 flex h-24 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
+      <div className="demo-voice-band mx-auto mb-2 flex h-18 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
         <VoiceControl showOrb={false} />
         <span
           className="shrink-0 text-xs text-ink-3"

@@ -180,24 +180,34 @@ function TaskCheckbox({
   subtask?: boolean;
   onToggle: () => void;
 }) {
+  // The native input sits transparently over the drawn glass box, so it
+  // keeps native checkbox semantics, Space handling and the click target.
   return (
-    // biome-ignore lint/a11y/useSemanticElements: the glass checkbox draws its own box and tick, so a button carries the checkbox role and state instead of a restyled native input.
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={done}
-      aria-label={title}
-      onClick={onToggle}
-      className={cn(
-        'task-check shrink-0',
-        subtask && 'task-check-sub',
-        done && 'task-check--done',
-      )}
-    >
-      {done && (
-        <Check size={subtask ? 9 : 10} strokeWidth={1.75} className="text-bg" />
-      )}
-    </button>
+    <span className="task-check-control shrink-0">
+      <input
+        type="checkbox"
+        checked={done}
+        aria-label={title}
+        onChange={onToggle}
+        className="task-check-input"
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'task-check',
+          subtask && 'task-check-sub',
+          done && 'task-check--done',
+        )}
+      >
+        {done && (
+          <Check
+            size={subtask ? 9 : 10}
+            strokeWidth={1.75}
+            className="text-bg"
+          />
+        )}
+      </span>
+    </span>
   );
 }
 

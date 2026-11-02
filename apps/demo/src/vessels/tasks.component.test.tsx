@@ -133,12 +133,15 @@ describe('TasksComponent checkboxes', () => {
     const ci = screen.getByRole('checkbox', {
       name: 'Setup CI pipeline',
     });
-    expect(ci.getAttribute('aria-checked')).toBe('true');
+    expect((ci as HTMLInputElement).checked).toBe(true);
     const subtask = screen.getByRole('checkbox', {
       name: 'Check prototype',
-    });
-    expect(subtask.getAttribute('aria-checked')).toBe('false');
-    expect(subtask.tagName).toBe('BUTTON');
+    }) as HTMLInputElement;
+    expect(subtask.checked).toBe(false);
+    expect(subtask.tagName).toBe('INPUT');
+    expect(subtask.type).toBe('checkbox');
+    expect(subtask.hasAttribute('role')).toBe(false);
+    expect(subtask.hasAttribute('aria-checked')).toBe(false);
   });
 
   it('checks a subtask on click through executeAction with its id', async () => {
@@ -153,20 +156,22 @@ describe('TasksComponent checkboxes', () => {
       subtask: 'T-4.1',
     });
     expect(
-      screen
-        .getByRole('checkbox', { name: 'Check prototype' })
-        .getAttribute('aria-checked'),
-    ).toBe('true');
+      (
+        screen.getByRole('checkbox', {
+          name: 'Check prototype',
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
     expect(receipt()).toBe('✓ Checked subtask "Check prototype"');
   });
 
-  it('toggles a task with the keyboard because the checkbox is a native button', async () => {
+  it('toggles a focusable native checkbox both ways', async () => {
     render(<TasksComponent {...props()} />);
     const checkbox = screen.getByRole('checkbox', {
       name: 'Ship this sprint',
-    });
-    // Native buttons turn Space and Enter into a click; happy-dom does not
-    // synthesise that, so the click stands in for the key activation.
+    }) as HTMLInputElement;
+    // A native checkbox toggles on Space; happy-dom does not synthesise key
+    // activation, so the click stands in for it. The e2e presses Space.
     checkbox.focus();
     expect(document.activeElement).toBe(checkbox);
     await act(async () => {
@@ -180,7 +185,7 @@ describe('TasksComponent checkboxes', () => {
     expect(executeAction).toHaveBeenLastCalledWith('uncheckTask', {
       task: 'T-3',
     });
-    expect(checkbox.getAttribute('aria-checked')).toBe('false');
+    expect(checkbox.checked).toBe(false);
     expect(receipt()).toBe('✓ Unchecked task "Ship this sprint"');
   });
 
