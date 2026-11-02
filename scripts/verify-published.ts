@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { parsePackedManifest } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import { waitForPublishedPackages } from './lib/published-packages.ts';
+import { resolveRegistry } from './lib/registry.ts';
 
 // A green publish step is not proof the registry serves the packages: a
 // partial publish, or one that failed after the tarball upload, both look the
@@ -14,6 +15,7 @@ const { values } = parseArgs({
     manifest: { type: 'string' },
     registry: { type: 'string' },
     attempts: { type: 'string' },
+    'timeout-ms': { type: 'string' },
     'retry-delay-ms': { type: 'string' },
   },
 });
@@ -35,36 +37,30 @@ const packages = parsePackedManifest(
 );
 
 const registry = resolveRegistry(values.registry);
-const attempts = Number(values.attempts ?? 5);
-// Publishes are not immediately readable — the registry needs a moment to
-// serve a version it just accepted, so absence is only meaningful after retry.
-const retryDelayMs = Number(values['retry-delay-ms'] ?? 5000);
-
-const missing: string[] = [];
-for (const pkg of packages) {
-  let live = false;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (isAlreadyPublished(pkg.name, version, registry)) {
-      console.log(`✓ ${pkg.name}@${version} is live`);
-      live = true;
-      break;
-    }
-    if (attempt < attempts) {
-      console.log(
-        `… ${pkg.name}@${version} not visible yet (attempt ${attempt}/${attempts}), retrying`,
-      );
-      Bun.sleepSync(retryDelayMs);
-    }
-  }
-  if (!live) {
-    console.error(
-      `::error::${pkg.name}@${version} not found on ${registry} after publish`,
-    );
-    missing.push(pkg.name);
-  }
-}
+const missing = waitForPublishedPackages(
+  packages.map((pkg) => pkg.name),
+  {
+    version,
+    registry,
+    attempts:
+      values.attempts === undefined ? undefined : Number(values.attempts),
+    timeoutMs:
+      values['timeout-ms'] === undefined
+        ? undefined
+        : Number(values['timeout-ms']),
+    retryDelayMs:
+      values['retry-delay-ms'] === undefined
+        ? undefined
+        : Number(values['retry-delay-ms']),
+  },
+);
 
 if (missing.length > 0) {
-  console.error(`\nNot published: ${missing.join(', ')}`);
+  console.error(
+    `::error::Availability not confirmed on ${registry}: ${missing.join(', ')}`,
+  );
+  console.error(
+    'npm may still be scanning or reviewing accepted uploads. Check npm status and maintainer notifications before retrying publication.',
+  );
   process.exit(1);
 }

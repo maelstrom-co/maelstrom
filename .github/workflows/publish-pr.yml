@@ -90,6 +90,8 @@ jobs:
     name: Publish Preview Packages
     needs: prepare
     runs-on: ubuntu-latest
+    # Reserve scanning time even when earlier phases reach their limits.
+    timeout-minutes: 75
     environment: production
     permissions:
       contents: read
@@ -98,6 +100,7 @@ jobs:
     steps:
       # Only trusted base-branch publisher code runs beside the write token.
       - name: Checkout publisher code
+        timeout-minutes: 2
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -105,17 +108,20 @@ jobs:
           filter: tree:0
 
       - name: Setup Node
+        timeout-minutes: 3
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Bun
+        timeout-minutes: 2
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           # One version for every workflow — see .bun-version.
           bun-version-file: .bun-version
 
       - name: Download tarballs
+        timeout-minutes: 3
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: preview-tarballs
@@ -123,9 +129,11 @@ jobs:
 
       # The file contains an environment reference, not the token itself.
       - name: Setup npm for trusted publishing
+        timeout-minutes: 4
         run: npm install --global npm@12.2.0 --ignore-scripts
 
       - name: Configure npm bootstrap auth
+        timeout-minutes: 1
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -136,6 +144,7 @@ jobs:
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish packages
+        timeout-minutes: 20
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
@@ -151,6 +160,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'false'
 
       - name: Verify packages are live
+        timeout-minutes: 31
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           NPM_CONFIG_USERCONFIG: /dev/null
@@ -161,6 +171,7 @@ jobs:
           --registry https://registry.npmjs.org
 
       - name: Find previous preview comment
+        timeout-minutes: 1
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
         id: find-comment
         with:
@@ -170,6 +181,7 @@ jobs:
           direction: last
 
       - name: Minimize previous preview comment
+        timeout-minutes: 1
         if: steps.find-comment.outputs.comment-id != ''
         # Cosmetic, and it runs after a successful publish. A GitHub API hiccup
         # must not suppress the install instructions below.
@@ -189,6 +201,7 @@ jobs:
             || echo "::warning::Could not minimize the previous preview comment (non-fatal); continuing."
 
       - name: Build install command list
+        timeout-minutes: 1
         id: packages
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -207,6 +220,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
+        timeout-minutes: 2
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           issue-number: ${{ github.event.pull_request.number }}
