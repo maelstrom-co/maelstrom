@@ -298,7 +298,25 @@ test('offers work-focused suggestions on the populated screen', async ({
       (infoBounds?.x ?? Infinity) + (infoBounds?.width ?? 0),
     ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
     await info.click();
+    const popup = band.getByText(note);
+    await expect(popup).toBeVisible();
+    const popupOnTop = await popup.evaluate((element) => {
+      const { left, top, width, height } = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(left + width / 2, top + height / 2);
+      return hit !== null && element.contains(hit);
+    });
+    expect(popupOnTop).toBe(true);
+    await info.click();
+    await expect(band.getByText(note)).toBeHidden();
+    await expect(info).toHaveAttribute('aria-expanded', 'false');
+
+    await info.focus();
+    await page.keyboard.press('Enter');
     await expect(band.getByText(note)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(band.getByText(note)).toBeHidden();
+    await expect(info).toBeFocused();
+    await expect(info).toHaveAttribute('aria-expanded', 'false');
   } else {
     await expect(band.getByText(note)).toBeVisible();
   }

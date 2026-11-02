@@ -1116,6 +1116,11 @@ body {
   background: var(--color-bg-1);
 }
 
+/* The open note popup must clear the dock overlays that sit above the band. */
+.suggestion-chip-band:has(.capability-note-text[data-open='true']) {
+  z-index: 4;
+}
+
 /* Dock overlays float above the chip band, over the Chart, instead of covering the chips. */
 .demo-shell:has(> .suggestion-chip-band) .connected-input {
   z-index: 3;
@@ -1233,8 +1238,6 @@ body {
     line-height: 1.5;
   }
 
-  .capability-note-info:hover + .capability-note-text,
-  .capability-note-info:focus-visible + .capability-note-text,
   .capability-note-text[data-open='true'] {
     display: block;
   }
