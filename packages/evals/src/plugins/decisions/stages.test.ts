@@ -188,7 +188,7 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       'ID:calendar-main',
     ]);
   });
-  test('decisions-select reports a refusal as a provider error, layout and actions as a deferral', async () => {
+  test('select, actions and layout report provider refusals as semantic deferrals', async () => {
     const refuseFirst: DecisionsScript = (payload) => ({
       refuse: Object.keys(payload.questions).slice(0, 1),
     });
@@ -219,8 +219,8 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       options('swap', 'composed-pairs'),
     );
     expect(select).toMatchObject({
-      outcome: 'error',
-      reason: 'ProviderError: jevSelect/provider_refusal',
+      outcome: 'deferred',
+      reason: 'jevSelect/provider_refusal',
     });
     expect(actions).toMatchObject({
       outcome: 'deferred',

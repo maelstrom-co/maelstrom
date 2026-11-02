@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { consoleLogger } from '@maelstrom-co/engine';
+import { assertEvaluationRuntime } from './ci-runtime.js';
 import {
   type ConfigureJudge,
   type JudgeConfig,
@@ -46,6 +47,7 @@ export async function runStageEvalCli(
       verbose: { type: 'boolean', default: false },
       grader: { type: 'boolean' },
       'no-grader': { type: 'boolean' },
+      'fail-on-runtime-error': { type: 'boolean', default: false },
       'judge-provider': { type: 'string' },
       'judge-model': { type: 'string' },
       'judge-rubric': { type: 'string' },
@@ -147,8 +149,8 @@ export async function runStageEvalCli(
     repeats,
     concurrency,
     ...(values.verbose === true && { logger: consoleLogger }),
-    report: ({ records, runId }) =>
-      writeStageReport(
+    report: async ({ records, runId, accounting }) => {
+      await writeStageReport(
         out,
         stage,
         records,
@@ -165,7 +167,10 @@ export async function runStageEvalCli(
         },
         stage.reportSections(records, variants),
         runId,
-      ),
+      );
+      if (values['fail-on-runtime-error'])
+        assertEvaluationRuntime(accounting, records);
+    },
     onRecord: (record) =>
       console.log(
         `${record.variant.padEnd(24)} ${record.scenarioId} #${record.repeat} ${

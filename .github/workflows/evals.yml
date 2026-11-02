@@ -1,0 +1,163 @@
+name: Run Evals
+run-name: >-
+  ${{ github.event.label.name == 'run-evals'
+      && github.event.pull_request.state == 'open'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && format('Evals PR #{0} at {1}', github.event.pull_request.number, github.event.pull_request.head.sha)
+      || 'Ignored eval request' }}
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Every label event owns its request, even if another completion removes the label.
+concurrency:
+  group: run-evals-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+  # actionlint 1.7.12 predates GitHub's concurrency queue support.
+  queue: max
+
+jobs:
+  evaluate:
+    if: >-
+      github.run_attempt == 1
+      && github.event.label.name == 'run-evals'
+      && github.event.pull_request.state == 'open'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: preview
+    timeout-minutes: 180
+    steps:
+      - name: Checkout trusted evaluation controls
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: trusted
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Validate approved request before PR checkout
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node trusted/scripts/evals-ci.ts check
+
+      - name: Validate required configuration
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_MODEL: ${{ vars.JEV_MODEL || secrets.JEV_MODEL }}
+        run: node trusted/scripts/evals-ci.ts configuration
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: trusted/.bun-version
+
+      - name: Checkout exact approved source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          path: source
+
+      - name: Install without executing source lifecycle scripts
+        working-directory: source
+        run: bun install --frozen-lockfile --ignore-scripts --no-env-file --config=../trusted/scripts/preview-lifecycle.bunfig.toml
+
+      - name: Recheck current SHA immediately before paid execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node trusted/scripts/evals-ci.ts check
+
+      - name: Run planner and six stage evaluations
+        working-directory: source
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_MODEL: ${{ vars.JEV_MODEL || secrets.JEV_MODEL }}
+        run: |
+          status=0
+          bun --no-env-file --config=../trusted/scripts/preview-lifecycle.bunfig.toml --conditions=@maelstrom-co/source packages/evals/src/eval/cli.ts \
+            --suite all --repeats 3 --no-grader --fail-on-runtime-error \
+            --out "$RUNNER_TEMP/eval-reports/planner" || status=1
+          for stage in select actions layout decisions-select decisions-actions decisions-layout; do
+            bun --no-env-file --config=../trusted/scripts/preview-lifecycle.bunfig.toml --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts \
+              --stage "$stage" --suite all --repeats 3 --concurrency 1 --no-grader --fail-on-runtime-error \
+              --out "$RUNNER_TEMP/eval-reports/$stage" || status=1
+          done
+          exit "$status"
+
+      - name: Upload planner report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-planner-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/planner/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload select report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-select-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/select/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload actions report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-actions-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/actions/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload layout report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-layout-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/layout/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload decisions-select report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-decisions-select-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/decisions-select/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload decisions-actions report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-decisions-actions-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/decisions-actions/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload decisions-layout report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-decisions-layout-${{ github.run_id }}
+          path: ${{ runner.temp }}/eval-reports/decisions-layout/report.md
+          if-no-files-found: warn
+          retention-days: 14
