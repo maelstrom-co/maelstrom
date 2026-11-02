@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "tabWidth": 2,
+  "useTabs": false,
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "sortImports": {},
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/out-tsc/**",
+    "**/.astro/**",
+    "**/routeTree.gen.ts",
+    "**/drizzle/migrations/**",
+    ".nx/**",
+    "tmp/**",
+    "**/*.css",
+    "**/*.md",
+    "**/*.mdx",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.html",
+    "**/*.svg",
+    "**/*.toml",
+    "**/*.sh",
+    "**/*.lock",
+    "**/*.template",
+    "**/*.txt",
+    ".vale/**",
+    "media/**"
+  ]
+}

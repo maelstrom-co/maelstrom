@@ -457,7 +457,7 @@ describe('grader', () => {
   });
 
   test('keeps grader usage out of the arm’s own provider tokens', () => {
-    expect((jevSummary?.tokens.fake as { calls: number }).calls).toBe(0);
+    expect((jevSummary!.tokens.fake as { calls: number }).calls).toBe(0);
   });
 
   test('has no grader summary when no turn was graded', () => {

@@ -155,7 +155,7 @@ export function AssistantResponse({
           data-state={isProcessing ? 'thinking' : 'complete'}
           data-dragging={dragging || undefined}
           aria-label="Maelstrom response"
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to focus this scrollable region.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus this scrollable region.
           tabIndex={0}
         >
           <div className="assistant-response-mark" aria-hidden="true">

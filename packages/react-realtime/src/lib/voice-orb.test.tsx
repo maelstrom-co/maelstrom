@@ -1,3 +1,4 @@
+import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
 import { defineVessel } from '@maelstrom-co/protocol';
@@ -304,4 +305,3 @@ describe('VoiceOrb', () => {
   });
 });
 
-import { RealtimeSessionMemory } from '@maelstrom-co/realtime';

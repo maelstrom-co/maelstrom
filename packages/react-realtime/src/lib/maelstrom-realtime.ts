@@ -146,7 +146,7 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly onSession?: (
     session: RealtimeSession,
     context: RealtimeSessionContext<Provider>,
-    // biome-ignore lint/suspicious/noConfusingVoidType: Optional cleanup must accept callbacks with no return statement.
+    // oxlint-disable-next-line typescript/no-invalid-void-type -- Optional cleanup must accept callbacks with no return statement.
   ) => (() => void) | void;
   /** Overrides the deterministic structural-summary fallback. */
   readonly summarize?: SummarizeFn;

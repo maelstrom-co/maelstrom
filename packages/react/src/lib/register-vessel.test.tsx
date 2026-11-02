@@ -166,7 +166,7 @@ describe('m.registerVessel()', () => {
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    // biome-ignore lint/suspicious/noExplicitAny: executeAction's real signature is an overloaded, vessel-specific tuple; function params are contravariant, so `unknown[]` rejects assignment from the real (narrower) executeAction — only `any[]` can widen this ad-hoc structural type to accept it.
+    // oxlint-disable-next-line typescript/no-explicit-any -- executeAction's real signature is an overloaded, vessel-specific tuple; function params are contravariant, so `unknown[]` rejects assignment from the real (narrower) executeAction — only `any[]` can widen this ad-hoc structural type to accept it.
     let widgetProps: { executeAction: (...args: any[]) => void } | null = null;
 
     function App() {

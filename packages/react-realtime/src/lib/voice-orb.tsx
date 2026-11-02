@@ -69,6 +69,7 @@ export function createVoiceOrb(
       return () => {
         cancelAnimationFrame(frame);
         meter.dispose();
+        // oxlint-disable-next-line react/exhaustive-deps -- Cleanup restores the current orb after disposing the animation.
         const el = orbRef.current;
         if (el) el.style.transform = '';
       };

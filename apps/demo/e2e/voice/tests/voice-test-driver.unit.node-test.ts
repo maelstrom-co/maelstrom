@@ -291,7 +291,7 @@ test('playback operations publish typed start/end lifecycle observations', async
       ['playback-start', 'playback-end'],
     );
     assert.deepEqual(events[0]?.payload, {
-      playbackId: (events[0]?.payload as { playbackId: string }).playbackId,
+      playbackId: (events[0]!.payload as { playbackId: string }).playbackId,
       fixture: 'scenario.wav',
       delayMs: 3_000,
     });

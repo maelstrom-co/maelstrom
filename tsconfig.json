@@ -16,7 +16,7 @@
       "path": "./packages/client"
     },
     {
-      "path": "./tools/biome-plugin"
+      "path": "./tools/quality-plugin"
     },
     {
       "path": "./packages/react"

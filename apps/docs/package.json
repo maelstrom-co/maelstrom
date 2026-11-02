@@ -168,7 +168,10 @@
           "{projectRoot}/e2e/**/*",
           "{projectRoot}/tsconfig.json",
           "{projectRoot}/tsconfig.e2e.json",
-          "{projectRoot}/starters/**/*"
+          "{projectRoot}/starters/**/*",
+          "default",
+          "^default",
+          "toolchain"
         ]
       },
       "infra-typecheck": {
@@ -233,11 +236,30 @@
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",
-          "{workspaceRoot}/docs/architecture.md"
+          "{workspaceRoot}/docs/architecture.md",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/LICENSE",
+          "{workspaceRoot}/packages/evals/cases/**/*"
         ],
         "options": {
           "cwd": "{projectRoot}"
         }
+      },
+      "links-check": {
+        "command": "bun scripts/assert-docs-links.ts",
+        "cache": true,
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "{workspaceRoot}/scripts/assert-docs-links.ts",
+          "{workspaceRoot}/scripts/lib/docs-links.ts",
+          {
+            "dependentTasksOutputFiles": "**/*"
+          },
+          "toolchain"
+        ]
       }
     }
   }

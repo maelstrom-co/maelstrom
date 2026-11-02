@@ -9,7 +9,9 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { unzipSync } from 'fflate';
+
 import { createSkillsBundle } from './bundle';
 import {
   compareMigration,
@@ -35,6 +37,7 @@ import {
 import { migrationReview } from './migration-review';
 
 const workspace = resolve(import.meta.dir, '../../../..');
+const lintConfig = await readFile(join(workspace, '.oxlintrc.json'), 'utf8');
 const digest = (text: string) =>
   createHash('sha256').update(text).digest('hex');
 const config = `import { defineConfig } from 'vitest/config';
@@ -77,6 +80,7 @@ const contractHash = digest(
     submissionSource,
     setupSource,
     config,
+    lintConfig,
     JSON.stringify(tsconfig),
   ].join('\n'),
 );
@@ -173,7 +177,7 @@ export async function prepareMigration(output: string) {
     'vitest',
     '@testing-library/react',
     'jsdom',
-    '@biomejs/biome',
+    'oxlint',
   ]) {
     const manifest = await json(
       fileURLToPath(import.meta.resolve(`${name}/package.json`)),
@@ -189,7 +193,7 @@ export async function prepareMigration(output: string) {
         type: 'module',
         scripts: {
           typecheck: 'tsc --noEmit',
-          lint: 'biome check src',
+          lint: 'oxlint --deny-warnings src',
           test: 'vitest run',
         },
         dependencies,
@@ -199,15 +203,7 @@ export async function prepareMigration(output: string) {
     ),
   );
   await writeFile(join(template, 'tsconfig.json'), JSON.stringify(tsconfig));
-  await writeFile(
-    join(template, 'biome.json'),
-    JSON.stringify({
-      $schema: 'https://biomejs.dev/schemas/2.4.10/schema.json',
-      formatter: { enabled: false },
-      linter: { enabled: true, rules: { recommended: true } },
-      assist: { enabled: false },
-    }),
-  );
+  await writeFile(join(template, '.oxlintrc.json'), lintConfig);
   await writeFile(join(template, 'vitest.config.ts'), config);
   await writeFile(join(template, 'setup.ts'), setupSource);
   await writeFile(join(template, 'src/orders.ts'), ordersSource);
@@ -656,8 +652,8 @@ async function checks(
     ]);
     const lint = await run([
       nodeExecutable,
-      await safeBin('biome'),
-      'check',
+      await safeBin('oxlint'),
+      '--deny-warnings',
       'src',
     ]);
     const testReport = join(execution, 'test-report.json');
@@ -761,11 +757,8 @@ async function checks(
     try {
       const report = await json(reportPath);
       const assertions = Array.isArray(report.testResults)
-        ? report.testResults.flatMap(
-            (item: { assertionResults?: unknown[] }) =>
-              Array.isArray(item?.assertionResults)
-                ? item.assertionResults
-                : [],
+        ? report.testResults.flatMap((item: { assertionResults?: unknown[] }) =>
+            Array.isArray(item?.assertionResults) ? item.assertionResults : [],
           )
         : [];
       if (assertions.length === oracleCriteria.length)

@@ -8,7 +8,26 @@
       "!{projectRoot}/tsconfig.spec.json",
       "!{projectRoot}/src/test-setup.[jt]s"
     ],
-    "sharedGlobals": []
+    "sharedGlobals": [
+      "{workspaceRoot}/tsconfig.base.json",
+      "{workspaceRoot}/tsconfig.json",
+      "{workspaceRoot}/bunfig.toml",
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/bun.lock",
+      "{workspaceRoot}/patches/**/*",
+      "{workspaceRoot}/.gitignore"
+    ],
+    "toolchain": [
+      {
+        "runtime": "bun --version"
+      },
+      {
+        "runtime": "node --version"
+      },
+      {
+        "runtime": "node -p \"process.platform + '-' + process.arch\""
+      }
+    ]
   },
   "plugins": [
     {
@@ -42,12 +61,13 @@
       }
     },
     {
-      "plugin": "./tools/biome-plugin/src/index.ts",
+      "plugin": "@nx/oxlint",
       "options": {
-        "lintTargetName": "lint",
-        "formatTargetName": "format",
-        "checkTargetName": "check"
+        "targetName": "lint"
       }
+    },
+    {
+      "plugin": "./tools/quality-plugin/src/index.ts"
     },
     {
       "plugin": "@maelstrom-co/astro-plugin",
@@ -70,13 +90,17 @@
       "dependsOn": ["^build"]
     },
     "typecheck": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "cache": true,
+      "inputs": ["default", "^default", "toolchain"]
     },
     "test": {
       "dependsOn": ["^build"],
       "options": {
         "passWithNoTests": true
-      }
+      },
+      "cache": true,
+      "inputs": ["default", "^default", "toolchain"]
     },
     "dev": {
       "dependsOn": ["^build"]
@@ -88,6 +112,11 @@
       "cache": true,
       "dependsOn": ["^build"],
       "inputs": ["production", "^production"]
+    },
+    "@nx/oxlint:lint": {
+      "options": {
+        "denyWarnings": true
+      }
     }
   },
   "generators": {

@@ -26,6 +26,7 @@ type VoiceWorkerFixtures = {
 const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
   voiceConfig: [
     async ({ browser: _browser }, use) => {
+      // oxlint-disable-next-line react/rules-of-hooks -- Playwright supplies this callback to publish its fixture.
       await use({
         openAIApiKey: process.env.MAELSTROM_E2E_OPENAI_API_KEY,
         baseURL: process.env.MAELSTROM_BASE_URL,
@@ -88,6 +89,7 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
       await expect(voiceControl).toBeVisible({ timeout: 30_000 });
 
       protocol.assertHealthy('fresh page navigation and key setup');
+      // oxlint-disable-next-line react/rules-of-hooks -- Playwright supplies this callback to publish its fixture.
       await use({ page, protocol, driver });
     } finally {
       try {

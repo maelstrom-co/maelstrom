@@ -40,7 +40,6 @@ export function useChartMotion(
   // render closure so a key change still sees the freshest values.
   const suppressed = motionSuppressed(motion);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: motion is read from the latest-render closure by design — a motion-only change must not retrigger measurement/animation; container ref access is intentional.
   useLayoutEffect(() => {
     const layoutChanged = layoutKey !== prevLayoutKeyRef.current;
     prevLayoutKeyRef.current = layoutKey;
@@ -141,5 +140,6 @@ export function useChartMotion(
         });
       }
     }
+  // oxlint-disable-next-line react/exhaustive-deps -- motion is read from the latest-render closure by design — a motion-only change must not retrigger measurement/animation; container ref access is intentional.
   }, [layoutKey, sizeKey, suppressed]);
 }

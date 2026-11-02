@@ -182,6 +182,8 @@ bunx nx dev demo               # run the demo app (see apps/demo/README.md for e
 nx run-many -t build           # build all packages
 nx run-many -t test            # run all tests
 nx run-many -t typecheck       # type-check all packages
+nx run-many -t check           # lint and check formatting without writes
+bun run format                # apply Oxfmt formatting and import order
 bun run docs:lint              # check documentation prose
 ```
 
