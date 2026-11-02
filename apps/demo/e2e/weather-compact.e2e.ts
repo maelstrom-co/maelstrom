@@ -13,12 +13,20 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 
 const INTENT = 'Put weather below the map and make it very small';
 
-// The Weighted Split the live Planner eval returned most often, and in its
-// median sample, for weather below the map (9 of 13 samples).
+// The Weighted Split the live Planner eval returned most often for weather
+// below the map before the compact Variant existed (9 of 13 samples).
 const WEATHER_BELOW_MAP_TREE: readonly TilingNode[] = [
   'H:4,1',
   'ID:map-main',
   'ID:weather-main',
+];
+
+// The target "very small" share, the split the live eval returns with the
+// compact Variant (13 of 13 samples beside the map), and the earlier split.
+const COMPACT_TREES: readonly (readonly TilingNode[])[] = [
+  ['H:6,1', 'ID:map-main', 'ID:weather-main'],
+  ['H:7,1', 'ID:map-main', 'ID:weather-main'],
+  WEATHER_BELOW_MAP_TREE,
 ];
 
 const HOURS = Array.from(
@@ -84,62 +92,287 @@ test('measures the Chart', async ({ page }, testInfo) => {
   );
 });
 
-test("renders weather readably below the map at the Planner's share", async ({
+for (const tree of COMPACT_TREES)
+  test(`renders compact weather as one readable line below the map at ${tree[0]}`, async ({
+    page,
+  }, testInfo) => {
+    await expectCompactStripBelowMap(page, tree, testInfo.outputPath());
+  });
+
+test.describe('at 1024x768', () => {
+  test.use({ viewport: { width: 1_024, height: 768 } });
+  for (const tree of COMPACT_TREES)
+    test(`renders compact weather as one readable line below the map at ${tree[0]}`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name === 'mobile',
+        'The mobile project covers its own viewport',
+      );
+      await expectCompactStripBelowMap(page, tree, testInfo.outputPath());
+    });
+});
+
+test('hides the location visually but keeps it for screen readers in a narrow compact strip', async ({
   page,
 }, testInfo) => {
-  test.fail(
-    true,
-    'The current Variant needs about 220px of height and the Planner gives weather 80 to 116px',
+  test.skip(
+    testInfo.project.name === 'mobile',
+    'A one-sixth column needs the 18-column desktop Chart',
   );
   await stubPlanner(page, () => ({
-    tree: [...WEATHER_BELOW_MAP_TREE],
-    instances: [
-      { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
-      { instanceId: 'weather-main', vesselId: 'weather', variant: 'current' },
-    ],
+    tree: ['V:5,1', 'ID:map-main', 'ID:weather-main'],
+    instances: mapAndWeather('compact'),
   }));
   await openDemoWithKey(page);
   await submitIntent(page, INTENT);
 
   const weather = page.locator('[data-instance-id="weather-main"]');
-  await expect(weather).toBeVisible();
-  await expect(page.locator('[data-instance-id="map-main"]')).toBeVisible();
-  await expect(weather.getByText(/^72°/)).toBeAttached();
-  const screenshot = testInfo.outputPath('weather-below-map.png');
-  await page.screenshot({ path: screenshot });
-  await testInfo.attach('weather-below-map', {
-    path: screenshot,
-    contentType: 'image/png',
-  });
-
+  await expect(
+    weather.locator('[data-weather-variant="compact"]'),
+  ).toBeVisible();
   await expectNoClipping(weather);
-  const essentials = {
-    temperature: weather.getByText(/^72°/),
-    condition: weather.getByText('Clear', { exact: true }),
-    location: weather.getByText(/San Francisco/),
-  };
-  for (const [name, text] of Object.entries(essentials))
-    await expectReadableInside(weather, text, name);
-  const temperatureFontSize = await essentials.temperature.evaluate((node) =>
-    Number.parseFloat(getComputedStyle(node).fontSize),
-  );
-  expect
-    .soft(temperatureFontSize, 'temperature font size in px')
-    .toBeGreaterThanOrEqual(14);
+  await expectReadableInside(weather, weather.getByText(/^72°/), 'temperature');
+  const location = weather.getByText('San Francisco, United States');
+  await expect(location).toHaveCount(1);
+  const box = await location.boundingBox();
+  expect(
+    box,
+    'location stays rendered for the accessibility tree',
+  ).not.toBeNull();
+  expect(box?.width ?? 0, 'location is visually hidden').toBeLessThanOrEqual(1);
+  expect(
+    await location.evaluate((node) => getComputedStyle(node).display),
+  ).not.toBe('none');
 });
 
-interface CannedLayout {
+test('shows a one-row loading skeleton while compact weather loads', async ({
+  page,
+}) => {
+  let releaseChunk: () => void = () => undefined;
+  const chunkHeld = new Promise<void>((resolve) => {
+    releaseChunk = resolve;
+  });
+  await page.route('**/assets/weather.component-*.js', async (route) => {
+    await chunkHeld;
+    await route.continue();
+  });
+  await stubPlanner(page, () => ({
+    tree: ['H:7,1', 'ID:map-main', 'ID:weather-main'],
+    instances: mapAndWeather('compact'),
+  }));
+  await openDemoWithKey(page);
+  await submitIntent(page, INTENT);
+
+  const weather = page.locator('[data-instance-id="weather-main"]');
+  await expect(weather.locator('.weather-skeleton__strip')).toBeVisible();
+  await expect(weather.locator('.weather-skeleton__card')).toBeHidden();
+  await expectNoClipping(weather);
+  releaseChunk();
+  await expect(
+    weather.locator('[data-weather-variant="compact"]'),
+  ).toBeVisible();
+});
+
+test('switches between compact and fuller weather views through Actions', async ({
+  page,
+}) => {
+  const steps: readonly {
+    readonly intent: string;
+    readonly action: string;
+    readonly tree: readonly TilingNode[];
+    readonly expectContent: (weather: Locator) => Promise<void>;
+  }[] = [
+    {
+      intent: 'Make the weather very small',
+      action: 'showCompact',
+      tree: ['H:6,1', 'ID:map-main', 'ID:weather-main'],
+      expectContent: async (weather) => {
+        await expect(
+          weather.locator('[data-weather-variant="compact"]'),
+        ).toBeVisible();
+        await expectEssentials(weather);
+      },
+    },
+    {
+      intent: 'Show current conditions',
+      action: 'showCurrent',
+      tree: ['H', 'ID:map-main', 'ID:weather-main'],
+      expectContent: async (weather) => {
+        // Wind and high/low drop out in short regions, so check the numeral.
+        await expect(weather.locator('.weather-current__temp')).toBeVisible();
+        await expectReadableInside(
+          weather,
+          weather.getByText(/^72°/),
+          'temperature',
+        );
+      },
+    },
+    {
+      intent: 'Show the weekly forecast',
+      action: 'showWeekly',
+      // Weekly declares minSize 8x3, so it gets the larger part of the Chart.
+      tree: ['H:1,2', 'ID:map-main', 'ID:weather-main'],
+      expectContent: async (weather) => {
+        await expect(weather.getByText('Weekly Forecast')).toBeVisible();
+      },
+    },
+    {
+      intent: 'Back to small weather',
+      action: 'showCompact',
+      tree: ['H:6,1', 'ID:map-main', 'ID:weather-main'],
+      expectContent: async (weather) => {
+        await expect(
+          weather.locator('[data-weather-variant="compact"]'),
+        ).toBeVisible();
+        await expect(weather.getByText('Weekly Forecast')).toHaveCount(0);
+        await expectEssentials(weather);
+      },
+    },
+  ];
+  let current: CannedResponse = {
+    tree: ['H', 'ID:map-main', 'ID:weather-main'],
+    instances: mapAndWeather('current'),
+  };
+  await stubPlanner(page, (request) => {
+    const intent = latestIntent(request);
+    // The demo appends browser calendar context to every typed intent.
+    const step = steps.find((entry) => intent?.startsWith(entry.intent));
+    if (!step) return current;
+    // The Engine replays the Execution Plan and ships each Instance in its
+    // final Variant, so the canned Layout carries the Action's target.
+    current = {
+      tree: step.tree,
+      instances: mapAndWeather(step.action.replace(/^show/, '').toLowerCase()),
+    };
+    return {
+      ...current,
+      executionPlan: [{ instanceId: 'weather-main', action: step.action }],
+    };
+  });
+  await openDemoWithKey(page);
+  const weather = page.locator('[data-instance-id="weather-main"]');
+  for (const step of steps) {
+    await submitIntent(page, step.intent);
+    await step.expectContent(weather);
+    await expectNoClipping(weather);
+  }
+});
+
+interface CannedResponse {
   readonly tree: readonly TilingNode[];
   readonly instances: readonly {
     readonly instanceId: string;
     readonly vesselId: string;
     readonly variant: string;
   }[];
+  readonly executionPlan?: readonly {
+    readonly instanceId: string;
+    readonly action: string;
+  }[];
+}
+
+async function expectCompactStripBelowMap(
+  page: Page,
+  tree: readonly TilingNode[],
+  outputDirectory: string,
+) {
+  await stubPlanner(page, () => ({
+    tree,
+    instances: mapAndWeather('compact'),
+  }));
+  await openDemoWithKey(page);
+  await submitIntent(page, INTENT);
+
+  const weather = page.locator('[data-instance-id="weather-main"]');
+  await expect(page.locator('[data-instance-id="map-main"]')).toBeVisible();
+  await expect(
+    weather.locator('[data-weather-variant="compact"]'),
+  ).toBeVisible();
+  await page.screenshot({
+    path: `${outputDirectory}/compact-${tree[0]?.replace(/[^\w]/g, '-')}.png`,
+  });
+  await expectNoClipping(weather);
+  await expectEssentials(weather);
+}
+
+async function settle(instance: Locator) {
+  // Chart motion animates Instance moves and resizes, so measure afterwards.
+  await instance.evaluate(async (root) => {
+    const chart = root.parentElement ?? root;
+    await Promise.all(
+      chart
+        .getAnimations({ subtree: true })
+        // Loading pulses repeat forever and never finish.
+        .filter(
+          (animation) =>
+            animation.effect?.getComputedTiming().iterations !== Infinity,
+        )
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+    // Motion can start a frame after the Layout lands, so also wait until the
+    // Instance box stops moving for a few frames.
+    const frame = () =>
+      new Promise((resolve) => requestAnimationFrame(resolve));
+    let previous = '';
+    let still = 0;
+    for (let tries = 0; tries < 180 && still < 5; tries++) {
+      await frame();
+      const box = root.getBoundingClientRect();
+      const current = `${box.x},${box.y},${box.width},${box.height}`;
+      still = current === previous ? still + 1 : 0;
+      previous = current;
+    }
+  });
+}
+
+async function expectEssentials(weather: Locator) {
+  await settle(weather);
+  const essentials = {
+    temperature: weather.getByText(/^72°/),
+    condition: weather.getByText('Clear', { exact: true }),
+    location: weather.getByText(/San Francisco/),
+  };
+  const centres: number[] = [];
+  for (const [name, text] of Object.entries(essentials)) {
+    await expectReadableInside(weather, text, name);
+    const box = await text.boundingBox();
+    if (box) centres.push(box.y + box.height / 2);
+  }
+  expect
+    .soft(
+      Math.max(...centres) - Math.min(...centres),
+      'essentials share one line',
+    )
+    .toBeLessThan(6);
+  const temperatureFontSize = await essentials.temperature.evaluate((node) =>
+    Number.parseFloat(getComputedStyle(node).fontSize),
+  );
+  expect
+    .soft(temperatureFontSize, 'temperature font size in px')
+    .toBeGreaterThanOrEqual(14);
+}
+
+function mapAndWeather(weatherVariant: string) {
+  return [
+    { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
+    {
+      instanceId: 'weather-main',
+      vesselId: 'weather',
+      variant: weatherVariant,
+    },
+  ];
+}
+
+function latestIntent(request: ChartRequest): string | undefined {
+  return request.context.updateReasons.findLast(
+    (reason) => reason.type === 'user_intent',
+  )?.intent;
 }
 
 async function stubPlanner(
   page: Page,
-  layoutFor: (request: ChartRequest) => CannedLayout,
+  layoutFor: (request: ChartRequest) => CannedResponse,
 ): Promise<ChartRequest[]> {
   const requests: ChartRequest[] = [];
   await page.route('https://api.open-meteo.com/**', (route) =>
@@ -171,7 +404,10 @@ async function stubPlanner(
               requestId: message.id,
               userMessage: '',
               rationale: '',
-              executionPlan: [],
+              executionPlan: (layout.executionPlan ?? []).map((step) => ({
+                instanceId: InstanceId(step.instanceId),
+                action: step.action,
+              })),
               layout: {
                 type: 'tiling',
                 tree: [...layout.tree],
@@ -206,6 +442,7 @@ async function submitIntent(page: Page, intent: string) {
 }
 
 async function expectNoClipping(instance: Locator) {
+  await settle(instance);
   const clipped = await instance.evaluate((root) => {
     const boxes = [root, ...root.querySelectorAll('*')].filter((element) => {
       // Screen-reader-only labels are clipped to 1px on purpose.

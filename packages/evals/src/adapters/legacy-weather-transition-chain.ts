@@ -5,9 +5,26 @@ const turnInput = z.strictObject({ intent: z.string().min(1).max(1000) });
 
 /** Navigation-only projection of the current Weather Action contract, not handlers. */
 export const weatherNavigationTransitions = {
-  current: { showHourly: 'hourly', showWeekly: 'weekly' },
-  hourly: { showCurrent: 'current', showWeekly: 'weekly' },
-  weekly: { showCurrent: 'current', showHourly: 'hourly' },
+  current: {
+    showHourly: 'hourly',
+    showWeekly: 'weekly',
+    showCompact: 'compact',
+  },
+  hourly: {
+    showCurrent: 'current',
+    showWeekly: 'weekly',
+    showCompact: 'compact',
+  },
+  weekly: {
+    showCurrent: 'current',
+    showHourly: 'hourly',
+    showCompact: 'compact',
+  },
+  compact: {
+    showCurrent: 'current',
+    showHourly: 'hourly',
+    showWeekly: 'weekly',
+  },
 } as const;
 
 /** Dataset prompts are independent of the scripted response fixtures. */

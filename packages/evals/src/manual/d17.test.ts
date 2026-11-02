@@ -141,6 +141,7 @@ test('D17 request uses both complete current demo catalogs and an explicit 30x18
     'current',
     'hourly',
     'weekly',
+    'compact',
   ]);
   expect(Object.keys(calendarCatalog.variants)).toEqual([
     'month',
