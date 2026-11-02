@@ -1,11 +1,13 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { waitForPublishedPackages } from './lib/published-packages.ts';
 
 type Step = {
   name?: string;
   if?: string;
   run?: string;
   env?: Record<string, string>;
+  'timeout-minutes'?: number;
 };
 type Workflow = {
   env?: Record<string, string>;
@@ -17,6 +19,7 @@ type Workflow = {
       'runs-on': string;
       environment?: string;
       permissions?: Record<string, string>;
+      'timeout-minutes'?: number;
       steps: Step[];
     }
   >;
@@ -26,6 +29,56 @@ const readWorkflow = async (name: string): Promise<Workflow> =>
   Bun.YAML.parse(
     await Bun.file(`.github/workflows/${name}.yml`).text(),
   ) as Workflow;
+
+test.each([
+  'release',
+  'publish-pr',
+])('%s reserves the full scanning deadline after the maximum setup and upload time', async (name) => {
+  const publish = (await readWorkflow(name)).jobs.publish!;
+  const verificationIndex = publish.steps.findIndex(
+    (step) => step.name === 'Verify packages are live',
+  );
+  expect(verificationIndex).toBeGreaterThanOrEqual(0);
+  const stepMinutes = publish.steps.map((step) => {
+    const minutes = step['timeout-minutes'];
+    expect(
+      Number.isInteger(minutes),
+      `${step.name} needs a bounded duration`,
+    ).toBe(true);
+    expect(minutes).toBeGreaterThan(0);
+    return minutes!;
+  });
+  const jobMinutes = publish['timeout-minutes']!;
+  expect(Number.isInteger(jobMinutes)).toBe(true);
+  expect(jobMinutes).toBeGreaterThanOrEqual(
+    stepMinutes.reduce((sum, minutes) => sum + minutes, 0) + 1,
+  );
+
+  const beforeVerificationMs =
+    stepMinutes
+      .slice(0, verificationIndex)
+      .reduce((sum, minutes) => sum + minutes, 0) * 60_000;
+  let elapsedMs = beforeVerificationMs;
+  expect(
+    waitForPublishedPackages(
+      ['still-scanning'],
+      { version: '0.2.0', registry: 'https://registry.npmjs.org' },
+      {
+        now: () => elapsedMs,
+        isPublished: () => false,
+        sleep: (milliseconds) => {
+          elapsedMs += milliseconds;
+          expect(elapsedMs).toBeLessThan(jobMinutes * 60_000);
+        },
+        log: () => {},
+      },
+    ),
+  ).toEqual(['still-scanning']);
+  expect(elapsedMs - beforeVerificationMs).toBeGreaterThanOrEqual(30 * 60_000);
+  expect(stepMinutes[verificationIndex]! * 60_000).toBeGreaterThanOrEqual(
+    elapsedMs - beforeVerificationMs + 60_000,
+  );
+});
 
 test('a private repository cannot publish npm previews, including maintainer PRs', async () => {
   const workflow = await readWorkflow('publish-pr');
