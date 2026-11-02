@@ -1,9 +1,9 @@
 import { afterAll, afterEach, expect, spyOn, test } from 'bun:test';
-// biome-ignore lint/style/noRestrictedImports: Integration tests compose browser and server packages outside the published runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
-// biome-ignore lint/style/noRestrictedImports: Integration tests compose browser and server packages outside the published runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { createDevtools, type DevtoolsOptions } from '@maelstrom-co/devtools';
-// biome-ignore lint/style/noRestrictedImports: Integration tests compose browser and server packages outside the published runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { connectDevtoolsBridge } from '@maelstrom-co/devtools/mcp-bridge';
 import {
   MAX_BRIDGE_BYTES,

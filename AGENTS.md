@@ -15,10 +15,11 @@ Before editing files for a substantial task:
 
 Bun and Nx, per the existing lockfile and workspace conventions. The demo app runs with `nx dev demo`.
 
-- `check` is the CI gate: Biome lint, format, and import order. There is no separate ESLint gate.
+- `check` is the read-only CI gate: Oxlint linting and Oxfmt formatting, including import order. Read `docs/tooling.md` when changing code-check rules or file coverage.
 - Run typecheck, test, and `check` for every affected project before declaring work complete.
+- When a test reads files outside its project, include those paths in its Nx inputs.
 - Final verification must use `--skip-nx-cache`. Cached results are acceptable only during iteration.
-- New packages need a `biome.json` containing `{"extends": "//"}`. Without one they lose per-project caching and are covered only by the root `check` target defined in `package.json`.
+- Project checks are inferred from package/project manifests. Server and worker packages need a `.oxlintrc.json` extending the root and restricting browser imports; the layer-boundary suite enforces this.
 
 ## Version Control
 

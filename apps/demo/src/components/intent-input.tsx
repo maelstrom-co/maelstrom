@@ -135,6 +135,7 @@ export function IntentInput({
     return () => {
       live = false;
     };
+  // oxlint-disable-next-line react/exhaustive-deps -- Only resume and connection transitions trigger queued submission.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   const handleSubmit = (e: React.FormEvent) => {

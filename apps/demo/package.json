@@ -192,7 +192,10 @@
               "typescript"
             ]
           },
-          "{projectRoot}/tsconfig.json"
+          "{projectRoot}/tsconfig.json",
+          "default",
+          "^default",
+          "toolchain"
         ],
         "outputs": [
           "{projectRoot}/dist/**/*.d.ts",

@@ -82,6 +82,7 @@ export function ShopPage() {
 
   // The Provider and the connector must share one id per session boundary,
   // and keyEpoch is the dependency so a new epoch mints a new id.
+  // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const connector = useMemo(() => {
     if (browserKeyMode && !apiKey) return null;
@@ -313,6 +314,7 @@ function ShopWorkspace({
     return () => {
       live = false;
     };
+  // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   return (

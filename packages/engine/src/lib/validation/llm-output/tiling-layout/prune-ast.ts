@@ -31,7 +31,7 @@ export function pruneAst(
   const results: PrunedSlot[] = [];
 
   while (work.length > 0) {
-    // biome-ignore lint/style/noNonNullAssertion: work.length > 0 is the loop condition
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- work.length > 0 is the loop condition
     const task = work.pop()!;
     if (task.op === 'combine') {
       // A 'split' pushes combine, then visit(child) for each child in reverse
@@ -40,7 +40,7 @@ export function pruneAst(
       // them right to left, so collect and then reverse.
       const survivors: PrunedSlot[] = [];
       for (let i = 0; i < task.childCount; i++) {
-        // biome-ignore lint/style/noNonNullAssertion: one visit result per child is on the stack before its combine runs
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- one visit result per child is on the stack before its combine runs
         const child = results.pop()!;
         if (child.tokens.length > 0) survivors.push(child);
       }
@@ -103,7 +103,7 @@ export function pruneAst(
           childCount: node.children.length,
         });
         for (let i = node.children.length - 1; i >= 0; i--) {
-          // biome-ignore lint/style/noNonNullAssertion: index is bounded by children.length
+          // oxlint-disable-next-line typescript/no-non-null-assertion -- index is bounded by children.length
           const child = node.children[i]!;
           work.push({ op: 'visit', weight: child.weight, node: child.node });
         }
@@ -148,7 +148,7 @@ function appendTokens(
   source: readonly TilingNode[],
 ): number {
   for (let i = 0; i < source.length; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: i is bounded by source.length
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- i is bounded by source.length
     target[at + i] = source[i]!;
   }
   return at + source.length;

@@ -18,6 +18,7 @@ export const test = base.extend<{
       microphoneSource,
     });
     try {
+      // oxlint-disable-next-line react/rules-of-hooks -- Playwright supplies this callback to publish its fixture.
       await use(driver);
     } finally {
       try {

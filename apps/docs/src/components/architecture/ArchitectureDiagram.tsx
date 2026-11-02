@@ -20,7 +20,7 @@ const AUTO_ADVANCE_MS = 3600;
 
 function Bands() {
   return (
-    // biome-ignore lint/a11y/noAriaHiddenOnFocusable: an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. These bands are purely decorative, so dropping aria-hidden would expose them to screen readers instead of protecting anyone.
+    // oxlint-disable-next-line jsx-a11y/no-aria-hidden-on-focusable -- an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. These bands are purely decorative, so dropping aria-hidden would expose them to screen readers instead of protecting anyone.
     <g className="arch-bands" aria-hidden="true">
       {BANDS.map((band) => (
         <g key={band.zone} className={`arch-band arch-band--${band.zone}`}>

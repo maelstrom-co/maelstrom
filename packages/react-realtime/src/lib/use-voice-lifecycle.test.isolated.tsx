@@ -675,7 +675,7 @@ test('metadata observation never reads transcript text or replays it after reatt
     client.diagnostics.subscribe(({ event, readContent }) => {
       events.push(event);
       if (recording && event.kind === 'voice.transcript.fragment')
-        content.push((readContent?.() as TimedTranscriptFragment).text);
+        content.push((readContent!() as TimedTranscriptFragment).text);
     });
   let detach = () => {};
   try {

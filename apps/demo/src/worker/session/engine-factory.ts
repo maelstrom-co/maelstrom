@@ -44,6 +44,7 @@ export class EngineFactory extends Context.Service<
 
 export const EngineFactoryLive = Layer.effect(
   EngineFactory,
+  // oxlint-disable-next-line eslint/require-yield -- Effect.gen consumes a generator even when construction has no yielded dependency.
   Effect.gen(function* () {
     const make = Effect.fn('EngineFactory.make')(function* (apiKey: string) {
       return yield* Effect.try({

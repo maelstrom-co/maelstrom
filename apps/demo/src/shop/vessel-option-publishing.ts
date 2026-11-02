@@ -108,7 +108,7 @@ export function republishWithRetry(
 // The engine serializer escapes these itself. Rejecting them here keeps a
 // value with the prompt's option delimiter or a control character out of the
 // enum regardless of how the engine renders it.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point, a value containing one must be rejected.
+// oxlint-disable-next-line eslint/no-control-regex -- matching control characters is the point, a value containing one must be rejected.
 const UNSAFE_VALUE_CHARS = /[|\r\n\x00-\x1f\x7f]/;
 
 // A refusal with `batch_in_flight` is transient: the command batch that

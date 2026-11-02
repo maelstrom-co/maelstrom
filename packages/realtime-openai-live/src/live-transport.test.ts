@@ -248,7 +248,7 @@ test('diagnostic failures cannot change native sends and failed sends are not re
     throw new Error('optional rejection');
   });
   h.transport.diagnostics.subscribe(() => ({
-    // biome-ignore lint/suspicious/noThenProperty: Observer results may fail during thenable assimilation.
+    // oxlint-disable-next-line unicorn/no-thenable -- Observer results may fail during thenable assimilation.
     get then() {
       throw new Error('optional then getter');
     },

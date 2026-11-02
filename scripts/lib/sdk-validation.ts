@@ -1,3 +1,4 @@
+import { embeddedZodVersions } from './zod-runtime-versions.ts';
 /** The collection operations exposed by the SDK's exported identifier schema. */
 export type BoundedSdkSchema = {
   transform: (visit: (value: string) => string) => {
@@ -129,4 +130,3 @@ export function assertBoundedClientValidation(
     );
 }
 
-import { embeddedZodVersions } from './zod-runtime-versions.ts';

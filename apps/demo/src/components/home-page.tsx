@@ -97,6 +97,7 @@ export function HomePage() {
   // keyEpoch is the dependency even though the factory never reads it: the
   // point is to mint a NEW id whenever the epoch bumps, which is exactly the
   // session boundary the Provider remount defines. It is not a stale dep.
+  // oxlint-disable-next-line react/exhaustive-deps -- The epoch intentionally creates a fresh session identifier.
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const initialLayout = useMemo(
     () =>

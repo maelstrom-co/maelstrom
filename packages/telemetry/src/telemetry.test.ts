@@ -323,6 +323,7 @@ describe('operational telemetry delivery', () => {
       if (failure === 'throw') throw new Error('CANARY_error');
       if (failure === 'reject')
         return Promise.reject(new Error('CANARY_error'));
+      // oxlint-disable-next-line unicorn/no-thenable -- This probe verifies isolation from a throwing thenable accessor.
       return Object.defineProperty({}, 'then', {
         get() {
           throw new Error('CANARY_thenable');

@@ -100,6 +100,7 @@ export function MaelstromDemo({
   const [cycleKey, setCycleKey] = useState(0);
   const createConnectorRef = useRef(createConnector);
   createConnectorRef.current = createConnector;
+  // oxlint-disable-next-line react/exhaustive-deps -- A cycle transition creates a fresh connector through the latest factory ref.
   const connector = useMemo(() => createConnectorRef.current(), [cycleKey]);
   const script = useMemo(() => deriveScript(connector.steps), [connector]);
 

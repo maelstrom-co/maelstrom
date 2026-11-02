@@ -732,7 +732,7 @@ describe('engine.handle — chart_request', () => {
 
     const healed = logEntries.filter((e) => e.msg === 'Response healed');
     expect(healed).toHaveLength(1);
-    const detail = (healed[0]?.ctx as { detail: { drops: string[] } }).detail;
+    const detail = (healed[0]!.ctx as { detail: { drops: string[] } }).detail;
     // 16 rendered plus the tail count, matching `formatLayoutWarnings`.
     expect(detail.drops).toHaveLength(17);
     expect(detail.drops[0]).toBe(

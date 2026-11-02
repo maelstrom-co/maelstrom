@@ -39,6 +39,7 @@ test('throwing and rejecting metadata observers cannot block later observers or 
     throw new Error('asynchronous');
   });
   observers.subscribe(() =>
+    // oxlint-disable-next-line unicorn/no-thenable -- This probe verifies isolation from a throwing thenable accessor.
     Object.defineProperty({}, 'then', {
       get() {
         throw new Error('thenable');

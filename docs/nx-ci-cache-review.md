@@ -1,9 +1,12 @@
 # Nx 24 CI and cache review
 
+This document records the assessment before implementation. Current behavior
+and migration differences are documented in [Code checks](./tooling.md).
+
 Reviewed on November 2, 2026 against fetched `main` at
 `c570c66f7c79` (pull request #401). The manifest and installed CLI both use
 Nx 24.0.2. This replaces the assessment made from the older Nx 23.3 checkout.
-No CI configuration or Cloud settings were changed.
+The assessment itself changed no CI or Cloud settings.
 
 ## Current configuration
 
