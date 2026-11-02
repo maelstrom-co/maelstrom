@@ -66,6 +66,24 @@ function recordedOptions(dir: string, attempt: number) {
 }
 
 describe('recorded publication recovery', () => {
+  test('oversized manifest metadata cannot reach registry checks or publication', () =>
+    withArtifact((dir) => {
+      const path = join(dir, PACKED_MANIFEST_FILENAME);
+      writeFileSync(path, readFileSync(path, 'utf8') + ' '.repeat(65_536));
+      let requests = 0;
+      expect(() =>
+        publishTarballs(recordedOptions(dir, 1), {
+          hasPublishedIntegrity: () => {
+            requests++;
+            return false;
+          },
+          publish: () => {
+            requests++;
+          },
+        }),
+      ).toThrow('Cannot read');
+      expect(requests).toBe(0);
+    }));
   test('accepted uploads are not repeated while public registry visibility is pending', () =>
     withArtifact((dir) => {
       const first = recordedOptions(dir, 1);

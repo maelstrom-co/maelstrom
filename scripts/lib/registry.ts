@@ -2,6 +2,34 @@ import { execFileSync } from 'node:child_process';
 
 export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 
+/** Restricts anonymous checksum verification to public npm and local rehearsals. */
+export function assertIntegrityRegistry(registry: string): void {
+  let url: URL;
+  try {
+    url = new URL(registry);
+  } catch {
+    throw new Error('Invalid checksum verification registry URL');
+  }
+  const npm =
+    url.protocol === 'https:' &&
+    url.hostname === 'registry.npmjs.org' &&
+    !url.port &&
+    url.pathname === '/';
+  const local =
+    ['http:', 'https:'].includes(url.protocol) &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (
+    (!npm && !local) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(
+      'Checksum verification supports public npm and anonymous loopback rehearsal registries only',
+    );
+}
+
 /** Checks public package identity before a preview can claim a new name. */
 export function hasPublishedPackage(name: string, registry: string): boolean {
   try {
@@ -137,6 +165,7 @@ export function hasPublishedIntegrity(
   integrity: string,
   timeoutMs = 30_000,
 ): boolean {
+  assertIntegrityRegistry(registry);
   let output: string;
   if (!/^sha512-[A-Za-z0-9+/]{86}==$/.test(integrity))
     throw new Error('Invalid expected tarball checksum');

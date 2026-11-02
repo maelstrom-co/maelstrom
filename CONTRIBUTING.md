@@ -531,10 +531,12 @@ publication does not grant an audit exception.
   publish leaves a release with incomplete packages. Follow the
   [partial release recovery](#recovering-a-partial-release) instructions.
   Keep the existing tag and version.
-- **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
-  to npm (`https://registry.npmjs.org`). Set it only to aim somewhere
-  else, such as local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
-  rehearse the whole flow without touching the real registry.
+- **Checksum verification supports public npm and local rehearsals.**
+  `RELEASE_REGISTRY` defaults to `https://registry.npmjs.org`.
+  Verification accepts that HTTPS registry and anonymous HTTP or HTTPS
+  endpoints at `localhost`, `127.0.0.1`, or `::1`. Use local Verdaccio
+  (`nx local-registry`, `http://localhost:4873`) for verification rehearsals.
+  GitHub Packages and authenticated private registries are unsupported.
 - **`--dry-run` does not prove package access.** Local preparation checks
   metadata and calculates versions and notes. A CI rehearsal also builds and
   validates tarballs. Neither uploads packages. After the manual repository

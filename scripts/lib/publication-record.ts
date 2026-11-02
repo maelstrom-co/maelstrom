@@ -4,17 +4,18 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { readBoundedFile } from './bounded-file.ts';
 import { packedIntegrity } from './packed-integrity.ts';
 import {
   PACKED_PACKAGE_NAMES,
   type ValidatedPackedPackage,
 } from './packed-manifest.ts';
+import { assertIntegrityRegistry } from './registry.ts';
 
 export type PublicationState =
   | 'not_attempted'
@@ -78,23 +79,8 @@ function object(
 }
 
 function canonicalRegistry(registry: string): string {
-  let url: URL;
-  try {
-    url = new URL(registry);
-  } catch {
-    throw new Error('Invalid publication record registry URL');
-  }
-  if (
-    !['https:', 'http:'].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new Error(
-      'Publication records require a credential-free registry URL',
-    );
-  return url.href.replace(/\/$/, '');
+  assertIntegrityRegistry(registry);
+  return new URL(registry).href.replace(/\/$/, '');
 }
 
 function validateContext(context: PublicationContext) {
@@ -111,17 +97,10 @@ function validateContext(context: PublicationContext) {
 }
 
 function readRecord(path: string): RecordFile {
-  const stat = lstatSync(path);
-  if (
-    !stat.isFile() ||
-    stat.isSymbolicLink() ||
-    stat.size === 0 ||
-    stat.size > 65_536
-  )
-    throw new Error('Publication record must be a bounded regular file');
+  const bytes = readBoundedFile(path, 65_536);
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(path, 'utf8'));
+    value = JSON.parse(bytes.toString('utf8'));
   } catch {
     throw new Error('Cannot parse publication record');
   }

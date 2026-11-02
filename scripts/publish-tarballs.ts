@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { readBoundedFile } from './lib/bounded-file.ts';
 import {
   type ArchiveProcessRequest,
   type ArchiveProcessResult,
@@ -177,7 +177,10 @@ export function publishTarballs(
   let input: unknown;
   try {
     input = JSON.parse(
-      readFileSync(join(options.dir, PACKED_MANIFEST_FILENAME), 'utf8'),
+      readBoundedFile(
+        join(options.dir, PACKED_MANIFEST_FILENAME),
+        65_536,
+      ).toString('utf8'),
     ) as unknown;
   } catch (error) {
     throw new Error(
