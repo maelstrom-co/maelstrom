@@ -209,7 +209,9 @@ The native UI-only event route loads configured history at planning time and rec
 
 With `agent` configured, `openConnection()` runs the utterance/tool loop with a connection-local transcript. That route does not read or record configured `history`.
 
-The native event route accepts no automatic-update input. The demo's native mode uses legacy request/reply, as does the Engine entrypoint behind the AG-UI workspace binding. Those paths retain client-owned dispatch-time snapshots. A native browser event applier must preserve fresh snapshots and define resize/mutation handling before replacing them.
+The native event route accepts complete client-dispatched `chart_request` inputs. The client owns their FIFO admission and update coalescing, capturing state at dispatch after earlier work settles. The server refuses these inputs while any run is pending and never replaces their requests with acknowledgement Charts. This preserves resize/mutation reasons and separates planning state from application evidence. The existing utterance route retains its server FIFO and retained-Chart semantics.
+
+The demo's native mode uses legacy request/reply, as does the Engine entrypoint behind the AG-UI workspace binding. A native browser event applier must reuse the client FIFO, dispatch-time capture, and canonical application settlement before replacing those paths. The new server input contract does not establish browser effect parity.
 
 ---
 
@@ -226,7 +228,7 @@ Messages travel as **envelopes** over the duplex stream. `EngineMessage` describ
 - `chart_request` (`ChartRequestMessage`): User intent and current Chart state
 - `assistant_message` (`AssistantInjectionMessage`): Inject an assistant turn into session history
 - `client.history.get` (`HistoryGetMessage`): Ask the host to replay recorded session history
-- `client.agent.input` (`AgentInputMessage`): Wraps one `AgentInput` (`utterance`, `ui_applied`) under `input`
+- `client.agent.input` (`AgentInputMessage`): Wraps one `AgentInput` (`utterance`, `chart_request`, `ui_applied`) under `input`
 
 **Engine host → Client (`ServerEnvelope`):**
 
@@ -235,7 +237,7 @@ Messages travel as **envelopes** over the duplex stream. `EngineMessage` describ
 - `engine.error` (`EngineErrorMessage`): A failure, correlated to the request when recoverable
 - `engine.agent.event` (`AgentEventMessage`): Wraps one `AgentEvent` (`placeholder`, `accepted`, `started`, `message`, `ui_change`, `tool_call`, `tool_result`, `finished`, `error`) under `event`
 
-`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner members carry `version` equal to `AGENT_WIRE_VERSION` (2); decoders reject every other version. Version 2 requires whole-batch application status because a version 1 decoder could discard uncertainty and report success. Optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump.
+`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner members carry `version` equal to `AGENT_WIRE_VERSION` (3); decoders reject every other version. Version 3 adds client-dispatched Chart requests. Version 2 introduced whole-batch application status because a version 1 decoder could discard uncertainty and report success. Optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump.
 
 An `accepted` event for `ui_only` carries a server-minted `runId`. The connection emits one `finished` per accepted run unless it closes, which suppresses further events. Only `noise` has a null `runId`. Agent IDs are branded: `RunId` names a run, `CallId` one loop call, including server tools and questions, and `ChangeId` a UI change. `CallId` is separate from the provider's `ToolCallId`.
 

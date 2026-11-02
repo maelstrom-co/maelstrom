@@ -462,6 +462,12 @@ describe('handleEnvelope — client.history.get', () => {
 describe('handleEnvelope: client.agent.input', () => {
   const inputs: AgentInput[] = [
     {
+      type: 'chart_request',
+      version: AGENT_WIRE_VERSION,
+      inputId: MessageId('dispatch-1'),
+      request: validChartRequest(),
+    },
+    {
       type: 'utterance',
       version: AGENT_WIRE_VERSION,
       inputId: MessageId('in-1'),

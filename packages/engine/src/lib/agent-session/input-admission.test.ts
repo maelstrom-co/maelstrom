@@ -34,7 +34,7 @@ const acknowledgement = {
 test('an utterance is admitted once and its repeat is ignored', () => {
   const admission = createInputAdmission();
   expect(admission.admit(utterance('input-1'), 0)).toEqual({
-    kind: 'utterance',
+    kind: 'run',
     input: utterance('input-1'),
   });
   expect(admission.admit(utterance('input-1'), 0)).toEqual({
@@ -93,7 +93,7 @@ test('a full queue rejects an utterance without remembering it, so it can be sen
   });
   expect(
     admission.admit(utterance('input-33'), maxPendingInputs - 1).kind,
-  ).toBe('utterance');
+  ).toBe('run');
 });
 
 test('the input-id bound rejects new utterances but never forgets admitted ones', () => {
@@ -103,7 +103,7 @@ test('the input-id bound rejects new utterances but never forgets admitted ones'
   expect(admission.admit(utterance('last'), maxPendingInputs).kind).toBe(
     'rejected',
   );
-  expect(admission.admit(utterance('last'), 0).kind).toBe('utterance');
+  expect(admission.admit(utterance('last'), 0).kind).toBe('run');
   expect(admission.admit(utterance('over'), 0)).toMatchObject({
     kind: 'rejected',
     event: {
@@ -125,5 +125,5 @@ test('forgetting releases every remembered input id', () => {
   const admission = createInputAdmission();
   admission.admit(utterance('input-1'), 0);
   admission.forget();
-  expect(admission.admit(utterance('input-1'), 0).kind).toBe('utterance');
+  expect(admission.admit(utterance('input-1'), 0).kind).toBe('run');
 });
