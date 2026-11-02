@@ -68,7 +68,11 @@ export interface AgentConnection {
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
   subscribe(listener: (event: AgentEvent) => void): () => void;
-  /** Aborts pending work and releases listeners. Idempotent; no later events are emitted. */
+  /**
+   * Aborts pending work and releases listeners. Idempotent; no later events are
+   * emitted. An already-started history write may finish because {@link HistoryStore}
+   * operations do not accept cancellation signals.
+   */
   close(): void;
 }
 

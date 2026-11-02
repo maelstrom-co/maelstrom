@@ -84,7 +84,7 @@ The protocol's factories and codecs own the message shapes. A host supplies tran
 
 `engine.openConnection(options)` returns an isolated `AgentConnection` with `send`, `subscribe`, and `close`. The host supplies the authorized `sessionId` and `user` (`null` for anonymous sessions). Optional `token` and `capabilities` are host context, not Planner inputs. Provider API keys do not belong in `token`.
 
-`send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves when planning ends or the connection closes, without waiting for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.
+`send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves after planning and any configured history write settle, or when the connection closes. It does not wait for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.
 
 The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied` with required whole-batch `status`:
 
@@ -100,7 +100,11 @@ Planning stays serialized through acknowledgement. Queued utterances use the new
 
 Optional `clock` supplies monotonic milliseconds for elapsed-time metrics. UI-only loop-turn, tool-call, and loop-token counts are zero; elapsed time includes queueing and acknowledgement.
 
-The request/reply API and its history store remain separate. Streaming connections neither read nor write that store. Agent transcripts and the tool loop are not implemented by this route.
+UI-only streaming connections, without an `agent` configuration, use [configured history](#history) for the host-authorized session. Each admitted run loads retained turns and injections when planning starts. A validated plan is recorded before `ui_change`, so the next queued run can read it after acknowledgement. The configured transform, projection, and retention policies apply. History reads that fail end that run with `HistoryError`; recording failures are logged and the usable plan still reaches the browser.
+
+Stored turns describe planning input and output. They do not establish application success: refusal, unknown effects, timeout, and closure do not retract a recorded plan. Native admission ignores duplicate input IDs within one connection and never consults the response replay cache. Across connections, the same ID can produce a fresh plan while the store retains its original entry. Hosts must not use history or a replacement connection to retry uncertain effects. Agent-backed connections use a separate connection-local transcript; they do not read or record configured `history`.
+
+Closing during a history read prevents the Planner from starting after the read settles. Closing during planning prevents a subsequent history write. An already-started write can finish, including retention work, because `HistoryStore` has no cancellation signal. Closure releases pending sends immediately and suppresses later UI events. Separate connections and request/reply calls sharing a session still require host coordination; connection FIFO ordering does not serialize them.
 
 The native browser event applier is not implemented. `WebSocketConnector` ignores agent events; the demo's native mode uses request/reply. Automatic resize and mutation requests also use request/reply. The utterance route replaces update reasons with user intent, so it cannot preserve automatic-update semantics.
 
@@ -172,7 +176,7 @@ See [Planners and stages](#planners-and-stages) below for composing more than on
 
 Opt-in. When omitted, `chart_request` still runs normally but no prior conversation is fed to the LLM and nothing is recorded; `assistant_message` returns a `ValidationError('history not configured')`.
 
-When configured, every `chart_request` is processed with the session's prior turns (and any developer-injected `assistant_message` content) supplied to the LLM as prior messages. After the response returns, the new turn is appended to history for the next call.
+Configured history applies to `handle()` and, when `agent` is absent, to `openConnection()`. Fresh planning receives the session's retained turns and injections. Successful planning appends a turn before returning the response or emitting the UI change. Recording is advisory: a write failure is logged without discarding the plan. A stored turn records planning, not confirmed application. Only `handle()` uses stored responses for request replay.
 
 ```ts
 interface HistoryConfig<TMeta = unknown> {
