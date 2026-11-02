@@ -5,12 +5,21 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
+import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
 
 const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');
 const FEEDBACK_LEAF = tilingLeafToken(FEEDBACK);
 const TASKS_LEAF = tilingLeafToken(TASKS);
-const NARROW_CHART_HOST_WIDTH = 640;
+
+/** Grid cell size for the Tasklane Chart, in CSS pixels. */
+export const TASKLANE_CELL_SIZE_PX = 80;
+
+const SIDE_BY_SIDE_MINIMUM_WIDTH =
+  (sourceFeedbackVessel.variants.snapshot.minSize.width +
+    projectTasksVessel.variants.board.minSize.width) *
+  TASKLANE_CELL_SIZE_PX;
 
 /**
  * Starting screen for Tasklane: the feedback beside a wider task list. A
@@ -42,12 +51,13 @@ export const TASKLANE_NARROW_LAYOUT: TilingLayout = {
 
 /**
  * Picks the starting screen from the measured chart host width, never the
- * browser viewport. An unmeasured host gets the side-by-side screen.
+ * browser viewport. The Vessels sit side by side only when both minimum
+ * widths fit. An unmeasured host gets the side-by-side screen.
  */
 export function selectTasklaneLayout(
   chartHostWidth: number | null,
 ): TilingLayout {
-  return chartHostWidth !== null && chartHostWidth <= NARROW_CHART_HOST_WIDTH
+  return chartHostWidth !== null && chartHostWidth < SIDE_BY_SIDE_MINIMUM_WIDTH
     ? TASKLANE_NARROW_LAYOUT
     : TASKLANE_LAYOUT;
 }

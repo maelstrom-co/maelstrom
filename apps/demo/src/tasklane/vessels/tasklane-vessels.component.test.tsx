@@ -304,6 +304,31 @@ describe('Tasks Vessel by hand', () => {
     });
   });
 
+  it('keeps editor labels and focus inside each Instance when two are on screen', () => {
+    render(
+      <>
+        <ProjectTasksComponent {...props('project-tasks', 'tasks-left')} />
+        <ProjectTasksComponent {...props('project-tasks', 'tasks-right')} />
+      </>,
+    );
+    const editButtons = screen.getAllByRole('button', {
+      name: 'Edit Update demo README',
+    });
+    for (const button of editButtons) fireEvent.click(button);
+
+    expect(screen.getAllByRole('textbox', { name: 'Title' })).toHaveLength(2);
+
+    const rightTitle = screen.getAllByRole('textbox', { name: 'Title' })[1];
+    if (!rightTitle) throw new Error('no second Title field');
+    fireEvent.keyDown(rightTitle, { key: 'Escape' });
+
+    const rightEdit = screen.getAllByRole('button', {
+      name: 'Edit Update demo README',
+    });
+    expect(rightEdit).toHaveLength(1);
+    expect(document.activeElement).toBe(rightEdit[0]);
+  });
+
   it('cancels an inline edit with Escape and returns focus to its Edit button', () => {
     const vesselProps = props('project-tasks');
     render(<ProjectTasksComponent {...vesselProps} />);
@@ -468,14 +493,17 @@ interface TestVesselProps {
 
 // executeAction stands in for the client: it runs the handler the component
 // registered, the same one the Engine path invokes.
-function props(vesselId: string): TestVesselProps & TypedVesselProps<never> {
+function props(
+  vesselId: string,
+  instanceId = 'test',
+): TestVesselProps & TypedVesselProps<never> {
   const executeAction = vi.fn(
     (name: string, params?: Record<string, unknown>) => {
       void handlers.get(vesselId)?.[name]?.(params);
     },
   );
   return {
-    instanceId: 'test',
+    instanceId,
     variantProps: { variant: 'default' },
     executeAction,
   } as unknown as TestVesselProps & TypedVesselProps<never>;

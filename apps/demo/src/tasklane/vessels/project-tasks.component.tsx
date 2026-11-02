@@ -41,6 +41,7 @@ export default function ProjectTasksComponent({
   const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const focusAfterEdit = useRef<string | null>(null);
+  const board = useRef<HTMLDivElement>(null);
 
   tasklaneM.useActions('project-tasks', instanceId, {
     createTask: async ({ title, description, parent, assignee, urgency }) =>
@@ -75,8 +76,8 @@ export default function ProjectTasksComponent({
     if (draft !== null || !focusAfterEdit.current) return;
     const taskId = focusAfterEdit.current;
     focusAfterEdit.current = null;
-    document
-      .querySelector<HTMLButtonElement>(
+    board.current
+      ?.querySelector<HTMLButtonElement>(
         `[data-edit-task="${CSS.escape(taskId)}"]`,
       )
       ?.focus();
@@ -110,7 +111,10 @@ export default function ProjectTasksComponent({
       label="Tasks"
       meta={`${project} · ${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
     >
-      <div className="tasklane-board flex-1 min-h-0 overflow-y-auto">
+      <div
+        ref={board}
+        className="tasklane-board flex-1 min-h-0 overflow-y-auto"
+      >
         <section
           className="tasklane-priorities"
           aria-labelledby={`${instanceId}-priorities`}
@@ -182,6 +186,7 @@ export default function ProjectTasksComponent({
               {rows.map(({ task, depth }) => (
                 <TaskRow
                   key={task.id}
+                  instanceId={instanceId}
                   task={task}
                   depth={depth}
                   tasks={tasks}
@@ -213,6 +218,7 @@ export default function ProjectTasksComponent({
 }
 
 interface TaskRowProps {
+  readonly instanceId: string;
   readonly task: ProjectTask;
   readonly depth: number;
   readonly tasks: readonly ProjectTask[];
@@ -228,6 +234,7 @@ interface TaskRowProps {
 }
 
 function TaskRow({
+  instanceId,
   task,
   depth,
   tasks,
@@ -245,7 +252,7 @@ function TaskRow({
   const parentChoices = tasks.filter(
     (candidate) => candidate.id !== task.id && !excluded.has(candidate.id),
   );
-  const fieldId = `tasklane-${task.id}`;
+  const fieldId = `${instanceId}-${task.id}`;
 
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {

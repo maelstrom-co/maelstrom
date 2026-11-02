@@ -10,6 +10,7 @@ import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
+import { TASKLANE_CELL_SIZE_PX } from './default-layout';
 import { projectTasksEntry } from './vessels/project-tasks.vessel';
 import { sourceFeedbackEntry } from './vessels/source-feedback.vessel';
 import {
@@ -42,6 +43,7 @@ export function tasklaneVoiceOpening({
 // request, so this keeps other pages' Vessels out of the Tasklane prompt.
 export const tasklaneM = createMaelstrom({
   vessels: [sourceFeedbackEntry, projectTasksEntry] as const,
+  cellSizePx: TASKLANE_CELL_SIZE_PX,
 })
   .with(
     maelstromRealtime({
