@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { TilingNode } from '@maelstrom-co/protocol';
+
 import { makeRequest } from './__test-helpers__/fixtures.js';
 import {
   type Arranged,

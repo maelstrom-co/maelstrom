@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { COMMUNITY_DISCORD_URL } from '../src/CommunityContract.js';
 import {
   PRODUCTION_RATE_LIMIT,

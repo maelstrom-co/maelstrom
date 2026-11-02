@@ -202,40 +202,40 @@ it('a hosted socket cannot submit another session or acknowledge another connect
   }
 });
 
-it.each([
-  'webSocketClose',
-  'webSocketError',
-] as const)('%s cancels pending work and suppresses a late provider response', async (close) => {
-  const adapter = fakeText();
-  const entered = deferred();
-  const gate = deferred();
-  adapter.setResponses([
-    async () => {
-      entered.resolve();
-      await gate.promise;
-      return { text: response };
-    },
-  ]);
-  provider.adapter = adapter;
-  const socket = new Socket();
-  const ws = socket as unknown as WebSocket;
-  const object = host([socket]);
-  await object.webSocketMessage(ws, hello);
-  const sent = object.webSocketMessage(ws, frame(utterance()));
-  await entered.promise;
-  await object[close](ws);
-  gate.resolve();
-  await sent;
-  expect(socket.events().map((event) => event.type)).toEqual([
-    'placeholder',
-    'accepted',
-  ]);
-  await object.webSocketMessage(
-    ws,
-    frame({ ...utterance(), inputId: MessageId('after-close') }),
-  );
-  expect(adapter.state.callCount).toBe(1);
-});
+it.each(['webSocketClose', 'webSocketError'] as const)(
+  '%s cancels pending work and suppresses a late provider response',
+  async (close) => {
+    const adapter = fakeText();
+    const entered = deferred();
+    const gate = deferred();
+    adapter.setResponses([
+      async () => {
+        entered.resolve();
+        await gate.promise;
+        return { text: response };
+      },
+    ]);
+    provider.adapter = adapter;
+    const socket = new Socket();
+    const ws = socket as unknown as WebSocket;
+    const object = host([socket]);
+    await object.webSocketMessage(ws, hello);
+    const sent = object.webSocketMessage(ws, frame(utterance()));
+    await entered.promise;
+    await object[close](ws);
+    gate.resolve();
+    await sent;
+    expect(socket.events().map((event) => event.type)).toEqual([
+      'placeholder',
+      'accepted',
+    ]);
+    await object.webSocketMessage(
+      ws,
+      frame({ ...utterance(), inputId: MessageId('after-close') }),
+    );
+    expect(adapter.state.callCount).toBe(1);
+  },
+);
 
 it('a hibernated socket reauthenticates before replaying its buffered agent input without persisting the key', async () => {
   const adapter = fakeText();

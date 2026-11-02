@@ -30,11 +30,7 @@ export {
   AgentInputSchema,
 } from './lib/agent-wire.ts';
 export type { Brand } from './lib/brand.ts';
-export type {
-  ChartDimensions,
-  ChartPosition,
-  ChartSize,
-} from './lib/chart.ts';
+export type { ChartDimensions, ChartPosition, ChartSize } from './lib/chart.ts';
 export { ChartDimensionsSchema } from './lib/chart.ts';
 export * from './lib/diagnostics.ts';
 export type { EngineMessage, EngineMessageBase } from './lib/engine-message.ts';

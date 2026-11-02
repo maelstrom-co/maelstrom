@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { waitForPublishedPackages } from './published-packages.ts';
 
 const options = { version: '0.2.0', registry: 'https://registry.npmjs.org' };

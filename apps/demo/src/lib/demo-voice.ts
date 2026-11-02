@@ -7,6 +7,7 @@ import type {
   RealtimeProviderAdapter,
   RealtimeSession,
 } from '@maelstrom-co/realtime';
+
 import type { DemoVoiceProvider } from './voice-provider';
 
 export const LIVE_OPENING_INSTRUCTIONS =

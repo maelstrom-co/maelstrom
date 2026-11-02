@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { MetadataObservers } from './integration.js';
 
 test('metadata subscription refresh delivers once, skips removed observers, and observes later work', () => {

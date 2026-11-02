@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+
 import { consoleLogger } from './logger.js';
 
 describe('consoleLogger', () => {

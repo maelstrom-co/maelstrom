@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, posix, relative, sep } from 'node:path';
+
 import { zipSync } from 'fflate';
 
 export const CANONICAL_VOICE_DOCUMENTS = [

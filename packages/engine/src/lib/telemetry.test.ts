@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from 'bun:test';
+
 import {
   ChartRequestMessage,
   type EngineMessage,
@@ -12,6 +13,7 @@ import {
   type TelemetryOperation,
   type TelemetryRecord,
 } from '@maelstrom-co/telemetry';
+
 import {
   buildGridResponse,
   makeGridRequest,
@@ -167,99 +169,102 @@ test('Engine telemetry reports whole requests independently of named nested stag
   telemetry.dispose();
 });
 
-test.each([
-  'cancelled',
-  'failed',
-] as const)('Engine %s outcomes retain stable categories across request, planner, and stage', async (outcome) => {
-  const planner: Planner = async () =>
-    err(
-      outcome === 'cancelled'
-        ? cancellationError('CANARY_reason', undefined)
-        : providerError('CANARY_error', new Error('CANARY_cause')),
-    );
-  const engine = createEngine({
-    planner: pipeline(named('CANARY_stage', planner)),
-    retry: false,
-    logger: silentLogger,
-  });
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachEngineTelemetry(engine, telemetry);
-  expect((await engine.handle(request())).ok).toBe(false);
-  await telemetry.flush();
-  expect(
-    records
-      .filter((record) => record.attributes.outcome === outcome)
-      .map((record) => record.attributes.operation)
-      .sort(),
-  ).toEqual(['engine.plan', 'engine.request', 'engine.stage']);
-  if (outcome === 'failed')
+test.each(['cancelled', 'failed'] as const)(
+  'Engine %s outcomes retain stable categories across request, planner, and stage',
+  async (outcome) => {
+    const planner: Planner = async () =>
+      err(
+        outcome === 'cancelled'
+          ? cancellationError('CANARY_reason', undefined)
+          : providerError('CANARY_error', new Error('CANARY_cause')),
+      );
+    const engine = createEngine({
+      planner: pipeline(named('CANARY_stage', planner)),
+      retry: false,
+      logger: silentLogger,
+    });
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    const { release } = attachEngineTelemetry(engine, telemetry);
+    expect((await engine.handle(request())).ok).toBe(false);
+    await telemetry.flush();
     expect(
       records
-        .filter((record) => record.attributes.outcome === 'failed')
-        .every((record) => record.attributes.errorCategory === 'provider'),
-    ).toBe(true);
-  expect(JSON.stringify(records)).not.toContain('CANARY');
-  release();
-  telemetry.dispose();
-});
-
-test.each([
-  'planner',
-  'stage',
-] as const)('untyped %s errors still count terminal failures without exporting custom details', async (source) => {
-  const failure = { _tag: 'CustomError', message: 'CANARY_custom_error' };
-  const planner = (async () => err(failure)) as unknown as Planner;
-  const engine = createEngine({
-    planner:
-      source === 'stage' ? pipeline(named('CANARY_stage', planner)) : planner,
-    retry: false,
-    logger: silentLogger,
-  });
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachEngineTelemetry(engine, telemetry);
-  try {
-    const handled: unknown = await engine.handle(request());
-    expect(handled).toEqual(err(failure));
-    await telemetry.flush();
-    const operations: TelemetryOperation[] = ['engine.request', 'engine.plan'];
-    if (source === 'stage') operations.push('engine.stage');
-    for (const operation of operations) {
+        .filter((record) => record.attributes.outcome === outcome)
+        .map((record) => record.attributes.operation)
+        .sort(),
+    ).toEqual(['engine.plan', 'engine.request', 'engine.stage']);
+    if (outcome === 'failed')
       expect(
-        records.filter(
-          (record) =>
-            record.attributes.operation === operation &&
-            record.attributes.outcome === 'started',
-        ),
-      ).toHaveLength(1);
-      const terminal = records.filter(
-        (record) =>
-          record.attributes.operation === operation &&
-          record.attributes.outcome !== 'started',
-      );
-      expect(terminal).toHaveLength(1);
-      expect(terminal[0].attributes).toEqual({
-        operation,
-        outcome: 'failed',
-        errorCategory: 'unknown',
-      });
-    }
+        records
+          .filter((record) => record.attributes.outcome === 'failed')
+          .every((record) => record.attributes.errorCategory === 'provider'),
+      ).toBe(true);
     expect(JSON.stringify(records)).not.toContain('CANARY');
-    expect(JSON.stringify(records)).not.toContain('CustomError');
-  } finally {
     release();
     telemetry.dispose();
-  }
-});
+  },
+);
+
+test.each(['planner', 'stage'] as const)(
+  'untyped %s errors still count terminal failures without exporting custom details',
+  async (source) => {
+    const failure = { _tag: 'CustomError', message: 'CANARY_custom_error' };
+    const planner = (async () => err(failure)) as unknown as Planner;
+    const engine = createEngine({
+      planner:
+        source === 'stage' ? pipeline(named('CANARY_stage', planner)) : planner,
+      retry: false,
+      logger: silentLogger,
+    });
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    const { release } = attachEngineTelemetry(engine, telemetry);
+    try {
+      const handled: unknown = await engine.handle(request());
+      expect(handled).toEqual(err(failure));
+      await telemetry.flush();
+      const operations: TelemetryOperation[] = [
+        'engine.request',
+        'engine.plan',
+      ];
+      if (source === 'stage') operations.push('engine.stage');
+      for (const operation of operations) {
+        expect(
+          records.filter(
+            (record) =>
+              record.attributes.operation === operation &&
+              record.attributes.outcome === 'started',
+          ),
+        ).toHaveLength(1);
+        const terminal = records.filter(
+          (record) =>
+            record.attributes.operation === operation &&
+            record.attributes.outcome !== 'started',
+        );
+        expect(terminal).toHaveLength(1);
+        expect(terminal[0].attributes).toEqual({
+          operation,
+          outcome: 'failed',
+          errorCategory: 'unknown',
+        });
+      }
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+      expect(JSON.stringify(records)).not.toContain('CustomError');
+    } finally {
+      release();
+      telemetry.dispose();
+    }
+  },
+);
 
 test('idempotent request followers count handled requests while the planner runs only once', async () => {
   let complete!: () => void;
@@ -438,54 +443,56 @@ test('Engine source observation is omitted for disabled telemetry', () => {
   expect(observed).toBe(0);
 });
 
-test.each([
-  'planner',
-  'stage',
-] as const)('unexpected %s throws retain one consistent unknown failure across operation boundaries', async (source) => {
-  for (const thrown of [new Error('CANARY_crash'), undefined]) {
-    const planner: Planner = async () => {
-      throw thrown;
-    };
-    const engine = createEngine({
-      planner:
-        source === 'stage' ? pipeline(named('CANARY_stage', planner)) : planner,
-      retry: false,
-      logger: silentLogger,
-    });
-    const records: TelemetryRecord[] = [];
-    const telemetry = createTelemetry({
-      sink: (batch) => {
-        records.push(...batch);
-      },
-    });
-    const { release } = attachEngineTelemetry(engine, telemetry);
-    try {
-      expect(await engine.handle(request())).toMatchObject({
-        ok: false,
-        error: { _tag: 'ValidationError', field: 'planner' },
+test.each(['planner', 'stage'] as const)(
+  'unexpected %s throws retain one consistent unknown failure across operation boundaries',
+  async (source) => {
+    for (const thrown of [new Error('CANARY_crash'), undefined]) {
+      const planner: Planner = async () => {
+        throw thrown;
+      };
+      const engine = createEngine({
+        planner:
+          source === 'stage'
+            ? pipeline(named('CANARY_stage', planner))
+            : planner,
+        retry: false,
+        logger: silentLogger,
       });
-      await telemetry.flush();
-      const operations: TelemetryOperation[] =
-        source === 'stage'
-          ? ['engine.request', 'engine.plan', 'engine.stage']
-          : ['engine.request', 'engine.plan'];
-      for (const operation of operations) {
-        expect(
-          records
-            .filter((r) => r.attributes.operation === operation)
-            .map((r) => r.attributes),
-        ).toEqual([
-          { operation, outcome: 'started' },
-          { operation, outcome: 'failed', errorCategory: 'unknown' },
-        ]);
+      const records: TelemetryRecord[] = [];
+      const telemetry = createTelemetry({
+        sink: (batch) => {
+          records.push(...batch);
+        },
+      });
+      const { release } = attachEngineTelemetry(engine, telemetry);
+      try {
+        expect(await engine.handle(request())).toMatchObject({
+          ok: false,
+          error: { _tag: 'ValidationError', field: 'planner' },
+        });
+        await telemetry.flush();
+        const operations: TelemetryOperation[] =
+          source === 'stage'
+            ? ['engine.request', 'engine.plan', 'engine.stage']
+            : ['engine.request', 'engine.plan'];
+        for (const operation of operations) {
+          expect(
+            records
+              .filter((r) => r.attributes.operation === operation)
+              .map((r) => r.attributes),
+          ).toEqual([
+            { operation, outcome: 'started' },
+            { operation, outcome: 'failed', errorCategory: 'unknown' },
+          ]);
+        }
+        expect(JSON.stringify(records)).not.toContain('CANARY');
+      } finally {
+        release();
+        telemetry.dispose();
       }
-      expect(JSON.stringify(records)).not.toContain('CANARY');
-    } finally {
-      release();
-      telemetry.dispose();
     }
-  }
-});
+  },
+);
 
 test('stage-authored instrument names cannot fabricate Engine operational counts', async () => {
   const authored: string[] = [];
@@ -541,63 +548,68 @@ test.each([
   ['stage', true],
   ['request', false],
   ['request', true],
-] as const)('%s exception observation respects aborted=%s and terminal cardinality', async (source, aborted) => {
-  const controller = new AbortController();
-  const failure = new Error('CANARY_exception');
-  const crash = () => {
-    if (aborted) controller.abort('CANARY_abort');
-    throw failure;
-  };
-  const planner: Planner = async () => crash();
-  const engine = createEngine({
-    planner:
-      source === 'stage' ? pipeline(named('CANARY_stage', planner)) : planner,
-    logger:
-      source === 'request' ? { ...silentLogger, debug: crash } : silentLogger,
-    retry: false,
-  });
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachEngineTelemetry(engine, telemetry);
-  try {
-    if (source === 'request')
-      await expect(engine.handle(request(), controller.signal)).rejects.toBe(
-        failure,
-      );
-    else
-      expect(await engine.handle(request(), controller.signal)).toMatchObject({
-        ok: false,
-        error: { _tag: 'CancellationError' },
-      });
-    await telemetry.flush();
-    const operations: TelemetryOperation[] =
-      source === 'request'
-        ? ['engine.request']
-        : source === 'stage'
-          ? ['engine.request', 'engine.plan', 'engine.stage']
-          : ['engine.request', 'engine.plan'];
-    for (const operation of operations) {
-      expect(
-        records
-          .filter((r) => r.attributes.operation === operation)
-          .map((r) => r.attributes),
-      ).toEqual([
-        { operation, outcome: 'started' },
-        aborted
-          ? { operation, outcome: 'cancelled' }
-          : { operation, outcome: 'failed', errorCategory: 'unknown' },
-      ]);
+] as const)(
+  '%s exception observation respects aborted=%s and terminal cardinality',
+  async (source, aborted) => {
+    const controller = new AbortController();
+    const failure = new Error('CANARY_exception');
+    const crash = () => {
+      if (aborted) controller.abort('CANARY_abort');
+      throw failure;
+    };
+    const planner: Planner = async () => crash();
+    const engine = createEngine({
+      planner:
+        source === 'stage' ? pipeline(named('CANARY_stage', planner)) : planner,
+      logger:
+        source === 'request' ? { ...silentLogger, debug: crash } : silentLogger,
+      retry: false,
+    });
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    const { release } = attachEngineTelemetry(engine, telemetry);
+    try {
+      if (source === 'request')
+        await expect(engine.handle(request(), controller.signal)).rejects.toBe(
+          failure,
+        );
+      else
+        expect(await engine.handle(request(), controller.signal)).toMatchObject(
+          {
+            ok: false,
+            error: { _tag: 'CancellationError' },
+          },
+        );
+      await telemetry.flush();
+      const operations: TelemetryOperation[] =
+        source === 'request'
+          ? ['engine.request']
+          : source === 'stage'
+            ? ['engine.request', 'engine.plan', 'engine.stage']
+            : ['engine.request', 'engine.plan'];
+      for (const operation of operations) {
+        expect(
+          records
+            .filter((r) => r.attributes.operation === operation)
+            .map((r) => r.attributes),
+        ).toEqual([
+          { operation, outcome: 'started' },
+          aborted
+            ? { operation, outcome: 'cancelled' }
+            : { operation, outcome: 'failed', errorCategory: 'unknown' },
+        ]);
+      }
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+    } finally {
+      release();
+      telemetry.dispose();
     }
-    expect(JSON.stringify(records)).not.toContain('CANARY');
-  } finally {
-    release();
-    telemetry.dispose();
-  }
-});
+  },
+);
 
 test('genuine planner validation failures keep their category even with a cause', async () => {
   const failure = validationError(

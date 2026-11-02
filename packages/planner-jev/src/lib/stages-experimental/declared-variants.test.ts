@@ -35,8 +35,8 @@ import type { PlannedAction, SelectedInstance } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { completeLayoutParallel } from './complete-layout-parallel.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
-import { layoutPreset } from './layout-preset.js';
 import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
+import { layoutPreset } from './layout-preset.js';
 
 installMockChat();
 

@@ -20,9 +20,8 @@ describe('preloadHostedVadAssets', () => {
       } as Response;
     });
     vi.stubGlobal('fetch', fetchMock);
-    const { HOSTED_VAD_ASSET_NAMES, preloadHostedVadAssets } = await import(
-      './hosted-vad'
-    );
+    const { HOSTED_VAD_ASSET_NAMES, preloadHostedVadAssets } =
+      await import('./hosted-vad');
 
     await Promise.all([preloadHostedVadAssets(), preloadHostedVadAssets()]);
 

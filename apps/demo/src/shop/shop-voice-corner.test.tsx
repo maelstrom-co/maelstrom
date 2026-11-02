@@ -5,6 +5,7 @@ import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 import type { DemoVoiceProvider } from '../lib/voice-provider';
 
@@ -183,18 +184,17 @@ describe('ShopVoiceCorner playback recovery', () => {
     return render(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
   }
 
-  it.each([
-    'accepted',
-    'pending',
-    'unavailable',
-  ] as const)('keeps the status pill while GPT-Live playback is %s', (playback) => {
-    livePlayback = playback;
-    const { getByRole, queryByRole } = renderLive('listening');
-    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
-      'Listening',
-    );
-  });
+  it.each(['accepted', 'pending', 'unavailable'] as const)(
+    'keeps the status pill while GPT-Live playback is %s',
+    (playback) => {
+      livePlayback = playback;
+      const { getByRole, queryByRole } = renderLive('listening');
+      expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+        'Listening',
+      );
+    },
+  );
 
   it('shows Enable playback in place of the pill while playback is blocked', () => {
     livePlayback = 'blocked';
@@ -230,18 +230,17 @@ describe('ShopVoiceCorner playback recovery', () => {
     expect(getByRole('button', { name: 'Enable playback' })).toBeTruthy();
   });
 
-  it.each([
-    'idle',
-    'connecting',
-    'error',
-  ] as const)('keeps the pill while %s on GPT-Live', (state) => {
-    livePlayback = 'blocked';
-    const { getByRole, queryByRole } = renderLive(state);
-    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
-      voicePillLabel(state),
-    );
-  });
+  it.each(['idle', 'connecting', 'error'] as const)(
+    'keeps the pill while %s on GPT-Live',
+    (state) => {
+      livePlayback = 'blocked';
+      const { getByRole, queryByRole } = renderLive(state);
+      expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+        voicePillLabel(state),
+      );
+    },
+  );
 
   it('disables Enable playback while the provider switches', () => {
     livePlayback = 'blocked';

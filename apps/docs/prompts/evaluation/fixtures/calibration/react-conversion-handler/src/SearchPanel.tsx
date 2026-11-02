@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+
 import type { SearchResult } from './search';
 export function SearchPanel() {
   const [query, setQuery] = useState('');

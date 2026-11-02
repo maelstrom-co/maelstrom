@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 
 import { buildGridResponse } from '../__test-helpers__/fixtures.js';

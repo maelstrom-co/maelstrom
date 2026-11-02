@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   eventIssue,
   groupRequests,
@@ -197,29 +198,32 @@ test.each([
   [Number.MAX_SAFE_INTEGER + 1, 'unreadable'],
   ['12', 'unreadable'],
   [null, 'not-reported'],
-] as const)('planner token evidence keeps unavailable %s explicit instead of converting it to zero', (tokens, reason) => {
-  const request = groupRequests(
-    panelEvents([
-      event('engine.llm.call', 'app-a', 'request', {
-        'gen_ai.usage.input_tokens': tokens,
-        'gen_ai.request.model': '[REDACTED]',
-        'maelstrom.outcome': 'unsupported',
-      }),
-      event('engine.custom.call', 'app-a', 'request', {
-        'gen_ai.usage.input_tokens': 100,
-      }),
-    ]),
-  )[0];
-  expect(plannerEvidence(request)).toMatchObject([
-    {
-      kind: 'call',
-      model: { kind: 'unreported', reason: 'redacted' },
-      outcome: { kind: 'unreported', reason: 'unreadable' },
-      inputTokens: { kind: 'unreported', reason },
-    },
-  ]);
-  expect(plannerEvidence(request)).toHaveLength(1);
-});
+] as const)(
+  'planner token evidence keeps unavailable %s explicit instead of converting it to zero',
+  (tokens, reason) => {
+    const request = groupRequests(
+      panelEvents([
+        event('engine.llm.call', 'app-a', 'request', {
+          'gen_ai.usage.input_tokens': tokens,
+          'gen_ai.request.model': '[REDACTED]',
+          'maelstrom.outcome': 'unsupported',
+        }),
+        event('engine.custom.call', 'app-a', 'request', {
+          'gen_ai.usage.input_tokens': 100,
+        }),
+      ]),
+    )[0];
+    expect(plannerEvidence(request)).toMatchObject([
+      {
+        kind: 'call',
+        model: { kind: 'unreported', reason: 'redacted' },
+        outcome: { kind: 'unreported', reason: 'unreadable' },
+        inputTokens: { kind: 'unreported', reason },
+      },
+    ]);
+    expect(plannerEvidence(request)).toHaveLength(1);
+  },
+);
 
 test('Agent Run Planner events never join a request or count as its failure while staying visible as event issues', () => {
   const runEvent = (kind: string, metadata: Record<string, unknown> = {}) => {

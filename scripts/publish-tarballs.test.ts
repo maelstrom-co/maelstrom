@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+
 import {
   type ArchiveProcessRequest,
   PACKED_MANIFEST_FILENAME,
@@ -110,38 +111,38 @@ describe('recorded publication recovery', () => {
       });
     }));
 
-  test.each([
-    'missing',
-    'not_attempted',
-  ])('a %s record cannot authorize absent versions on a rerun', (kind) =>
-    withArtifact((dir) => {
-      if (kind === 'not_attempted') {
-        const first = recordedOptions(dir, 1);
+  test.each(['missing', 'not_attempted'])(
+    'a %s record cannot authorize absent versions on a rerun',
+    (kind) =>
+      withArtifact((dir) => {
+        if (kind === 'not_attempted') {
+          const first = recordedOptions(dir, 1);
+          expect(() =>
+            publishTarballs(first, {
+              hasPublishedIntegrity: () => {
+                throw new Error('registry unavailable');
+              },
+              publish: () => {},
+            }),
+          ).toThrow('registry unavailable');
+          mkdirSync(first.recording.recoveryDirectory);
+          copyFileSync(
+            first.recording.path,
+            join(first.recording.recoveryDirectory, 'publication-record.json'),
+          );
+        }
+        let writes = 0;
         expect(() =>
-          publishTarballs(first, {
-            hasPublishedIntegrity: () => {
-              throw new Error('registry unavailable');
+          publishTarballs(recordedOptions(dir, 2), {
+            hasPublishedIntegrity: () => false,
+            publish: () => {
+              writes++;
             },
-            publish: () => {},
           }),
-        ).toThrow('registry unavailable');
-        mkdirSync(first.recording.recoveryDirectory);
-        copyFileSync(
-          first.recording.path,
-          join(first.recording.recoveryDirectory, 'publication-record.json'),
-        );
-      }
-      let writes = 0;
-      expect(() =>
-        publishTarballs(recordedOptions(dir, 2), {
-          hasPublishedIntegrity: () => false,
-          publish: () => {
-            writes++;
-          },
-        }),
-      ).toThrow('unconfirmed');
-      expect(writes).toBe(0);
-    }));
+        ).toThrow('unconfirmed');
+        expect(writes).toBe(0);
+      }),
+  );
 
   test('a rerun can recover without records when every exact tarball is already visible', () =>
     withArtifact((dir) => {
@@ -408,119 +409,118 @@ describe('publishTarballs', () => {
       expect(result.succeeded).toBe(PACKED_PACKAGE_NAMES.length);
     }));
 
-  test.each([
-    'missing',
-    'unavailable',
-  ])('a preview publishes nothing when a later package is %s', (failure) => {
-    withArtifact((dir) => {
-      const published: string[] = [];
-      expect(() =>
-        publishTarballs(
-          {
-            dir,
-            tag: 'pr-318',
-            registry: 'https://registry.npmjs.org',
-            expectedVersion: '1.2.3',
-            dryRun: false,
-            provenance: false,
-            skipPublished: false,
-            requireExisting: true,
-          },
-          {
-            hasPublishedPackage: (name) => {
-              if (name === PACKED_PACKAGE_NAMES[9]) {
-                if (failure === 'unavailable')
-                  throw new Error('registry unavailable');
-                return false;
-              }
-              return true;
+  test.each(['missing', 'unavailable'])(
+    'a preview publishes nothing when a later package is %s',
+    (failure) => {
+      withArtifact((dir) => {
+        const published: string[] = [];
+        expect(() =>
+          publishTarballs(
+            {
+              dir,
+              tag: 'pr-318',
+              registry: 'https://registry.npmjs.org',
+              expectedVersion: '1.2.3',
+              dryRun: false,
+              provenance: false,
+              skipPublished: false,
+              requireExisting: true,
             },
-            publish: (_tarball, pkg) => {
-              published.push(pkg.name);
+            {
+              hasPublishedPackage: (name) => {
+                if (name === PACKED_PACKAGE_NAMES[9]) {
+                  if (failure === 'unavailable')
+                    throw new Error('registry unavailable');
+                  return false;
+                }
+                return true;
+              },
+              publish: (_tarball, pkg) => {
+                published.push(pkg.name);
+              },
             },
-          },
-        ),
-      ).toThrow(
-        failure === 'missing' ? 'first release' : 'registry unavailable',
-      );
-      expect(published).toEqual([]);
-    });
-  });
+          ),
+        ).toThrow(
+          failure === 'missing' ? 'first release' : 'registry unavailable',
+        );
+        expect(published).toEqual([]);
+      });
+    },
+  );
 
-  test.each([
-    'alternate root',
-    'USTAR version',
-    'PAX comment',
-  ])('rejects %s metadata collisions before any registry probe or publish', (variant) =>
-    withArtifact((dir, log) => {
-      const unsafeMetadata = {
-        name: PACKED_PACKAGE_NAMES[9],
-        version: '9.9.9',
-        publishConfig: { proxy: 'http://127.0.0.1:9', 'strict-ssl': false },
-      };
-      let extraMembers: Buffer[];
-      if (variant === 'USTAR version') {
-        extraMembers = tarMember('other/package.json', unsafeMetadata, {
-          prefix: 'package/dist',
-          version: '01',
-        });
-      } else if (variant === 'PAX comment') {
-        extraMembers = [
-          ...tarMember('package/PaxHeader', undefined, {
-            type: 'x',
-            rawBody: paxRecord(
-              'comment',
-              `hello\n${paxRecord('path', 'other/package.json')}`,
-            ),
-          }),
-          ...tarMember('package/dist/data.json', unsafeMetadata),
-        ];
-      } else {
-        extraMembers = tarMember('other/package.json', unsafeMetadata);
-      }
-      writeFileSync(
-        join(dir, 'package-9.tgz'),
-        gzipSync(
-          Buffer.concat([
-            ...tarMember('package/package.json', {
-              name: PACKED_PACKAGE_NAMES[9],
-              version: '1.2.3',
+  test.each(['alternate root', 'USTAR version', 'PAX comment'])(
+    'rejects %s metadata collisions before any registry probe or publish',
+    (variant) =>
+      withArtifact((dir, log) => {
+        const unsafeMetadata = {
+          name: PACKED_PACKAGE_NAMES[9],
+          version: '9.9.9',
+          publishConfig: { proxy: 'http://127.0.0.1:9', 'strict-ssl': false },
+        };
+        let extraMembers: Buffer[];
+        if (variant === 'USTAR version') {
+          extraMembers = tarMember('other/package.json', unsafeMetadata, {
+            prefix: 'package/dist',
+            version: '01',
+          });
+        } else if (variant === 'PAX comment') {
+          extraMembers = [
+            ...tarMember('package/PaxHeader', undefined, {
+              type: 'x',
+              rawBody: paxRecord(
+                'comment',
+                `hello\n${paxRecord('path', 'other/package.json')}`,
+              ),
             }),
-            ...extraMembers,
-            Buffer.alloc(1024),
-          ]),
-        ),
-      );
+            ...tarMember('package/dist/data.json', unsafeMetadata),
+          ];
+        } else {
+          extraMembers = tarMember('other/package.json', unsafeMetadata);
+        }
+        writeFileSync(
+          join(dir, 'package-9.tgz'),
+          gzipSync(
+            Buffer.concat([
+              ...tarMember('package/package.json', {
+                name: PACKED_PACKAGE_NAMES[9],
+                version: '1.2.3',
+              }),
+              ...extraMembers,
+              Buffer.alloc(1024),
+            ]),
+          ),
+        );
 
-      expect(() =>
-        publishTarballs(
-          {
-            dir,
-            tag: 'alpha',
-            registry: 'https://registry.npmjs.org',
-            expectedVersion: '1.2.3',
-            dryRun: false,
-            provenance: false,
-            skipPublished: true,
-            requireExisting: true,
-          },
-          {
-            hasPublishedPackage: () => {
-              log.push('probe');
-              return true;
+        expect(() =>
+          publishTarballs(
+            {
+              dir,
+              tag: 'alpha',
+              registry: 'https://registry.npmjs.org',
+              expectedVersion: '1.2.3',
+              dryRun: false,
+              provenance: false,
+              skipPublished: true,
+              requireExisting: true,
             },
-            isAlreadyPublished: () => {
-              log.push('probe');
-              return false;
+            {
+              hasPublishedPackage: () => {
+                log.push('probe');
+                return true;
+              },
+              isAlreadyPublished: () => {
+                log.push('probe');
+                return false;
+              },
+              publish: () => {
+                log.push('publish');
+              },
             },
-            publish: () => {
-              log.push('publish');
-            },
-          },
-        ),
-      ).toThrow('Archive');
-      expect(log).toEqual([]);
-    }));
+          ),
+        ).toThrow('Archive');
+        expect(log).toEqual([]);
+      }),
+  );
 
   test('the actual npm command requests public access and disables lifecycle hooks beside publishing identity', () =>
     withArtifact((dir) => {
@@ -597,46 +597,49 @@ describe('publishTarballs', () => {
       access: 'public',
       'strict-ssl': false,
     },
-  ])('rejects artifact configuration that can redirect or weaken authenticated npm requests: %j', (publishConfig) =>
-    withArtifact((dir, log) => {
-      const inspect = archiveProcess(log);
-      expect(() =>
-        publishTarballs(
-          {
-            dir,
-            tag: 'alpha',
-            registry: 'https://registry.npmjs.org',
-            expectedVersion: '1.2.3',
-            dryRun: false,
-            provenance: false,
-            skipPublished: true,
-          },
-          {
-            runArchiveProcess: (request) => {
-              const result = inspect(request);
-              if (request.argv[0] === '-xOzf') {
-                result.stdout = Buffer.from(
-                  JSON.stringify({
-                    ...JSON.parse(result.stdout.toString()),
-                    publishConfig,
-                  }),
-                );
-              }
-              return result;
+  ])(
+    'rejects artifact configuration that can redirect or weaken authenticated npm requests: %j',
+    (publishConfig) =>
+      withArtifact((dir, log) => {
+        const inspect = archiveProcess(log);
+        expect(() =>
+          publishTarballs(
+            {
+              dir,
+              tag: 'alpha',
+              registry: 'https://registry.npmjs.org',
+              expectedVersion: '1.2.3',
+              dryRun: false,
+              provenance: false,
+              skipPublished: true,
             },
-            isAlreadyPublished: () => {
-              log.push('probe');
-              return false;
+            {
+              runArchiveProcess: (request) => {
+                const result = inspect(request);
+                if (request.argv[0] === '-xOzf') {
+                  result.stdout = Buffer.from(
+                    JSON.stringify({
+                      ...JSON.parse(result.stdout.toString()),
+                      publishConfig,
+                    }),
+                  );
+                }
+                return result;
+              },
+              isAlreadyPublished: () => {
+                log.push('probe');
+                return false;
+              },
+              publish: () => {
+                log.push('publish');
+              },
             },
-            publish: () => {
-              log.push('publish');
-            },
-          },
-        ),
-      ).toThrow('Unsafe embedded publishConfig');
-      expect(log).not.toContain('probe');
-      expect(log).not.toContain('publish');
-    }));
+          ),
+        ).toThrow('Unsafe embedded publishConfig');
+        expect(log).not.toContain('probe');
+        expect(log).not.toContain('publish');
+      }),
+  );
 
   test('validates the complete collection before the first registry probe', () =>
     withArtifact((dir, log) => {

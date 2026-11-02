@@ -20,6 +20,7 @@ import {
 } from '@maelstrom-co/protocol';
 import type { TelemetryAttachment } from '@maelstrom-co/telemetry';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import type { RegisteredArm } from './arms.js';
 import {
   GRADER_VERSION,
@@ -33,16 +34,16 @@ import {
   type StageReplacements,
 } from './instrument.js';
 import {
+  type EvaluationJudgeResult,
+  judgeFromGrader,
+  judgeNotRun,
+} from './judge-result.js';
+import {
   type JudgeRubric,
   judgeEvidence,
   judgeProvenance,
   validateJudgeSelection,
 } from './judge.js';
-import {
-  type EvaluationJudgeResult,
-  judgeFromGrader,
-  judgeNotRun,
-} from './judge-result.js';
 import {
   createOperationalCollector,
   type OperationalTelemetry,

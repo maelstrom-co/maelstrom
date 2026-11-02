@@ -6,6 +6,7 @@ import type {
   Stage,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import type { GraderContext } from './grader.js';
 import type { StageRecord } from './instrument.js';
 import type { JudgeProvenance } from './judge-result.js';

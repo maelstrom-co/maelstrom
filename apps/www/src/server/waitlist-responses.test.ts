@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { InvalidConfirmToken } from './confirm-request';
 import { BodyTooLarge, UnsupportedMediaType } from './signup-request';
 import {

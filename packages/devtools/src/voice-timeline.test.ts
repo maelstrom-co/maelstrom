@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { panelEvents, voiceTimeline } from './panel-model.js';
 
 function observation(
@@ -171,27 +172,26 @@ test('a redactor collapsing invocation IDs cannot attach one request to another 
   ).toBe(true);
 });
 
-test.each([
-  'clientId',
-  'providerInstanceId',
-  'generation',
-])('missing or redacted %s never establishes tool ownership', (field) => {
-  const lanes = voiceTimeline({
-    events: panelEvents([
-      observation('voice.tool.called', {
-        [field]: '[REDACTED]',
-        invocationId: 'same',
-      }),
-      observation('voice.tool.result', {
-        [field]: '[REDACTED]',
-        invocationId: 'same',
-      }),
-    ]),
-  });
-  expect(
-    lanes.flatMap((lane) => lane.groups).map((group) => group.type),
-  ).toEqual(['unlinked', 'unlinked']);
-});
+test.each(['clientId', 'providerInstanceId', 'generation'])(
+  'missing or redacted %s never establishes tool ownership',
+  (field) => {
+    const lanes = voiceTimeline({
+      events: panelEvents([
+        observation('voice.tool.called', {
+          [field]: '[REDACTED]',
+          invocationId: 'same',
+        }),
+        observation('voice.tool.result', {
+          [field]: '[REDACTED]',
+          invocationId: 'same',
+        }),
+      ]),
+    });
+    expect(
+      lanes.flatMap((lane) => lane.groups).map((group) => group.type),
+    ).toEqual(['unlinked', 'unlinked']);
+  },
+);
 
 test('provider responses stay in their native generation and retain cancellation without matching session tool IDs', () => {
   const lanes = voiceTimeline({
@@ -338,33 +338,33 @@ test('conflicting tool names disprove a collapsed invocation identity', () => {
   expect(lane.groups[0].requests).toEqual([]);
 });
 
-test.each([
-  'session',
-  'provider',
-] as const)('contradictory %s context cannot join projected lifetime collisions', (field) => {
-  const first = observation('voice.tool.called', {
-    invocationId: 'collapsed',
-    callId: 'reused',
-    provider: 'live',
-  });
-  const second = {
-    ...observation(
-      'voice.tool.result',
-      {
-        invocationId: 'collapsed',
-        callId: 'reused',
-        provider: field === 'provider' ? 'livekit' : 'live',
-      },
-      'other-request',
-    ),
-    sessionId: field === 'session' ? 'other-session' : 'session',
-  };
-  const lanes = voiceTimeline({ events: panelEvents([first, second]) });
-  expect(
-    lanes.flatMap((lane) => lane.groups).map((group) => group.type),
-  ).toEqual(['unlinked', 'unlinked']);
-  expect(lanes[0].groups[0].requests).toEqual([]);
-});
+test.each(['session', 'provider'] as const)(
+  'contradictory %s context cannot join projected lifetime collisions',
+  (field) => {
+    const first = observation('voice.tool.called', {
+      invocationId: 'collapsed',
+      callId: 'reused',
+      provider: 'live',
+    });
+    const second = {
+      ...observation(
+        'voice.tool.result',
+        {
+          invocationId: 'collapsed',
+          callId: 'reused',
+          provider: field === 'provider' ? 'livekit' : 'live',
+        },
+        'other-request',
+      ),
+      sessionId: field === 'session' ? 'other-session' : 'session',
+    };
+    const lanes = voiceTimeline({ events: panelEvents([first, second]) });
+    expect(
+      lanes.flatMap((lane) => lane.groups).map((group) => group.type),
+    ).toEqual(['unlinked', 'unlinked']);
+    expect(lanes[0].groups[0].requests).toEqual([]);
+  },
+);
 
 test('a projected request-key collision cannot navigate into contradictory retained app sessions', () => {
   const [lane] = voiceTimeline({
@@ -407,20 +407,23 @@ test.each([
     'a start after an evicted lifecycle',
     ['client.response.applied', 'client.request.started'],
   ],
-] as const)('Voice rejects a same-session request collision with %s', (_name, kinds) => {
-  const [lane] = voiceTimeline({
-    events: panelEvents([
-      observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-    ]),
-    requestEvents: panelEvents(
-      kinds.map((kind) => observation(kind, {}, 'request')),
-    ),
-  });
-  expect(lane.groups[0].requests[0]).toMatchObject({
-    state: 'unavailable',
-    reason: 'ambiguous',
-  });
-});
+] as const)(
+  'Voice rejects a same-session request collision with %s',
+  (_name, kinds) => {
+    const [lane] = voiceTimeline({
+      events: panelEvents([
+        observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+      ]),
+      requestEvents: panelEvents(
+        kinds.map((kind) => observation(kind, {}, 'request')),
+      ),
+    });
+    expect(lane.groups[0].requests[0]).toMatchObject({
+      state: 'unavailable',
+      reason: 'ambiguous',
+    });
+  },
+);
 
 test.each([
   'client.response.applied',
@@ -428,27 +431,30 @@ test.each([
   'client.response.failed',
   'client.response.discarded',
   'client.response.abandoned',
-])('one %s lifecycle remains navigable with repeated references and nested work', (terminal) => {
-  const start = observation('client.request.started', {}, 'request');
-  const end = observation(terminal, {}, 'request');
-  const [lane] = voiceTimeline({
-    events: panelEvents([
-      observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-    ]),
-    requestEvents: panelEvents([
-      start,
-      start,
-      observation('engine.request.completed', {}, 'request'),
-      observation('engine.stage.completed', {}, 'request'),
-      observation('engine.stage.completed', {}, 'request'),
-      observation('client.action.completed', {}, 'request'),
-      observation('client.command.completed', {}, 'request'),
-      end,
-      end,
-    ]),
-  });
-  expect(lane.groups[0].requests[0].state).toBe('available');
-});
+])(
+  'one %s lifecycle remains navigable with repeated references and nested work',
+  (terminal) => {
+    const start = observation('client.request.started', {}, 'request');
+    const end = observation(terminal, {}, 'request');
+    const [lane] = voiceTimeline({
+      events: panelEvents([
+        observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+      ]),
+      requestEvents: panelEvents([
+        start,
+        start,
+        observation('engine.request.completed', {}, 'request'),
+        observation('engine.stage.completed', {}, 'request'),
+        observation('engine.stage.completed', {}, 'request'),
+        observation('client.action.completed', {}, 'request'),
+        observation('client.command.completed', {}, 'request'),
+        end,
+        end,
+      ]),
+    });
+    expect(lane.groups[0].requests[0].state).toBe('available');
+  },
+);
 
 test('voice events in the destination request buffer also disprove its session ownership', () => {
   const [lane] = voiceTimeline({
@@ -494,28 +500,35 @@ test('a redacted result session cannot erase its invocation group context when l
 test.each([
   ['session', true],
   ['other-session', false],
-] as const)('retained source-lane context checks a redacted result against request session %s', (targetSession, available) => {
-  const [lane] = voiceTimeline({
-    events: panelEvents([
-      observation('voice.media'),
-      {
-        ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-        sessionId: '[REDACTED]',
-      },
-    ]),
-    requestEvents: panelEvents([
-      {
-        ...observation('client.response.applied', {}, 'request'),
-        sessionId: targetSession,
-      },
-    ]),
-  });
-  expect(lane.groups[1].requests[0].state).toBe(
-    available ? 'available' : 'unavailable',
-  );
-  if (!available)
-    expect(lane.groups[1].requests[0]).toMatchObject({ reason: 'ambiguous' });
-});
+] as const)(
+  'retained source-lane context checks a redacted result against request session %s',
+  (targetSession, available) => {
+    const [lane] = voiceTimeline({
+      events: panelEvents([
+        observation('voice.media'),
+        {
+          ...observation(
+            'voice.tool.result',
+            { invocationId: 'one' },
+            'request',
+          ),
+          sessionId: '[REDACTED]',
+        },
+      ]),
+      requestEvents: panelEvents([
+        {
+          ...observation('client.response.applied', {}, 'request'),
+          sessionId: targetSession,
+        },
+      ]),
+    });
+    expect(lane.groups[1].requests[0].state).toBe(
+      available ? 'available' : 'unavailable',
+    );
+    if (!available)
+      expect(lane.groups[1].requests[0]).toMatchObject({ reason: 'ambiguous' });
+  },
+);
 
 test('response correlation uses neutral lifecycle facts instead of provider event names', () => {
   const [lane] = voiceTimeline({
@@ -576,105 +589,80 @@ test('legacy native-only response labels do not establish a normalized response 
   ]);
 });
 
-test.each([
-  'ambiguous',
-  'exhausted',
-] as const)('a %s history still permits independently proven direct links but cannot use Voice as destination proof', (state) => {
-  const result = observation(
-    'voice.tool.result',
-    { invocationId: 'one' },
-    'request',
-  );
-  const destination = observation('client.response.applied', {}, 'request');
-  for (const [sessionId, expected] of [
-    ['session', 'available'],
-    ['[REDACTED]', 'unavailable'],
-  ] as const) {
-    const [lane] = voiceTimeline(
-      {
-        events: panelEvents([result]),
-        requestEvents: panelEvents([{ ...destination, sessionId }, result]),
-      },
-      () => ({ state }),
+test.each(['ambiguous', 'exhausted'] as const)(
+  'a %s history still permits independently proven direct links but cannot use Voice as destination proof',
+  (state) => {
+    const result = observation(
+      'voice.tool.result',
+      { invocationId: 'one' },
+      'request',
     );
-    expect(lane.groupingDisabled).toBe(true);
-    expect(lane.groups[0].requests[0].state).toBe(expected);
-    if (expected === 'unavailable')
-      expect(lane.groups[0].requests[0]).toMatchObject({
-        reason: 'unconfirmed',
-      });
-  }
-});
+    const destination = observation('client.response.applied', {}, 'request');
+    for (const [sessionId, expected] of [
+      ['session', 'available'],
+      ['[REDACTED]', 'unavailable'],
+    ] as const) {
+      const [lane] = voiceTimeline(
+        {
+          events: panelEvents([result]),
+          requestEvents: panelEvents([{ ...destination, sessionId }, result]),
+        },
+        () => ({ state }),
+      );
+      expect(lane.groupingDisabled).toBe(true);
+      expect(lane.groups[0].requests[0].state).toBe(expected);
+      if (expected === 'unavailable')
+        expect(lane.groups[0].requests[0]).toMatchObject({
+          reason: 'unconfirmed',
+        });
+    }
+  },
+);
 
 test.each([
   { state: 'unobserved' },
   { state: 'observed' },
   { state: 'ambiguous' },
   { state: 'exhausted' },
-] as const)('missing source proof stays unconfirmed with $state history', (context) => {
-  const [lane] = voiceTimeline(
-    {
-      events: panelEvents([
-        {
-          ...observation(
-            'voice.tool.result',
-            { invocationId: 'one' },
-            'request',
-          ),
-          sessionId: '[REDACTED]',
-        },
-      ]),
-      requestEvents: panelEvents([
-        observation('client.response.applied', {}, 'request'),
-      ]),
-    },
-    () => context,
-  );
-  expect(lane.groups[0].requests[0]).toMatchObject({
-    state: 'unavailable',
-    reason: 'unconfirmed',
-  });
-});
-
-test.each([
-  'ambiguous',
-  'exhausted',
-] as const)('direct request ownership does not change when unrelated %s lane context expires', (state) => {
-  const unrelated = observation('voice.media');
-  const result = {
-    ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-    sessionId: 'direct-session',
-  };
-  const destination = {
-    ...observation('client.response.applied', {}, 'request'),
-    sessionId: 'direct-session',
-  };
-  for (const events of [[unrelated, result], [result]]) {
+] as const)(
+  'missing source proof stays unconfirmed with $state history',
+  (context) => {
     const [lane] = voiceTimeline(
       {
-        events: panelEvents(events),
-        requestEvents: panelEvents([destination, result]),
+        events: panelEvents([
+          {
+            ...observation(
+              'voice.tool.result',
+              { invocationId: 'one' },
+              'request',
+            ),
+            sessionId: '[REDACTED]',
+          },
+        ]),
+        requestEvents: panelEvents([
+          observation('client.response.applied', {}, 'request'),
+        ]),
       },
-      () => ({ state }),
+      () => context,
     );
-    expect(lane.groupingDisabled).toBe(true);
-    expect(lane.groups.at(-1)?.requests[0].state).toBe('available');
-  }
-});
+    expect(lane.groups[0].requests[0]).toMatchObject({
+      state: 'unavailable',
+      reason: 'unconfirmed',
+    });
+  },
+);
 
-test.each([
-  'ambiguous',
-  'exhausted',
-] as const)('unreadable direct ownership stays unconfirmed when unrelated %s context expires', (state) => {
-  const unrelated = observation('voice.media');
-  const destination = {
-    ...observation('client.response.applied', {}, 'request'),
-    sessionId: 'destination-session',
-  };
-  for (const sessionId of ['[REDACTED]', undefined]) {
+test.each(['ambiguous', 'exhausted'] as const)(
+  'direct request ownership does not change when unrelated %s lane context expires',
+  (state) => {
+    const unrelated = observation('voice.media');
     const result = {
       ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-      sessionId,
+      sessionId: 'direct-session',
+    };
+    const destination = {
+      ...observation('client.response.applied', {}, 'request'),
+      sessionId: 'direct-session',
     };
     for (const events of [[unrelated, result], [result]]) {
       const [lane] = voiceTimeline(
@@ -684,48 +672,76 @@ test.each([
         },
         () => ({ state }),
       );
-      expect(lane.groups.at(-1)?.requests[0]).toMatchObject({
+      expect(lane.groupingDisabled).toBe(true);
+      expect(lane.groups.at(-1)?.requests[0].state).toBe('available');
+    }
+  },
+);
+
+test.each(['ambiguous', 'exhausted'] as const)(
+  'unreadable direct ownership stays unconfirmed when unrelated %s context expires',
+  (state) => {
+    const unrelated = observation('voice.media');
+    const destination = {
+      ...observation('client.response.applied', {}, 'request'),
+      sessionId: 'destination-session',
+    };
+    for (const sessionId of ['[REDACTED]', undefined]) {
+      const result = {
+        ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+        sessionId,
+      };
+      for (const events of [[unrelated, result], [result]]) {
+        const [lane] = voiceTimeline(
+          {
+            events: panelEvents(events),
+            requestEvents: panelEvents([destination, result]),
+          },
+          () => ({ state }),
+        );
+        expect(lane.groups.at(-1)?.requests[0]).toMatchObject({
+          state: 'unavailable',
+          reason: 'unconfirmed',
+        });
+      }
+    }
+  },
+);
+
+test.each(['ambiguous', 'exhausted'] as const)(
+  'missing source proof cannot hide destination contradictions with %s history',
+  (state) => {
+    const result = {
+      ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+      sessionId: '[REDACTED]',
+    };
+    for (const requestEvents of [
+      [
+        observation('client.response.applied', {}, 'request'),
+        {
+          ...observation('engine.stage.completed', {}, 'request'),
+          sessionId: 'other-session',
+        },
+      ],
+      [
+        observation('client.request.started', {}, 'request'),
+        observation('client.request.started', {}, 'request'),
+      ],
+    ]) {
+      const [lane] = voiceTimeline(
+        {
+          events: panelEvents([result]),
+          requestEvents: panelEvents(requestEvents),
+        },
+        () => ({ state }),
+      );
+      expect(lane.groups[0].requests[0]).toMatchObject({
         state: 'unavailable',
-        reason: 'unconfirmed',
+        reason: 'ambiguous',
       });
     }
-  }
-});
-
-test.each([
-  'ambiguous',
-  'exhausted',
-] as const)('missing source proof cannot hide destination contradictions with %s history', (state) => {
-  const result = {
-    ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
-    sessionId: '[REDACTED]',
-  };
-  for (const requestEvents of [
-    [
-      observation('client.response.applied', {}, 'request'),
-      {
-        ...observation('engine.stage.completed', {}, 'request'),
-        sessionId: 'other-session',
-      },
-    ],
-    [
-      observation('client.request.started', {}, 'request'),
-      observation('client.request.started', {}, 'request'),
-    ],
-  ]) {
-    const [lane] = voiceTimeline(
-      {
-        events: panelEvents([result]),
-        requestEvents: panelEvents(requestEvents),
-      },
-      () => ({ state }),
-    );
-    expect(lane.groups[0].requests[0]).toMatchObject({
-      state: 'unavailable',
-      reason: 'ambiguous',
-    });
-  }
-});
+  },
+);
 
 test('voice identity availability distinguishes withheld, malformed, and absent evidence without correlating it', () => {
   const lanes = voiceTimeline({
@@ -765,15 +781,18 @@ test.each([
   ['[MAX_DEPTH]', 'unreadable'],
   [42, 'unreadable'],
   [{ value: 'request' }, 'unreadable'],
-] as const)('unusable request identity %j retains its evidence without creating a navigation target', (requestId, reason) => {
-  const [lane] = voiceTimeline({
-    events: panelEvents([{ ...observation('voice.tool.result'), requestId }]),
-  });
-  expect(lane.groups[0].requests).toEqual([
-    { state: 'identity-unavailable', reason },
-  ]);
-  expect(lane.events[0].raw.requestId).toEqual(requestId);
-});
+] as const)(
+  'unusable request identity %j retains its evidence without creating a navigation target',
+  (requestId, reason) => {
+    const [lane] = voiceTimeline({
+      events: panelEvents([{ ...observation('voice.tool.result'), requestId }]),
+    });
+    expect(lane.groups[0].requests).toEqual([
+      { state: 'identity-unavailable', reason },
+    ]);
+    expect(lane.events[0].raw.requestId).toEqual(requestId);
+  },
+);
 
 test('a readable request ID cannot establish ownership without an app identity', () => {
   const [lane] = voiceTimeline({

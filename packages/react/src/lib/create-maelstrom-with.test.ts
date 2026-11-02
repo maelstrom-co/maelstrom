@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import type {

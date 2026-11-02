@@ -30,8 +30,10 @@ const DEFAULT_TIMEOUT_MS = 5000;
  * widened so an option description may be a structured {@link QuestionText}
  * as well as a string.
  */
-export interface ProviderChoiceQuestion
-  extends Omit<WireChoiceQuestion, 'criteria'> {
+export interface ProviderChoiceQuestion extends Omit<
+  WireChoiceQuestion,
+  'criteria'
+> {
   /** Option key to description, or `null` when the key is enough. */
   readonly criteria: Readonly<Record<string, QuestionText | null>>;
 }

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 
 test('MicrophonePublicationGate restores unique tracks to exact prior state', () => {

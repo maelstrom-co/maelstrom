@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
 import {
   getVisibleInstanceIds,
   InstanceId,
   type TilingLayout,
   type TilingNode,
 } from '@maelstrom-co/protocol';
+
 import {
   computeTilingLayout,
   createTilingSplitNode,

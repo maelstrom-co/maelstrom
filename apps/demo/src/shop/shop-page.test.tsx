@@ -18,6 +18,7 @@ import { Store } from '@tanstack/react-store';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -285,23 +286,26 @@ describe('ShopPage voice key errors', () => {
       new LiveTransportError('exchange_rejected', { status: 401 }),
     ],
     ['a missing key', new LiveTransportError('missing_key')],
-  ])('reopens the key drawer with the Live key message for %s', async (_case, cause) => {
-    voiceResult = {
-      ...voiceResult,
-      state: 'error',
-      error: new RealtimeVoiceError(
-        'CONNECTION_FAILED',
-        'Live connection failed',
-        cause,
-      ),
-    };
+  ])(
+    'reopens the key drawer with the Live key message for %s',
+    async (_case, cause) => {
+      voiceResult = {
+        ...voiceResult,
+        state: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Live connection failed',
+          cause,
+        ),
+      };
 
-    const h = await renderShop();
+      const h = await renderShop();
 
-    expect(h.view.getByTestId('key-error').textContent).toBe(
-      'Live could not use this API key. Update the key, then reconnect.',
-    );
-  });
+      expect(h.view.getByTestId('key-error').textContent).toBe(
+        'Live could not use this API key. Update the key, then reconnect.',
+      );
+    },
+  );
 
   it('leaves the key drawer closed when Live fails for a reason other than the key', async () => {
     voiceResult = {

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { DemoHeader } from './demo-header';
 
 const { capture, init } = vi.hoisted(() => ({

@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react';
+
 import type { ScriptedConnector, ScriptedStep } from './ScriptedConnector';
 
 /**

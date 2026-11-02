@@ -138,14 +138,17 @@ describe('completeLayoutInline', () => {
       },
     ],
     ['is malformed', { tree: ['V:1,1,1', 'ID:calendar-main'] }],
-  ])('on a hand-off, defers invalid_layout when the tree %s', async (_name, layout) => {
-    mockChat.mockResolvedValue({
-      userMessage: 'Done.',
-      ...(layout && { layout }),
-    });
-    const result = await run(handOff(hidden()));
-    expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
-  });
+  ])(
+    'on a hand-off, defers invalid_layout when the tree %s',
+    async (_name, layout) => {
+      mockChat.mockResolvedValue({
+        userMessage: 'Done.',
+        ...(layout && { layout }),
+      });
+      const result = await run(handOff(hidden()));
+      expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+    },
+  );
 
   test('on a hand-off, rejects a missing layout before candidate validation', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Done.' });

@@ -5,6 +5,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { createMaelstrom, defineVessel, vessel } from '@maelstrom-co/react';
+
 import { createSimulatedConnector } from './testConnector';
 
 const queue = defineVessel({

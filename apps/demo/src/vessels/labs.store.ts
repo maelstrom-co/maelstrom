@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
+
 import { LAB_MARKER_SLUGS, type LabMarkerSlug } from './labs.vessel.def';
 
 const selection = z.strictObject({ markerSlug: z.enum(LAB_MARKER_SLUGS) });

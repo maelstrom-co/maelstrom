@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import {
   type DiagnosticEvent,
   InstanceId,
@@ -11,6 +12,7 @@ import {
   type TelemetryOutcome,
   type TelemetryRecord,
 } from '@maelstrom-co/telemetry';
+
 import { flushMicrotasks } from '../../test-utils/async-utils.js';
 import { createMockConnector } from '../../test-utils/connector-mocks.js';
 import {
@@ -273,41 +275,41 @@ test('wire cancellation remains separate from failures without exporting its tex
   expect(JSON.stringify(records)).not.toContain('CANARY');
 });
 
-test.each([
-  'reject',
-  'stall',
-] as const)('a %s exporter cannot change a completed client application', async (failure) => {
-  const client = new Orchestrator(
-    createMockConnector({
-      process: async (request) => createMockEmptyResponse(request.id),
-    }),
-  );
-  const telemetry = createTelemetry({
-    capacity: 1,
-    exportTimeoutMs: 10,
-    sink: () =>
+test.each(['reject', 'stall'] as const)(
+  'a %s exporter cannot change a completed client application',
+  async (failure) => {
+    const client = new Orchestrator(
+      createMockConnector({
+        process: async (request) => createMockEmptyResponse(request.id),
+      }),
+    );
+    const telemetry = createTelemetry({
+      capacity: 1,
+      exportTimeoutMs: 10,
+      sink: () =>
+        failure === 'stall'
+          ? new Promise<void>(() => {})
+          : Promise.reject(new Error('CANARY_exporter')),
+    });
+    const { release } = attachClientTelemetry(client, telemetry);
+    cleanups.push(async () => {
+      release();
+      telemetry.dispose();
+      await client.dispose();
+    });
+    await client.connect();
+    expect((await client.enqueueIntent('CANARY_intent').result).status).toBe(
+      'applied',
+    );
+    await telemetry.flush(100);
+    expect(telemetry.getSnapshot().dropped.overflow).toBeGreaterThan(0);
+    expect(
       failure === 'stall'
-        ? new Promise<void>(() => {})
-        : Promise.reject(new Error('CANARY_exporter')),
-  });
-  const { release } = attachClientTelemetry(client, telemetry);
-  cleanups.push(async () => {
-    release();
-    telemetry.dispose();
-    await client.dispose();
-  });
-  await client.connect();
-  expect((await client.enqueueIntent('CANARY_intent').result).status).toBe(
-    'applied',
-  );
-  await telemetry.flush(100);
-  expect(telemetry.getSnapshot().dropped.overflow).toBeGreaterThan(0);
-  expect(
-    failure === 'stall'
-      ? telemetry.getSnapshot().dropped.timeout
-      : telemetry.getSnapshot().dropped.exportError,
-  ).toBeGreaterThan(0);
-});
+        ? telemetry.getSnapshot().dropped.timeout
+        : telemetry.getSnapshot().dropped.exportError,
+    ).toBeGreaterThan(0);
+  },
+);
 
 test.each([
   new Error('CANARY_unclassified'),
@@ -315,43 +317,46 @@ test.each([
   Object.assign(new Error('CANARY_arbitrary_abort_name'), {
     name: 'AbortError',
   }),
-])('unclassified client errors preserve an unknown cause: %s', async (error) => {
-  const client = new Orchestrator(
-    createMockConnector({
-      process: async () => {
-        throw error;
+])(
+  'unclassified client errors preserve an unknown cause: %s',
+  async (error) => {
+    const client = new Orchestrator(
+      createMockConnector({
+        process: async () => {
+          throw error;
+        },
+      }),
+    );
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
       },
-    }),
-  );
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachClientTelemetry(client, telemetry);
-  try {
-    await client.connect();
-    await client.processIntent('CANARY_intent').catch(() => {});
-    await telemetry.flush();
-    expect(
-      records
-        .filter((r) => r.attributes.outcome === 'failed')
-        .map((r) => r.attributes),
-    ).toEqual([
-      {
-        operation: 'client.request',
-        outcome: 'failed',
-        errorCategory: 'unknown',
-      },
-    ]);
-    expect(JSON.stringify(records)).not.toContain('CANARY');
-  } finally {
-    release();
-    telemetry.dispose();
-    await client.dispose();
-  }
-});
+    });
+    const { release } = attachClientTelemetry(client, telemetry);
+    try {
+      await client.connect();
+      await client.processIntent('CANARY_intent').catch(() => {});
+      await telemetry.flush();
+      expect(
+        records
+          .filter((r) => r.attributes.outcome === 'failed')
+          .map((r) => r.attributes),
+      ).toEqual([
+        {
+          operation: 'client.request',
+          outcome: 'failed',
+          errorCategory: 'unknown',
+        },
+      ]);
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+    } finally {
+      release();
+      telemetry.dispose();
+      await client.dispose();
+    }
+  },
+);
 
 test.each([
   ['timeout', 'timeout'],
@@ -361,199 +366,204 @@ test.each([
   ['aborted', undefined],
   ['invalid_json', 'validation'],
   ['http', 'unknown'],
-] as const)('HTTP %s failures use explicit evidence for the operational category', async (mode, category) => {
-  const originalFetch = globalThis.fetch;
-  const cancellation = new DOMException('CANARY_cancelled', 'AbortError');
-  globalThis.fetch = (async (
-    _input: Parameters<typeof globalThis.fetch>[0],
-    init?: RequestInit,
-  ) => {
-    if (mode === 'aborted') throw cancellation;
-    if (mode === 'body_transport')
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.error(new Error('CANARY_body_transport'));
-          },
-        }),
-      );
-    if (mode === 'transport') throw new Error('CANARY_network');
-    if (mode === 'body_timeout')
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            init?.signal?.addEventListener('abort', () =>
-              controller.error(
-                new DOMException('CANARY_body_deadline', 'AbortError'),
-              ),
-            );
-          },
-        }),
-      );
-    if (mode === 'timeout')
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () =>
-          reject(new DOMException('CANARY_abort', 'AbortError')),
+] as const)(
+  'HTTP %s failures use explicit evidence for the operational category',
+  async (mode, category) => {
+    const originalFetch = globalThis.fetch;
+    const cancellation = new DOMException('CANARY_cancelled', 'AbortError');
+    globalThis.fetch = (async (
+      _input: Parameters<typeof globalThis.fetch>[0],
+      init?: RequestInit,
+    ) => {
+      if (mode === 'aborted') throw cancellation;
+      if (mode === 'body_transport')
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error('CANARY_body_transport'));
+            },
+          }),
         );
+      if (mode === 'transport') throw new Error('CANARY_network');
+      if (mode === 'body_timeout')
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener('abort', () =>
+                controller.error(
+                  new DOMException('CANARY_body_deadline', 'AbortError'),
+                ),
+              );
+            },
+          }),
+        );
+      if (mode === 'timeout')
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('CANARY_abort', 'AbortError')),
+          );
+        });
+      return new Response('CANARY_not_json', {
+        status: mode === 'http' ? 503 : 200,
       });
-    return new Response('CANARY_not_json', {
-      status: mode === 'http' ? 503 : 200,
-    });
-  }) as typeof globalThis.fetch;
-  const client = new Orchestrator(
-    new HttpConnector({
-      baseUrl: 'https://telemetry-test.invalid',
-      timeout: 5,
-    }),
-  );
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachClientTelemetry(client, telemetry);
-  try {
-    await client.connect();
-    const result = await client
-      .processIntent('CANARY_intent')
-      .catch((error) => error);
-    if (mode === 'aborted') expect(result).toBe(cancellation);
-    await telemetry.flush();
-    expect(
-      records
-        .filter(
-          (r) =>
-            r.attributes.operation === 'client.request' &&
-            r.attributes.outcome !== 'started',
-        )
-        .map((r) => r.attributes),
-    ).toEqual([
-      category === undefined
-        ? { operation: 'client.request', outcome: 'cancelled' }
-        : {
-            operation: 'client.request',
-            outcome: 'failed',
-            errorCategory: category,
-          },
-    ]);
-    expect(JSON.stringify(records)).not.toContain('CANARY');
-  } finally {
-    globalThis.fetch = originalFetch;
-    release();
-    telemetry.dispose();
-    await client.dispose();
-  }
-});
-
-test.each([
-  'disposed',
-  'fenced_rejection',
-  'fenced_response',
-] as const)('request lifecycle reports only work that existed: %s', async (mode) => {
-  const pending =
-    Promise.withResolvers<ReturnType<typeof createMockEmptyResponse>>();
-  const started =
-    Promise.withResolvers<Parameters<typeof createMockEmptyResponse>[0]>();
-  const client = new Orchestrator(
-    createMockConnector({
-      process: (request) => {
-        started.resolve(request.id);
-        return pending.promise;
+    }) as typeof globalThis.fetch;
+    const client = new Orchestrator(
+      new HttpConnector({
+        baseUrl: 'https://telemetry-test.invalid',
+        timeout: 5,
+      }),
+    );
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
       },
-    }),
-  );
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const { release } = attachClientTelemetry(client, telemetry);
-  try {
-    await client.connect();
-    const work = client.processIntent('CANARY_intent').catch(() => {});
-    const id = await started.promise;
-    if (mode === 'disposed') await client.dispose();
-    else client.setConnector(createMockConnector());
-    if (mode === 'fenced_rejection')
-      pending.reject(new Error('CANARY_retired'));
-    else pending.resolve(createMockEmptyResponse(id));
-    await work;
-    await telemetry.flush();
-    const expected: [TelemetryOperation, TelemetryOutcome][] =
-      mode === 'disposed'
-        ? [
-            ['client.request', 'started'],
-            ['client.request', 'cancelled'],
-          ]
-        : mode === 'fenced_rejection'
+    });
+    const { release } = attachClientTelemetry(client, telemetry);
+    try {
+      await client.connect();
+      const result = await client
+        .processIntent('CANARY_intent')
+        .catch((error) => error);
+      if (mode === 'aborted') expect(result).toBe(cancellation);
+      await telemetry.flush();
+      expect(
+        records
+          .filter(
+            (r) =>
+              r.attributes.operation === 'client.request' &&
+              r.attributes.outcome !== 'started',
+          )
+          .map((r) => r.attributes),
+      ).toEqual([
+        category === undefined
+          ? { operation: 'client.request', outcome: 'cancelled' }
+          : {
+              operation: 'client.request',
+              outcome: 'failed',
+              errorCategory: category,
+            },
+      ]);
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+    } finally {
+      globalThis.fetch = originalFetch;
+      release();
+      telemetry.dispose();
+      await client.dispose();
+    }
+  },
+);
+
+test.each(['disposed', 'fenced_rejection', 'fenced_response'] as const)(
+  'request lifecycle reports only work that existed: %s',
+  async (mode) => {
+    const pending =
+      Promise.withResolvers<ReturnType<typeof createMockEmptyResponse>>();
+    const started =
+      Promise.withResolvers<Parameters<typeof createMockEmptyResponse>[0]>();
+    const client = new Orchestrator(
+      createMockConnector({
+        process: (request) => {
+          started.resolve(request.id);
+          return pending.promise;
+        },
+      }),
+    );
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    const { release } = attachClientTelemetry(client, telemetry);
+    try {
+      await client.connect();
+      const work = client.processIntent('CANARY_intent').catch(() => {});
+      const id = await started.promise;
+      if (mode === 'disposed') await client.dispose();
+      else client.setConnector(createMockConnector());
+      if (mode === 'fenced_rejection')
+        pending.reject(new Error('CANARY_retired'));
+      else pending.resolve(createMockEmptyResponse(id));
+      await work;
+      await telemetry.flush();
+      const expected: [TelemetryOperation, TelemetryOutcome][] =
+        mode === 'disposed'
           ? [
               ['client.request', 'started'],
-              ['client.request', 'failed'],
+              ['client.request', 'cancelled'],
             ]
-          : [
-              ['client.request', 'started'],
-              ['client.request', 'succeeded'],
-              ['client.apply', 'discarded'],
-            ];
-    expect(
-      records.map((r) => [r.attributes.operation, r.attributes.outcome]),
-    ).toEqual(expected);
-  } finally {
-    release();
-    telemetry.dispose();
-    await client.dispose();
-  }
-});
-
-test.each([
-  'connector',
-  'source',
-] as const)('retained diagnostic listeners cannot publish after %s replacement', async (mode) => {
-  const listeners: ((event: DiagnosticEvent) => void)[] = [];
-  const connector = () =>
-    Object.assign(createMockConnector(), {
-      subscribeDiagnostics(listener: (event: DiagnosticEvent) => void) {
-        listeners.push(listener);
-        return () => {};
-      },
-    });
-  const client = new Orchestrator(connector());
-  const telemetry = createTelemetry({ sink: () => {} });
-  const { release: releaseMetadata } = attachClientTelemetry(client, telemetry);
-  const seen: string[] = [];
-  let release = client.diagnostics.subscribe(({ event }) => {
-    seen.push(event.kind);
-  });
-  try {
-    expect(listeners).toHaveLength(1);
-    if (mode === 'connector') client.setConnector(connector());
-    else {
+          : mode === 'fenced_rejection'
+            ? [
+                ['client.request', 'started'],
+                ['client.request', 'failed'],
+              ]
+            : [
+                ['client.request', 'started'],
+                ['client.request', 'succeeded'],
+                ['client.apply', 'discarded'],
+              ];
+      expect(
+        records.map((r) => [r.attributes.operation, r.attributes.outcome]),
+      ).toEqual(expected);
+    } finally {
       release();
-      release = client.diagnostics.subscribe(({ event }) => {
-        seen.push(event.kind);
-      });
+      telemetry.dispose();
+      await client.dispose();
     }
-    expect(listeners).toHaveLength(2);
-    const event: DiagnosticEvent = {
-      id: 'event',
-      sessionId: client.getConfig().sessionId,
-      kind: 'engine.stale',
-      at: 1,
-      metadata: {},
-    };
-    listeners[0](event);
-    listeners[1]({ ...event, kind: 'engine.current' });
-    expect(seen).not.toContain('engine.stale');
-    expect(seen).toContain('engine.current');
-  } finally {
-    release();
-    releaseMetadata();
-    telemetry.dispose();
-    await client.dispose();
-  }
-});
+  },
+);
+
+test.each(['connector', 'source'] as const)(
+  'retained diagnostic listeners cannot publish after %s replacement',
+  async (mode) => {
+    const listeners: ((event: DiagnosticEvent) => void)[] = [];
+    const connector = () =>
+      Object.assign(createMockConnector(), {
+        subscribeDiagnostics(listener: (event: DiagnosticEvent) => void) {
+          listeners.push(listener);
+          return () => {};
+        },
+      });
+    const client = new Orchestrator(connector());
+    const telemetry = createTelemetry({ sink: () => {} });
+    const { release: releaseMetadata } = attachClientTelemetry(
+      client,
+      telemetry,
+    );
+    const seen: string[] = [];
+    let release = client.diagnostics.subscribe(({ event }) => {
+      seen.push(event.kind);
+    });
+    try {
+      expect(listeners).toHaveLength(1);
+      if (mode === 'connector') client.setConnector(connector());
+      else {
+        release();
+        release = client.diagnostics.subscribe(({ event }) => {
+          seen.push(event.kind);
+        });
+      }
+      expect(listeners).toHaveLength(2);
+      const event: DiagnosticEvent = {
+        id: 'event',
+        sessionId: client.getConfig().sessionId,
+        kind: 'engine.stale',
+        at: 1,
+        metadata: {},
+      };
+      listeners[0](event);
+      listeners[1]({ ...event, kind: 'engine.current' });
+      expect(seen).not.toContain('engine.stale');
+      expect(seen).toContain('engine.current');
+    } finally {
+      release();
+      releaseMetadata();
+      telemetry.dispose();
+      await client.dispose();
+    }
+  },
+);
 
 test('a throwing diagnostic subscription reports unavailability while requests remain usable', async () => {
   const client = new Orchestrator(

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import * as Effect from 'effect/Effect';
+
 import { requireExpectedAccount } from '../src/Stage.js';
 
 const runGuard = (environment: Record<string, string>) => {

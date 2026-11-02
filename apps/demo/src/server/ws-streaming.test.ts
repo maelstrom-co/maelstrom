@@ -10,6 +10,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { createWebSocketHandlers, type SocketData } from './ws-server';
 
 const chart = {

@@ -23,9 +23,7 @@ async function createProcessor(maxSamples = 4): Promise<Processor> {
   };
   const originalAudioWorkletProcessor = workletGlobal.AudioWorkletProcessor;
   let registered:
-    | (new (options: {
-        processorOptions: { maxSamples: number };
-      }) => Processor)
+    | (new (options: { processorOptions: { maxSamples: number } }) => Processor)
     | undefined;
   class FakeAudioWorkletProcessor {
     port = {
@@ -157,20 +155,20 @@ describe('local audio pre-roll processor', () => {
     expect(processor.port.posted).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
-  test.each([
-    'idle',
-    'automatic',
-    'manual',
-  ] as const)('acknowledges clear and discards retained samples from %s mode', async (mode) => {
-    const processor = await createProcessor();
-    process(processor, [1, 2, 3, 4]);
-    if (mode === 'automatic')
-      message(processor, { type: 'automatic-start', id: 1, samples: 4 });
-    if (mode === 'manual') message(processor, { type: 'manual-start', id: 1 });
-    message(processor, { type: 'clear', id: 2 });
-    expect(processor.port.posted.at(-1)).toEqual({ id: 2 });
-    expect(process(processor, [5, 6, 7, 8])).toEqual([0, 0, 0, 0]);
-  });
+  test.each(['idle', 'automatic', 'manual'] as const)(
+    'acknowledges clear and discards retained samples from %s mode',
+    async (mode) => {
+      const processor = await createProcessor();
+      process(processor, [1, 2, 3, 4]);
+      if (mode === 'automatic')
+        message(processor, { type: 'automatic-start', id: 1, samples: 4 });
+      if (mode === 'manual')
+        message(processor, { type: 'manual-start', id: 1 });
+      message(processor, { type: 'clear', id: 2 });
+      expect(processor.port.posted.at(-1)).toEqual({ id: 2 });
+      expect(process(processor, [5, 6, 7, 8])).toEqual([0, 0, 0, 0]);
+    },
+  );
 
   test('manual and clear discard old samples, including a pending end', async () => {
     const processor = await createProcessor();
@@ -281,37 +279,40 @@ describe('createLocalAudioPreRoll lifecycle', () => {
     [0, 500],
     [250, 1_000],
     [500, 1_500],
-  ] as const)('uses the exact end acknowledgement limit for %ims', async (preRollMs, timeoutMs) => {
-    const ends: Array<{
-      message: WorkletMessage;
-      acknowledge: (message: WorkletMessage) => void;
-    }> = [];
-    await withBridge(
-      (message, acknowledge) => {
-        if (message.type === 'automatic-start') acknowledge(message);
-        if (message.type === 'end') ends.push({ message, acknowledge });
-      },
-      async (bridge, messages) => {
-        await bridge.startAutomaticTurn(preRollMs);
-        const ending = bridge.endTurn();
-        jest.advanceTimersByTime(timeoutMs - 1);
-        const end = ends.shift();
-        if (!end) throw new Error('expected end request');
-        end.acknowledge(end.message);
-        await ending;
+  ] as const)(
+    'uses the exact end acknowledgement limit for %ims',
+    async (preRollMs, timeoutMs) => {
+      const ends: Array<{
+        message: WorkletMessage;
+        acknowledge: (message: WorkletMessage) => void;
+      }> = [];
+      await withBridge(
+        (message, acknowledge) => {
+          if (message.type === 'automatic-start') acknowledge(message);
+          if (message.type === 'end') ends.push({ message, acknowledge });
+        },
+        async (bridge, messages) => {
+          await bridge.startAutomaticTurn(preRollMs);
+          const ending = bridge.endTurn();
+          jest.advanceTimersByTime(timeoutMs - 1);
+          const end = ends.shift();
+          if (!end) throw new Error('expected end request');
+          end.acknowledge(end.message);
+          await ending;
 
-        await bridge.startAutomaticTurn(preRollMs);
-        const missing = bridge.endTurn();
-        jest.advanceTimersByTime(timeoutMs + 1);
-        await expect(missing).rejects.toThrow(
-          'Audio pre-roll worklet request timed out',
-        );
-        expect(messages.filter((entry) => entry.type === 'clear')).toHaveLength(
-          1,
-        );
-      },
-    );
-  });
+          await bridge.startAutomaticTurn(preRollMs);
+          const missing = bridge.endTurn();
+          jest.advanceTimersByTime(timeoutMs + 1);
+          await expect(missing).rejects.toThrow(
+            'Audio pre-roll worklet request timed out',
+          );
+          expect(
+            messages.filter((entry) => entry.type === 'clear'),
+          ).toHaveLength(1);
+        },
+      );
+    },
+  );
 
   test('fences late acknowledgements and recovers after a timeout', async () => {
     const ends: Array<{
@@ -450,66 +451,65 @@ describe('createLocalAudioPreRoll lifecycle', () => {
     }
   });
 
-  test.each([
-    'automatic-start',
-    'manual-start',
-    'clear',
-  ] as const)('uses the exact ordinary timeout and resets active duration after failed %s', async (failedType) => {
-    let automaticStarts = 0;
-    let latest:
-      | {
-          readonly entry: WorkletMessage;
-          readonly acknowledge: (entry: WorkletMessage) => void;
-        }
-      | undefined;
-    await withBridge(
-      (entry, acknowledge) => {
-        latest = { entry, acknowledge };
-        if (entry.type === 'automatic-start' && automaticStarts++ === 0)
-          acknowledge(entry);
-      },
-      async (bridge) => {
-        // Seed every row, including automatic-start, with an active 500 ms tail.
-        await bridge.startAutomaticTurn(500);
-        const acknowledged =
-          failedType === 'automatic-start'
-            ? bridge.startAutomaticTurn(500)
-            : failedType === 'manual-start'
-              ? bridge.startManualTurn()
-              : bridge.clear();
-        let settled = false;
-        void acknowledged.finally(() => {
-          settled = true;
-        });
-        jest.advanceTimersByTime(249);
-        await Promise.resolve();
-        expect(settled).toBe(false);
-        latest?.acknowledge(latest.entry);
-        await acknowledged;
+  test.each(['automatic-start', 'manual-start', 'clear'] as const)(
+    'uses the exact ordinary timeout and resets active duration after failed %s',
+    async (failedType) => {
+      let automaticStarts = 0;
+      let latest:
+        | {
+            readonly entry: WorkletMessage;
+            readonly acknowledge: (entry: WorkletMessage) => void;
+          }
+        | undefined;
+      await withBridge(
+        (entry, acknowledge) => {
+          latest = { entry, acknowledge };
+          if (entry.type === 'automatic-start' && automaticStarts++ === 0)
+            acknowledge(entry);
+        },
+        async (bridge) => {
+          // Seed every row, including automatic-start, with an active 500 ms tail.
+          await bridge.startAutomaticTurn(500);
+          const acknowledged =
+            failedType === 'automatic-start'
+              ? bridge.startAutomaticTurn(500)
+              : failedType === 'manual-start'
+                ? bridge.startManualTurn()
+                : bridge.clear();
+          let settled = false;
+          void acknowledged.finally(() => {
+            settled = true;
+          });
+          jest.advanceTimersByTime(249);
+          await Promise.resolve();
+          expect(settled).toBe(false);
+          latest?.acknowledge(latest.entry);
+          await acknowledged;
 
-        // Manual and clear acknowledgements reset the active duration, so
-        // re-establish a 500 ms automatic turn immediately before failure.
-        const reseeded = bridge.startAutomaticTurn(500);
-        latest?.acknowledge(latest.entry);
-        await reseeded;
-        const failed =
-          failedType === 'automatic-start'
-            ? bridge.startAutomaticTurn(500)
-            : failedType === 'manual-start'
-              ? bridge.startManualTurn()
-              : bridge.clear();
-        jest.advanceTimersByTime(251);
-        await expect(failed).rejects.toThrow(
-          'Audio pre-roll worklet request timed out',
-        );
-        const end = bridge.endTurn();
-        jest.advanceTimersByTime(501);
-        await expect(end).rejects.toThrow(
-          'Audio pre-roll worklet request timed out',
-        );
-      },
-    );
-  });
+          // Manual and clear acknowledgements reset the active duration, so
+          // re-establish a 500 ms automatic turn immediately before failure.
+          const reseeded = bridge.startAutomaticTurn(500);
+          latest?.acknowledge(latest.entry);
+          await reseeded;
+          const failed =
+            failedType === 'automatic-start'
+              ? bridge.startAutomaticTurn(500)
+              : failedType === 'manual-start'
+                ? bridge.startManualTurn()
+                : bridge.clear();
+          jest.advanceTimersByTime(251);
+          await expect(failed).rejects.toThrow(
+            'Audio pre-roll worklet request timed out',
+          );
+          const end = bridge.endTurn();
+          jest.advanceTimersByTime(501);
+          await expect(end).rejects.toThrow(
+            'Audio pre-roll worklet request timed out',
+          );
+        },
+      );
+    },
+  );
 
   test('ignores unknown and duplicate acknowledgement IDs', async () => {
     let acknowledge: ((message: WorkletMessage) => void) | undefined;

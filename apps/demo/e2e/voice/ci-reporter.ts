@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs';
 import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
+
 import type {
   FullConfig,
   FullResult,
@@ -8,6 +9,7 @@ import type {
   TestCase,
   TestResult,
 } from '@playwright/test/reporter';
+
 import { logVoiceDiagnostic, type VoiceDiagnostic } from './ci-diagnostics.ts';
 import {
   extractCiMetric,

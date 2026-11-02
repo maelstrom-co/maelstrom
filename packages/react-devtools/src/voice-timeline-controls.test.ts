@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
+
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { attach, event, mount } = createVoicePanelHarness();
@@ -12,31 +14,35 @@ test.each([
     { providerInstanceId: '[TRUNCATED]', generation: '[TRUNCATED]' },
   ],
   ['not reported', { providerInstanceId: undefined, generation: undefined }],
-] as const)('voice filters name %s identities instead of conflating their availability', (availability, metadata) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  tools.importCapture(
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        events: [event('media', 'voice.media', metadata)],
-      },
-    }),
-  );
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', 'imported');
-  click('Voice');
-  expect(
-    shadow.querySelector('select[aria-label="Voice provider lifetime"]')
-      ?.textContent,
-  ).toContain(`Lifetime ${availability}`);
-  expect(
-    shadow.querySelector('select[aria-label="Voice generation"]')?.textContent,
-  ).toContain(`Session generation ${availability}`);
-  expect(shadow.querySelector('.voice-timeline')?.textContent).toContain(
-    `Session generation ${availability}`,
-  );
-});
+] as const)(
+  'voice filters name %s identities instead of conflating their availability',
+  (availability, metadata) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    tools.importCapture(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          events: [event('media', 'voice.media', metadata)],
+        },
+      }),
+    );
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', 'imported');
+    click('Voice');
+    expect(
+      shadow.querySelector('select[aria-label="Voice provider lifetime"]')
+        ?.textContent,
+    ).toContain(`Lifetime ${availability}`);
+    expect(
+      shadow.querySelector('select[aria-label="Voice generation"]')
+        ?.textContent,
+    ).toContain(`Session generation ${availability}`);
+    expect(shadow.querySelector('.voice-timeline')?.textContent).toContain(
+      `Session generation ${availability}`,
+    );
+  },
+);
 
 test('large voice evidence keeps navigation bounded and searchable without replacing the selected JSON', () => {
   const tools = createDevtools({ initialIsOpen: true });
@@ -284,39 +290,42 @@ test.each([
   ['Show more voice generations (50 of 51)', 'Voice generation'],
   ['Show more voice lanes (50 of 51)', 'Voice provider lifetime'],
   ['Reset voice filters', 'Voice provider lifetime'],
-] as const)('finishing %s preserves keyboard focus on a related control', async (action, fallback) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  tools.importCapture(
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        events: Array.from({ length: 51 }, (_, index) =>
-          event(`event-${index}`, 'voice.media', {
-            providerInstanceId: `provider-${index}`,
-            generation: index,
-          }),
-        ),
-      },
-    }),
-  );
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', 'imported');
-  click('Voice');
-  if (action === 'Reset voice filters') {
-    const providers = shadow.querySelector<HTMLSelectElement>(
-      'select[aria-label="Voice provider lifetime"]',
-    )!;
-    select('Voice provider lifetime', providers.options[1].value);
-  }
-  const target = Array.from(
-    shadow.querySelectorAll<HTMLButtonElement>('button'),
-  ).find((node) => node.textContent === action)!;
-  target.focus();
-  fireEvent.click(target);
-  await Promise.resolve();
-  expect(shadow.activeElement?.getAttribute('aria-label')).toBe(fallback);
-});
+] as const)(
+  'finishing %s preserves keyboard focus on a related control',
+  async (action, fallback) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    tools.importCapture(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          events: Array.from({ length: 51 }, (_, index) =>
+            event(`event-${index}`, 'voice.media', {
+              providerInstanceId: `provider-${index}`,
+              generation: index,
+            }),
+          ),
+        },
+      }),
+    );
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', 'imported');
+    click('Voice');
+    if (action === 'Reset voice filters') {
+      const providers = shadow.querySelector<HTMLSelectElement>(
+        'select[aria-label="Voice provider lifetime"]',
+      )!;
+      select('Voice provider lifetime', providers.options[1].value);
+    }
+    const target = Array.from(
+      shadow.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((node) => node.textContent === action)!;
+    target.focus();
+    fireEvent.click(target);
+    await Promise.resolve();
+    expect(shadow.activeElement?.getAttribute('aria-label')).toBe(fallback);
+  },
+);
 
 test('a composition from a replaced import cannot restore the old query or event selection', () => {
   const tools = createDevtools({ initialIsOpen: true });

@@ -1,4 +1,5 @@
 import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+
 import type { SessionEventHandler } from './session-event-bus.js';
 
 /**

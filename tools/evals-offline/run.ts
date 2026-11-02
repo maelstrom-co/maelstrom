@@ -1,11 +1,11 @@
 import type { LoadedCase } from '../../packages/evals/src/adapters/offline-case.js';
 import { validateJudgeSelection } from '../../packages/evals/src/core/judge.js';
-import type { EvalOptions } from '../../packages/evals/src/core/run.js';
 import {
   type EvaluationRun,
   runEvaluationRun,
   selectEvaluationCases,
 } from '../../packages/evals/src/core/run-orchestration.js';
+import type { EvalOptions } from '../../packages/evals/src/core/run.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
 import { validateStageJudgeSelection } from '../../packages/evals/src/core/stage-eval.js';
 import { caseAdapter } from './case-adapter.js';

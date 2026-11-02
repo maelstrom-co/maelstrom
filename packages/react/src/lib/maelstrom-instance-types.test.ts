@@ -9,7 +9,9 @@
  */
 
 import { describe, it } from 'bun:test';
+
 import { defineVessel, ok } from '@maelstrom-co/protocol';
+
 import {
   type TestVessel,
   testVessel,

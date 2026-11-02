@@ -12,6 +12,7 @@
 
 import type { Engine } from '@maelstrom-co/engine';
 import { Context, Data, Effect, Layer } from 'effect';
+
 import { createPlaygroundEngine } from '../../server/engine-config';
 import { createDemoOpenaiChat } from '../../server/engine-model';
 import { createRedactingLogger, redact } from '../../server/redact';

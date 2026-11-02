@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test';
+
 import {
   type TilingLayout,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { createHeroConnector } from './connector';
 
 // Instance IDs referenced as leaves in the tiling tree (drop split markers).

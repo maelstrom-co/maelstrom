@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+
 import type { InstrumentAttributes } from '@maelstrom-co/engine';
 import { createEngine } from '@maelstrom-co/engine';
 import {

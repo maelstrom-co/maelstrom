@@ -1,5 +1,6 @@
 import type { DevtoolsOptions } from '@maelstrom-co/devtools';
 import type { MaelstromExtension } from '@maelstrom-co/react';
+
 import {
   devtools as createExtension,
   type DevtoolsExtension,

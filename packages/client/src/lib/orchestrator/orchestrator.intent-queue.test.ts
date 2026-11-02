@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import {
   type ChartRequestMessage,
   type DiagnosticEvent,
@@ -11,6 +12,7 @@ import {
   VariantName,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import { createMockConnector } from '../../../test-utils/connector-mocks.js';
 import {

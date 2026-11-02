@@ -7,6 +7,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { checkArrangement } from './predicates.js';
 import type { ExpectedAction, Scenario } from './scenarios.js';
 

@@ -1,6 +1,7 @@
 import type { Orchestrator } from '@maelstrom-co/client';
 import type { DiagnosticEvent } from '@maelstrom-co/protocol';
 import type { Telemetry } from '@maelstrom-co/telemetry';
+
 import type { CaptureOptions, DiagnosticCapture } from './capture.js';
 
 /** Configuration shared by every framework adapter. */

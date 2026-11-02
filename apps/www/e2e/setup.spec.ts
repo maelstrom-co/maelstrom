@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
 import { expect, test } from '@playwright/test';
 import { parseFrontmatter } from 'astro/markdown';
+
 import { installPostHogRecorder } from './posthog';
 
 test('the default setup copies the canonical stable prompt without page metadata', async ({

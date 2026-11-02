@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
+
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
+
 import { devtools } from './disabled.js';
 
 test('production extension requires no Provider, DOM, or observation hooks', () => {

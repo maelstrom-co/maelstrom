@@ -1,7 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
+
 import { fireEvent, render, screen } from '@testing-library/react';
-import { LoopController } from '../LoopController';
+
 import type { LoopState } from '../loop-machine';
+import { LoopController } from '../LoopController';
 
 function renderController(
   state: LoopState,

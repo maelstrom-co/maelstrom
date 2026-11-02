@@ -5,7 +5,6 @@ import type {
   TelemetryOutcome,
   TelemetryProvider,
 } from './types.js';
-
 import { telemetryErrorCategories } from './vocabulary.js';
 
 const terminalOperations = {

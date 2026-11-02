@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+
 import {
   type GridLayout,
   InstanceId,
@@ -14,11 +15,11 @@ import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
-import type { Command } from './command.types.js';
 import {
   CommandProcessor,
   type CommandProcessorEvents,
 } from './command-processor.js';
+import type { Command } from './command.types.js';
 
 describe('CommandProcessor (Event Loop)', () => {
   let processor: CommandProcessor;

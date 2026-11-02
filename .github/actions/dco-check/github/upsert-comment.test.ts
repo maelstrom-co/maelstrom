@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { Config } from '../config/config.ts';
 import type { FindComment } from './find-comment.ts';
 import type { Request } from './request.ts';

@@ -196,19 +196,19 @@ export function requestComparisonView(
   );
   const sourceIncomplete = Boolean(
     context.evidence.unreadableEvents ||
-      context.evidence.droppedRequestEvents ||
-      context.evidence.dropped ||
-      context.evidence.omittedRequestEvents ||
-      context.evidence.omitted ||
-      sourceEvents.some(
-        (event) =>
-          (!event.requestId || !event.clientId) &&
-          (comparedKinds.has(event.kind) ||
-            event.raw.requestId !== undefined ||
-            /^(?:client\.(?:request|response|command|action)|engine)\./.test(
-              event.kind,
-            )),
-      ),
+    context.evidence.droppedRequestEvents ||
+    context.evidence.dropped ||
+    context.evidence.omittedRequestEvents ||
+    context.evidence.omitted ||
+    sourceEvents.some(
+      (event) =>
+        (!event.requestId || !event.clientId) &&
+        (comparedKinds.has(event.kind) ||
+          event.raw.requestId !== undefined ||
+          /^(?:client\.(?:request|response|command|action)|engine)\./.test(
+            event.kind,
+          )),
+    ),
   );
   signature.push(sourceIncomplete);
   for (const side of ['a', 'b'] as const) {

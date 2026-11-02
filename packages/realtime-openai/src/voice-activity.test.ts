@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { VoiceSessionState } from '@maelstrom-co/client';
+
 import { deriveVoiceActivity } from './voice-activity.js';
 
 describe('deriveVoiceActivity', () => {

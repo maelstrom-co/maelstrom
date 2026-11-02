@@ -25,13 +25,13 @@ import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
-import type { Command, ExecuteActionsCommand } from './command.types.js';
 import type { CommandBatchResult } from './command-batch-result.js';
 import {
   type CommandProcessingState,
   createInitialCommandProcessingState,
 } from './command-processor.state.js';
 import type { CommandProcessorOptions } from './command-processor.types.js';
+import type { Command, ExecuteActionsCommand } from './command.types.js';
 import { applyLayout } from './layout-manager.js';
 
 /**

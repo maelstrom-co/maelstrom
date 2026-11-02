@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import * as realClient from '@maelstrom-co/client';
 import { DEFAULT_LAYOUT_MODE } from '@maelstrom-co/client';
 import type { LayoutMode } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstromContext } from './context.js';
 import { createProvider } from './provider.js';

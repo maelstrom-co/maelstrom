@@ -84,7 +84,7 @@ export function useStoreSelector<T, S>(
     }
     cachedRef.current = selected;
     return selected;
-  // oxlint-disable-next-line react/exhaustive-deps -- buildSnapshot isn't listed on purpose — callers pass a fresh closure each render that proxies all reactive reads through refs, so an older captured buildSnapshot behaves identically to the latest one. `stores` (memoized per-orchestrator by the caller) is the real signal this callback must be recreated on, since buildSnapshot may otherwise close over a stale `orchestrator` captured on an earlier render.
+    // oxlint-disable-next-line react/exhaustive-deps -- buildSnapshot isn't listed on purpose — callers pass a fresh closure each render that proxies all reactive reads through refs, so an older captured buildSnapshot behaves identically to the latest one. `stores` (memoized per-orchestrator by the caller) is the real signal this callback must be recreated on, since buildSnapshot may otherwise close over a stale `orchestrator` captured on an earlier render.
   }, [stores]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

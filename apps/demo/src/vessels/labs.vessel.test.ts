@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+
 import { VariantName, VesselSchema } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { DEFAULT_LAYOUT } from '../lib/default-layout';
 import { labsEntry, labsVessel } from './labs.vessel';
 

@@ -1,5 +1,6 @@
 ---
 ---
+
 <canvas id="mae-shader" aria-hidden="true"></canvas>
 <script>
   const VS = `
@@ -65,7 +66,7 @@
   // the document so global.css can swap in a static gradient fallback.
   function fail(message: string) {
     console.warn(`[ShaderBackground] ${message}`);
-    document.documentElement.classList.add("no-webgl");
+    document.documentElement.classList.add('no-webgl');
   }
 
   function compile(gl: WebGLRenderingContext, type: number, src: string) {
@@ -74,36 +75,40 @@
     gl.shaderSource(s, src);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.warn(`[ShaderBackground] shader compile failed: ${gl.getShaderInfoLog(s)}`);
+      console.warn(
+        `[ShaderBackground] shader compile failed: ${gl.getShaderInfoLog(s)}`,
+      );
       return null;
     }
     return s;
   }
 
   function initShader() {
-    const canvas = document.getElementById("mae-shader") as HTMLCanvasElement | null;
+    const canvas = document.getElementById(
+      'mae-shader',
+    ) as HTMLCanvasElement | null;
     if (!canvas) {
-      fail("canvas #mae-shader not found");
+      fail('canvas #mae-shader not found');
       return;
     }
-    const gl = canvas.getContext("webgl", {
+    const gl = canvas.getContext('webgl', {
       antialias: false,
       alpha: false,
       premultipliedAlpha: false,
     });
     if (!gl) {
-      fail("WebGL unavailable — using static gradient fallback");
+      fail('WebGL unavailable — using static gradient fallback');
       return;
     }
     const vs = compile(gl, gl.VERTEX_SHADER, VS);
     const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
     if (!vs || !fs) {
-      fail("shader compilation failed — using static gradient fallback");
+      fail('shader compilation failed — using static gradient fallback');
       return;
     }
     const prog = gl.createProgram();
     if (!prog) {
-      fail("could not create WebGL program — using static gradient fallback");
+      fail('could not create WebGL program — using static gradient fallback');
       return;
     }
     gl.attachShader(prog, vs);
@@ -120,17 +125,17 @@
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-      gl.STATIC_DRAW
+      gl.STATIC_DRAW,
     );
-    const aLoc = gl.getAttribLocation(prog, "a");
+    const aLoc = gl.getAttribLocation(prog, 'a');
     gl.enableVertexAttribArray(aLoc);
     gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
 
-    const uRes = gl.getUniformLocation(prog, "uRes");
-    const uTime = gl.getUniformLocation(prog, "uTime");
-    const uMouse = gl.getUniformLocation(prog, "uMouse");
-    const uHue = gl.getUniformLocation(prog, "uHue");
-    const uIntensity = gl.getUniformLocation(prog, "uIntensity");
+    const uRes = gl.getUniformLocation(prog, 'uRes');
+    const uTime = gl.getUniformLocation(prog, 'uTime');
+    const uMouse = gl.getUniformLocation(prog, 'uMouse');
+    const uHue = gl.getUniformLocation(prog, 'uHue');
+    const uIntensity = gl.getUniformLocation(prog, 'uIntensity');
 
     const mouse: [number, number] = [0, 0];
     const target: [number, number] = [0, 0];
@@ -147,14 +152,14 @@
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
     resize();
-    window.addEventListener("resize", resize);
+    window.addEventListener('resize', resize);
 
     const onPointer = (e: PointerEvent) => {
       const d = dpr();
       target[0] = e.clientX * d;
       target[1] = (window.innerHeight - e.clientY) * d;
     };
-    window.addEventListener("pointermove", onPointer, { passive: true });
+    window.addEventListener('pointermove', onPointer, { passive: true });
 
     const draw = (now: number) => {
       gl.uniform2f(uRes, canvas.width, canvas.height);
@@ -202,27 +207,27 @@
       e.preventDefault();
       contextLost = true;
       stop();
-      fail("WebGL context lost — using static gradient fallback");
+      fail('WebGL context lost — using static gradient fallback');
     };
-    canvas.addEventListener("webglcontextlost", onContextLost);
+    canvas.addEventListener('webglcontextlost', onContextLost);
 
     const onVisibility = () => {
       if (document.hidden) stop();
       else start();
     };
-    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener('visibilitychange', onVisibility);
 
     // Tear down everything on pagehide (Astro view transitions) so no listeners
     // or the GL closure outlive the canvas.
     const onPageHide = () => {
       stop();
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("pointermove", onPointer);
-      document.removeEventListener("visibilitychange", onVisibility);
-      canvas.removeEventListener("webglcontextlost", onContextLost);
-      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('pointermove', onPointer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      window.removeEventListener('pagehide', onPageHide);
     };
-    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener('pagehide', onPageHide);
   }
 
   initShader();

@@ -1,5 +1,6 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
+
 import { findProduct } from './catalog.store';
 import {
   CATALOG_SKUS,

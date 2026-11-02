@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { panelEvents, recordingEvidence } from './panel-model.js';
 import { requestOverview } from './request-overview.js';
 
@@ -357,26 +358,23 @@ test('withheld timings and unassigned identities remain explicit instead of beco
   expect(view.retained).toBe(2);
 });
 
-test.each([
-  undefined,
-  '[REDACTED]',
-  -1,
-  0.5,
-  '0',
-])('invalid Action count %j does not become a clean request outcome', (count) => {
-  const view = requestOverview(
-    evidence([
-      event('applied', 'a', 'client.response.applied', {
-        durationMs: 0,
-        actionFailures: count,
-        skippedActions: 0,
-      }),
-    ]),
-    { measure: 'application' },
-  );
-  expect(view.rows[0].outcome).toBe('unknown');
-  expect(view.rows[0].timing).toEqual({ kind: 'reported', durationMs: 0 });
-});
+test.each([undefined, '[REDACTED]', -1, 0.5, '0'])(
+  'invalid Action count %j does not become a clean request outcome',
+  (count) => {
+    const view = requestOverview(
+      evidence([
+        event('applied', 'a', 'client.response.applied', {
+          durationMs: 0,
+          actionFailures: count,
+          skippedActions: 0,
+        }),
+      ]),
+      { measure: 'application' },
+    );
+    expect(view.rows[0].outcome).toBe('unknown');
+    expect(view.rows[0].timing).toEqual({ kind: 'reported', durationMs: 0 });
+  },
+);
 
 test('discarded pushes retain their provenance without a receipt or a fabricated missing request start', () => {
   const data = recordingEvidence({
@@ -433,21 +431,24 @@ test.each([
   { actionFailures: 2, skippedActions: '[TRUNCATED]' },
   { actionFailures: undefined, skippedActions: 1 },
   { actionFailures: 1, skippedActions: undefined },
-])('a known terminal Action issue survives an unavailable companion counter: %j', (counters) => {
-  const data = evidence([
-    event('applied', 'a', 'client.response.applied', {
-      ...counters,
-      durationMs: 0,
-    }),
-  ]);
-  const view = requestOverview(data, { measure: 'application' });
-  expect(view.rows[0].outcome).toBe('applied-with-issues');
-  expect(view.rows[0].timing).toEqual({ kind: 'reported', durationMs: 0 });
-  expect(
-    requestOverview(data, { outcome: 'applied-with-issues' }).matched,
-  ).toBe(1);
-  expect(requestOverview(data, { outcome: 'unknown' }).matched).toBe(0);
-});
+])(
+  'a known terminal Action issue survives an unavailable companion counter: %j',
+  (counters) => {
+    const data = evidence([
+      event('applied', 'a', 'client.response.applied', {
+        ...counters,
+        durationMs: 0,
+      }),
+    ]);
+    const view = requestOverview(data, { measure: 'application' });
+    expect(view.rows[0].outcome).toBe('applied-with-issues');
+    expect(view.rows[0].timing).toEqual({ kind: 'reported', durationMs: 0 });
+    expect(
+      requestOverview(data, { outcome: 'applied-with-issues' }).matched,
+    ).toBe(1);
+    expect(requestOverview(data, { outcome: 'unknown' }).matched).toBe(0);
+  },
+);
 
 test.each([
   { actionFailures: '[REDACTED]', skippedActions: 0 },
@@ -456,12 +457,15 @@ test.each([
   { actionFailures: Number.MAX_SAFE_INTEGER + 1, skippedActions: undefined },
   { actionFailures: undefined, skippedActions: Number.POSITIVE_INFINITY },
   { actionFailures: -1, skippedActions: undefined },
-])('incomplete or invalid terminal counters cannot prove an Action issue: %j', (counters) => {
-  const view = requestOverview(
-    evidence([event('applied', 'a', 'client.response.applied', counters)]),
-  );
-  expect(view.rows[0].outcome).toBe('unknown');
-});
+])(
+  'incomplete or invalid terminal counters cannot prove an Action issue: %j',
+  (counters) => {
+    const view = requestOverview(
+      evidence([event('applied', 'a', 'client.response.applied', counters)]),
+    );
+    expect(view.rows[0].outcome).toBe('unknown');
+  },
+);
 
 test.each([
   {
@@ -489,20 +493,21 @@ test.each([
       ['client.response.discarded', 'push'],
     ] as const,
   },
-])('conflicting request and push provenance cannot establish one request outcome: %j', ({
-  observations,
-}) => {
-  const data = recordingEvidence({
-    events: observations.map(([kind, source], i) =>
-      event(`event-${i}`, 'a', kind, { source, durationMs: 10 }),
-    ),
-  });
-  for (const measure of ['round-trip', 'application'] as const) {
-    const row = requestOverview(data, { measure }).rows[0];
-    expect(row.outcome).toBe('ambiguous');
-    expect(row.timing).toEqual({ kind: 'unreported', reason: 'ambiguous' });
-  }
-});
+])(
+  'conflicting request and push provenance cannot establish one request outcome: %j',
+  ({ observations }) => {
+    const data = recordingEvidence({
+      events: observations.map(([kind, source], i) =>
+        event(`event-${i}`, 'a', kind, { source, durationMs: 10 }),
+      ),
+    });
+    for (const measure of ['round-trip', 'application'] as const) {
+      const row = requestOverview(data, { measure }).rows[0];
+      expect(row.outcome).toBe('ambiguous');
+      expect(row.timing).toEqual({ kind: 'unreported', reason: 'ambiguous' });
+    }
+  },
+);
 
 test('withheld receipt provenance does not contradict an explicitly reported push outcome', () => {
   const row = requestOverview(

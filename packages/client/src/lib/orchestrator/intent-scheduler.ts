@@ -1,5 +1,6 @@
 import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
+
 import type {
   EnqueueIntentOptions,
   IntentNotSubmittedReason,

@@ -12,6 +12,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
 import { toSignupFailureResponse } from '../../server/signup-failure-response';
 import { DeliveryStateConflict } from '../../server/waitlist-repository';

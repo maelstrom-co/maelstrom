@@ -1,4 +1,5 @@
 import { vessel } from '@maelstrom-co/react';
+
 import { TriageInboxSkeleton } from './triage-inbox.skeleton';
 import { triageInboxVessel } from './triage-inbox.vessel.def';
 

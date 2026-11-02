@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+
 import { render } from '@testing-library/react';
+
 import { EdgeLayer } from '../EdgeLayer';
 import { EDGES } from '../edges';
 import type { LoopStep } from '../loop-machine';

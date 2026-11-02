@@ -1,5 +1,6 @@
 import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 
 const originalFetch = globalThis.fetch;
@@ -168,19 +169,22 @@ describe('createBrowserMintToken', () => {
   it.each([
     [403, /project permissions and model access/i],
     [429, /project's usage limits/i],
-  ])('explains an OpenAI %s without guessing that the key is invalid', async (status, message) => {
-    globalThis.fetch = vi.fn(
-      async () => new Response('rejected', { status }),
-    ) as unknown as typeof fetch;
-    const mintToken = createBrowserMintToken(
-      () => 'sk-visitor-key',
-      'gpt-realtime',
-      'marin',
-    );
+  ])(
+    'explains an OpenAI %s without guessing that the key is invalid',
+    async (status, message) => {
+      globalThis.fetch = vi.fn(
+        async () => new Response('rejected', { status }),
+      ) as unknown as typeof fetch;
+      const mintToken = createBrowserMintToken(
+        () => 'sk-visitor-key',
+        'gpt-realtime',
+        'marin',
+      );
 
-    await expect(mintToken()).rejects.toThrow(message);
-    await expect(mintToken()).rejects.not.toThrow(/invalid api key/i);
-  });
+      await expect(mintToken()).rejects.toThrow(message);
+      await expect(mintToken()).rejects.not.toThrow(/invalid api key/i);
+    },
+  );
 
   it('throws immediately when no key is set, without calling fetch', async () => {
     const fetchSpy = vi.fn(

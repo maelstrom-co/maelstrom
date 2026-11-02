@@ -3,6 +3,7 @@ import type {
   VoiceSession,
   VoiceSessionState,
 } from '@maelstrom-co/client';
+
 import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,

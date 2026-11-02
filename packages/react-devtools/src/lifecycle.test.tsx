@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import {
   createDevtools,
@@ -13,6 +14,7 @@ import {
   render,
   waitFor,
 } from '@testing-library/react';
+
 import { devtools } from './index.js';
 
 const nodeEnv = process.env.NODE_ENV;
@@ -194,8 +196,9 @@ test('Open capture accepts a legacy file whose indentation exceeds four MiB', as
   expect(legacy.length).toBeGreaterThan(4_194_304);
   const unmount = mountDevtools(tools);
   try {
-    const shadow = document.querySelector('[data-maelstrom-devtools]')!
-      .shadowRoot!;
+    const shadow = document.querySelector(
+      '[data-maelstrom-devtools]',
+    )!.shadowRoot!;
     const tab = Array.from(shadow.querySelectorAll('button')).find(
       (button) => button.textContent === 'Recordings',
     )!;

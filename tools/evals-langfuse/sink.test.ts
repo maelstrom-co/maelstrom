@@ -8,8 +8,10 @@ import {
 } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+
 import { LangfuseClient } from '@langfuse/client';
 import { trace } from '@opentelemetry/api';
+
 import { createOperationalCollector } from '../../packages/evals/src/core/operational-telemetry.js';
 import {
   createEvaluationPublisher,
@@ -758,35 +760,33 @@ test('catalog publication sends trace before dataset upsert and item; retries pr
   expect(JSON.stringify(items)).not.toContain('RAW');
 });
 
-test.each([
-  'dataset',
-  'item',
-  'dataset-receipt',
-  'item-receipt',
-])('catalog %s failure after trace acceptance is partial, never fully accepted', async (failure) => {
-  const calls: string[] = [];
-  const transport = catalogTransport(calls);
-  if (failure.startsWith('dataset'))
-    transport.createDataset = async () => {
-      calls.push('dataset');
-      if (failure === 'dataset') throw new Error('PRIVATE SDK FAILURE');
-      return { id: 'wrong', name: 'wrong' };
-    };
-  else
-    transport.createDatasetItem = async (item) => {
-      calls.push('item');
-      if (failure === 'item') throw new Error('PRIVATE SDK FAILURE');
-      return { ...item, id: 'wrong', datasetId: 'wrong' };
-    };
-  expect(
-    await publish(start(transport, catalogConfig), catalogPublication()),
-  ).toEqual({ status: 'partial' });
-  expect(calls).toEqual(
-    failure.startsWith('dataset')
-      ? ['trace', 'dataset']
-      : ['trace', 'dataset', 'item'],
-  );
-});
+test.each(['dataset', 'item', 'dataset-receipt', 'item-receipt'])(
+  'catalog %s failure after trace acceptance is partial, never fully accepted',
+  async (failure) => {
+    const calls: string[] = [];
+    const transport = catalogTransport(calls);
+    if (failure.startsWith('dataset'))
+      transport.createDataset = async () => {
+        calls.push('dataset');
+        if (failure === 'dataset') throw new Error('PRIVATE SDK FAILURE');
+        return { id: 'wrong', name: 'wrong' };
+      };
+    else
+      transport.createDatasetItem = async (item) => {
+        calls.push('item');
+        if (failure === 'item') throw new Error('PRIVATE SDK FAILURE');
+        return { ...item, id: 'wrong', datasetId: 'wrong' };
+      };
+    expect(
+      await publish(start(transport, catalogConfig), catalogPublication()),
+    ).toEqual({ status: 'partial' });
+    expect(calls).toEqual(
+      failure.startsWith('dataset')
+        ? ['trace', 'dataset']
+        : ['trace', 'dataset', 'item'],
+    );
+  },
+);
 
 test('catalog writes do not follow unconfirmed traces or unsupported input/transport', async () => {
   const calls: string[] = [];
@@ -808,32 +808,32 @@ test('catalog writes do not follow unconfirmed traces or unsupported input/trans
   expect(calls).toEqual(['trace']);
 });
 
-test.each([
-  'dataset',
-  'item',
-])('catalog timeout during %s preserves partial outcome and admission bound', async (stage) => {
-  const calls: string[] = [];
-  const transport = catalogTransport(calls);
-  const gate = deferred<never>();
-  if (stage === 'dataset') transport.createDataset = () => gate.promise;
-  else transport.createDatasetItem = () => gate.promise;
-  const sink = start(transport, {
-    ...catalogConfig,
-    timeoutMs: 10,
-    shutdownTimeoutMs: 10,
-    maxInFlight: 1,
-  });
-  expect(await publish(sink, catalogPublication())).toEqual({
-    status: 'partial',
-  });
-  expect(await publish(sink, catalogPublication())).toEqual({
-    status: 'failed',
-  });
-  expect(await sink.shutdown()).toBe('uncertain');
-  gate.reject(new Error('PRIVATE LATE FAILURE'));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls).not.toContain('item');
-});
+test.each(['dataset', 'item'])(
+  'catalog timeout during %s preserves partial outcome and admission bound',
+  async (stage) => {
+    const calls: string[] = [];
+    const transport = catalogTransport(calls);
+    const gate = deferred<never>();
+    if (stage === 'dataset') transport.createDataset = () => gate.promise;
+    else transport.createDatasetItem = () => gate.promise;
+    const sink = start(transport, {
+      ...catalogConfig,
+      timeoutMs: 10,
+      shutdownTimeoutMs: 10,
+      maxInFlight: 1,
+    });
+    expect(await publish(sink, catalogPublication())).toEqual({
+      status: 'partial',
+    });
+    expect(await publish(sink, catalogPublication())).toEqual({
+      status: 'failed',
+    });
+    expect(await sink.shutdown()).toBe('uncertain');
+    gate.reject(new Error('PRIVATE LATE FAILURE'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).not.toContain('item');
+  },
+);
 
 test('rejects v3 Markdown reports without calling the transport', async () => {
   const publication = prepareMarkdownReportPublication(

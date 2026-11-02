@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import {
   ADD_TO_MY_PRIORITIES_ACTION,
   REMOVE_FROM_MY_PRIORITIES_ACTION,

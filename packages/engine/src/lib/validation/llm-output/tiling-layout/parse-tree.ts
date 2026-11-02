@@ -5,7 +5,6 @@ import {
 } from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry, LayoutWarning } from '../healed-layout.js';
-
 import type { Ast, StackFrame } from './ast.js';
 
 /**

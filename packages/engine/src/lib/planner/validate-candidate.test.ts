@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { ChartRequest, NeedsClarification } from '@maelstrom-co/protocol';
 import { isErr, isOk } from '@maelstrom-co/protocol';
+
 import {
   buildGridResponse,
   invalid,
@@ -169,23 +171,26 @@ describe('createCandidateValidator', () => {
         layout: { positions: [] },
       },
     ],
-  ])('%s is Err(ValidationError) on field "planner" naming the schema', (_case, candidate) => {
-    const { logger, entries } = spyLogger();
-    const validate = validatorFor(logger);
+  ])(
+    '%s is Err(ValidationError) on field "planner" naming the schema',
+    (_case, candidate) => {
+      const { logger, entries } = spyLogger();
+      const validate = validatorFor(logger);
 
-    const result = validate(invalid<PlannerCandidate>(candidate));
+      const result = validate(invalid<PlannerCandidate>(candidate));
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-      message: expect.stringContaining('grid response schema'),
-    });
-    expect(entries.map((e) => e.msg)).toEqual([
-      'Planner candidate does not match the response schema',
-    ]);
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message: expect.stringContaining('grid response schema'),
+      });
+      expect(entries.map((e) => e.msg)).toEqual([
+        'Planner candidate does not match the response schema',
+      ]);
+    },
+  );
 
   test('a throw while processing becomes Err(ValidationError) on field "response"', () => {
     const { logger, entries } = spyLogger();
@@ -238,35 +243,41 @@ describe('createCandidateValidator with skipReply', () => {
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a candidate without userMessage is still an Err when skipReply is %s', (_case, skipReply) => {
-    const validate = validatorFor(
-      spyLogger().logger,
-      skipReplyRequest(skipReply),
-    );
+  ])(
+    'a candidate without userMessage is still an Err when skipReply is %s',
+    (_case, skipReply) => {
+      const validate = validatorFor(
+        spyLogger().logger,
+        skipReplyRequest(skipReply),
+      );
 
-    const result = validate(withoutReply());
+      const result = validate(withoutReply());
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-    });
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+      });
+    },
+  );
 
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a blank userMessage is still a ParseError when skipReply is %s', (_case, skipReply) => {
-    const validate = validatorFor(
-      spyLogger().logger,
-      skipReplyRequest(skipReply),
-    );
+  ])(
+    'a blank userMessage is still a ParseError when skipReply is %s',
+    (_case, skipReply) => {
+      const validate = validatorFor(
+        spyLogger().logger,
+        skipReplyRequest(skipReply),
+      );
 
-    const result = validate(buildGridResponse({ userMessage: '  ' }));
+      const result = validate(buildGridResponse({ userMessage: '  ' }));
 
-    expect(isErr(result) && result.error._tag).toBe('ParseError');
-  });
+      expect(isErr(result) && result.error._tag).toBe('ParseError');
+    },
+  );
 
   test('a candidate without userMessage is accepted when skipReply is true', () => {
     const validate = validatorFor(spyLogger().logger, skipReplyRequest(true));
@@ -385,23 +396,26 @@ describe('createCandidateValidator with skipReply', () => {
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a needs-clarification result is Err(ValidationError) naming skipReply when skipReply is %s', (_case, skipReply) => {
-    const { logger, entries } = spyLogger();
-    const validate = validatorFor(logger, skipReplyRequest(skipReply));
+  ])(
+    'a needs-clarification result is Err(ValidationError) naming skipReply when skipReply is %s',
+    (_case, skipReply) => {
+      const { logger, entries } = spyLogger();
+      const validate = validatorFor(logger, skipReplyRequest(skipReply));
 
-    const result = validate(clarification);
+      const result = validate(clarification);
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-      message: expect.stringContaining('skipReply'),
-    });
-    expect(entries.map((e) => e.msg)).toEqual([
-      'Planner returned a needs-clarification result without skipReply',
-    ]);
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message: expect.stringContaining('skipReply'),
+      });
+      expect(entries.map((e) => e.msg)).toEqual([
+        'Planner returned a needs-clarification result without skipReply',
+      ]);
+    },
+  );
 
   test('a malformed needs-clarification result is Err(ValidationError) when skipReply is true', () => {
     const validate = validatorFor(spyLogger().logger, skipReplyRequest(true));

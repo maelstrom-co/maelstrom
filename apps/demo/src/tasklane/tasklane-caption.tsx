@@ -1,5 +1,6 @@
 import type { VoiceCaption } from '@maelstrom-co/client';
 import { useEffect, useState } from 'react';
+
 import { tasklaneM } from './maelstrom';
 
 const FADE_DELAY_MS = 3000;

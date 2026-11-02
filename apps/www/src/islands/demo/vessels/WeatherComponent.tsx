@@ -1,4 +1,5 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
+
 import VesselCard from './VesselCard';
 import type { weatherVessel } from './weather.vessel';
 

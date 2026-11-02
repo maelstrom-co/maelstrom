@@ -246,7 +246,7 @@ function inspectCanonicalTarFormat(archive: string) {
   }
   const members: { path: string; directory: boolean }[] = [];
   const seen = new Set<string>();
-  for (let offset = 0; offset + 512 <= bytes.length; ) {
+  for (let offset = 0; offset + 512 <= bytes.length;) {
     const header = bytes.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) {
       if (

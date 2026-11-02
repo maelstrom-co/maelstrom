@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+
 import { buildCaseInput } from './cases';
 import {
   type CandidateGrade,

@@ -4,11 +4,6 @@ import { join } from 'node:path';
 import type { TilingNode } from '@maelstrom-co/protocol';
 
 import {
-  GRADER_VERSION,
-  type GraderDimension,
-  type GraderGrade,
-} from './grader.js';
-import {
   type GradedResponse,
   type GraderLabel,
   type GraderValidation,
@@ -19,6 +14,11 @@ import {
   spearman,
   validateGrader,
 } from './grader-validate.js';
+import {
+  GRADER_VERSION,
+  type GraderDimension,
+  type GraderGrade,
+} from './grader.js';
 import type { RunRecord } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
@@ -165,24 +165,27 @@ describe('validateGrader', () => {
     ['model', { ...provenance, model: 'two' }],
     ['kind', { ...provenance, kind: 'unknown' as const }],
     ['partial', undefined],
-  ])('fails calibration for mixed %s provenance despite passing statistics', (_name, other) => {
-    const { records, grades } = fixture(10);
-    for (const changedIndex of [0, grades.length - 1]) {
-      const validation = validateGrader({
-        labels,
-        records,
-        grades: grades.map((entry, index) => ({
-          ...entry,
-          provenance: index === changedIndex ? other : provenance,
-        })),
-      });
-      expect(validation.gateRho).toBeCloseTo(1, 10);
-      expect(validation.agreement).toEqual({ agree: 10, total: 10 });
-      expect(validation.passed).toBe(false);
-      expect(validation).not.toHaveProperty('provenance');
-      expect(graderGate(validation).validated).toBe(false);
-    }
-  });
+  ])(
+    'fails calibration for mixed %s provenance despite passing statistics',
+    (_name, other) => {
+      const { records, grades } = fixture(10);
+      for (const changedIndex of [0, grades.length - 1]) {
+        const validation = validateGrader({
+          labels,
+          records,
+          grades: grades.map((entry, index) => ({
+            ...entry,
+            provenance: index === changedIndex ? other : provenance,
+          })),
+        });
+        expect(validation.gateRho).toBeCloseTo(1, 10);
+        expect(validation.agreement).toEqual({ agree: 10, total: 10 });
+        expect(validation.passed).toBe(false);
+        expect(validation).not.toHaveProperty('provenance');
+        expect(graderGate(validation).validated).toBe(false);
+      }
+    },
+  );
 
   test('agreement-only contributors cannot mix provenance with labelled grades', () => {
     const { records, grades } = fixture(10);

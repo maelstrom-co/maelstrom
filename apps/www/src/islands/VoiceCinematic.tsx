@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import {
   getCurrentKeyframe,
   getCurrentKeyframeIndex,
@@ -368,7 +369,7 @@ function DashboardMockup({
       const t = setTimeout(() => setExitingPanels([]), 800);
       return () => clearTimeout(t);
     }
-  // oxlint-disable-next-line react/exhaustive-deps -- The layout transition controls exit animation; derived identifiers follow that layout.
+    // oxlint-disable-next-line react/exhaustive-deps -- The layout transition controls exit animation; derived identifiers follow that layout.
   }, [displayLayout]);
 
   const containerW = 100; // percentage

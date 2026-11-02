@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import type { DemoLocation } from '../lib/locations';
 import type { RouteResult } from '../lib/osrm';
 

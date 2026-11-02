@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from 'bun:test';
+
 import type {
   IntentSnapshot,
   IntentSubmission,
@@ -11,6 +12,7 @@ import type {
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render } from '@testing-library/react';
 import { memo, useState } from 'react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import type { MaelstromState } from './maelstrom-state-types.js';

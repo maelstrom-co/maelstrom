@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { Config } from '../config/config.ts';
 import { commit } from '../fixtures/commit.ts';
 import { CommitPayloadError } from './commit-payload-error.ts';

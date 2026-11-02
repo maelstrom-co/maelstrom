@@ -133,13 +133,16 @@ describe('completeLayoutParallel', () => {
       ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:tasks-main'],
     ],
     ['is malformed', ['V:1,1,1', 'ID:calendar-main']],
-  ])('on a hand-off, defers invalid_layout when the tree %s', async (_name, tree) => {
-    mockChat
-      .mockResolvedValueOnce({ userMessage: 'Done.' })
-      .mockResolvedValueOnce({ tree });
-    const result = await run(handOff(hidden()));
-    expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
-  });
+  ])(
+    'on a hand-off, defers invalid_layout when the tree %s',
+    async (_name, tree) => {
+      mockChat
+        .mockResolvedValueOnce({ userMessage: 'Done.' })
+        .mockResolvedValueOnce({ tree });
+      const result = await run(handOff(hidden()));
+      expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+    },
+  );
 
   test('on a hand-off, rejects a layout reply that omits the required tree', async () => {
     mockChat
@@ -189,21 +192,24 @@ describe('completeLayoutParallel', () => {
   test.each([
     ['message', 0, 1],
     ['layout', 1, 0],
-  ])('a failed %s call aborts the other and returns its own ProviderError', async (_name, failing, sibling) => {
-    let started = 0;
-    mockChat.mockImplementation((options) => {
-      const index = started++;
-      if (index === failing) return Promise.reject(new Error('rate limited'));
-      return new Promise((_resolve, reject) => {
-        options.abortController.signal.addEventListener('abort', () =>
-          reject(new DOMException('aborted', 'AbortError')),
-        );
+  ])(
+    'a failed %s call aborts the other and returns its own ProviderError',
+    async (_name, failing, sibling) => {
+      let started = 0;
+      mockChat.mockImplementation((options) => {
+        const index = started++;
+        if (index === failing) return Promise.reject(new Error('rate limited'));
+        return new Promise((_resolve, reject) => {
+          options.abortController.signal.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
+        });
       });
-    });
-    const result = await run(handOff(hidden()));
-    expect(chatCall(sibling).abortController.signal.aborted).toBe(true);
-    expect(errorTagOf(result)).toBe('ProviderError');
-  });
+      const result = await run(handOff(hidden()));
+      expect(chatCall(sibling).abortController.signal.aborted).toBe(true);
+      expect(errorTagOf(result)).toBe('ProviderError');
+    },
+  );
 
   test('a null fill defers param_unfilled, naming the parameter', async () => {
     const layoutPlan = completionPlan(makeRequest('x'), {

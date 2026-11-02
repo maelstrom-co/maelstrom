@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+
 import { workspaceRoot } from 'nx/src/utils/workspace-root';
 
 type AuthorIdentity = { name: string; email: string };

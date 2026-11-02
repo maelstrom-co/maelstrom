@@ -83,20 +83,20 @@ describe('buildLocalEngine', () => {
     ).toThrow(/MAELSTROM_PLANNER must be llm, jev or jev-composed-pairs/);
   });
 
-  it.each([
-    'jev',
-    'jev-composed-pairs',
-  ])('%s without the TypeSafe key names its planner value', (planner) => {
-    expect(() =>
-      quietly(() =>
-        buildLocalEngine({
-          MAELSTROM_PLANNER: planner,
-          OPENAI_API_KEY: OPENAI_KEY,
-          JEV_MODEL: 'jev-1.13.0',
-        }),
-      ),
-    ).toThrow(`MAELSTROM_PLANNER=${planner} requires TYPESAFE_API_KEY.`);
-  });
+  it.each(['jev', 'jev-composed-pairs'])(
+    '%s without the TypeSafe key names its planner value',
+    (planner) => {
+      expect(() =>
+        quietly(() =>
+          buildLocalEngine({
+            MAELSTROM_PLANNER: planner,
+            OPENAI_API_KEY: OPENAI_KEY,
+            JEV_MODEL: 'jev-1.13.0',
+          }),
+        ),
+      ).toThrow(`MAELSTROM_PLANNER=${planner} requires TYPESAFE_API_KEY.`);
+    },
+  );
 
   it('jev builds the POC planner', () => {
     createEngineMock.mockReturnValue(stubEngine());
@@ -144,19 +144,22 @@ describe('buildLocalEngine', () => {
       { TYPESAFE_API_KEY: TYPESAFE_KEY, JEV_MODEL: 'jev-1.13.0' },
       /OPENAI_API_KEY/,
     ],
-  ])('jev without %s throws without echoing a secret', (_name, env, pattern) => {
-    let caught: unknown;
-    try {
-      quietly(() => buildLocalEngine({ MAELSTROM_PLANNER: 'jev', ...env }));
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    const message = (caught as Error).message;
-    expect(message).toMatch(pattern);
-    expect(message).not.toContain(OPENAI_KEY);
-    expect(message).not.toContain(TYPESAFE_KEY);
-  });
+  ])(
+    'jev without %s throws without echoing a secret',
+    (_name, env, pattern) => {
+      let caught: unknown;
+      try {
+        quietly(() => buildLocalEngine({ MAELSTROM_PLANNER: 'jev', ...env }));
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      const message = (caught as Error).message;
+      expect(message).toMatch(pattern);
+      expect(message).not.toContain(OPENAI_KEY);
+      expect(message).not.toContain(TYPESAFE_KEY);
+    },
+  );
 
   it('redacts secrets from a jev engine construction failure', () => {
     createEngineMock.mockImplementation(() => {

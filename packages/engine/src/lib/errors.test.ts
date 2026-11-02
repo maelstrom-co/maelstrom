@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { z } from 'zod';
+
 import type { EngineError } from './errors.js';
 import {
   cancellationError,
@@ -108,16 +110,19 @@ describe('Error constructors', () => {
     ['getLLMContext', 'get_llm_context'],
     ['clear', 'clear'],
     ['leaderPipeline', 'leader_pipeline'],
-  ] as const)('historyError.%s tags operation as %s', (factoryName, expectedOperation) => {
-    const factory = historyError[factoryName];
-    const cause = new Error('store offline');
-    const e = factory('boom', cause);
-    expect(e._tag).toBe('HistoryError');
-    expect(e.message).toBe('boom');
-    expect(e.operation).toBe(expectedOperation);
-    expect(e.cause).toBe(cause);
-    expect(e.stack).toBeString();
-  });
+  ] as const)(
+    'historyError.%s tags operation as %s',
+    (factoryName, expectedOperation) => {
+      const factory = historyError[factoryName];
+      const cause = new Error('store offline');
+      const e = factory('boom', cause);
+      expect(e._tag).toBe('HistoryError');
+      expect(e.message).toBe('boom');
+      expect(e.operation).toBe(expectedOperation);
+      expect(e.cause).toBe(cause);
+      expect(e.stack).toBeString();
+    },
+  );
 });
 
 // One escape hatch (this single cast) instead of one per call site — keeps

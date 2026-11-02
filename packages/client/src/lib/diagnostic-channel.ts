@@ -8,6 +8,7 @@ import type {
   TelemetryMetadataObserver,
 } from '@maelstrom-co/telemetry/integration';
 import { MetadataObservers } from '@maelstrom-co/telemetry/integration';
+
 import { notifyObserver } from './utils/notify-observer.js';
 
 /** Lazy content stays unevaluated unless an observer explicitly records it. */

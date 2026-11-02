@@ -1,4 +1,5 @@
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
+
 import { identity, identityAvailability } from './diagnostic-identity.js';
 import type { RequestStatus, RequestTrace } from './panel-model.js';
 import { requestTerminalStatus, responseSource } from './request-lifecycle.js';

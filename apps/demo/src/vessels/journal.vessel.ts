@@ -1,4 +1,5 @@
 import { vessel } from '@maelstrom-co/react';
+
 import { JournalSkeleton } from './journal.skeleton';
 import { journalVessel } from './journal.vessel.def';
 

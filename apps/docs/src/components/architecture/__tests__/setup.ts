@@ -1,4 +1,5 @@
 import { afterEach } from 'bun:test';
+
 import { cleanup } from '@testing-library/react';
 
 // React 19 requires this flag for act()-based testing utilities.

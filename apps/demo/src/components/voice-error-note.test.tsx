@@ -2,6 +2,7 @@
 
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { selectVoiceProvider } from '../lib/voice-provider';
@@ -115,20 +116,23 @@ describe('VoiceErrorNote', () => {
       429,
       "OpenAI rate-limited voice setup (HTTP 429). Check the API project's usage limits, then retry.",
     ],
-  ] as const)('shows actionable OpenAI setup status %s', async (status, expected) => {
-    const { container, session } = renderNote();
-    session.lastError = new RealtimeVoiceError(
-      'CONNECTION_FAILED',
-      `OpenAI realtime call setup failed with status ${status}`,
-    );
-    await act(async () => {
-      session.emitState('error');
-    });
+  ] as const)(
+    'shows actionable OpenAI setup status %s',
+    async (status, expected) => {
+      const { container, session } = renderNote();
+      session.lastError = new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        `OpenAI realtime call setup failed with status ${status}`,
+      );
+      await act(async () => {
+        session.emitState('error');
+      });
 
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      expected,
-    );
-  });
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        expected,
+      );
+    },
+  );
 
   it('falls back to a generic message for a non-RealtimeVoiceError', async () => {
     const { container, session } = renderNote();

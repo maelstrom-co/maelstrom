@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   makeGridRequest,
   makeTilingRequest,
 } from '@maelstrom-co/engine/_testing';
 import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
+
 import {
   buildPrompt,
   buildSystemPrompt,

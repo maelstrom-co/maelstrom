@@ -1,5 +1,6 @@
 import { WAITLIST_TURNSTILE_ACTION } from '@maelstrom-co/platform-infra/waitlist-contract';
 import { useEffect, useRef, useState } from 'react';
+
 import { WAITLIST_TURNSTILE_SITE_KEY } from '../data/turnstile-site-key';
 import { captureWebsiteEvent } from '../lib/posthog';
 import { submitWaitlist } from '../lib/waitlist';

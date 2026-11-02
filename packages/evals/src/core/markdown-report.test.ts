@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+
 import {
   createMarkdownFileSink,
   writeMarkdownReport,
@@ -166,85 +167,85 @@ test.each([
   { operation: 'rename', cleanupFails: false },
   { operation: 'write', cleanupFails: true },
   { operation: 'rename', cleanupFails: true },
-])('preserves the target and original $operation error when cleanupFails=$cleanupFails', async ({
-  operation,
-  cleanupFails,
-}) => {
-  const out = await directory();
-  const path = join(out, 'report.md');
-  await fs.writeFile(path, 'existing report');
-  const failure = new Error(`${operation} failed`);
-  const originalWriteFile = fs.writeFile;
-  spyOn(fs, 'writeFile').mockImplementation(async (file, data, settings) => {
-    await originalWriteFile(
-      file,
-      operation === 'write' ? 'partial report' : data,
-      settings,
-    );
+])(
+  'preserves the target and original $operation error when cleanupFails=$cleanupFails',
+  async ({ operation, cleanupFails }) => {
+    const out = await directory();
+    const path = join(out, 'report.md');
+    await fs.writeFile(path, 'existing report');
+    const failure = new Error(`${operation} failed`);
+    const originalWriteFile = fs.writeFile;
+    spyOn(fs, 'writeFile').mockImplementation(async (file, data, settings) => {
+      await originalWriteFile(
+        file,
+        operation === 'write' ? 'partial report' : data,
+        settings,
+      );
+      expect(await readFile(path, 'utf8')).toBe('existing report');
+      if (operation === 'write') throw failure;
+    });
+    const rename = spyOn(fs, 'rename').mockRejectedValue(failure);
+    const remove = spyOn(fs, 'rm');
+    if (cleanupFails) remove.mockRejectedValue(new Error('cleanup failed'));
+    const sink = createMarkdownFileSink({
+      path,
+      destinationId: options.destinationId,
+      maxBytes: 4096,
+    });
+    await expect(
+      sink.publish(
+        prepareMarkdownReportPublication(report, options),
+        new AbortController().signal,
+      ),
+    ).rejects.toBe(failure);
     expect(await readFile(path, 'utf8')).toBe('existing report');
-    if (operation === 'write') throw failure;
-  });
-  const rename = spyOn(fs, 'rename').mockRejectedValue(failure);
-  const remove = spyOn(fs, 'rm');
-  if (cleanupFails) remove.mockRejectedValue(new Error('cleanup failed'));
-  const sink = createMarkdownFileSink({
-    path,
-    destinationId: options.destinationId,
-    maxBytes: 4096,
-  });
-  await expect(
-    sink.publish(
-      prepareMarkdownReportPublication(report, options),
-      new AbortController().signal,
-    ),
-  ).rejects.toBe(failure);
-  expect(await readFile(path, 'utf8')).toBe('existing report');
-  expect(rename).toHaveBeenCalledTimes(operation === 'write' ? 0 : 1);
-  expect(remove).toHaveBeenCalledTimes(1);
-  const remaining = await readdir(out);
-  if (cleanupFails) {
-    expect(remaining).toHaveLength(2);
-    expect(remaining).toContain('report.md');
-  } else {
-    expect(remaining).toEqual(['report.md']);
-  }
-});
+    expect(rename).toHaveBeenCalledTimes(operation === 'write' ? 0 : 1);
+    expect(remove).toHaveBeenCalledTimes(1);
+    const remaining = await readdir(out);
+    if (cleanupFails) {
+      expect(remaining).toHaveLength(2);
+      expect(remaining).toContain('report.md');
+    } else {
+      expect(remaining).toEqual(['report.md']);
+    }
+  },
+);
 
-test.each([
-  'during',
-  'after',
-])('aborting %s the temporary write leaves the target intact and removes the temporary file', async (timing) => {
-  const out = await directory();
-  const path = join(out, 'report.md');
-  await fs.writeFile(path, 'existing report');
-  const controller = new AbortController();
-  const failure = new Error('write aborted');
-  const originalWriteFile = fs.writeFile;
-  spyOn(fs, 'writeFile').mockImplementation(async (file, data, settings) => {
-    await originalWriteFile(
-      file,
-      timing === 'during' ? 'partial report' : data,
-      settings,
-    );
-    controller.abort(failure);
-    if (timing === 'during') controller.signal.throwIfAborted();
-  });
-  const rename = spyOn(fs, 'rename');
-  const sink = createMarkdownFileSink({
-    path,
-    destinationId: options.destinationId,
-    maxBytes: 4096,
-  });
-  await expect(
-    sink.publish(
-      prepareMarkdownReportPublication(report, options),
-      controller.signal,
-    ),
-  ).rejects.toBe(failure);
-  expect(rename).not.toHaveBeenCalled();
-  expect(await readFile(path, 'utf8')).toBe('existing report');
-  expect(await readdir(out)).toEqual(['report.md']);
-});
+test.each(['during', 'after'])(
+  'aborting %s the temporary write leaves the target intact and removes the temporary file',
+  async (timing) => {
+    const out = await directory();
+    const path = join(out, 'report.md');
+    await fs.writeFile(path, 'existing report');
+    const controller = new AbortController();
+    const failure = new Error('write aborted');
+    const originalWriteFile = fs.writeFile;
+    spyOn(fs, 'writeFile').mockImplementation(async (file, data, settings) => {
+      await originalWriteFile(
+        file,
+        timing === 'during' ? 'partial report' : data,
+        settings,
+      );
+      controller.abort(failure);
+      if (timing === 'during') controller.signal.throwIfAborted();
+    });
+    const rename = spyOn(fs, 'rename');
+    const sink = createMarkdownFileSink({
+      path,
+      destinationId: options.destinationId,
+      maxBytes: 4096,
+    });
+    await expect(
+      sink.publish(
+        prepareMarkdownReportPublication(report, options),
+        controller.signal,
+      ),
+    ).rejects.toBe(failure);
+    expect(rename).not.toHaveBeenCalled();
+    expect(await readFile(path, 'utf8')).toBe('existing report');
+    expect(await readdir(out)).toEqual(['report.md']);
+  },
+);
 
 test('sink rejects unsupported, tampered, oversized, misdirected and aborted publications before writing', async () => {
   const path = join(await directory(), 'report.md');

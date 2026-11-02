@@ -19,6 +19,7 @@ import {
   type TilingNode,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+
 import { checkArrangement } from '../../../core/predicates.js';
 import type { Scenario } from '../../../core/scenarios.js';
 import { scoreLayout } from '../../../core/score.js';

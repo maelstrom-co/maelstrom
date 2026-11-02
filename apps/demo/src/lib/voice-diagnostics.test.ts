@@ -1,5 +1,6 @@
 import { ToolCallId } from '@maelstrom-co/protocol';
 import { expect, it, vi } from 'vitest';
+
 import { projectLiveTransport, VoiceDiagnostics } from './voice-diagnostics';
 
 it('does not retain unbounded or content-shaped provider session identifiers', () => {

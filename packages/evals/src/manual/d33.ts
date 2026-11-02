@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   createEngine,
   createInMemoryStore,
@@ -18,6 +19,7 @@ import {
   VesselSchema,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   labsStateResetSyntheticExpectationsSchema,
   labsStateResetSyntheticInputsSchema,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 const items = [

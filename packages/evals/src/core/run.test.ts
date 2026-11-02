@@ -2,8 +2,10 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { isOk, type MaelstromResponse, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import {
   type FakeCall,
   type FakeScript,

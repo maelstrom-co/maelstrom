@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+
 import { MaelstromError } from '@maelstrom-co/protocol';
+
 import { RealtimeVoiceError } from './realtime-voice-error.js';
 
 describe('RealtimeVoiceError', () => {

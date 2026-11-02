@@ -7,6 +7,7 @@ import {
   spyOn,
   test,
 } from 'bun:test';
+
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   ActionName,
@@ -28,6 +29,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
@@ -471,28 +473,31 @@ describe('WebSocketConnector assistant message', () => {
     test.each([
       ['invalid_envelope', 'invalid envelope'],
       ['UnsupportedMessageType', 'unsupported message type'],
-    ])('rejects an old server %s engine.error instead of treating it as an acknowledgement', async (code, error) => {
-      const connector = new WebSocketConnector({ url: 'ws://test' });
-      const ws = await connectAndOpen(connector);
-      const promise = connector.addAssistantMessageAcknowledged({
-        id: MessageId('a-1'),
-        message: 'hello',
-      });
-      emitServer(
-        ws,
-        EngineErrorMessage({
-          requestId: MessageId('a-1'),
-          error,
+    ])(
+      'rejects an old server %s engine.error instead of treating it as an acknowledgement',
+      async (code, error) => {
+        const connector = new WebSocketConnector({ url: 'ws://test' });
+        const ws = await connectAndOpen(connector);
+        const promise = connector.addAssistantMessageAcknowledged({
+          id: MessageId('a-1'),
+          message: 'hello',
+        });
+        emitServer(
+          ws,
+          EngineErrorMessage({
+            requestId: MessageId('a-1'),
+            error,
+            code,
+          }),
+        );
+        await expect(promise).rejects.toMatchObject({
+          name: 'WireEngineError',
+          message: error,
           code,
-        }),
-      );
-      await expect(promise).rejects.toMatchObject({
-        name: 'WireEngineError',
-        message: error,
-        code,
-      });
-      await connector.disconnect();
-    });
+        });
+        await connector.disconnect();
+      },
+    );
 
     test('rejects on close', async () => {
       const connector = new WebSocketConnector({ url: 'ws://test' });
@@ -1061,20 +1066,18 @@ describe('WebSocketConnector heartbeatIntervalMs validation', () => {
   // the only call site hardcodes 30_000 or undefined — but an external
   // consumer could, so the constructor rejects it outright rather than
   // flooding pings at the server or silently never sending any.
-  test.each([
-    0,
-    -1,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('throws when heartbeatIntervalMs is %p', (value) => {
-    expect(
-      () =>
-        new WebSocketConnector({
-          url: 'ws://test',
-          heartbeatIntervalMs: value,
-        }),
-    ).toThrow(/heartbeatIntervalMs/);
-  });
+  test.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'throws when heartbeatIntervalMs is %p',
+    (value) => {
+      expect(
+        () =>
+          new WebSocketConnector({
+            url: 'ws://test',
+            heartbeatIntervalMs: value,
+          }),
+      ).toThrow(/heartbeatIntervalMs/);
+    },
+  );
 
   test('accepts a valid positive heartbeatIntervalMs', () => {
     expect(

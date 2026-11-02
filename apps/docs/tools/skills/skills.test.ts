@@ -10,8 +10,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+
 import { unzipSync, zipSync } from 'fflate';
 import { load } from 'js-yaml';
+
 import { skillTasks } from '../../src/lib/skill-onboarding';
 import { CANONICAL_VOICE_DOCUMENTS, createSkillsBundle } from './bundle';
 import { installSkillsBundle, removeSkillsBundle } from './lifecycle';
@@ -298,49 +300,54 @@ describe('portable agent skill bundle', () => {
       expect(usedTargets.has(reference)).toBe(true);
   });
 
-  test.each(
-    expectedProcedures,
-  )('%s retains its guidance when an installer copies only that skill directory', async (name) => {
-    const projectRoot = await mkdtemp(
-      join(tmpdir(), 'maelstrom-individual-skill-'),
-    );
-    const installedRoot = join(projectRoot, '.agents/skills', name);
-    try {
-      const archive = await generatedBundle();
-      const prefix = `apps/docs/skills/${name}/`;
-      for (const [path, contents] of Object.entries(archive)) {
-        if (!path.startsWith(prefix)) continue;
-        const destination = join(installedRoot, path.slice(prefix.length));
-        await mkdir(dirname(destination), { recursive: true });
-        await writeFile(destination, contents);
-      }
-
-      const files = await markdownFiles(installedRoot);
-      expect(files.length).toBeGreaterThan(1);
-      for (const file of files) {
-        const source = await readFile(file, 'utf8');
-        for (const match of source.matchAll(/\]\(([^)]+)\)/g)) {
-          const target = match[1];
-          if (/^(?:https?:|mailto:|#)/.test(target)) continue;
-          const destination = resolve(dirname(file), target.split('#')[0]);
-          expect(destination.startsWith(`${installedRoot}${sep}`)).toBe(true);
-          expect(await readFile(destination, 'utf8')).not.toBe('');
+  test.each(expectedProcedures)(
+    '%s retains its guidance when an installer copies only that skill directory',
+    async (name) => {
+      const projectRoot = await mkdtemp(
+        join(tmpdir(), 'maelstrom-individual-skill-'),
+      );
+      const installedRoot = join(projectRoot, '.agents/skills', name);
+      try {
+        const archive = await generatedBundle();
+        const prefix = `apps/docs/skills/${name}/`;
+        for (const [path, contents] of Object.entries(archive)) {
+          if (!path.startsWith(prefix)) continue;
+          const destination = join(installedRoot, path.slice(prefix.length));
+          await mkdir(dirname(destination), { recursive: true });
+          await writeFile(destination, contents);
         }
-      }
 
-      if (name === 'maelstrom-voice-integration') {
-        for (const document of CANONICAL_VOICE_DOCUMENTS) {
-          expect(
-            await readFile(
-              join(installedRoot, 'references/canonical-voice/docs', document),
-            ),
-          ).toEqual(await readFile(join(docsRoot, document)));
+        const files = await markdownFiles(installedRoot);
+        expect(files.length).toBeGreaterThan(1);
+        for (const file of files) {
+          const source = await readFile(file, 'utf8');
+          for (const match of source.matchAll(/\]\(([^)]+)\)/g)) {
+            const target = match[1];
+            if (/^(?:https?:|mailto:|#)/.test(target)) continue;
+            const destination = resolve(dirname(file), target.split('#')[0]);
+            expect(destination.startsWith(`${installedRoot}${sep}`)).toBe(true);
+            expect(await readFile(destination, 'utf8')).not.toBe('');
+          }
         }
+
+        if (name === 'maelstrom-voice-integration') {
+          for (const document of CANONICAL_VOICE_DOCUMENTS) {
+            expect(
+              await readFile(
+                join(
+                  installedRoot,
+                  'references/canonical-voice/docs',
+                  document,
+                ),
+              ),
+            ).toEqual(await readFile(join(docsRoot, document)));
+          }
+        }
+      } finally {
+        await rm(projectRoot, { recursive: true, force: true });
       }
-    } finally {
-      await rm(projectRoot, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   test('docs page links to the build-generated bundle and labels GitHub links as browsing only', async () => {
     const docsPage = await readFile(

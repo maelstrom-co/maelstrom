@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { InstanceId, type TilingNode } from '@maelstrom-co/protocol';
+
 import { rankLayoutCandidates } from './layout-composed-pairs-kept-layouts.js';
 import {
   arrangementRelation,
@@ -43,17 +44,20 @@ describe('enumerateArrangements', () => {
     [2, 4],
     [3, 36],
     [5, 3360],
-  ])('enumerates every distinct arrangement of %i Instances: %i', (n, count) => {
-    const ids = Array.from({ length: n }, (_, index) =>
-      InstanceId(`widget-${index}`),
-    );
-    const arrangements = enumerateArrangements(ids);
-    expect(arrangements).toHaveLength(count);
-    expect(
-      new Set(arrangements.map((arrangement) => JSON.stringify(arrangement)))
-        .size,
-    ).toBe(count);
-  });
+  ])(
+    'enumerates every distinct arrangement of %i Instances: %i',
+    (n, count) => {
+      const ids = Array.from({ length: n }, (_, index) =>
+        InstanceId(`widget-${index}`),
+      );
+      const arrangements = enumerateArrangements(ids);
+      expect(arrangements).toHaveLength(count);
+      expect(
+        new Set(arrangements.map((arrangement) => JSON.stringify(arrangement)))
+          .size,
+      ).toBe(count);
+    },
+  );
 
   test('enumerates nothing for fewer than two Instances', () => {
     expect(enumerateArrangements([calendar])).toEqual([]);

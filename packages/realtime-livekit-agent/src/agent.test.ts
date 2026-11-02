@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import type { JobContext } from '@livekit/agents';
 
 // Stub the LiveKit SDK + native plugins so importing the agent module never
@@ -1123,50 +1124,53 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       },
     ],
     ['never settles', () => new Promise<void>(() => {})],
-  ])('completes fail-closed cleanup when the queue-failure callback %s', async (_name, callback) => {
-    const rejections = await captureUnhandledRejections(async () => {
-      let callbackCount = 0;
-      const harness = createRecognitionHarness({
-        onHandlerRemoval: () => {
-          callbackCount++;
-          return callback();
-        },
+  ])(
+    'completes fail-closed cleanup when the queue-failure callback %s',
+    async (_name, callback) => {
+      const rejections = await captureUnhandledRejections(async () => {
+        let callbackCount = 0;
+        const harness = createRecognitionHarness({
+          onHandlerRemoval: () => {
+            callbackCount++;
+            return callback();
+          },
+        });
+        await waitFor(
+          () => harness.streams.length === 1,
+          'initial speech stream',
+        );
+        const active = harness.endTurn();
+        harness.audio.push('retained-before-overflow');
+        await waitFor(
+          () => harness.audio.state.yieldCount === 1,
+          'retained frame',
+        );
+        await nextEventLoopTurn();
+        const queued = Array.from({ length: 4 }, () => harness.endTurn());
+        const overflow = harness.endTurn();
+        const expected = new SpeechTurnQueueOverflowError(
+          'successor-segment-limit',
+        );
+
+        await expect(overflow).rejects.toEqual(expected);
+        await expect(active).rejects.toEqual(expected);
+        for (const boundary of queued) {
+          await expect(boundary).rejects.toEqual(expected);
+        }
+        expect(callbackCount).toBe(1);
+        expect(harness.streams[0].state.closeCount).toBe(1);
+        expect(harness.streams[0].state.pushed).toEqual([]);
+        expect(harness.streams).toHaveLength(1);
+
+        harness.audio.push('discarded-after-overflow');
+        await nextEventLoopTurn();
+        expect(harness.streams[0].state.pushed).toEqual([]);
+        harness.audio.end();
+        await harness.run;
       });
-      await waitFor(
-        () => harness.streams.length === 1,
-        'initial speech stream',
-      );
-      const active = harness.endTurn();
-      harness.audio.push('retained-before-overflow');
-      await waitFor(
-        () => harness.audio.state.yieldCount === 1,
-        'retained frame',
-      );
-      await nextEventLoopTurn();
-      const queued = Array.from({ length: 4 }, () => harness.endTurn());
-      const overflow = harness.endTurn();
-      const expected = new SpeechTurnQueueOverflowError(
-        'successor-segment-limit',
-      );
-
-      await expect(overflow).rejects.toEqual(expected);
-      await expect(active).rejects.toEqual(expected);
-      for (const boundary of queued) {
-        await expect(boundary).rejects.toEqual(expected);
-      }
-      expect(callbackCount).toBe(1);
-      expect(harness.streams[0].state.closeCount).toBe(1);
-      expect(harness.streams[0].state.pushed).toEqual([]);
-      expect(harness.streams).toHaveLength(1);
-
-      harness.audio.push('discarded-after-overflow');
-      await nextEventLoopTurn();
-      expect(harness.streams[0].state.pushed).toEqual([]);
-      harness.audio.end();
-      await harness.run;
-    });
-    expect(rejections).toEqual([]);
-  });
+      expect(rejections).toEqual([]);
+    },
+  );
 
   test('fails closed at pending frame 501 in one segment', async () => {
     const harness = createRecognitionHarness();
@@ -1263,19 +1267,25 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       'non-positive samples per channel',
       audioFrame('bad', { samplesPerChannel: 0 }),
     ],
-  ])('fails closed for %s without retaining the frame', async (_name, frame) => {
-    const harness = createRecognitionHarness();
-    await waitFor(() => harness.streams.length === 1, 'initial speech stream');
-    const active = harness.endTurn();
-    harness.audio.push(frame);
-    await expect(active).rejects.toEqual(
-      new SpeechTurnQueueOverflowError('invalid-frame-metadata'),
-    );
-    expect(harness.streams[0].state.closeCount).toBe(1);
-    expect(harness.streams[0].state.pushed).toEqual([]);
-    harness.audio.end();
-    await harness.run;
-  });
+  ])(
+    'fails closed for %s without retaining the frame',
+    async (_name, frame) => {
+      const harness = createRecognitionHarness();
+      await waitFor(
+        () => harness.streams.length === 1,
+        'initial speech stream',
+      );
+      const active = harness.endTurn();
+      harness.audio.push(frame);
+      await expect(active).rejects.toEqual(
+        new SpeechTurnQueueOverflowError('invalid-frame-metadata'),
+      );
+      expect(harness.streams[0].state.closeCount).toBe(1);
+      expect(harness.streams[0].state.pushed).toEqual([]);
+      harness.audio.end();
+      await harness.run;
+    },
+  );
 
   test('does not create a successor when track teardown starts during drain', async () => {
     const harness = createRecognitionHarness();
@@ -1309,29 +1319,32 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       },
     ],
     ['never settles', () => new Promise<void>(() => {})],
-  ])('completes normal EOF cleanup when handler removal %s', async (_name, remove) => {
-    const rejections = await captureUnhandledRejections(async () => {
-      let removalCount = 0;
-      const harness = createRecognitionHarness({
-        onHandlerRemoval: () => {
-          removalCount++;
-          return remove();
-        },
+  ])(
+    'completes normal EOF cleanup when handler removal %s',
+    async (_name, remove) => {
+      const rejections = await captureUnhandledRejections(async () => {
+        let removalCount = 0;
+        const harness = createRecognitionHarness({
+          onHandlerRemoval: () => {
+            removalCount++;
+            return remove();
+          },
+        });
+        await waitFor(
+          () => harness.streams.length === 1,
+          'initial speech stream',
+        );
+
+        harness.audio.end();
+        harness.streams[0].finish();
+        await harness.run;
+
+        expect(removalCount).toBe(1);
+        expect(harness.streams[0].state.closeCount).toBe(1);
       });
-      await waitFor(
-        () => harness.streams.length === 1,
-        'initial speech stream',
-      );
-
-      harness.audio.end();
-      harness.streams[0].finish();
-      await harness.run;
-
-      expect(removalCount).toBe(1);
-      expect(harness.streams[0].state.closeCount).toBe(1);
-    });
-    expect(rejections).toEqual([]);
-  });
+      expect(rejections).toEqual([]);
+    },
+  );
 
   test('preserves an audio iterator failure when handler removal also fails', async () => {
     const rejections = await captureUnhandledRejections(async () => {

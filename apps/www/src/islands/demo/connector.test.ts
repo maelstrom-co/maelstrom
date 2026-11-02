@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import type { ChartRequestMessage, TilingLayout } from '@maelstrom-co/protocol';
 import {
   MessageId,
@@ -7,6 +8,7 @@ import {
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { ScriptedConnector } from '../shared/ScriptedConnector';
 import { createDemoConnector, DEMO_STEPS } from './connector';
 

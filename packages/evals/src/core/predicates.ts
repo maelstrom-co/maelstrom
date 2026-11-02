@@ -4,6 +4,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { type LeafRect, treeRects } from './geometry.js';
 
 /** `x` runs left to right, `y` top to bottom. */

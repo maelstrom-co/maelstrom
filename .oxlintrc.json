@@ -292,7 +292,9 @@
         "apps/www/src/islands/demo/vessels/CalendarComponent.tsx",
         "apps/www/src/islands/demo/vessels/WeatherComponent.tsx",
         "apps/www/src/islands/demo/vessels/TasksComponent.tsx",
-        "apps/www/src/islands/VoiceShowcase.tsx"
+        "apps/www/src/islands/VoiceShowcase.tsx",
+        "apps/demo/src/components/action-receipt-line.tsx",
+        "apps/demo/src/tasklane/vessels/source-feedback.component.tsx"
       ],
       "rules": {
         "react/no-array-index-key": "off"

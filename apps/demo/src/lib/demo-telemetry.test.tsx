@@ -4,6 +4,7 @@ import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+
 import { createDemoTelemetry } from './demo-telemetry';
 
 const owners: Array<ReturnType<typeof createDemoTelemetry>> = [];

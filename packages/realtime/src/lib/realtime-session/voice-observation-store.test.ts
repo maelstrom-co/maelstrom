@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'bun:test';
+
 import type {
   TimedTranscriptFragment,
   VoiceApplicationWork,
   VoiceMediaObservation,
 } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
+
 import {
   observationStoreSubscriber,
   VoiceObservationStore,

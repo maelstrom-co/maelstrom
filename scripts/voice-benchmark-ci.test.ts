@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import {
   readVoiceBenchmarkContext,
   renderDeployedComment,
@@ -1569,8 +1570,7 @@ describe('explicit paid workflow attempts', () => {
     ]) {
       const f = withArchive();
       const claim = { ...parseVoiceClaim(f.state.comment!.body), archive };
-      f.state.comment!.body =
-        `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify(claim)} -->`;
+      f.state.comment!.body = `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify(claim)} -->`;
       await expect(execute(f)).rejects.toThrow();
       expect(f.state.launches).toBe(0);
     }

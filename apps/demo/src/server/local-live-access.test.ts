@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+
 import { createLocalLiveAccess } from './local-live-access';
 
 const password = 'fixture-local-password-not-a-provider-key';

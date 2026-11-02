@@ -4,6 +4,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { treeRects } from './geometry.js';
 import type { Arranged } from './predicates.js';
 

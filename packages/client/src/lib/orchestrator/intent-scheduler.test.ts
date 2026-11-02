@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import { IntentScheduler } from './intent-scheduler.js';
 import type {

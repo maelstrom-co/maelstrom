@@ -1,13 +1,14 @@
 import { expect, test } from 'bun:test';
+
 import { scriptedJudge } from './__test-helpers__/fake-planner.js';
 import { silentLogger } from './__test-helpers__/fixtures.js';
 import { GRADER_VERSION, gradeResponse } from './grader.js';
-import { judgeEvidence, judgeProvenance } from './judge.js';
 import {
   judgeFromGrader,
   renderJudgeSummary,
   summarizeJudges,
 } from './judge-result.js';
+import { judgeEvidence, judgeProvenance } from './judge.js';
 import type { Judge } from './plugin.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
@@ -70,23 +71,26 @@ test.each([
   ['grader/provider_failure', 'provider_failure'],
   ['grader/exception: PRIVATE provider error', 'provider_failure'],
   ['PRIVATE unknown failure', 'provider_failure'],
-])('both judge conversion paths map %s to %s without raw errors', async (failure, reason) => {
-  const direct = await judgeEvidence(
-    scriptedJudge(() => ({ failure, calls: [] })),
-    'stage_output',
-    {},
-    context,
-  );
-  const native = judgeFromGrader({
-    graderVersion: GRADER_VERSION,
-    verbalizerVersion: VERBALIZER_VERSION,
-    failure,
-  });
-  for (const result of [direct, native]) {
-    expect(result).toMatchObject({ status: 'failed', reason });
-    expect(JSON.stringify(result)).not.toContain('PRIVATE');
-  }
-});
+])(
+  'both judge conversion paths map %s to %s without raw errors',
+  async (failure, reason) => {
+    const direct = await judgeEvidence(
+      scriptedJudge(() => ({ failure, calls: [] })),
+      'stage_output',
+      {},
+      context,
+    );
+    const native = judgeFromGrader({
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      failure,
+    });
+    for (const result of [direct, native]) {
+      expect(result).toMatchObject({ status: 'failed', reason });
+      expect(JSON.stringify(result)).not.toContain('PRIVATE');
+    }
+  },
+);
 
 test('native unsupported layouts remain unjudged rather than provider failures', () => {
   expect(

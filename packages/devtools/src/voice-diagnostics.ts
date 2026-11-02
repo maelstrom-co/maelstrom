@@ -26,8 +26,9 @@ export interface VoiceEventIdentity {
 }
 
 /** Terminal transport facts retained without provider configuration. */
-export interface RetainedLiveTransport
-  extends ReturnType<typeof projectLiveTransport> {
+export interface RetainedLiveTransport extends ReturnType<
+  typeof projectLiveTransport
+> {
   /** Application provider label. */
   readonly provider: 'live';
   /** Unique provider lifetime identity. */

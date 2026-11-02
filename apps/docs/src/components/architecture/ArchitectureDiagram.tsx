@@ -1,14 +1,15 @@
 import { useEffect, useReducer, useState } from 'react';
+
 import './diagram.css';
 import { BeatDetail } from './BeatDetail';
 import { EdgeLayer } from './EdgeLayer';
-import { LoopController } from './LoopController';
 import {
   initialLoopState,
   loopReducer,
   STEPS,
   stepCaption,
 } from './loop-machine';
+import { LoopController } from './LoopController';
 import { NodeLayer } from './NodeLayer';
 import { nodeById } from './nodes';
 import { BANDS, cameraTransform, FRAMING, STAGE } from './stage';

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+
 import {
   ASTRO_WORKER_FLAGS,
   WORKER_COMPATIBILITY_DATE,

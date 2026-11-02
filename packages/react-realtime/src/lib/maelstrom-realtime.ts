@@ -65,8 +65,9 @@ export type CreateAdapterContext<Provider = undefined> =
  * Context passed to {@link MaelstromRealtimeBaseOptions.onSession} for one
  * built session.
  */
-export interface RealtimeSessionContext<Provider = undefined>
-  extends RealtimeSessionInit<Provider> {
+export interface RealtimeSessionContext<
+  Provider = undefined,
+> extends RealtimeSessionInit<Provider> {
   /** Orchestrator whose shared session this is. */
   readonly orchestrator: Orchestrator;
   /**

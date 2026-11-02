@@ -7,6 +7,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import {
   ActionName,
   type ChartRequestMessage,
@@ -27,6 +28,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import {
   createMockConnector,

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { defineVessel, MessageId } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';

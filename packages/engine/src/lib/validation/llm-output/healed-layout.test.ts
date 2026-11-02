@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
 import { invalid } from '../../__test-helpers__/fixtures.js';

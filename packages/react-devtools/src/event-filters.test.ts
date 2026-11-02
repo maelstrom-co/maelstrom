@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+
 import { Orchestrator } from '@maelstrom-co/client';
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { event, mount, attach, cleanups } = createVoicePanelHarness();
@@ -90,67 +92,72 @@ test('successful Engine validations remain discoverable through the reported out
   );
 });
 
-test.each([
-  false,
-  true,
-])('Clear releases obsolete request and voice criteria so new events remain visible (remounted: %s)', (remounted) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  const emit = attach(tools);
-  emit('voice.tool.result', { ok: false, outcome: 'failed' }, 'before-clear');
-  let view = mount(tools);
-  view.select('Activity view', 'events');
-  view.select('Event preset', 'voice');
-  view.select('Event outcome', 'failed');
-  view.select('Issue category', 'unreported');
-  for (const label of ['Request filter', 'Voice connection filter']) {
-    const select = view.shadow.querySelector<HTMLSelectElement>(
-      `[aria-label="${label}"]`,
-    )!;
-    view.select(label, select.options[1].value);
-  }
-  fireEvent.input(
-    view.shadow.querySelector('[aria-label="Filter diagnostic evidence"]')!,
-    { target: { value: 'before-clear' } },
-  );
-  expect(
-    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
-  ).toHaveLength(1);
-  if (remounted) view.unmount();
-  tools.clear();
-  emit(
-    'voice.tool.result',
-    { generation: 2, ok: true, outcome: 'succeeded' },
-    'after-clear',
-  );
-  if (remounted) view = mount(tools);
-  expect(
-    view.shadow.querySelector<HTMLSelectElement>(
-      '[aria-label="Request filter"]',
-    )?.value,
-  ).toBe('');
-  expect(
-    view.shadow.querySelector<HTMLSelectElement>(
-      '[aria-label="Voice connection filter"]',
-    )?.value,
-  ).toBe('');
-  expect(
-    view.shadow.querySelector<HTMLSelectElement>('[aria-label="Event preset"]')
-      ?.value,
-  ).toBe('all');
-  expect(
-    view.shadow.querySelector<HTMLInputElement>(
-      '[aria-label="Filter diagnostic evidence"]',
-    )?.value,
-  ).toBe('');
-  expect(
-    view.shadow.querySelector<HTMLSelectElement>(
-      '[aria-label="Issue category"]',
-    )?.value,
-  ).toBe('all');
-  expect(
-    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
-  ).toHaveLength(1);
-});
+test.each([false, true])(
+  'Clear releases obsolete request and voice criteria so new events remain visible (remounted: %s)',
+  (remounted) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    const emit = attach(tools);
+    emit('voice.tool.result', { ok: false, outcome: 'failed' }, 'before-clear');
+    let view = mount(tools);
+    view.select('Activity view', 'events');
+    view.select('Event preset', 'voice');
+    view.select('Event outcome', 'failed');
+    view.select('Issue category', 'unreported');
+    for (const label of ['Request filter', 'Voice connection filter']) {
+      const select = view.shadow.querySelector<HTMLSelectElement>(
+        `[aria-label="${label}"]`,
+      )!;
+      view.select(label, select.options[1].value);
+    }
+    fireEvent.input(
+      view.shadow.querySelector('[aria-label="Filter diagnostic evidence"]')!,
+      { target: { value: 'before-clear' } },
+    );
+    expect(
+      view.shadow.querySelectorAll(
+        '.list-pane button[data-focus-key^="event:"]',
+      ),
+    ).toHaveLength(1);
+    if (remounted) view.unmount();
+    tools.clear();
+    emit(
+      'voice.tool.result',
+      { generation: 2, ok: true, outcome: 'succeeded' },
+      'after-clear',
+    );
+    if (remounted) view = mount(tools);
+    expect(
+      view.shadow.querySelector<HTMLSelectElement>(
+        '[aria-label="Request filter"]',
+      )?.value,
+    ).toBe('');
+    expect(
+      view.shadow.querySelector<HTMLSelectElement>(
+        '[aria-label="Voice connection filter"]',
+      )?.value,
+    ).toBe('');
+    expect(
+      view.shadow.querySelector<HTMLSelectElement>(
+        '[aria-label="Event preset"]',
+      )?.value,
+    ).toBe('all');
+    expect(
+      view.shadow.querySelector<HTMLInputElement>(
+        '[aria-label="Filter diagnostic evidence"]',
+      )?.value,
+    ).toBe('');
+    expect(
+      view.shadow.querySelector<HTMLSelectElement>(
+        '[aria-label="Issue category"]',
+      )?.value,
+    ).toBe('all');
+    expect(
+      view.shadow.querySelectorAll(
+        '.list-pane button[data-focus-key^="event:"]',
+      ),
+    ).toHaveLength(1);
+  },
+);
 
 test('ordinary retention and recording-only resets keep a live target explicit instead of broadening the view', () => {
   const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 1 });
@@ -424,39 +431,39 @@ test('app selection adds a criterion without clearing the selected event preset'
   );
 });
 
-test.each([
-  undefined,
-  '2026-10-21T09:00',
-])('live evidence preserves a focused draft time edit from %s until commit or source reset', (initial) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  const emit = attach(tools);
-  emit('voice.tool.called');
-  const view = mount(tools);
-  view.select('Activity view', 'events');
-  const details =
-    view.shadow.querySelector<HTMLDetailsElement>('.event-filters')!;
-  details.open = true;
-  const input = view.shadow.querySelector<HTMLInputElement>(
-    '[aria-label="From reported time"]',
-  )!;
-  if (initial) fireEvent.change(input, { target: { value: initial } });
-  input.focus();
-  fireEvent.input(input, { target: { value: '2026-10-21T10:00' } });
-  emit('voice.tool.called');
-  expect(input.value).toBe('2026-10-21T10:00');
-  expect(view.shadow.activeElement).toBe(input);
-  tools.importCapture(
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        events: [event('new', 'voice.tool.called')],
-      },
-    }),
-  );
-  view.select('Evidence source', 'imported');
-  expect(input.value).toBe('');
-});
+test.each([undefined, '2026-10-21T09:00'])(
+  'live evidence preserves a focused draft time edit from %s until commit or source reset',
+  (initial) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    const emit = attach(tools);
+    emit('voice.tool.called');
+    const view = mount(tools);
+    view.select('Activity view', 'events');
+    const details =
+      view.shadow.querySelector<HTMLDetailsElement>('.event-filters')!;
+    details.open = true;
+    const input = view.shadow.querySelector<HTMLInputElement>(
+      '[aria-label="From reported time"]',
+    )!;
+    if (initial) fireEvent.change(input, { target: { value: initial } });
+    input.focus();
+    fireEvent.input(input, { target: { value: '2026-10-21T10:00' } });
+    emit('voice.tool.called');
+    expect(input.value).toBe('2026-10-21T10:00');
+    expect(view.shadow.activeElement).toBe(input);
+    tools.importCapture(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          events: [event('new', 'voice.tool.called')],
+        },
+      }),
+    );
+    view.select('Evidence source', 'imported');
+    expect(input.value).toBe('');
+  },
+);
 
 test('changing app scope resets event pagination while retaining matching and hidden counts', () => {
   const view = imported([

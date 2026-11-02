@@ -7,6 +7,7 @@ import type {
   VoiceObservationSnapshot,
   VoiceObservationSource,
 } from '@maelstrom-co/client';
+
 import type { ContinuousTranscriptOptions } from './realtime-session.types.js';
 import type { SessionEventHandler } from './session-event-bus.js';
 import {

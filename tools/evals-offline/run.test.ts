@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+
 import * as caseAdapters from './case-adapter.js';
 import { loadOfflineCases } from './cases.js';
 import { runOfflineCases } from './run.js';
@@ -83,35 +84,35 @@ test('offline profile selection intersects IDs and leaves excluded inventory out
   expect(run.policy).toBe('offline:declared-case/v1');
 });
 
-test.each([
-  false,
-  true,
-])('unknown offline profiles reject before evaluation or reporting (mixed known profile: %s)', (mixed) => {
-  const catalog = loadOfflineCases();
-  let evaluations = 0;
-  let reports = 0;
-  for (const cases of [undefined, catalog]) {
-    expect(() =>
-      runOfflineCases({
-        cases,
-        ids: ['weather-chain'],
-        profiles: [
-          ...(mixed ? [catalog[0].definition.profile] : []),
-          'unknown-profile',
-        ],
-        repeats: 1,
-        onEvaluation() {
-          evaluations++;
-        },
-        report() {
-          reports++;
-        },
-      }),
-    ).toThrow('Unknown evaluation profiles: unknown-profile');
-  }
-  expect(evaluations).toBe(0);
-  expect(reports).toBe(0);
-});
+test.each([false, true])(
+  'unknown offline profiles reject before evaluation or reporting (mixed known profile: %s)',
+  (mixed) => {
+    const catalog = loadOfflineCases();
+    let evaluations = 0;
+    let reports = 0;
+    for (const cases of [undefined, catalog]) {
+      expect(() =>
+        runOfflineCases({
+          cases,
+          ids: ['weather-chain'],
+          profiles: [
+            ...(mixed ? [catalog[0].definition.profile] : []),
+            'unknown-profile',
+          ],
+          repeats: 1,
+          onEvaluation() {
+            evaluations++;
+          },
+          report() {
+            reports++;
+          },
+        }),
+      ).toThrow('Unknown evaluation profiles: unknown-profile');
+    }
+    expect(evaluations).toBe(0);
+    expect(reports).toBe(0);
+  },
+);
 
 test('empty offline profiles keep catalog order and known profiles outside selected IDs are valid', async () => {
   const catalog = loadOfflineCases();
@@ -175,46 +176,48 @@ test('selected action-stage rejects legacy judging before runtime, evaluation or
   }
 });
 
-test.each([
-  'IDs',
-  'profiles',
-])('action-stage excluded by %s does not reject legacy judging for selected cases', async (selection) => {
-  const catalog = loadOfflineCases();
-  const item = catalog.find((value) => value.definition.id === 'weather-chain');
-  if (!item) throw new Error('Missing synthetic session');
-  let scores = 0;
-  const run = await runOfflineCases({
-    cases: catalog,
-    ids:
-      selection === 'IDs'
-        ? ['weather-chain']
-        : ['weather-chain', 'stage-bound'],
-    profiles: selection === 'profiles' ? [item.definition.profile] : [],
-    repeats: 1,
-    judgeRubric: 'legacy',
-    judge: {
-      async score(input) {
-        scores++;
-        expect(input.dimensions.map((dimension) => dimension.name)).toEqual([
-          'llm_judge_score',
-        ]);
-        return {
-          answers: { llm_judge_score: { score: 1, probabilities: {} } },
-          calls: [],
-        };
+test.each(['IDs', 'profiles'])(
+  'action-stage excluded by %s does not reject legacy judging for selected cases',
+  async (selection) => {
+    const catalog = loadOfflineCases();
+    const item = catalog.find(
+      (value) => value.definition.id === 'weather-chain',
+    );
+    if (!item) throw new Error('Missing synthetic session');
+    let scores = 0;
+    const run = await runOfflineCases({
+      cases: catalog,
+      ids:
+        selection === 'IDs'
+          ? ['weather-chain']
+          : ['weather-chain', 'stage-bound'],
+      profiles: selection === 'profiles' ? [item.definition.profile] : [],
+      repeats: 1,
+      judgeRubric: 'legacy',
+      judge: {
+        async score(input) {
+          scores++;
+          expect(input.dimensions.map((dimension) => dimension.name)).toEqual([
+            'llm_judge_score',
+          ]);
+          return {
+            answers: { llm_judge_score: { score: 1, probabilities: {} } },
+            calls: [],
+          };
+        },
       },
-    },
-  });
-  expect(run.records.map((record) => record.identity.caseId)).toEqual([
-    'weather-chain',
-  ]);
-  expect(run.records[0].evaluation).toBe('pass');
-  expect(run.records[0].judge).toMatchObject({
-    status: 'scored',
-    rubric: { id: 'legacy_task' },
-  });
-  expect(scores).toBe(1);
-});
+    });
+    expect(run.records.map((record) => record.identity.caseId)).toEqual([
+      'weather-chain',
+    ]);
+    expect(run.records[0].evaluation).toBe('pass');
+    expect(run.records[0].judge).toMatchObject({
+      status: 'scored',
+      rubric: { id: 'legacy_task' },
+    });
+    expect(scores).toBe(1);
+  },
+);
 
 test('enabled judge covers every eligible offline surface and repeat, with native planner dimensions and separate session/stage/client rubrics', async () => {
   const asked: string[][] = [];
@@ -255,9 +258,8 @@ test('enabled judge covers every eligible offline surface and repeat, with nativ
 
 test('partial session judging uses only retained completed turns and does not invent a final response', async () => {
   const { caseAdapter } = await import('./case-adapter.js');
-  const { evaluateSample } = await import(
-    '../../packages/evals/src/core/runtime/evaluate.js'
-  );
+  const { evaluateSample } =
+    await import('../../packages/evals/src/core/runtime/evaluate.js');
   const item = loadOfflineCases().find(
     (value) => value.definition.id === 'weather-chain',
   );

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   createGitHubSourceLinkTemplate,
   resolveDocsSourceRef,
@@ -52,25 +53,23 @@ describe('resolveDocsSourceRef', () => {
     );
   });
 
-  test.each([
-    '.',
-    '..',
-    '../main',
-  ])('rejects unsafe GitHub Actions ref %p', (sourceRef) => {
-    expect(() => resolveDocsSourceRef({ GITHUB_SHA: sourceRef })).toThrow(
-      `Invalid GITHUB_SHA: ${JSON.stringify(sourceRef)}`,
-    );
-  });
+  test.each(['.', '..', '../main'])(
+    'rejects unsafe GitHub Actions ref %p',
+    (sourceRef) => {
+      expect(() => resolveDocsSourceRef({ GITHUB_SHA: sourceRef })).toThrow(
+        `Invalid GITHUB_SHA: ${JSON.stringify(sourceRef)}`,
+      );
+    },
+  );
 
-  test.each([
-    '.',
-    '..',
-    '../main',
-  ])('rejects unsafe Cloudflare Workers ref %p', (sourceRef) => {
-    expect(() =>
-      resolveDocsSourceRef({ WORKERS_CI_COMMIT_SHA: sourceRef }),
-    ).toThrow(`Invalid WORKERS_CI_COMMIT_SHA: ${JSON.stringify(sourceRef)}`);
-  });
+  test.each(['.', '..', '../main'])(
+    'rejects unsafe Cloudflare Workers ref %p',
+    (sourceRef) => {
+      expect(() =>
+        resolveDocsSourceRef({ WORKERS_CI_COMMIT_SHA: sourceRef }),
+      ).toThrow(`Invalid WORKERS_CI_COMMIT_SHA: ${JSON.stringify(sourceRef)}`);
+    },
+  );
 });
 
 describe('createGitHubSourceLinkTemplate', () => {
