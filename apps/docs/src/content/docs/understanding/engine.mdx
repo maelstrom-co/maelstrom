@@ -31,9 +31,13 @@ interface Engine {
 }
 ```
 
-Every `EngineMessage` carries a `sessionId`, `id`, and `timestamp`. A successful `EngineOutput` echoes the input's `sessionId` and `id`. The interface also provides `getHistory()` to read recorded session history.
+Every `EngineMessage` carries a `sessionId`, `id`, and `timestamp`. A successful `EngineOutput` echoes the input's `sessionId` and `id`. The full interface also provides `openConnection(options)` for streaming UI-only sessions, `getHistory()` to read recorded request/reply history, and optional observation methods.
 
 The duplex wire contract uses `ClientEnvelope` and `ServerEnvelope`. The Engine-side `handleEnvelope` adapter decodes a client envelope, dispatches it, and maps the outcome to a server envelope. For example, `chart_response` becomes `engine.maelstrom.response`, with the input ID in `requestId`. Connectors use the protocol codecs to encode and decode those envelopes. See [The Protocol](/understanding/protocol#message-envelopes) for the distinction.
+
+### Streaming UI-only connections
+
+`Engine.openConnection(options)` creates an isolated `AgentConnection` with `send`, `subscribe`, and `close`. The host supplies the authorized session identity; the connection does not use the legacy request/reply history store. For a UI-only utterance, the Engine emits a `ui_change`; the browser applies its layout and Actions, then sends `ui_applied` with one outcome per Action. A successful acknowledgement is followed by `message` and `finished`; failed Action outcomes end the run without a successful reply. The [streaming-connection reference](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#streaming-connections) covers queue bounds, acknowledgement timeouts, and diagnostics.
 
 ## Pipeline diagram
 
