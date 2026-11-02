@@ -31,6 +31,7 @@ import { FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
+import { SuggestionChips } from './suggestion-chips';
 import { VesselOptionSync } from './vessel-option-sync';
 import { VoiceProviderSelect } from './voice-provider-select';
 
@@ -304,6 +305,8 @@ function DemoApp({
         <FirstRunHint />
         <ActionFlash />
       </main>
+
+      <SuggestionChips onIntentChange={onIntentChange} />
 
       {/* Compact voice and intent dock */}
       <IntentInput

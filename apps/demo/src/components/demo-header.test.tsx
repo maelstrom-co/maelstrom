@@ -24,6 +24,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe('app identity', () => {
+  it('names Dayline as the app and Maelstrom as what powers it', () => {
+    const { getByRole, getByText } = render(<DemoHeader>{null}</DemoHeader>);
+    expect(getByRole('heading', { level: 1 }).textContent).toBe('Dayline');
+    expect(getByText('Powered by Maelstrom')).toBeTruthy();
+  });
+});
+
 describe('community invitation', () => {
   it('opens Discord even on previews without sending test activity to production', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);

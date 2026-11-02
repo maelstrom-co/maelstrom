@@ -34,9 +34,9 @@ describe('isFirstRunHintVisible', () => {
 describe('FIRST_RUN_EXAMPLES', () => {
   it('pins the chosen example prompts', () => {
     expect(FIRST_RUN_EXAMPLES).toEqual([
-      'Clear all this — just show me today',
-      "What's my morning look like? I need to be at the design review by 10",
-      "Start a journal entry about today's plan and jot down the key points",
+      'Add a task to prepare the design review, with subtasks for checking the prototype and writing questions',
+      "Create a journal entry called Design review prep and write 'Prototype checked; questions still to prepare.'",
+      'Move the design review to 11:00',
     ]);
   });
 });

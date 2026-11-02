@@ -232,9 +232,12 @@ describe('key drawer gating (hosted, no key)', () => {
     render(<HomePage />);
     closeInitialKeyPrompt();
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
@@ -259,9 +262,12 @@ describe('typed assistant feedback', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'what can you do?' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'what can you do?' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(
@@ -359,9 +365,12 @@ describe('text-path key failures (hosted)', () => {
     // reopens it, not the keyless-gating path already covered above.
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
@@ -388,9 +397,12 @@ describe('text-path key failures (hosted)', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
@@ -399,8 +411,11 @@ describe('text-path key failures (hosted)', () => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
     });
     expect(
-      (screen.getByPlaceholderText(/tell maelstrom/i) as HTMLInputElement)
-        .value,
+      (
+        screen.getByPlaceholderText(
+          /what would you like to do/i,
+        ) as HTMLInputElement
+      ).value,
     ).toBe('plan my day');
   });
 
@@ -413,9 +428,12 @@ describe('text-path key failures (hosted)', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
@@ -446,9 +464,12 @@ describe('resumed auto-submit rejected by an invalid key', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'show me the weather in Lisbon' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'show me the weather in Lisbon' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
@@ -467,8 +488,11 @@ describe('resumed auto-submit rejected by an invalid key', () => {
     });
     expect(screen.getByText('Invalid API key.')).toBeTruthy();
     expect(
-      (screen.getByPlaceholderText(/tell maelstrom/i) as HTMLInputElement)
-        .value,
+      (
+        screen.getByPlaceholderText(
+          /what would you like to do/i,
+        ) as HTMLInputElement
+      ).value,
     ).toBe('show me the weather in Lisbon');
   });
 });
@@ -723,9 +747,12 @@ describe('header "API key" affordance', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /api key/i }));
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
 
@@ -741,8 +768,11 @@ describe('header "API key" affordance', () => {
     });
     // No auto-submit fired, so the typed text is untouched.
     expect(
-      (screen.getByPlaceholderText(/tell maelstrom/i) as HTMLInputElement)
-        .value,
+      (
+        screen.getByPlaceholderText(
+          /what would you like to do/i,
+        ) as HTMLInputElement
+      ).value,
     ).toBe('plan my day');
   });
 });
@@ -752,9 +782,12 @@ describe('resumeIntent auto-submit', () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
@@ -774,8 +807,11 @@ describe('resumeIntent auto-submit', () => {
     // again.
     await waitFor(() => {
       expect(
-        (screen.getByPlaceholderText(/tell maelstrom/i) as HTMLInputElement)
-          .value,
+        (
+          screen.getByPlaceholderText(
+            /what would you like to do/i,
+          ) as HTMLInputElement
+        ).value,
       ).toBe('');
     });
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
@@ -797,9 +833,12 @@ describe('removing a session key', () => {
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
 
     // The app is back in the keyless state — the next Send re-prompts.
-    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
-      target: { value: 'plan my day' },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/what would you like to do/i),
+      {
+        target: { value: 'plan my day' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {

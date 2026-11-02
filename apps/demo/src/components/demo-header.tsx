@@ -19,8 +19,8 @@ export function DemoHeader({ children }: Readonly<{ children: ReactNode }>) {
     >
       <div className="demo-header-row flex items-center justify-between gap-4">
         <div className="demo-brand">
-          <h1 className="eyebrow">Maelstrom Demo</h1>
-          <p className="text-sm text-ink-2 mt-1">AI-Orchestrated Dynamic UI</p>
+          <h1 className="eyebrow">Dayline</h1>
+          <p className="text-sm text-ink-2 mt-1">Powered by Maelstrom</p>
         </div>
         <nav className="demo-nav" aria-label="Demo resources">
           {DEMO_LINKS.map((link) => {

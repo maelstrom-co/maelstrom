@@ -120,11 +120,9 @@ test('loads the map and its bundled worker under hosted CSP', async ({
     .fill('sk-test-map-worker-not-a-real-key-1234567890');
   await page.getByRole('button', { name: 'Save' }).click();
   await page
-    .getByPlaceholder('Tell Maelstrom what you want to arrange...')
+    .getByPlaceholder('What would you like to do?')
     .fill('Show the map');
-  await page
-    .getByPlaceholder('Tell Maelstrom what you want to arrange...')
-    .press('Enter');
+  await page.getByPlaceholder('What would you like to do?').press('Enter');
 
   await workerResponse;
   await expect(page.locator('.maplibregl-canvas')).toBeVisible();

@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import { availableVoiceProviders } from '../lib/voice-provider';
 import { useCalendarStore } from '../vessels/calendar.store';
 import { useTasksStore } from '../vessels/tasks.store';
+import { CAPABILITY_NOTE } from './capability-note';
 import { DemoHeader } from './demo-header';
 import { KeylessVoiceProviderSelect } from './voice-provider-select';
 
@@ -61,12 +62,24 @@ export function KeylessDemo({
 
       <main className="keyless-main">
         <div className="keyless-intro">
-          <p className="eyebrow">Interactive preview</p>
-          <h2>Arrange a workspace around what you need.</h2>
+          <p className="eyebrow">Sample app</p>
+          <h2>Plan your day by saying what you need.</h2>
           <p>
-            Add an OpenAI API key to let Maelstrom rearrange these components.{' '}
-            Start with GPT-Live for voice, or choose another provider above. The
-            key stays in this tab's memory and is never persisted.
+            Dayline is a sample day planner with Maelstrom built in. You work
+            with its calendar, tasks and journal by typing or speaking, and
+            Maelstrom picks the right views and runs Dayline's own Actions for
+            you.
+          </p>
+          <p>
+            Dayline, the host app, supplies the Vessels (its views) and the
+            Actions they offer. Maelstrom does not connect other apps. A
+            developer embeds it in their own app.
+          </p>
+          <p className="keyless-capability-note">{CAPABILITY_NOTE}</p>
+          <p>
+            Add an OpenAI API key to try it. Start with GPT-Live for voice, or
+            choose another provider above. The key stays in this tab's memory
+            and is never persisted.
           </p>
           <button
             type="button"
@@ -79,7 +92,7 @@ export function KeylessDemo({
 
         <section
           className="keyless-chart"
-          aria-label="Example Maelstrom workspace"
+          aria-label="Example Dayline workspace"
         >
           <section className="preview-card preview-calendar">
             <div className="preview-card-heading">
@@ -136,7 +149,7 @@ export function KeylessDemo({
               type="text"
               value={intent}
               onChange={(event) => onIntentChange(event.target.value)}
-              placeholder="Tell Maelstrom what you want to arrange..."
+              placeholder="What would you like to do?"
               className="intent-pill flex-1 min-w-0 px-4 py-2.5"
             />
             <button
