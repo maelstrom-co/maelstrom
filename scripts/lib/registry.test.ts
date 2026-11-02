@@ -10,6 +10,38 @@ import {
 } from './registry.ts';
 
 describe('isAlreadyPublished', () => {
+  test('bounds a slow registry lookup so verification can honor its deadline', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'maelstrom-slow-npm-'));
+    const npm = join(directory, 'npm');
+    writeFileSync(npm, `#!${process.execPath}\nawait Bun.sleep(10_000);\n`);
+    chmodSync(npm, 0o755);
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          `import { isAlreadyPublished } from './scripts/lib/registry.ts';
+          try {
+            isAlreadyPublished('@maelstrom-co/react', '0.2.0', 'https://registry.npmjs.org', 50);
+            process.exit(1);
+          } catch (error) {
+            if (!String(error).includes('could not determine')) process.exit(1);
+          }`,
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+          timeout: 5_000,
+        },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
   const cases: Array<{
     name: string;
     registry: string;

@@ -90,6 +90,8 @@ jobs:
     name: Publish Preview Packages
     needs: prepare
     runs-on: ubuntu-latest
+    # Verification shares the release publisher's 30-minute scanning window.
+    timeout-minutes: 45
     environment: production
     permissions:
       contents: read

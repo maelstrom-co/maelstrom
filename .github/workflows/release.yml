@@ -191,7 +191,8 @@ jobs:
     # through this job to validate the privileged artifact handoff.
     if: needs.prepare.outputs.version != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Verification allows 30 minutes for npm scanning after uploads complete.
+    timeout-minutes: 45
     permissions:
       contents: read
       id-token: write

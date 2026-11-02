@@ -94,6 +94,7 @@ export function isAlreadyPublished(
   name: string,
   version: string,
   registry: string,
+  timeoutMs?: number,
 ): boolean {
   try {
     // execFileSync, never a shell string: `version` derives from a git tag or
@@ -115,7 +116,7 @@ export function isAlreadyPublished(
         // than one that reports. A single retry still absorbs a blip.
         '--fetch-retries=1',
       ],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
+      { stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs },
     );
     return parsePublishedVersion(String(output), name, version, registry);
   } catch (err) {
