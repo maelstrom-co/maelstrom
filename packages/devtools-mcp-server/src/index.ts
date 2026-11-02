@@ -17,6 +17,9 @@ import {
 import { McpServer } from '@modelcontextprotocol/server';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+import packageMetadata from '../package.json' with { type: 'json' };
+
+const packageVersion = packageMetadata.version;
 
 const instructions = [
   'Inspect only explicitly paired local development collectors. These tools read redacted live metadata; they cannot control the app or access recordings.',
@@ -260,7 +263,7 @@ export async function createDevtoolsMcpServer(
     pairingToken: token,
     createServer() {
       const server = new McpServer(
-        { name: 'maelstrom-devtools', version: '0.1.1' },
+        { name: 'maelstrom-devtools', version: packageVersion },
         { instructions },
       );
       server.registerTool(

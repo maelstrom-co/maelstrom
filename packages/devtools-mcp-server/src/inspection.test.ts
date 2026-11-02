@@ -104,6 +104,20 @@ function recoveryText(result: Awaited<ReturnType<Client['callTool']>>) {
   return block.text;
 }
 
+test.each([
+  'legacy',
+  '2026-07-28',
+] as const)('clients identify the installed implementation version over %s', async (protocol) => {
+  const { client } = await setup({}, protocol);
+  const metadata = await Bun.file(
+    new URL('../package.json', import.meta.url),
+  ).json();
+  expect(client.getServerVersion()).toMatchObject({
+    name: 'maelstrom-devtools',
+    version: metadata.version,
+  });
+});
+
 test('large event pages bound encoding work and preserve every event across cursors', async () => {
   const { tools, client, targetId } = await setup();
   const first = app();
