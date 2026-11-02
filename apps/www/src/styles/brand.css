@@ -1,0 +1,51 @@
+.brand-page.container {
+  position: relative;
+  z-index: 2;
+  max-width: 76rem;
+  padding-top: 9rem;
+  padding-bottom: 5rem;
+}
+
+.brand-header { max-width: 44rem; padding-bottom: 2rem; border-bottom: 1px solid var(--line-strong); }
+.brand-header h1 { margin-block: 1rem; font-size: clamp(2.25rem, 6vw, 4rem); line-height: 1.15; }
+.brand-header p { margin-block: 0 1.75rem; color: var(--text-2); font-size: 1.125rem; line-height: 1.6; }
+
+.brand-section { margin-top: 3.5rem; }
+.brand-section h2 { margin-bottom: 1.25rem; font-size: 1.75rem; }
+.brand-section h3 { font-size: 1rem; line-height: 1.3; }
+
+.brand-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 1.25rem; list-style: none; margin: 0; padding: 0; }
+.brand-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.brand-card-endcard-wide { grid-column: span 2; }
+.brand-card-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; }
+
+.brand-preview { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 10rem; padding: 2rem; border-bottom: 1px solid var(--line-2); }
+.brand-preview img { display: block; height: auto; max-width: 100%; }
+.brand-surface-dark { background: #050810; }
+.brand-surface-light { background: #ffffff; }
+.brand-preview-badge img { width: 201px; }
+.brand-preview-lockup img { width: 240px; }
+.brand-preview-mark img { width: 96px; }
+.brand-preview-endcard-wide, .brand-preview-endcard-tall { padding: 0; }
+.brand-preview-endcard-wide img { width: 100%; }
+.brand-preview-endcard-tall img { width: auto; max-height: 22rem; }
+
+.brand-downloads { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.brand-downloads a { padding: 0.3rem 0.75rem; color: var(--text); font: 0.8125rem var(--font-mono); border: 1px solid var(--line-strong); border-radius: 999px; transition: border-color 150ms, color 150ms; }
+.brand-downloads a:hover { color: var(--brand); border-color: var(--brand); }
+.brand-downloads a:focus-visible { outline: 2px solid var(--brand-2); outline-offset: 2px; }
+
+.brand-rules { max-width: 44rem; }
+.brand-rules h3 { margin-top: 2rem; margin-bottom: 0.5rem; }
+.brand-rules p, .brand-list { margin: 0.5rem 0; color: var(--text-2); line-height: 1.65; }
+.brand-rules strong { color: var(--text); }
+.brand-list { padding-left: 1.25rem; list-style: disc; }
+.brand-colors { display: grid; gap: 0.5rem; margin: 0.5rem 0; padding: 0; list-style: none; color: var(--text-2); }
+.brand-colors li { display: flex; align-items: center; gap: 0.75rem; }
+.brand-colors code { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text); }
+.brand-swatch { width: 1.5rem; height: 1.5rem; flex-shrink: 0; border: 1px solid var(--line-strong); border-radius: var(--r-sm); }
+.brand-attribution { margin: 0.5rem 0; padding: 1rem; overflow-x: auto; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); font: 0.875rem var(--font-mono); }
+
+@media (max-width: 760px) {
+  .brand-card-endcard-wide { grid-column: auto; }
+}

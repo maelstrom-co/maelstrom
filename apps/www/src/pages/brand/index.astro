@@ -1,0 +1,231 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import '../../styles/brand.css';
+
+const assetBase = '/assets/brand';
+const packHref = `${assetBase}/powered-by-maelstrom-assets.zip`;
+const attribution = 'Powered by Maelstrom: https://maelstrom-ai.co';
+
+type Surface = 'dark' | 'light';
+type Preview = 'badge' | 'lockup' | 'mark' | 'endcard-wide' | 'endcard-tall';
+
+interface BrandAsset {
+  name: string;
+  file: string;
+  surface: Surface;
+  preview: Preview;
+  width: number;
+  height: number;
+  extraPng?: { suffix: string; label: string };
+}
+
+interface AssetGroup {
+  id: string;
+  title: string;
+  assets: BrandAsset[];
+}
+
+const badgePng8x = { suffix: '-8x', label: 'PNG 8x' };
+const lockupPng1200 = { suffix: '-1200px', label: 'PNG 1200px' };
+
+const groups: AssetGroup[] = [
+  {
+    id: 'brand-badges',
+    title: 'Powered by badges',
+    assets: [
+      {
+        name: 'Badge, dark',
+        file: 'powered-by-badge-dark',
+        surface: 'dark',
+        preview: 'badge',
+        width: 269,
+        height: 56,
+        extraPng: badgePng8x,
+      },
+      {
+        name: 'Badge, light',
+        file: 'powered-by-badge-light',
+        surface: 'light',
+        preview: 'badge',
+        width: 269,
+        height: 56,
+        extraPng: badgePng8x,
+      },
+      {
+        name: 'Badge, mono white',
+        file: 'powered-by-badge-mono-white',
+        surface: 'dark',
+        preview: 'badge',
+        width: 269,
+        height: 56,
+        extraPng: badgePng8x,
+      },
+      {
+        name: 'Badge, mono black',
+        file: 'powered-by-badge-mono-black',
+        surface: 'light',
+        preview: 'badge',
+        width: 269,
+        height: 56,
+        extraPng: badgePng8x,
+      },
+    ],
+  },
+  {
+    id: 'brand-logo',
+    title: 'Logo',
+    assets: [
+      {
+        name: 'Lockup, dark backgrounds',
+        file: 'logo-lockup-dark',
+        surface: 'dark',
+        preview: 'lockup',
+        width: 1250,
+        height: 267,
+        extraPng: lockupPng1200,
+      },
+      {
+        name: 'Lockup, light backgrounds',
+        file: 'logo-lockup-light',
+        surface: 'light',
+        preview: 'lockup',
+        width: 1250,
+        height: 267,
+        extraPng: lockupPng1200,
+      },
+      {
+        name: 'Mark',
+        file: 'logo-mark',
+        surface: 'dark',
+        preview: 'mark',
+        width: 1366,
+        height: 1366,
+        extraPng: { suffix: '-512px', label: 'PNG 512px' },
+      },
+    ],
+  },
+  {
+    id: 'brand-end-cards',
+    title: 'Video end cards',
+    assets: [
+      {
+        name: 'End card, 16:9 (1920x1080)',
+        file: 'video-endcard-16x9',
+        surface: 'dark',
+        preview: 'endcard-wide',
+        width: 1920,
+        height: 1080,
+      },
+      {
+        name: 'End card, 9:16 (1080x1920)',
+        file: 'video-endcard-9x16',
+        surface: 'dark',
+        preview: 'endcard-tall',
+        width: 1080,
+        height: 1920,
+      },
+    ],
+  },
+];
+
+const colors = [
+  { label: 'Maelstrom Blue', hex: '#0091FF' },
+  { label: 'Dark end card background', hex: '#050810' },
+  { label: 'Dark UI and text', hex: '#0B1220' },
+];
+
+function downloadsFor(asset: BrandAsset) {
+  const links = [
+    { label: 'SVG', href: `${assetBase}/${asset.file}.svg` },
+    { label: 'PNG', href: `${assetBase}/${asset.file}.png` },
+  ];
+  if (asset.extraPng) {
+    links.push({
+      label: asset.extraPng.label,
+      href: `${assetBase}/${asset.file}${asset.extraPng.suffix}.png`,
+    });
+  }
+  return links;
+}
+---
+
+<Layout
+  title="Powered by Maelstrom brand assets"
+  description="Official assets for crediting Maelstrom in products, demos, and videos."
+  canonical="https://maelstrom-ai.co/brand/"
+>
+  <main class="container brand-page">
+    <header class="brand-header">
+      <span class="eyebrow">Brand</span>
+      <h1>Powered by Maelstrom</h1>
+      <p>Official assets for crediting Maelstrom in products, demos, and videos.</p>
+      <a class="btn btn-primary" href={packHref} download>Download all assets (.zip)</a>
+    </header>
+
+    {groups.map((group) => (
+      <section class="brand-section" aria-labelledby={group.id}>
+        <h2 id={group.id}>{group.title}</h2>
+        <ul class="brand-grid">
+          {group.assets.map((asset) => (
+            <li class:list={['brand-card', `brand-card-${asset.preview}`]}>
+              <div class:list={['brand-preview', `brand-surface-${asset.surface}`, `brand-preview-${asset.preview}`]}>
+                <img
+                  src={`${assetBase}/${asset.file}.svg`}
+                  alt={asset.name}
+                  width={asset.width}
+                  height={asset.height}
+                  loading="lazy"
+                />
+              </div>
+              <div class="brand-card-body">
+                <h3>{asset.name}</h3>
+                <div class="brand-downloads">
+                  {downloadsFor(asset).map((link) => (
+                    <a href={link.href} download>{link.label}</a>
+                  ))}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+
+    <section class="brand-section brand-rules" aria-labelledby="brand-usage">
+      <h2 id="brand-usage">Usage</h2>
+
+      <h3>Colors</h3>
+      <ul class="brand-colors">
+        {colors.map((color) => (
+          <li>
+            <span class="brand-swatch" style={`background: ${color.hex}`} aria-hidden="true"></span>
+            <span>{color.label}</span>
+            <code>{color.hex}</code>
+          </li>
+        ))}
+      </ul>
+
+      <h3>Name</h3>
+      <p>The wordmark is always lowercase: <strong>maelstrom</strong>. In the badge and in prose, write <strong>Maelstrom</strong>.</p>
+
+      <h3>Clear space and minimum size</h3>
+      <ul class="brand-list">
+        <li>Keep clear space of at least 1/3 of the mark height on every side.</li>
+        <li>Minimum sizes: mark 16px, lockup 80px wide, badge 28px tall.</li>
+      </ul>
+
+      <h3>Do not</h3>
+      <ul class="brand-list">
+        <li>Recolor the mark outside blue, white, or black.</li>
+        <li>Stretch, rotate, or outline the mark.</li>
+      </ul>
+
+      <h3>Attribution</h3>
+      <p>Suggested attribution line:</p>
+      <pre class="brand-attribution"><code>{attribution}</code></pre>
+
+      <h3>License</h3>
+      <p>The MIT license covers the Maelstrom code. The Maelstrom name and logo are provided for attribution only.</p>
+    </section>
+  </main>
+</Layout>
