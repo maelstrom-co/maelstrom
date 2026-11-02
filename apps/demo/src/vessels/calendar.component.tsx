@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { recordChange, recordFailure } from '../lib/action-activity';
 import {
   ACCENT_HEX,
   type AccentToken,
@@ -15,6 +16,7 @@ import {
   useCalendarStore,
 } from './calendar.store';
 import type { calendarVessel } from './calendar.vessel';
+import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -55,6 +57,14 @@ function noMatchError(title: string): Error {
     .events.map((e) => `"${e.title}"`)
     .join(', ');
   return new Error(`No event matches "${title}". Available: ${available}`);
+}
+
+function eventNotFound(action: string, title: string) {
+  recordFailure(`Couldn't find event "${title}"`, {
+    vesselId: 'calendar',
+    action,
+  });
+  return err(noMatchError(title));
 }
 
 function eventLabel(event: CalendarEvent): string {
@@ -107,16 +117,34 @@ export default function CalendarComponent({
   m.useActions('calendar', instanceId, {
     addEvent: async ({ title, time }) => {
       calendarActions.addEvent(title, time);
+      const added = getCalendarSnapshot().events.at(-1);
+      recordChange(
+        `Added event "${added?.title ?? title}" at ${added?.time ?? time}`,
+        { vesselId: 'calendar', action: 'addEvent' },
+      );
       return ok(undefined);
     },
     removeEvent: async ({ title }) => {
-      if (!calendarActions.removeEvent(title)) return err(noMatchError(title));
+      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
+      if (!match || !calendarActions.removeEvent(title)) {
+        return eventNotFound('removeEvent', title);
+      }
+      recordChange(`Removed event "${match.title}"`, {
+        vesselId: 'calendar',
+        action: 'removeEvent',
+      });
       return ok(undefined);
     },
     moveEvent: async ({ title, time }) => {
-      if (!calendarActions.moveEvent(title, time)) {
-        return err(noMatchError(title));
+      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
+      if (!match || !calendarActions.moveEvent(title, time)) {
+        return eventNotFound('moveEvent', title);
       }
+      const moved = getCalendarSnapshot().events.find((e) => e.id === match.id);
+      recordChange(`Moved "${match.title}" to ${moved?.time ?? time}`, {
+        vesselId: 'calendar',
+        action: 'moveEvent',
+      });
       return ok(undefined);
     },
   });

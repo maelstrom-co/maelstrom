@@ -4,6 +4,10 @@ import { isErr, isOk, type Result } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetActionActivityForTests,
+  getActivitySnapshot,
+} from '../lib/action-activity';
 import { ACCENT_HEX, CALENDAR_EVENT_ACCENTS } from '../lib/design-tokens';
 import type { calendarVessel } from './calendar.vessel';
 
@@ -320,5 +324,37 @@ describe('CalendarComponent week view rendering', () => {
     expect(earlyIdx).toBeGreaterThanOrEqual(0);
     expect(designIdx).toBeGreaterThanOrEqual(0);
     expect(earlyIdx).toBeLessThan(designIdx);
+  });
+});
+
+describe('calendar action receipts', () => {
+  beforeEach(() => {
+    __resetActionActivityForTests();
+  });
+
+  function texts(): string[] {
+    return getActivitySnapshot().entries.map(
+      (entry) => `${entry.outcome}: ${entry.text}`,
+    );
+  }
+
+  it('records added, moved and removed events', async () => {
+    render(<CalendarComponent {...props()} />);
+    const handlers = latestHandlers();
+    await handlers.addEvent({ title: 'Coffee with Sam', time: '9:00' });
+    await handlers.moveEvent({ title: 'coffee', time: '14:30' });
+    await handlers.removeEvent({ title: 'Coffee with Sam' });
+    expect(texts()).toEqual([
+      'changed: Added event "Coffee with Sam" at 9:00',
+      'changed: Moved "Coffee with Sam" to 14:30',
+      'changed: Removed event "Coffee with Sam"',
+    ]);
+  });
+
+  it('records a failure for an unknown event', async () => {
+    render(<CalendarComponent {...props()} />);
+    const result = await latestHandlers().removeEvent({ title: 'Dentist' });
+    expect(isErr(result)).toBe(true);
+    expect(texts()).toEqual(['failed: Couldn\'t find event "Dentist"']);
   });
 });

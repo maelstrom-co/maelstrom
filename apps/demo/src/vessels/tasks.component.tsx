@@ -2,47 +2,80 @@ import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Check } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
+import {
+  describeAddedTask,
+  recordChange,
+  recordFailure,
+  recordUnchanged,
+} from '../lib/action-activity';
 import { cn } from '../lib/cn';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
-import { getTasksSnapshot, tasksActions, useTasksStore } from './tasks.store';
+import {
+  getTasksSnapshot,
+  type SubtaskChange,
+  type TaskChange,
+  taskReferenceLabel,
+  tasksActions,
+  useTasksStore,
+} from './tasks.store';
 import type { tasksVessel } from './tasks.vessel';
-
-function noMatchError(title: string): Error {
-  const available = getTasksSnapshot()
-    .tasks.map((t) => `"${t.title}"`)
-    .join(', ');
-  return new Error(`No task matches "${title}". Available: ${available}`);
-}
 
 export default function TasksComponent({
   instanceId,
+  executeAction,
 }: TypedVesselProps<typeof tasksVessel>) {
   const { tasks } = useTasksStore();
 
   m.useActions('tasks', instanceId, {
-    addTask: async ({ title }) => {
-      tasksActions.addTask(title);
+    addTask: async ({ title, subtasks }) => {
+      const result = tasksActions.addTask(title, splitSubtaskTitles(subtasks));
+      recordChange(
+        describeAddedTask(result.task.title, result.task.subtasks.length),
+        source('addTask'),
+      );
       return ok(undefined);
     },
-    removeTask: async ({ title }) => {
-      if (!tasksActions.removeTask(title)) return err(noMatchError(title));
-      return ok(undefined);
-    },
-    checkTask: async ({ title }) => {
-      if (!tasksActions.checkTask(title)) return err(noMatchError(title));
-      return ok(undefined);
-    },
-    uncheckTask: async ({ title }) => {
-      if (!tasksActions.uncheckTask(title)) return err(noMatchError(title));
-      return ok(undefined);
-    },
-    addSubtask: async ({ taskTitle, subtaskTitle }) => {
-      if (!tasksActions.addSubtask(taskTitle, subtaskTitle)) {
-        return err(noMatchError(taskTitle));
-      }
-      return ok(undefined);
-    },
+    removeTask: async ({ task }) =>
+      taskOutcome(
+        'removeTask',
+        tasksActions.removeTask(task),
+        (changed) => `Removed task "${changed.title}"`,
+      ),
+    checkTask: async ({ task }) =>
+      taskOutcome(
+        'checkTask',
+        tasksActions.setTaskDone(task, true),
+        (changed) => `Checked task "${changed.title}"`,
+      ),
+    uncheckTask: async ({ task }) =>
+      taskOutcome(
+        'uncheckTask',
+        tasksActions.setTaskDone(task, false),
+        (changed) => `Unchecked task "${changed.title}"`,
+      ),
+    addSubtask: async ({ task, subtaskTitle }) =>
+      subtaskOutcome(
+        'addSubtask',
+        'task',
+        tasksActions.addSubtask(task, subtaskTitle),
+        (result) =>
+          `Added subtask "${result.subtask.title}" to "${result.task.title}"`,
+      ),
+    checkSubtask: async ({ subtask }) =>
+      subtaskOutcome(
+        'checkSubtask',
+        'subtask',
+        tasksActions.setSubtaskDone(subtask, true),
+        (result) => `Checked subtask "${result.subtask.title}"`,
+      ),
+    uncheckSubtask: async ({ subtask }) =>
+      subtaskOutcome(
+        'uncheckSubtask',
+        'subtask',
+        tasksActions.setSubtaskDone(subtask, false),
+        (result) => `Unchecked subtask "${result.subtask.title}"`,
+      ),
   });
 
   const allItems = tasks.flatMap((t) => [t, ...t.subtasks]);
@@ -72,18 +105,16 @@ export default function TasksComponent({
         <div className="flex-1 space-y-2 overflow-y-auto">
           {tasks.map((task) => (
             <div key={task.id}>
-              {/* Task */}
               <div className="flex items-center gap-2.5">
-                <div
-                  className={cn(
-                    'task-check shrink-0',
-                    task.done && 'task-check--done',
-                  )}
-                >
-                  {task.done && (
-                    <Check size={10} strokeWidth={1.75} className="text-bg" />
-                  )}
-                </div>
+                <TaskCheckbox
+                  title={task.title}
+                  done={task.done}
+                  onToggle={() =>
+                    executeAction(task.done ? 'uncheckTask' : 'checkTask', {
+                      task: task.id,
+                    })
+                  }
+                />
                 <span
                   className={
                     task.done
@@ -95,7 +126,6 @@ export default function TasksComponent({
                 </span>
               </div>
 
-              {/* Subtasks */}
               {task.subtasks.length > 0 && (
                 <div className="ml-6 mt-1 space-y-1.5">
                   {task.subtasks.map((sub) => (
@@ -103,20 +133,17 @@ export default function TasksComponent({
                       key={sub.id}
                       className="flex items-center gap-2 animate-fade-in"
                     >
-                      <div
-                        className={cn(
-                          'task-check task-check-sub shrink-0',
-                          sub.done && 'task-check--done',
-                        )}
-                      >
-                        {sub.done && (
-                          <Check
-                            size={9}
-                            strokeWidth={1.75}
-                            className="text-bg"
-                          />
-                        )}
-                      </div>
+                      <TaskCheckbox
+                        title={sub.title}
+                        done={sub.done}
+                        subtask
+                        onToggle={() =>
+                          executeAction(
+                            sub.done ? 'uncheckSubtask' : 'checkSubtask',
+                            { subtask: sub.id },
+                          )
+                        }
+                      />
                       <span
                         className={
                           sub.done
@@ -135,5 +162,95 @@ export default function TasksComponent({
         </div>
       )}
     </VesselCard>
+  );
+}
+
+const SUBTASK_SEPARATOR = '|';
+
+function TaskCheckbox({
+  title,
+  done,
+  subtask = false,
+  onToggle,
+}: {
+  title: string;
+  done: boolean;
+  subtask?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: the glass checkbox draws its own box and tick, so a button carries the checkbox role and state instead of a restyled native input.
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={done}
+      aria-label={`Mark ${title} done`}
+      onClick={onToggle}
+      className={cn(
+        'task-check shrink-0',
+        subtask && 'task-check-sub',
+        done && 'task-check--done',
+      )}
+    >
+      {done && (
+        <Check size={subtask ? 9 : 10} strokeWidth={1.75} className="text-bg" />
+      )}
+    </button>
+  );
+}
+
+function source(action: string) {
+  return { vesselId: 'tasks', action };
+}
+
+function splitSubtaskTitles(subtasks: string | undefined): string[] {
+  if (!subtasks) return [];
+  return subtasks.split(SUBTASK_SEPARATOR);
+}
+
+function taskOutcome(
+  action: string,
+  result: TaskChange,
+  describe: (task: { title: string }) => string,
+) {
+  if (!result.ok) return notFound(action, 'task', result.query);
+  if (result.changed) {
+    recordChange(describe(result.task), source(action));
+  } else {
+    recordUnchanged(alreadyText(result.task), source(action));
+  }
+  return ok(undefined);
+}
+
+function subtaskOutcome(
+  action: string,
+  kind: 'task' | 'subtask',
+  result: SubtaskChange,
+  describe: (result: Extract<SubtaskChange, { ok: true }>) => string,
+) {
+  if (!result.ok) return notFound(action, kind, result.query);
+  if (result.changed) {
+    recordChange(describe(result), source(action));
+  } else {
+    recordUnchanged(alreadyText(result.subtask), source(action));
+  }
+  return ok(undefined);
+}
+
+function alreadyText(item: { title: string; done: boolean }): string {
+  return `"${item.title}" was already ${item.done ? 'done' : 'open'}`;
+}
+
+function notFound(action: string, kind: 'task' | 'subtask', query: string) {
+  recordFailure(`Couldn't find ${kind} "${query}"`, source(action));
+  const { tasks } = getTasksSnapshot();
+  const references =
+    kind === 'task'
+      ? tasks.map(taskReferenceLabel)
+      : tasks.flatMap((task) => task.subtasks.map(taskReferenceLabel));
+  const available =
+    references.length > 0 ? references.map((r) => `"${r}"`).join(', ') : 'none';
+  return err(
+    new Error(`No ${kind} matches "${query}". Available: ${available}`),
   );
 }
