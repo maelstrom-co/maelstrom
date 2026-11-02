@@ -16,6 +16,8 @@ export default defineConfig({
   // Tests in blog.spec.ts build isolated Astro apps; running those builds in
   // parallel collides on Astro's fixed inspector port (127.0.0.1:9229).
   fullyParallel: false,
+  // CPU-based worker defaults oversubscribe the homepage's WebGL rendering.
+  workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
