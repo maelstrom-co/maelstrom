@@ -10,7 +10,12 @@ import {
   validatePackedManifest,
 } from './lib/packed-manifest.ts';
 import {
+  createPublicationRecord,
+  type PublicationRecording,
+} from './lib/publication-record.ts';
+import {
   authenticationFailureHint,
+  hasPublishedIntegrity,
   hasPublishedPackage,
   isAlreadyPublished,
   resolveRegistry,
@@ -30,12 +35,14 @@ export type PublishOptions = {
   provenance: boolean;
   skipPublished: boolean;
   requireExisting?: boolean;
+  recording?: PublicationRecording;
 };
 
 type PublishDependencies = {
   runArchiveProcess?: (request: ArchiveProcessRequest) => ArchiveProcessResult;
   isAlreadyPublished?: typeof isAlreadyPublished;
   hasPublishedPackage?: typeof hasPublishedPackage;
+  hasPublishedIntegrity?: typeof hasPublishedIntegrity;
   publish?: (
     tarball: string,
     pkg: ValidatedPackedPackage,
@@ -79,6 +86,9 @@ export function parsePublishArgs(
           provenance: { type: 'boolean', default: false },
           'skip-published': { type: 'boolean', default: false },
           'require-existing': { type: 'boolean', default: false },
+          'publication-record': { type: 'string' },
+          'recovery-records': { type: 'string' },
+          'source-commit': { type: 'string' },
         },
         strict: true,
       });
@@ -94,6 +104,14 @@ export function parsePublishArgs(
     throw new Error('Invalid --expected-version: expected canonical SemVer');
   }
   if (!values.tag) throw new Error('Missing required --tag');
+  if (values['recovery-records'] && !values['publication-record'])
+    throw new Error('--recovery-records requires --publication-record');
+  const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+  const preview = values.tag.match(/^pr-([1-9]\d*)$/);
+  const freshVersion =
+    !!preview &&
+    expectedVersion ===
+      `0.0.0-pr.${preview[1]}.${process.env.GITHUB_RUN_NUMBER}.${attempt}`;
 
   return {
     dir: resolve(cwd, values.dir ?? 'dist/tarballs'),
@@ -104,6 +122,22 @@ export function parsePublishArgs(
     provenance: values.provenance,
     skipPublished: values['skip-published'],
     requireExisting: values['require-existing'],
+    recording:
+      values['publication-record'] && !values['dry-run']
+        ? {
+            path: resolve(cwd, values['publication-record']),
+            recoveryDirectory: values['recovery-records']
+              ? resolve(cwd, values['recovery-records'])
+              : undefined,
+            context: {
+              repository: process.env.GITHUB_REPOSITORY ?? '',
+              runId: process.env.GITHUB_RUN_ID ?? '',
+              attempt,
+              sourceCommit: values['source-commit'] ?? '',
+            },
+            freshVersion,
+          }
+        : undefined,
   };
 }
 
@@ -161,6 +195,14 @@ export function publishTarballs(
     },
   );
   const probe = dependencies.isAlreadyPublished ?? isAlreadyPublished;
+  const record =
+    options.recording && !options.dryRun
+      ? createPublicationRecord(options.recording, packages, {
+          version: options.expectedVersion,
+          registry: options.registry,
+          tag: options.tag,
+        })
+      : undefined;
   if (options.requireExisting && !options.dryRun) {
     const exists = dependencies.hasPublishedPackage ?? hasPublishedPackage;
     for (const pkg of packages) {
@@ -176,19 +218,48 @@ export function publishTarballs(
   let skipped = 0;
   let succeeded = 0;
 
-  for (const pkg of packages) {
-    if (options.skipPublished && !options.dryRun) {
+  const planned: typeof packages = [];
+  if (record) {
+    const visible = dependencies.hasPublishedIntegrity ?? hasPublishedIntegrity;
+    for (const pkg of packages) {
+      if (record.accepted(pkg.name)) {
+        skipped++;
+        continue;
+      }
+      if (
+        visible(
+          pkg.name,
+          pkg.version,
+          options.registry,
+          record.integrity(pkg.name),
+        )
+      ) {
+        record.set(pkg.name, 'observed');
+        skipped++;
+      } else if (record.requiresReconciliation) {
+        throw new Error(
+          `${pkg.name}: previous publication outcome is unconfirmed. Wait for npm processing or reconcile before starting a new manual recovery run.`,
+        );
+      } else planned.push(pkg);
+    }
+  } else planned.push(...packages);
+
+  for (const pkg of planned) {
+    if (!record && options.skipPublished && !options.dryRun) {
       if (probe(pkg.name, pkg.version, options.registry)) {
         skipped++;
         continue;
       }
     }
+    record?.set(pkg.name, 'in_flight');
     try {
       publish(pkg.tarballPath, pkg, options);
-      succeeded++;
     } catch {
       failures.push(pkg.name);
+      continue;
     }
+    record?.set(pkg.name, 'accepted');
+    succeeded++;
   }
 
   if (failures.length > 0) {

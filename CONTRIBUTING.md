@@ -492,16 +492,34 @@ affected paths and review dates.
 
 ### Recovering a partial release
 
-If publication fails partway, rerun the failed workflow. Do not prepare another
-version. For a manual recovery, dispatch **Release** from `main` with the
-existing tag and `dry_run` unchecked. The publish step passes `--skip-published`,
-so packages that already landed are skipped and only the missing ones go out. npm versions are immutable, so
-re-publishing one that succeeded is a hard error; that flag is what makes the
-re-run work.
+Keep the existing tag and version when publication or verification fails.
+Download the original tarballs and the latest `npm-publication-records-N`
+artifact from the workflow run. Each record contains the package names,
+SHA-512 checksums, registry, source commit, workflow identity, and upload states.
+Records and tarballs remain available for seven days.
 
-When retained tarballs are still available, rerun only the failed publish job to
-reuse the prepared artifacts. Rerunning preparation or dispatching a manual
-recovery rebuilds the selected tag and audits its lockfile against current advisories.
+Rerun only the failed release publisher to reuse those artifacts. Matching
+`accepted` and `observed` entries suppress uploads while npm processes the versions.
+Verification still checks npm independently and requires the original tarball checksums.
+A successful upload record does not prove that a version is available to install.
+
+If recovery reports an unconfirmed outcome, wait for npm processing and inspect
+the previous logs and registry state. An `in_flight` entry can mean npm accepted
+an upload before the connection failed. Missing and `not_attempted` entries cannot
+prove absence: cancellation can lose a record before artifact storage finishes.
+The automatic rerun stops before uploading absent, unconfirmed versions.
+
+After reconciling the earlier attempt, dispatch **Release** from `main` with the
+existing tag and `dry_run` unchecked. This starts a new protected recovery run.
+Do not edit records to force a retry. A new run still checks visible versions
+against the prepared tarball bytes before publishing missing versions.
+
+For preview publication, rerun all jobs to prepare the new attempt's unique version.
+Do not rerun only the preview publisher against an earlier attempt's tarballs.
+
+Rerunning preparation or dispatching a manual recovery rebuilds the selected tag
+and audits its lockfile against current advisories. Rebuilding does not establish
+byte identity with expired artifacts.
 A previously published tag can therefore fail today's audit, including on newly
 disclosed development dependencies. If that happens, stop and review the blocked
 dependency paths and a recovery plan. Keep the existing tag unchanged; historical
@@ -510,8 +528,9 @@ publication does not grant an audit exception.
 ### Flags and gotchas
 
 - **The GitHub release exists before npm publication finishes.** A failed
-  publish leaves a release with incomplete packages. Finish it by rerunning
-  the workflow. Keep the existing tag and version.
+  publish leaves a release with incomplete packages. Follow the
+  [partial release recovery](#recovering-a-partial-release) instructions.
+  Keep the existing tag and version.
 - **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
   to npm (`https://registry.npmjs.org`). Set it only to aim somewhere
   else, such as local Verdaccio (`nx local-registry`, `http://localhost:4873`) to

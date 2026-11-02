@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -40,6 +41,175 @@ function withArtifact(run: (dir: string, log: string[]) => void) {
     rmSync(dir, { force: true, recursive: true });
   }
 }
+
+function recordedOptions(dir: string, attempt: number) {
+  return {
+    dir,
+    tag: 'latest',
+    registry: 'https://registry.npmjs.org',
+    expectedVersion: '1.2.3',
+    dryRun: false,
+    provenance: false,
+    skipPublished: true,
+    recording: {
+      path: join(dir, `attempt-${attempt}`, 'publication-record.json'),
+      recoveryDirectory: join(dir, 'recovery'),
+      context: {
+        repository: 'maelstrom-co/maelstrom',
+        runId: '1234',
+        attempt,
+        sourceCommit: 'a'.repeat(40),
+      },
+      freshVersion: false,
+    },
+  };
+}
+
+describe('recorded publication recovery', () => {
+  test('accepted uploads are not repeated while public registry visibility is pending', () =>
+    withArtifact((dir) => {
+      const first = recordedOptions(dir, 1);
+      publishTarballs(first, {
+        hasPublishedIntegrity: () => false,
+        publish: () => {},
+      });
+      mkdirSync(first.recording.recoveryDirectory);
+      copyFileSync(
+        first.recording.path,
+        join(first.recording.recoveryDirectory, 'publication-record.json'),
+      );
+      const result = publishTarballs(recordedOptions(dir, 2), {
+        hasPublishedIntegrity: () => {
+          throw new Error('accepted memory needs no publication probe');
+        },
+        publish: () => {
+          throw new Error('must not upload accepted versions again');
+        },
+      });
+      expect(result).toEqual({
+        succeeded: 0,
+        skipped: PACKED_PACKAGE_NAMES.length,
+      });
+    }));
+
+  test.each([
+    'missing',
+    'not_attempted',
+  ])('a %s record cannot authorize absent versions on a rerun', (kind) =>
+    withArtifact((dir) => {
+      if (kind === 'not_attempted') {
+        const first = recordedOptions(dir, 1);
+        expect(() =>
+          publishTarballs(first, {
+            hasPublishedIntegrity: () => {
+              throw new Error('registry unavailable');
+            },
+            publish: () => {},
+          }),
+        ).toThrow('registry unavailable');
+        mkdirSync(first.recording.recoveryDirectory);
+        copyFileSync(
+          first.recording.path,
+          join(first.recording.recoveryDirectory, 'publication-record.json'),
+        );
+      }
+      let writes = 0;
+      expect(() =>
+        publishTarballs(recordedOptions(dir, 2), {
+          hasPublishedIntegrity: () => false,
+          publish: () => {
+            writes++;
+          },
+        }),
+      ).toThrow('unconfirmed');
+      expect(writes).toBe(0);
+    }));
+
+  test('a rerun can recover without records when every exact tarball is already visible', () =>
+    withArtifact((dir) => {
+      let writes = 0;
+      const result = publishTarballs(recordedOptions(dir, 3), {
+        hasPublishedIntegrity: () => true,
+        publish: () => {
+          writes++;
+        },
+      });
+      expect(result.skipped).toBe(PACKED_PACKAGE_NAMES.length);
+      expect(writes).toBe(0);
+    }));
+
+  test('an ambiguous npm failure stays in flight while other successes remain recorded', () =>
+    withArtifact((dir) => {
+      const options = recordedOptions(dir, 1);
+      expect(() =>
+        publishTarballs(options, {
+          hasPublishedIntegrity: () => false,
+          publish: (_path, pkg) => {
+            if (pkg.name === PACKED_PACKAGE_NAMES[0])
+              throw new Error('connection lost');
+          },
+        }),
+      ).toThrow('Publish failed');
+      const record = JSON.parse(readFileSync(options.recording.path, 'utf8'));
+      expect(record.packages[0].state).toBe('in_flight');
+      expect(
+        record.packages
+          .slice(1)
+          .every((entry: { state: string }) => entry.state === 'accepted'),
+      ).toBe(true);
+    }));
+
+  test('a record persistence failure stops immediately after the affected upload', () =>
+    withArtifact((dir) => {
+      const options = recordedOptions(dir, 1);
+      let writes = 0;
+      expect(() =>
+        publishTarballs(options, {
+          hasPublishedIntegrity: () => false,
+          publish: () => {
+            writes++;
+            rmSync(options.recording.path);
+            mkdirSync(options.recording.path);
+          },
+        }),
+      ).toThrow('regular file');
+      expect(writes).toBe(1);
+    }));
+
+  test('a late integrity mismatch prevents every publication', () =>
+    withArtifact((dir) => {
+      let writes = 0;
+      expect(() =>
+        publishTarballs(recordedOptions(dir, 1), {
+          hasPublishedIntegrity: (name) => {
+            if (name === PACKED_PACKAGE_NAMES.at(-1))
+              throw new Error('different published bytes');
+            return false;
+          },
+          publish: () => {
+            writes++;
+          },
+        }),
+      ).toThrow('different published bytes');
+      expect(writes).toBe(0);
+    }));
+
+  test('recorded dry runs write no records and make no registry requests', () =>
+    withArtifact((dir) => {
+      const options = recordedOptions(dir, 1);
+      const result = publishTarballs(
+        { ...options, dryRun: true },
+        {
+          hasPublishedIntegrity: () => {
+            throw new Error('unexpected registry request');
+          },
+          publish: () => {},
+        },
+      );
+      expect(result.succeeded).toBe(PACKED_PACKAGE_NAMES.length);
+      expect(() => readFileSync(options.recording.path)).toThrow();
+    }));
+});
 
 function archiveProcess(log: string[]) {
   return (request: ArchiveProcessRequest) => {
