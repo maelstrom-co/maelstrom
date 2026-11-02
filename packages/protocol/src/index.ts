@@ -10,6 +10,7 @@ export {
 export type {
   AgentAcceptedEvent,
   AgentActionOutcome,
+  AgentChartRequestInput,
   AgentDisposition,
   AgentErrorEvent,
   AgentEvent,

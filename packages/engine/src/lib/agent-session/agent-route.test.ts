@@ -95,6 +95,85 @@ void mock.module('./planner-show-queue.js', capturingPlannerShowQueueModule);
 void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('agent route through the Engine handle', () => {
+  test('rejecting a client-dispatched Chart does not run the model or prevent a later utterance', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    const inputId = MessageId('chart-input');
+    await session.connection.send({
+      type: 'chart_request',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      request: makeTilingRequest(),
+    });
+    expect(session.received).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        inputId,
+        code: 'unsupported_input',
+      }),
+    ]);
+    expect(model.requests).toHaveLength(0);
+    await session.send(utterance('chart-input', 'Hello'));
+    expect(lastFinished(session.received)).toMatchObject({
+      ok: true,
+      reply: 'Ready.',
+    });
+    expect(model.requests).toHaveLength(1);
+    session.connection.close();
+  });
+  test('unsupported Chart requests cannot exhaust a configured agent session', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    try {
+      for (let index = 0; index <= 4096; index++) {
+        await session.connection.send({
+          type: 'chart_request',
+          version: AGENT_WIRE_VERSION,
+          inputId: MessageId(`unsupported-${index}`),
+          request: makeTilingRequest(),
+        });
+        expect(session.received.at(-1)).toMatchObject({
+          type: 'error',
+          code: 'unsupported_input',
+        });
+      }
+      await session.send(utterance('supported', 'Hello'));
+      expect(lastFinished(session.received)).toMatchObject({ ok: true });
+      expect(model.requests).toHaveLength(1);
+    } finally {
+      session.connection.close();
+    }
+  });
+  test('a busy configured agent rejects Chart requests as unsupported rather than retryable', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    let rejected: Promise<void> | undefined;
+    session.connection.subscribe((event) => {
+      if (event.type !== 'started') return;
+      rejected = session.connection.send({
+        type: 'chart_request',
+        version: AGENT_WIRE_VERSION,
+        inputId: MessageId('unsupported'),
+        request: makeTilingRequest(),
+      });
+    });
+    try {
+      await session.send(utterance('supported', 'Hello'));
+      await rejected;
+      expect(
+        session.received.filter((event) => event.type === 'error'),
+      ).toMatchObject([{ inputId: 'unsupported', code: 'unsupported_input' }]);
+      expect(lastFinished(session.received)).toMatchObject({ ok: true });
+    } finally {
+      session.connection.close();
+    }
+  });
   describe('a single utterance', () => {
     test('streams its opening, tool breadcrumbs and reply in wire order, each decodable, with no internal events', async () => {
       const order = orderTool();

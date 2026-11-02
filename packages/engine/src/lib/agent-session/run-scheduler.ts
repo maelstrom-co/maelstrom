@@ -1,5 +1,6 @@
 import {
   AGENT_WIRE_VERSION,
+  type AgentChartRequestInput,
   type AgentErrorEvent,
   type AgentEvent,
   type AgentUiAppliedInput,
@@ -41,13 +42,15 @@ export interface RunSchedulerOptions {
 export interface RunScheduler {
   pendingRuns(): number;
   reject(event: AgentErrorEvent): void;
-  enqueue(input: AgentUtteranceInput): Promise<void>;
+  enqueue(input: UiRunInput): Promise<void>;
   acknowledge(input: AgentUiAppliedInput): void;
   close(): void;
 }
 
+type UiRunInput = AgentUtteranceInput | AgentChartRequestInput;
+
 interface UiRun {
-  readonly input: AgentUtteranceInput;
+  readonly input: UiRunInput;
   readonly runId: RunId;
   readonly started: number;
   readonly ready: Deferred;
@@ -105,15 +108,22 @@ export function createRunScheduler({
         ready: deferred(),
       };
       // A Chart sent while a change awaits acknowledgement can predate it.
-      if (state.phase !== 'awaiting_ack') chart = input.chart;
+      if (input.type === 'utterance' && state.phase !== 'awaiting_ack')
+        chart = input.chart;
       queue.push(run);
       events.emit(...buildAcceptanceEvents(input.inputId, run.runId));
       diagnostics.run(
         run.runId,
         input.inputId,
         'engine.agent.input.accepted',
-        { source: input.source, disposition: 'ui_only' },
-        () => ({ text: input.text }),
+        {
+          source: input.type === 'utterance' ? input.source : 'chart_request',
+          disposition: 'ui_only',
+        },
+        () =>
+          input.type === 'utterance'
+            ? { text: input.text }
+            : { request: input.request },
       );
       void pump();
       return run.ready.promise;
@@ -272,15 +282,21 @@ export function createRunScheduler({
   }
 
   async function pump(): Promise<void> {
-    if (signal.aborted || events.isDelivering() || state.phase !== 'idle')
+    if (signal.aborted || state.phase !== 'idle') return;
+    if (events.isDelivering()) {
+      queueMicrotask(() => void pump());
       return;
+    }
     const run = queue.shift();
     if (!run) return;
     state = { phase: 'planning', run };
     diagnostics.run(run.runId, run.input.inputId, 'engine.agent.run.started', {
       disposition: 'ui_only',
     });
-    const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
+    const request =
+      run.input.type === 'chart_request'
+        ? run.input.request
+        : userIntentRequest(chart ?? run.input.chart, run.input.text);
     const messageId = run.input.inputId;
     let result: Result<MaelstromResponse, EngineError>;
     try {

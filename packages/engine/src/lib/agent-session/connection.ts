@@ -1,4 +1,8 @@
-import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
+import {
+  AGENT_WIRE_VERSION,
+  type AgentEvent,
+  type SessionId,
+} from '@maelstrom-co/protocol';
 
 import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
@@ -53,11 +57,16 @@ export interface OpenConnectionOptions {
  * One connection's ordered Agent Session event stream.
  *
  * Capacity is bounded per connection:
- * - At most 32 utterances are pending, including the one being planned or
+ * - At most 32 runs are pending, including the one being planned or
  *   awaiting acknowledgement. A further utterance receives an `error` event
  *   with code `queue_full` and is not remembered, so it can be sent again.
+ * - A client-dispatched {@link AgentChartRequestInput} requires no pending runs.
+ *   Otherwise it receives `connection_busy` before its ID is remembered. The
+ *   client owns its FIFO and captures a fresh request at each dispatch. The
+ *   supplied request is never replaced with a retained Chart or queued behind
+ *   another run. Utterances retain their server-owned queue.
  * - At most 4,096 input IDs are remembered, with no eviction, so a repeated
- *   input is always ignored. After that, a new utterance receives an `error`
+ *   input is always ignored. After that, a new planning input receives an `error`
  *   event with code `session_capacity`. The host must open a new connection
  *   to continue.
  * - Each UI change waits for acknowledgement for at most
@@ -71,9 +80,10 @@ export interface OpenConnectionOptions {
  */
 export interface AgentConnection {
   /**
-   * Accepts untrusted input. Resolves after handling it, without waiting for
-   * a later UI acknowledgement. Input sent after close() is dropped without an
-   * event or a diagnostic.
+   * Accepts untrusted input. A planning input resolves after planning and
+   * advisory recording, or closure; it does not wait for UI acknowledgement.
+   * Refused and duplicate inputs resolve without planning. Input sent after
+   * close() is dropped without an event or a diagnostic.
    */
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
@@ -124,7 +134,7 @@ export function createAgentConnection(
         eventLogData(options.sessionId, event),
       ),
   });
-  const admission = createInputAdmission();
+  const admission = createInputAdmission(agent === undefined);
   const runs =
     agent === undefined
       ? createRunScheduler({
@@ -180,7 +190,7 @@ export function createAgentConnection(
         case 'acknowledgement':
           runs.acknowledge(admitted.input);
           return;
-        case 'utterance':
+        case 'run':
           await runs.enqueue(admitted.input);
           return;
         default:
@@ -246,7 +256,17 @@ function agentRuns(
   return {
     pendingRuns: () => queue.pendingRuns(),
     reject: (event) => events.emit(event),
-    enqueue: (input) => queue.enqueue(input),
+    enqueue(input) {
+      if (input.type === 'utterance') return queue.enqueue(input);
+      events.emit({
+        type: 'error',
+        version: AGENT_WIRE_VERSION,
+        inputId: input.inputId,
+        code: 'unsupported_input',
+        error: 'Client-dispatched Chart requests require a UI-only connection.',
+      });
+      return Promise.resolve();
+    },
     acknowledge: (input) => queue.acknowledge(input),
     close: () => queue.close(),
   };
