@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { deferred } from '@maelstrom-co/engine';
 import type { Ask } from '@maelstrom-co/planner-jev/_internal';
 import {
   conversation,
@@ -6,7 +7,8 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
-import { isOk, ok } from '@maelstrom-co/protocol';
+import { err, isOk, ok } from '@maelstrom-co/protocol';
+import { assertEvaluationRuntime } from '../../../core/ci-runtime.js';
 import { type Scenario, selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,
@@ -350,6 +352,36 @@ describe('select stage eval', () => {
     expect(records[0]?.outcome).toBe('error');
     expect(records[0]?.reason).toBe('ProviderError: jevSelect/provider_http');
     expect(records[0]?.detail).toBeUndefined();
+  });
+
+  test('keeps a provider refusal as an informational deferral in CI', async () => {
+    const module = selectModuleWith({
+      client: {
+        provider: 'Synthetic',
+        requiredEnv: [],
+        meta: () => ({}),
+        ask: (onCall) => async (stage) => {
+          onCall({
+            stage,
+            questionIds: [],
+            latencyMs: 1,
+            outcome: 'provider_refusal',
+          });
+          return err(deferred(`${stage}/provider_refusal`));
+        },
+      },
+    });
+    const records = await runStageEval(module, {
+      scenarios: selectScenarios('all', ['swap']),
+      variants: ['gated'],
+      repeats: 1,
+      report: ({ accounting, records }) => {
+        expect(accounting.execution.error).toBe(0);
+        assertEvaluationRuntime(accounting, records);
+      },
+    });
+    expect(records[0]?.outcome).toBe('deferred');
+    expect(records[0]?.reason).toBe('jevSelect/provider_refusal');
   });
 
   test('records a reply missing a gate answer as an error', async () => {

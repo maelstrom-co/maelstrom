@@ -1,0 +1,40 @@
+name: Publish Eval Results
+
+on:
+  workflow_run:
+    workflows: [Run Evals]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  publish:
+    if: >-
+      github.run_attempt == 1
+      && github.event.workflow_run.run_attempt == 1
+      && github.event.workflow_run.event == 'pull_request_target'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && startsWith(github.event.workflow_run.display_title, 'Evals PR #')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted result publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # A fresh runner never checks out PR code or downloads report content.
+      - name: Consume label and post report artifact links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVAL_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node scripts/evals-ci.ts finish

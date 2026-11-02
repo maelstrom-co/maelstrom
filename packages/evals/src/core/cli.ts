@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { consoleLogger } from '@maelstrom-co/engine';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
 import { defaultArms, type RegisteredArm, resolveArms } from './arms.js';
+import { assertEvaluationRuntime } from './ci-runtime.js';
 import {
   type GraderValidation,
   isGraderValidation,
@@ -52,6 +53,7 @@ export async function runEvalCli(
       'replay-arm': { type: 'string' },
       grader: { type: 'boolean' },
       'no-grader': { type: 'boolean' },
+      'fail-on-runtime-error': { type: 'boolean', default: false },
       'judge-provider': { type: 'string' },
       'judge-model': { type: 'string' },
       'judge-rubric': { type: 'string' },
@@ -224,7 +226,7 @@ export async function runEvalCli(
       replayThrough && {
         replay: { source: replay.source, through: replayThrough },
       }),
-    report: async ({ records, runId }) => {
+    report: async ({ records, runId, accounting }) => {
       await writeReport(
         out,
         records,
@@ -244,6 +246,8 @@ export async function runEvalCli(
         { plugins, graderValidation },
         runId,
       );
+      if (values['fail-on-runtime-error'])
+        assertEvaluationRuntime(accounting, records);
     },
     onRecord: (record) =>
       console.log(

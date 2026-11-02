@@ -407,6 +407,56 @@ Without a variable the run needs (`OPENAI_API_KEY` always, and it is all the Dec
 
 Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm's plugin says it reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, so a run recorded before the select stage asked a gate (such as `dependsOnScreen`) no longer replays into a gated arm and is refused as having no complete gates, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
 
+### Approved PR evaluations
+
+Add `run-evals` to an open same-repository PR. The **Run Evals** workflow captures
+that event's exact head SHA and waits for owner approval in the existing protected
+`preview` environment. Review that SHA before approving: its source will receive
+provider credentials. Fork PRs cannot run. Both workflows must exist on the default
+branch before labels can trigger this path.
+
+Configure `OPENAI_API_KEY` and `TYPESAFE_API_KEY` as secrets available to `preview`,
+and `JEV_MODEL` as an environment/repository variable (or secret). Missing or blank
+values fail explicitly before execution. Keep `preview`'s required owner reviewer
+protection enabled; the workflow does not provision or weaken environment rules.
+
+After approval, trusted code checks that the PR is still open, belongs to this
+repository and has the labeled SHA. Checkout uses that SHA, never the moving branch
+or merge ref. Dependencies install without lifecycle scripts or ambient Bun config;
+the SHA is checked again immediately before paid execution. A newer head requires
+a new label request. No PR code receives a PR-write token.
+
+The run executes the full planner's default arms (`baseline`, `jev-poc`) plus
+`select`, `actions`, `layout`, `decisions-select`, `decisions-actions` and
+`decisions-layout`, with every stage variant, the `all` suite and three repeats.
+Stages use concurrency one. Secondary paid judging is explicitly disabled.
+Each completed `report.md` is uploaded as a separate artifact retained for 14 days.
+Raw records, prompts and `paired.md` are not uploaded. Reports can still include
+scenario text and diagnostics; approval covers publishing those artifacts.
+
+Scores are informational. `--fail-on-runtime-error` makes both CLIs reject execution,
+cleanup or judge failures, stage errors, provider failures,
+and explicitly failed provider calls, after writing completed reports. A
+successful fallback cannot hide a provider failure. Ordinary score failures,
+expected deferrals, provider refusals and handoffs do not fail the job. The flag is opt-in outside CI.
+Other evaluations still run after one command fails; the job fails at the end if
+any command failed. Fatal setup failures or the three-hour timeout can leave reports
+unavailable, rather than manufacturing a successful report.
+
+A separate **Publish Eval Results** completion workflow runs trusted default-branch
+code on a fresh runner, including after failure, cancellation or approval rejection.
+It removes `run-evals` before publishing a new PR comment with seven artifact links
+(or explicit unavailable entries). It reads GitHub artifact metadata only, never
+report contents, and never edits previous comments. GitHub/API outages can still
+prevent cleanup or commenting; inspect that workflow if the label remains.
+
+Each label addition is an independent request serialized per PR. Removing the label
+alone does not revoke a pending request; cancel its Actions run instead. A removal
+followed by re-addition queues another exact-SHA request with its own approval,
+even if earlier cleanup removes the visible label. GitHub manual reruns do not
+execute paid evaluations; re-add the label to retry. Normal `test`, `typecheck` and
+`check` targets do not invoke this paid workflow.
+
 ### Stage evals
 
 `src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
@@ -448,7 +498,7 @@ A new stage joins by implementing `StageEvalModule` (`src/core/stage-eval.ts`: i
 
 #### Select stage
 
-The select stage eval judges the gates and the selection of the composed pairs planner's select stage (`selectGated`). A turn passes when every gate with an expected answer matches and, when the scenario expects a visible set, the selection leaves exactly that set visible; a turn that deferred has no selection, so it fails a scenario expecting one. It runs on each scenario's own planning input, since the gates are the stage's answer to the request itself; there is no gold input. Every variant reads the gate answers from the stage's reply with `readGateAnswers`, the function the stage decides with, so a turn where the stage answered the gates and then deferred (a `generatedContent` or `dependsOnScreen` yes, an ambiguous scope) is still judged and records the deferral reason. A deferral whose reply carries no gate answers is recorded as that deferral, unjudged. A provider failure, an over-cap question or a missing answer is recorded as an error, so a provider outage shows in the error count.
+The select stage eval judges the gates and the selection of the composed pairs planner's select stage (`selectGated`). A turn passes when every gate with an expected answer matches and, when the scenario expects a visible set, the selection leaves exactly that set visible; a turn that deferred has no selection, so it fails a scenario expecting one. It runs on each scenario's own planning input, since the gates are the stage's answer to the request itself; there is no gold input. Every variant reads the gate answers from the stage's reply with `readGateAnswers`, the function the stage decides with, so a turn where the stage answered the gates and then deferred (a `generatedContent` or `dependsOnScreen` yes, an ambiguous scope) is still judged and records the deferral reason. A deferral whose reply carries no gate answers is recorded as that deferral, unjudged. A provider failure, an over-cap question or a missing answer is recorded as an error, so a provider outage shows in the error count. A valid provider refusal remains a semantic deferral, not an execution error.
 
 The variants, in `SELECT_VARIANTS` in `src/plugins/jev/stages/select.ts`, are `gated`, which runs `selectGated`, and two that run `selectGatedScreenScope` (planner-jev, experimental) instead. `gated-screen-scope` asks the same call plus a screen scope question (does the request add to or adjust the screen, or describe the whole screen) and a hide question per visible instance, with worked examples on the screen scope and keep questions; on an additive or adjusting request a visible instance stays visible unless its hide question answers yes. `gated-screen-scope-spelled-out-actions` also asks `needsActions` with item edits and settings spelled out; it helps Decisions, while TypeSafe answers it too high for its `NEEDS_ACTIONS_THRESHOLD`. The report's Selection section counts, per variant, the turns that selected the expected visible set, another set, or none, and lists every miss with both sets, so gate accuracy and visible-set accuracy can be read apart.
 

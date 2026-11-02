@@ -319,7 +319,10 @@ function gatedReading(
     const code = reason.slice(reason.indexOf('/') + 1);
     if (code === 'answer_missing')
       return err(parseError(reason, JSON.stringify(reply ?? null)));
-    if (code === 'option_cap' || code.startsWith('provider_'))
+    if (
+      code === 'option_cap' ||
+      (code.startsWith('provider_') && code !== 'provider_refusal')
+    )
       return err(providerError(reason, undefined));
     if (reply === undefined) return selected;
     const gates = readGateAnswers(reply, ctx);
