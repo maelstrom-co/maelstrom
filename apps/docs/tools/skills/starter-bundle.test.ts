@@ -16,8 +16,8 @@ test('the starter archive pins compatible SDKs and a matching lockfile for stand
   expect(tsconfig.include).toContain('dev.test.ts');
   expect(files['bun.lock']).toBeDefined();
   const lock = Bun.JSONC.parse(text(files['bun.lock']));
-  expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.1');
-  expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.1.1');
+  expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.2.1');
+  expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.2.1');
   expect(lock.workspaces[''].dependencies).toEqual(manifest.dependencies);
   expect(lock.workspaces[''].devDependencies).toEqual(manifest.devDependencies);
   expect(text(files['bun.lock'])).not.toMatch(

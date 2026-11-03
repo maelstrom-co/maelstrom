@@ -24,7 +24,7 @@ test('copying the onboarding prompt does not grant implementation authority by d
   );
 });
 
-test('integration prompts admit the frozen starter SDK and reject the next breaking line', async () => {
+test('integration prompts admit the verified starter SDK and compatible patches, excluding older versions and the next breaking line', async () => {
   const lock = Bun.JSONC.parse(
     await readFile(
       resolve(import.meta.dir, '../../starters/react/bun.lock.template'),
@@ -52,9 +52,14 @@ test('integration prompts admit the frozen starter SDK and reject the next break
         sdkVersionMatches(version, range),
         `${name}: ${sdk}@${version}`,
       ).toBe(true);
-      expect(sdkVersionMatches('0.1.0', range)).toBe(true);
+      expect(sdkVersionMatches('0.1.0', range)).toBe(false);
+      expect(sdkVersionMatches('0.1.1', range)).toBe(false);
       expect(sdkVersionMatches('0.2.0', range)).toBe(false);
-      expect(sdkVersionMatches('0.1.1-alpha.1', range)).toBe(false);
+      expect(sdkVersionMatches('0.2.1', range)).toBe(true);
+      expect(sdkVersionMatches('0.2.2', range)).toBe(true);
+      expect(sdkVersionMatches('0.3.0', range)).toBe(false);
+      expect(sdkVersionMatches('0.2.1-alpha.1', range)).toBe(false);
+      expect(sdkVersionMatches('0.2.2-alpha.1', range)).toBe(false);
     }
   }
 });
