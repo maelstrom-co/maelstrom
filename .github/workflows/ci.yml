@@ -81,21 +81,29 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      # Pull requests run only affected projects. Several test targets are not
-      # cacheable, so run-many re-ran them on every pull request regardless of
-      # what changed. Pushes to main still run everything.
+      # Pull requests run only affected projects, and every target for each of
+      # them. Nx's default affected selection is task-based and would skip
+      # targets whose own inputs did not change, so this passes the affected
+      # project list to run-many. Several test targets are not cacheable, so
+      # run-many re-ran them on every pull request regardless of what changed.
+      # Pushes to main still run everything.
       - name: Select projects
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
-            echo "nx-command=affected" >> "$GITHUB_OUTPUT"
-            docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
+            affected=$(bunx nx show projects --affected --json)
+            projects=$(jq -r 'join(",")' <<< "$affected")
+            run=$(jq 'length > 0' <<< "$affected")
+            docs=$(jq 'index("@maelstrom-co/docs") != null' <<< "$affected")
           else
-            echo "nx-command=run-many" >> "$GITHUB_OUTPUT"
+            projects=""
+            run=true
             docs=true
           fi
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
 
       # `check` and not `format`: the format target writes. Running it here
@@ -105,7 +113,15 @@ jobs:
       # assists, and the biome plugin passes --error-on-warnings so a warning
       # fails the build rather than scrolling past.
       - name: Run check, test, build, typecheck
-        run: bunx nx ${{ steps.scope.outputs.nx-command }} -t check test build typecheck
+        if: steps.scope.outputs.run == 'true'
+        env:
+          PROJECTS: ${{ steps.scope.outputs.projects }}
+        run: |
+          if [ -n "$PROJECTS" ]; then
+            bunx nx run-many -t check test build typecheck --projects="$PROJECTS"
+          else
+            bunx nx run-many -t check test build typecheck
+          fi
 
       # The validation reads every SDK package's build output, including
       # packages the pull request did not affect. Those builds restore from
@@ -153,14 +169,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
-            echo "nx-command=affected" >> "$GITHUB_OUTPUT"
-            e2e=$(bunx nx show projects --json --affected --withTarget=e2e | jq 'length > 0')
+            affected=$(bunx nx show projects --affected --withTarget=e2e --json)
+            projects=$(jq -r 'join(",")' <<< "$affected")
+            e2e=$(jq 'length > 0' <<< "$affected")
             docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
           else
-            echo "nx-command=run-many" >> "$GITHUB_OUTPUT"
+            projects=""
             e2e=true
             docs=true
           fi
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           if [ "$e2e" = true ] || [ "$docs" = true ]; then
@@ -192,7 +210,14 @@ jobs:
 
       - name: Run e2e
         if: steps.scope.outputs.e2e == 'true'
-        run: bunx nx ${{ steps.scope.outputs.nx-command }} -t e2e
+        env:
+          PROJECTS: ${{ steps.scope.outputs.projects }}
+        run: |
+          if [ -n "$PROJECTS" ]; then
+            bunx nx run-many -t e2e --projects="$PROJECTS"
+          else
+            bunx nx run-many -t e2e
+          fi
 
       - name: Verify the exported starter as a standalone consumer
         if: steps.scope.outputs.docs == 'true'
