@@ -76,7 +76,7 @@ const WEEKLY = step('weather-main/showWeekly');
 
 const SCENARIOS: readonly Scenario[] = [
   {
-    name: 'a new map with a route is declared in route and keeps showRoute',
+    name: 'a new map with a route is declared in its created variant and keeps showRoute',
     intent: 'add a map with the route home and the weekly weather',
     created: { id: 'map-new', vesselId: 'map' },
     createdIn: 'overview',
@@ -84,14 +84,14 @@ const SCENARIOS: readonly Scenario[] = [
       planned('map-new/showRoute', { destination: 'Central Station' }),
       planned('weather-main/showWeekly'),
     ],
-    declared: 'route',
+    declared: 'overview',
     executionPlan: [
       step('map-new/showRoute', '{"destination":"Central Station"}'),
       WEEKLY,
     ],
   },
   {
-    name: 'a new calendar switched to week is declared in week without the switch',
+    name: 'a new calendar switched to week is declared in its created variant and keeps the switch',
     intent: 'add a calendar for this week and the weekly weather',
     created: { id: 'calendar-new', vesselId: 'calendar' },
     createdIn: 'month',
@@ -99,11 +99,11 @@ const SCENARIOS: readonly Scenario[] = [
       planned('calendar-new/showWeek'),
       planned('weather-main/showWeekly'),
     ],
-    declared: 'week',
-    executionPlan: [WEEKLY],
+    declared: 'month',
+    executionPlan: [step('calendar-new/showWeek'), WEEKLY],
   },
   {
-    name: 'a new map keeps its created variant and actions when a parameterized action is not offered in its final variant',
+    name: 'a new map keeps its created variant and actions when its action leads to a variant that does not offer it',
     intent: 'add a map focused on the office and the weekly weather',
     created: { id: 'map-new', vesselId: 'map' },
     createdIn: 'overview',
@@ -156,7 +156,7 @@ describe('declared variants', () => {
             expect(declared[scenario.created.id]).toBe(
               VariantName(scenario.declared),
             );
-            expect(declared['weather-main']).toBe(VariantName('weekly'));
+            expect(declared['weather-main']).toBe(VariantName('current'));
             expect(executionPlan).toEqual(scenario.executionPlan);
           });
 });

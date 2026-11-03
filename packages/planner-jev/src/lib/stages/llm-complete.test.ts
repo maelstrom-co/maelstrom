@@ -336,7 +336,7 @@ describe('llmComplete', () => {
     );
   });
 
-  test('declares post-transition variants and a code-built rationale', async () => {
+  test('declares pre-action variants and a code-built rationale', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened it.' });
     const tree = [
       'V:2,1',
@@ -358,14 +358,14 @@ describe('llmComplete', () => {
       { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
       { instanceId: 'weather-main', vesselId: 'weather', variant: 'current' },
       { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
-      { instanceId: 'journal-main', vesselId: 'journal', variant: 'entry' },
+      { instanceId: 'journal-main', vesselId: 'journal', variant: 'list' },
     ] as never);
     expect(candidate.rationale).toContain('Planned by Jev.');
     expect(candidate.rationale).toContain('openEntry on journal-main');
     expect(candidate.rationale).toContain('Deleted: tasks-main');
   });
 
-  test('a new map with a route is declared in route and keeps showRoute', async () => {
+  test('a new map with a route is declared in its created variant and keeps showRoute', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a map.' });
     const { result } = await run(
       creating(
@@ -375,7 +375,7 @@ describe('llmComplete', () => {
       ),
     );
     const candidate = candidateOf(result);
-    expect(declaredVariant(candidate, 'map-new')).toBe('route');
+    expect(declaredVariant(candidate, 'map-new')).toBe('overview');
     expect(candidate.executionPlan).toEqual([
       {
         instanceId: 'map-new',
@@ -385,7 +385,7 @@ describe('llmComplete', () => {
     ]);
   });
 
-  test('a new calendar switched to week is declared in week without the switch', async () => {
+  test('a new calendar switched to week is declared in its created variant and keeps the switch', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a week calendar.' });
     const { result } = await run(
       creating(
@@ -395,14 +395,15 @@ describe('llmComplete', () => {
       ),
     );
     const candidate = candidateOf(result);
-    expect(declaredVariant(candidate, 'calendar-new')).toBe('week');
-    expect(declaredVariant(candidate, 'weather-main')).toBe('weekly');
+    expect(declaredVariant(candidate, 'calendar-new')).toBe('month');
+    expect(declaredVariant(candidate, 'weather-main')).toBe('current');
     expect(candidate.executionPlan).toEqual([
+      { instanceId: 'calendar-new', action: 'showWeek' },
       { instanceId: 'weather-main', action: 'showWeekly' },
     ]);
   });
 
-  test('a new instance keeps its created variant and actions when a parameterized action is not offered in the final variant', async () => {
+  test('a new instance keeps its created variant and actions when its action leads to a variant that does not offer it', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a map.' });
     const { result } = await run(
       creating(
@@ -424,7 +425,7 @@ describe('llmComplete', () => {
     ]);
   });
 
-  test('an existing instance is declared in its final variant and keeps its switch', async () => {
+  test('an existing instance is declared in its current variant and keeps its switch', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Showing the week.' });
     const { result } = await run(
       completionPlan(makeRequest('show this week'), {
@@ -432,7 +433,7 @@ describe('llmComplete', () => {
       }),
     );
     const candidate = candidateOf(result);
-    expect(declaredVariant(candidate, 'calendar-main')).toBe('week');
+    expect(declaredVariant(candidate, 'calendar-main')).toBe('month');
     expect(candidate.executionPlan).toEqual([
       { instanceId: 'calendar-main', action: 'showWeek' },
     ]);
