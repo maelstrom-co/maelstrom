@@ -8,6 +8,7 @@ import { BunServices } from '@effect/platform-bun';
 import { AdoptPolicy } from 'alchemy/AdoptPolicy';
 import { AlchemyContext } from 'alchemy/AlchemyContext';
 import * as Apply from 'alchemy/Apply';
+import { havePropsChanged } from 'alchemy/Diff';
 import * as Plan from 'alchemy/Plan';
 import * as Provider from 'alchemy/Provider';
 import { Resource } from 'alchemy/Resource';
@@ -297,7 +298,12 @@ async function cyclicApply(
                   ? () => Effect.succeed({ action: 'replace' as const })
                   : options.useRealDiff
                     ? provider.diff
-                    : undefined,
+                    : ({ olds, news }) =>
+                        Effect.succeed({
+                          action: havePropsChanged(olds, news)
+                            ? ('update' as const)
+                            : ('noop' as const),
+                        }),
               reconcile: options.useRealProvider
                 ? provider.reconcile
                 : ({

@@ -24,7 +24,7 @@ const Scope = Resource<Scope>('Probe.Scope');
 interface Scoped
   extends Resource<
     'Probe.Scoped',
-    { name: string; scope: string },
+    { name: string; scope: string; source?: Scope['Attributes'] },
     { name: string; scope?: string; physicalId: string },
     { self: string }
   > {}
@@ -46,6 +46,9 @@ async function scenario(options: {
   writeBeforeFailure?: boolean;
   deleteFirst?: boolean;
   resume?: boolean;
+  outsideScope?: boolean;
+  precreateThrows?: boolean;
+  wholeResource?: boolean;
 }) {
   const owners = new Map([
     ['account/api', 'SomeoneElse'],
@@ -65,6 +68,8 @@ async function scenario(options: {
   const services = Layer.mergeAll(
     inMemoryState(),
     Provider.succeed(Scope, {
+      diff: () => Effect.succeed({ action: 'update' as const }),
+      stables: ['value'],
       precreate: ({ news }) => Effect.succeed(news),
       reconcile: ({ news }) => Effect.succeed(news),
       delete: () => Effect.void,
@@ -105,6 +110,8 @@ async function scenario(options: {
           if (!isResolved(news.scope))
             return { name: news.name, physicalId: '' };
           owners.set(key(news), id);
+          if (options.precreateThrows)
+            throw new Error('Interrupted physical precreate');
           return attributes(news);
         }),
       reconcile: ({ id, news, output, bindings: resolved }) =>
@@ -136,10 +143,12 @@ async function scenario(options: {
         const subject = yield* Scoped('Subject', {
           name: 'api',
           scope: scope.value,
+          ...(options.wholeResource ? { source: scope } : {}),
         });
         if (options.cycle) {
           yield* subject.bind('Self', { self: subject.name });
-          yield* scope.bind('Subject', { subject: subject.name });
+          if (!options.outsideScope)
+            yield* scope.bind('Subject', { subject: subject.name });
         }
         return subject;
       }).pipe(Effect.provideService(Stack, stack));
@@ -153,6 +162,26 @@ async function scenario(options: {
       const compiled = { ...stack, output, services: context };
       const store = yield* yield* State;
       const stateKey = { stack: stack.name, stage: 'probe', fqn: 'Subject' };
+      if (options.wholeResource) {
+        yield* store.set({
+          stack: stack.name,
+          stage: 'probe',
+          fqn: 'Scope',
+          value: {
+            status: 'created',
+            namespace: undefined,
+            fqn: 'Scope',
+            logicalId: 'Scope',
+            resourceType: Scope.Type,
+            instanceId: 'scope',
+            providerVersion: 0,
+            props: { value: 'previous' },
+            attr: { value: 'tenant' },
+            bindings: [],
+            downstream: [],
+          },
+        });
+      }
       if (options.replace) {
         owners.set('old/api', 'Subject');
         const old = {
@@ -196,8 +225,17 @@ async function scenario(options: {
             Effect.exit,
           )
         : undefined;
+      const ownersBeforeDestroy = [...owners];
       yield* Plan.destroy(compiled).pipe(Effect.flatMap(Apply.apply));
-      return { first, retry, checkpoint, firstOutputs, bindings, owners };
+      return {
+        first,
+        retry,
+        checkpoint,
+        firstOutputs,
+        bindings,
+        owners,
+        ownersBeforeDestroy,
+      };
     }).pipe(
       Effect.provide(services),
       Effect.provideService(Stack, stack),
@@ -311,4 +349,64 @@ describe('partial ownership evidence cannot select a foreign physical scope', ()
     });
     expect(result.owners.get('account/api')).toBe('SomeoneElse');
   });
+});
+
+for (const read of [false, true]) {
+  test(`keeps a canonical physical precreate through retry (read=${read})`, async () => {
+    const result = await scenario({
+      cycle: true,
+      replace: false,
+      read,
+      fail: true,
+      retry: true,
+      absent: true,
+      outsideScope: true,
+    });
+    expect(result.first._tag).toBe('Failure');
+    expect(result.retry?._tag).toBe('Success');
+    expect(result.checkpoint).toMatchObject({
+      props: { name: 'api', scope: 'tenant' },
+      attr: attributes({ name: 'api', scope: 'tenant' }),
+    });
+    expect(new Map(result.ownersBeforeDestroy).get('tenant/api')).toBe(
+      'Subject',
+    );
+    expect(result.owners.get('account/api')).toBe('SomeoneElse');
+  });
+}
+test('recovers a physical precreate interrupted before returning attributes', async () => {
+  const result = await scenario({
+    cycle: true,
+    replace: false,
+    read: true,
+    absent: true,
+    outsideScope: true,
+    precreateThrows: true,
+  });
+  expect(result.first._tag).toBe('Failure');
+  expect(result.checkpoint).toMatchObject({
+    props: { name: 'api', scope: 'tenant' },
+  });
+  expect(result.owners.has('tenant/api')).toBe(false);
+  expect(result.owners.get('account/api')).toBe('SomeoneElse');
+});
+
+test('recovers an interrupted ordinary create from a fully evaluated whole-resource input', async () => {
+  const result = await scenario({
+    cycle: false,
+    replace: false,
+    wholeResource: true,
+    read: true,
+    absent: true,
+    fail: true,
+    writeBeforeFailure: true,
+  });
+  expect(Exit.isFailure(result.first)).toBe(true);
+  expect(result.checkpoint).toMatchObject({
+    props: { name: 'api', scope: 'tenant', source: { value: 'tenant' } },
+  });
+  expect(result.checkpoint).not.toHaveProperty('propsIncomplete', true);
+  expect(result.ownersBeforeDestroy).toContainEqual(['tenant/api', 'Subject']);
+  expect(result.owners.has('tenant/api')).toBe(false);
+  expect(result.owners.get('account/api')).toBe('SomeoneElse');
 });
