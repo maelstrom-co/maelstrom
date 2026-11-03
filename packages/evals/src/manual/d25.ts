@@ -22,6 +22,7 @@ import {
   historyAssistantInjectionInputsSchema,
 } from '../adapters/legacy-history-assistant-injection.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import { postActionLayout } from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -126,13 +127,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForward(previous, initial)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent: intents[index] }],
@@ -165,6 +160,7 @@ export function scoreD25Turns(
         `Prior user/assistant history not delivered at turn ${index + 1}`,
       );
     const response = turn.response;
+    const shipped = postActionLayout(response, initial.vessels);
     if (index === 1) {
       if (
         !response.executionPlan.some(
@@ -177,10 +173,8 @@ export function scoreD25Turns(
       failures.push(`Unexpected Action at turn ${index + 1}`);
     }
     const target =
-      response.layout.type === 'tiling'
-        ? response.layout.instances.find(
-            (entry) => entry.instanceId === 'weather-main',
-          )
+      shipped.type === 'tiling'
+        ? shipped.instances.find((entry) => entry.instanceId === 'weather-main')
         : undefined;
     if (
       target?.vesselId !== 'weather' ||
@@ -389,4 +383,14 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   }
+}
+
+/** The Chart state the client holds after a response: its Layout with the plan's transitions applied. */
+function carriedForward(previous: MaelstromResponse, initial: ChartRequest) {
+  const layout = postActionLayout(previous, initial.vessels);
+  return {
+    layout: structuredClone(layout),
+    instances:
+      layout.type === 'tiling' ? structuredClone(layout.instances) : [],
+  };
 }

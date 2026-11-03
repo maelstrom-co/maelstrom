@@ -395,6 +395,37 @@ test('a judge failure is recorded without touching the turn', async () => {
   ]);
 });
 
+test('grade shows the judge each instance in the variant the execution plan leaves it in', async () => {
+  const [scenario] = selectScenarios('development', ['quoted-location']);
+  if (!scenario) throw new Error('fixture scenario is missing');
+  const confident = { score: 4, probabilities: { '4': 1 } };
+  const judge = scriptedJudge(() => ({
+    answers: { request_satisfied: confident, arrangement_match: confident },
+    calls: [{ latencyMs: 1 }],
+  }));
+  const response = {
+    type: 'maelstrom_response',
+    requestId: 'r',
+    userMessage: 'Weekly forecast.',
+    rationale: '',
+    executionPlan: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+    layout: {
+      type: 'tiling',
+      tree:
+        scenario.request.layout.type === 'tiling'
+          ? scenario.request.layout.tree
+          : [],
+      instances: scenario.request.instances,
+    },
+  } as unknown as MaelstromResponse;
+
+  await grade(judge, scenario, response, silentLogger);
+
+  expect(judge.inputs[0]?.state.after).toContain(
+    'weather-main: weather (weekly)',
+  );
+});
+
 test('grade catches an exception the judge raises and records grader/exception with its cause and the calls before it, never throwing', async () => {
   const [scenario] = selectScenarios('development', ['quoted-location']);
   if (!scenario) throw new Error('fixture scenario is missing');

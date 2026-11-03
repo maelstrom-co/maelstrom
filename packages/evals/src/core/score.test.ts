@@ -130,28 +130,40 @@ describe('scoreResponse', () => {
     ).toBe(true);
   });
 
-  test('passes a variant the shipped execution plan transitions to', () => {
+  test('passes a transition Action replayed from the pre-action Layout Variant', () => {
     const variant = scenario('variant');
     const score = scoreResponse(
       variant,
       response(variant, {
-        variants: { 'weather-main': 'weekly' },
+        variants: { 'weather-main': 'current' },
         actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
       }),
     );
     expect(score).toEqual({ pass: true, failures: [] });
   });
 
-  test('fails a variant no shipped action transitions to', () => {
+  test('replays the execution plan from the Layout Variant, not the request Variant', () => {
     const variant = scenario('variant');
     const score = scoreResponse(
       variant,
-      response(variant, { variants: { 'weather-main': 'weekly' } }),
+      response(variant, {
+        variants: { 'weather-main': 'hourly' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
     );
-    expect(score.pass).toBe(false);
-    expect(score.failures.join()).toContain(
-      'Variant of weather-main is weekly, but the execution plan leaves it current',
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('passes a direct switch that no Action transitions to', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'calendar-main': 'week' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
     );
+    expect(score).toEqual({ pass: true, failures: [] });
   });
 
   test('fails an execution plan the engine rule cannot simulate', () => {
