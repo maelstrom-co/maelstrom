@@ -72,6 +72,7 @@ jobs:
     timeout-minutes: 3
     permissions:
       actions: write
+      pull-requests: write
     steps:
       - name: Cancel deploy runs waiting on an earlier head
         env:
@@ -84,3 +85,16 @@ jobs:
             --branch "$HEAD_REF" --status waiting --limit 100 --json databaseId,headSha \
             | jq -r --arg head "$HEAD_SHA" '.[] | select(.headSha != $head) | .databaseId' \
             | xargs -r -n1 gh run cancel
+
+      # A notice naming the new head belongs to a fresh approval request.
+      - name: Clear the superseded approval notice
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+            | jq -r --arg head "$HEAD_SHA" '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->"))) | select(.body | contains($head) | not) | .id' \
+            | xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"

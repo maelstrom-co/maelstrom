@@ -6,6 +6,8 @@ const root = resolve(import.meta.dir, '..');
 const read = (name: string) =>
   readFileSync(resolve(root, '.github/workflows', name), 'utf8');
 const expression = (value: string) => ['$', `{{ ${value} }}`].join('');
+const approvalNoticeLookup =
+  'select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->")))';
 const step = (workflow: string, name: string) => {
   const start = workflow.indexOf(`- name: ${name}`);
   if (start < 0) throw new Error(`Missing step ${name}`);
@@ -626,7 +628,10 @@ describe('preview workflows', () => {
       >;
     };
     const job = workflow.jobs[name]!;
-    expect(job.permissions).toEqual({ actions: 'write' });
+    expect(job.permissions).toEqual({
+      actions: 'write',
+      'pull-requests': 'write',
+    });
     expect(job.environment).toBeUndefined();
     expect(job.if).toContain(
       'github.event.pull_request.head.repo.full_name == github.repository',
@@ -638,6 +643,124 @@ describe('preview workflows', () => {
     expect(script).toContain('--status waiting');
     expect(script).toContain('--branch "$HEAD_REF"');
     expect(script.includes('select(.headSha != $head)')).toBe(keepsCurrentHead);
+    expect(script.indexOf('gh run cancel')).toBeLessThan(
+      script.indexOf('--method DELETE'),
+    );
+    expect(script).toContain(approvalNoticeLookup);
+    expect(script).toContain(
+      'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
+    );
+    expect(script.includes('contains($head) | not')).toBe(keepsCurrentHead);
+    expect(script).not.toContain(['$', '{{'].join(''));
+  });
+
+  test('teardown cancels pending approvals on close or deploy label removal only', () => {
+    const workflow = Bun.YAML.parse(read('teardown-preview.yml')) as {
+      jobs: Record<string, { if: string }>;
+    };
+    const evaluate = new Function(
+      'github',
+      `return (${workflow.jobs['cancel-waiting']!.if});`,
+    );
+    const permits = (
+      action: string,
+      label?: string,
+      repository = 'maelstrom-co/maelstrom',
+      event_name = 'pull_request_target',
+    ) =>
+      evaluate({
+        event_name,
+        repository: 'maelstrom-co/maelstrom',
+        event: {
+          action,
+          ...(label === undefined ? {} : { label: { name: label } }),
+          pull_request: { head: { repo: { full_name: repository } } },
+        },
+      });
+    expect(permits('closed')).toBe(true);
+    expect(permits('unlabeled', 'deploy-preview')).toBe(true);
+    expect(permits('unlabeled', 'bench-voice')).toBe(false);
+    expect(permits('unlabeled', 'unrelated')).toBe(false);
+    expect(permits('closed', undefined, 'outsider/fork')).toBe(false);
+    expect(permits('unlabeled', 'deploy-preview', 'outsider/fork')).toBe(false);
+    expect(permits('closed', undefined, undefined, 'workflow_dispatch')).toBe(
+      false,
+    );
+  });
+
+  test('the approval notice is cleared once the run stops waiting', () => {
+    const source = read('deploy-preview.yml');
+    const workflow = Bun.YAML.parse(source) as {
+      jobs: Record<
+        string,
+        {
+          needs?: string[];
+          if?: string;
+          environment?: unknown;
+          concurrency?: unknown;
+          permissions?: Record<string, string>;
+          steps: {
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const jobs = Object.keys(workflow.jobs);
+    expect(jobs.indexOf('clear-approval-notice')).toBe(
+      jobs.indexOf('voice-benchmark') + 1,
+    );
+    const job = workflow.jobs['clear-approval-notice']!;
+    expect(job.needs).toEqual([
+      'approve',
+      'deploy',
+      'benchmark-gate',
+      'voice-benchmark',
+    ]);
+    expect(job.if).toBe(
+      "always() && github.event_name == 'pull_request_target' && needs.approve.outputs.pr-number != ''",
+    );
+    expect(job.environment).toBeUndefined();
+    expect(job.concurrency).toBeUndefined();
+    expect(job.permissions).toEqual({ 'pull-requests': 'write' });
+    expect(job.steps.some((entry) => entry.uses !== undefined)).toBe(false);
+    const script = job.steps.map((entry) => entry.run ?? '').join('\n');
+    expect(script).toContain(approvalNoticeLookup);
+    expect(script).toContain('contains("(" + $run + ")")');
+    expect(script).toContain(
+      'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
+    );
+    expect(script).not.toContain(['$', '{{'].join(''));
+    expect(job.steps[0]!.env!.PR_NUMBER).toBe(
+      expression('needs.approve.outputs.pr-number'),
+    );
+  });
+
+  test('a label-triggered approval fails before any notice when the pull request head moved', () => {
+    const workflow = read('deploy-preview.yml');
+    const approve = workflow.slice(
+      workflow.indexOf('  approve:'),
+      workflow.indexOf('  deploy:'),
+    );
+    const name = 'Confirm the approved revision is still the pull request head';
+    const check = step(approve, name);
+    expect(check).toContain(
+      "if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''",
+    );
+    expect(check).toContain(
+      `HEAD_SHA: ${expression('steps.manual.outputs.head-sha')}`,
+    );
+    expect(check).toContain(
+      'gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .head.sha',
+    );
+    expect(check).toContain('exit 1');
+    expect(
+      approve.indexOf('- name: Record exact approved revision'),
+    ).toBeLessThan(approve.indexOf(`- name: ${name}`));
+    expect(approve.indexOf(`- name: ${name}`)).toBeLessThan(
+      approve.indexOf('- name: Link pending approval on the pull request'),
+    );
   });
 
   test('label-triggered approval requests link the pending run on the pull request', () => {

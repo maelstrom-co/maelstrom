@@ -101,9 +101,27 @@ jobs:
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts approve-ci
 
+      # A push after the label leaves this run approving a superseded head. The
+      # synchronize cancellation only sees runs already waiting, so a stale run
+      # stops here before its deploy job can enter the approval wait.
+      - name: Confirm the approved revision is still the pull request head
+        if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.manual.outputs.head-sha }}
+          PR_NUMBER: ${{ steps.manual.outputs.pr-number }}
+        run: |
+          set -euo pipefail
+          live_head="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [ "$live_head" != "$HEAD_SHA" ]; then
+            printf '::error::Pull request head moved from %s to %s; label the new head to request approval.\n' "$HEAD_SHA" "$live_head"
+            exit 1
+          fi
+
       # Label-triggered runs wait for a `preview` environment reviewer, and
       # GitHub surfaces that only on the run page. One sticky comment points
-      # reviewers at the run. A requested voice benchmark asks in the same run.
+      # reviewers at the run until no job in it is waiting.
       - name: Link pending approval on the pull request
         if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''
         env:
@@ -114,7 +132,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           marker='<!-- preview-approval-request -->'
-          body="$(printf '%s\nPreview deployment for %s is waiting for a `preview` environment approval: [review the run](%s).\n\nIf a voice benchmark is requested, the Voice Benchmark job in the same run asks for its own approval after the deploy finishes.' "$marker" "$HEAD_SHA" "$RUN_URL")"
+          body="$(printf '%s\nA `preview` environment approval is pending for commit %s: [review the run](%s).\n\nThe run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.' "$marker" "$HEAD_SHA" "$RUN_URL")"
           comment_id="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)"
           if [ -n "$comment_id" ]; then
@@ -392,3 +410,26 @@ jobs:
       - name: Remove owned voice containers
         if: always()
         run: bun --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/voice-benchmark-ci.ts cleanup
+
+  # Runs after the last job that can wait for approval, so the notice stays up
+  # while a benchmark approval is pending and clears as soon as the run ends.
+  clear-approval-notice:
+    name: Clear Approval Notice
+    needs: [approve, deploy, benchmark-gate, voice-benchmark]
+    if: always() && github.event_name == 'pull_request_target' && needs.approve.outputs.pr-number != ''
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove this run's pending approval notice
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+            | jq -r --arg run "$RUN_URL" '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->"))) | select(.body | contains("(" + $run + ")")) | .id' \
+            | xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"
