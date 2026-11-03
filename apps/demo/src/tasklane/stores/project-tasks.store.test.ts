@@ -6,7 +6,9 @@ import {
   projectTaskActions,
   rememberRequestReferences,
   resolveTaskReference,
+  SOURCE_FEEDBACK_LIMIT,
   taskReferenceLabel,
+  taskSummary,
 } from './project-tasks.store';
 
 beforeEach(() => {
@@ -24,6 +26,8 @@ describe('project tasks seed', () => {
         assigneeId: 'alex',
         parentId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       }),
       expect.objectContaining({
         id: 'TL-2',
@@ -31,9 +35,101 @@ describe('project tasks seed', () => {
         assigneeId: 'sam',
         parentId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       }),
     ]);
     expect(myPriorities).toEqual([]);
+  });
+});
+
+describe('setStatus', () => {
+  it('moves a task through todo, doing and done and reports the previous status', () => {
+    expect(projectTaskActions.setStatus('TL-1', 'doing')).toMatchObject({
+      ok: true,
+      changed: true,
+      previous: { status: 'todo' },
+      task: { id: 'TL-1', status: 'doing' },
+    });
+    expect(projectTaskActions.setStatus('TL-1', ' Done ')).toMatchObject({
+      ok: true,
+      task: { status: 'done' },
+    });
+    expect(projectTaskActions.setStatus('TL-1', 'done')).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+    expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('done');
+  });
+
+  it('refuses an unknown status and names the choices', () => {
+    const result = projectTaskActions.setStatus('TL-1', 'blocked');
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'unknown_status',
+      query: 'blocked',
+    });
+    if (result.ok) throw new Error('expected a failure');
+    expect(describeTaskFailure(result)).toBe(
+      'Status must be one of todo, doing, done, got "blocked".',
+    );
+    expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('todo');
+  });
+
+  it('keeps a published label current when only the status changes', () => {
+    const before = taskReferenceLabel(firstTask());
+    projectTaskActions.setStatus('TL-1', 'done');
+    expect(taskReferenceLabel(firstTask())).toBe(before);
+    expect(resolveTaskReference(before)).toMatchObject({
+      kind: 'found',
+      task: { id: 'TL-1', status: 'done' },
+    });
+  });
+});
+
+describe('source feedback on tasks', () => {
+  it('keeps the quote a task was created from, cleaned of control characters', () => {
+    const result = projectTaskActions.createTask({
+      title: 'Add a compact weather view',
+      source: '  "The weather panel\n takes up\u0085far too much space."  ',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      task: {
+        sourceFeedback: '"The weather panel takes up far too much space."',
+      },
+    });
+  });
+
+  it('stores no quote when the source is missing or blank', () => {
+    expect(projectTaskActions.createTask({ title: 'No source' })).toMatchObject(
+      { ok: true, task: { sourceFeedback: null } },
+    );
+    expect(
+      projectTaskActions.createTask({ title: 'Blank source', source: ' \n ' }),
+    ).toMatchObject({ ok: true, task: { sourceFeedback: null } });
+  });
+
+  it('shortens a very long quote', () => {
+    const result = projectTaskActions.createTask({
+      title: 'Long source',
+      source: 'word '.repeat(400),
+    });
+    if (!result.ok) throw new Error('expected a task');
+    expect(result.task.sourceFeedback?.length).toBeLessThanOrEqual(
+      SOURCE_FEEDBACK_LIMIT + 3,
+    );
+    expect(result.task.sourceFeedback?.endsWith('...')).toBe(true);
+  });
+});
+
+describe('taskSummary', () => {
+  it('summarises assignee, urgency and priority place without the status', () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.setStatus('TL-2', 'doing');
+    const [readme, video] = getProjectTasksSnapshot().tasks;
+    expect(taskSummary(readme!)).toBe('Alex, normal, not in priorities');
+    expect(taskSummary(video!)).toBe('Sam, normal, priority #1');
   });
 });
 
@@ -49,6 +145,8 @@ describe('createTask', () => {
         parentId: null,
         assigneeId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       },
     });
     expect(projectTaskActions.createTask({ title: 'Second' })).toMatchObject({

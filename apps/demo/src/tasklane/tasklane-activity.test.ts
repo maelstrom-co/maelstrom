@@ -178,6 +178,35 @@ describe('request windows', () => {
     );
   });
 
+  it('groups status changes by the status they reached', () => {
+    openRequestWindow('r1');
+    for (const subjectId of ['TL-1', 'TL-2', 'TL-3']) {
+      recordChange('setStatus', {
+        kind: 'status',
+        subject: subjectId,
+        subjectId,
+        detail: 'done',
+      });
+    }
+    recordChange('setStatus', {
+      kind: 'status',
+      subject: 'Write demo copy',
+      subjectId: 'TL-4',
+      detail: 'doing',
+    });
+    planRequestWindow('r1', [
+      'setStatus',
+      'setStatus',
+      'setStatus',
+      'setStatus',
+    ]);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: '✓ Marked 3 tasks as done · ✓ Marked "Write demo copy" as in progress',
+      tone: 'success',
+    });
+  });
+
   it('pluralises descriptions', () => {
     openRequestWindow('r1');
     recordChange('updateTask', {

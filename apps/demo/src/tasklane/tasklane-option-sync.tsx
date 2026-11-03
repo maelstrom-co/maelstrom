@@ -30,6 +30,7 @@ const TASK_PARAMETER_ACTIONS = [
   'setParent',
   'assignTask',
   'setUrgency',
+  'setStatus',
   'addToMyPriorities',
   'removeFromMyPriorities',
   'removeTask',
@@ -40,7 +41,7 @@ const SUMMARY_DESCRIPTION_LIMIT = 60;
  * The Tasks definition as the Planner should see it now. The Planner sees no
  * Instance data, so the current records travel in the definition: each task
  * parameter offers the live references, and the description carries a
- * bounded summary of hierarchy, assignees, urgency and priorities.
+ * bounded summary of hierarchy, assignees, urgency, status and priorities.
  */
 export function projectTasksDefinition(
   state: ProjectTasksState,
@@ -126,7 +127,10 @@ function summaryLine(task: ProjectTask, priorities: readonly string[]): string {
   const description = task.description
     ? `, description "${shorten(task.description)}"`
     : ', no description';
-  return `${task.id} "${shorten(task.title)}": ${parent}, ${assignee}, urgency ${task.urgency}, ${priorityLabel(task.id, priorities)}${description}`;
+  const source = task.sourceFeedback
+    ? `, from feedback "${shorten(task.sourceFeedback)}"`
+    : '';
+  return `${task.id} "${shorten(task.title)}": ${parent}, ${assignee}, urgency ${task.urgency}, status ${task.status}, ${priorityLabel(task.id, priorities)}${description}${source}`;
 }
 
 function shorten(text: string): string {

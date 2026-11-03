@@ -10,6 +10,20 @@ export type TaskUrgency = 'low' | 'normal' | 'high';
 
 export const TASK_URGENCIES: readonly TaskUrgency[] = ['low', 'normal', 'high'];
 
+export type TaskStatus = 'todo' | 'doing' | 'done';
+
+export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'doing', 'done'];
+
+/** How each status reads to a person: "To do", "In progress", "Done". */
+export const TASK_STATUS_NAMES: Readonly<Record<TaskStatus, string>> = {
+  todo: 'To do',
+  doing: 'In progress',
+  done: 'Done',
+};
+
+/** Longest feedback quote a task keeps, in characters. */
+export const SOURCE_FEEDBACK_LIMIT = 400;
+
 export const NO_PARENT = 'none';
 
 export interface ProjectTask {
@@ -19,6 +33,9 @@ export interface ProjectTask {
   readonly parentId: string | null;
   readonly assigneeId: TeamMemberId | null;
   readonly urgency: TaskUrgency;
+  readonly status: TaskStatus;
+  /** The feedback quote the task was created from, or null. */
+  readonly sourceFeedback: string | null;
 }
 
 export interface ProjectTasksState {
@@ -37,7 +54,8 @@ export type TaskFailure =
         | 'task_not_found'
         | 'parent_not_found'
         | 'unknown_assignee'
-        | 'unknown_urgency';
+        | 'unknown_urgency'
+        | 'unknown_status';
       readonly query: string;
     }
   | {
@@ -114,6 +132,8 @@ export interface CreateTaskInput {
   readonly parent?: string;
   readonly assignee?: string;
   readonly urgency?: string;
+  /** The feedback quote the task comes from. */
+  readonly source?: string;
 }
 
 export interface TaskRow {
@@ -131,6 +151,8 @@ const INITIAL_STATE: ProjectTasksState = {
       parentId: null,
       assigneeId: 'alex',
       urgency: 'normal',
+      status: 'todo',
+      sourceFeedback: null,
     },
     {
       id: 'TL-2',
@@ -139,6 +161,8 @@ const INITIAL_STATE: ProjectTasksState = {
       parentId: null,
       assigneeId: 'sam',
       urgency: 'normal',
+      status: 'todo',
+      sourceFeedback: null,
     },
   ],
   myPriorities: [],
@@ -232,11 +256,14 @@ export function taskReferenceLabel(
   task: ProjectTask,
   priorities: readonly string[] = state.myPriorities,
 ): string {
-  return `${task.id} ${publishedTitle(task.title)} (${taskStatus(task, priorities)})`;
+  return `${task.id} ${publishedTitle(task.title)} (${taskSummary(task, priorities)})`;
 }
 
-/** `Alex, normal, not in priorities` */
-export function taskStatus(
+/**
+ * `Alex, normal, not in priorities`. Leaves out the status, so a label stays
+ * current when a task only moves between columns.
+ */
+export function taskSummary(
   task: ProjectTask,
   priorities: readonly string[] = state.myPriorities,
 ): string {
@@ -327,6 +354,8 @@ export const projectTaskActions = {
       parentId,
       assigneeId,
       urgency,
+      status: 'todo',
+      sourceFeedback: cleanSourceFeedback(input.source),
     };
     setState({
       ...state,
@@ -390,6 +419,15 @@ export const projectTaskActions = {
     if (!resolved)
       return { ok: false, reason: 'unknown_urgency', query: urgency };
     return replaceTask(found.task, { urgency: resolved });
+  },
+
+  setStatus(reference: string, status: string): TaskChange {
+    const found = lookup(reference, 'task');
+    if (!found.ok) return found;
+    const resolved = resolveStatus(status);
+    if (!resolved)
+      return { ok: false, reason: 'unknown_status', query: status };
+    return replaceTask(found.task, { status: resolved });
   },
 
   /**
@@ -486,6 +524,8 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `No team member matches "${failure.query}". Team ids: ${describeTeamChoices()}`;
     case 'unknown_urgency':
       return `Urgency must be one of ${TASK_URGENCIES.join(', ')}, got "${failure.query}".`;
+    case 'unknown_status':
+      return `Status must be one of ${TASK_STATUSES.join(', ')}, got "${failure.query}".`;
     case 'bad_position':
       return `Priority position must be a whole number of at least 1, got ${failure.position}.`;
     case 'not_in_priorities':
@@ -552,6 +592,18 @@ function publishedTitle(title: string): string {
     : clean;
 }
 
+function cleanSourceFeedback(source: string | undefined): string | null {
+  if (source === undefined) return null;
+  const clean = source
+    .replace(UNSAFE_LABEL_CHARACTERS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return null;
+  return clean.length > SOURCE_FEEDBACK_LIMIT
+    ? `${clean.slice(0, SOURCE_FEEDBACK_LIMIT).trimEnd()}...`
+    : clean;
+}
+
 function matchFrom(tasks: readonly ProjectTask[]): TaskReferenceMatch {
   if (tasks.length === 0) return { kind: 'not_found' };
   if (tasks.length > 1)
@@ -585,6 +637,11 @@ function isNoParent(reference: string): boolean {
 function resolveUrgency(urgency: string): TaskUrgency | undefined {
   const wanted = urgency.trim().toLowerCase();
   return TASK_URGENCIES.find((candidate) => candidate === wanted);
+}
+
+function resolveStatus(status: string): TaskStatus | undefined {
+  const wanted = status.trim().toLowerCase();
+  return TASK_STATUSES.find((candidate) => candidate === wanted);
 }
 
 function listTasks(): string {

@@ -1,5 +1,9 @@
 import { defineVessel } from '@maelstrom-co/protocol';
-import { NO_PARENT, TASK_URGENCIES } from '../stores/project-tasks.store';
+import {
+  NO_PARENT,
+  TASK_STATUSES,
+  TASK_URGENCIES,
+} from '../stores/project-tasks.store';
 import { ASSIGNEE_CHOICES } from '../stores/team';
 
 const TASK_REFERENCE =
@@ -7,7 +11,7 @@ const TASK_REFERENCE =
 
 // Typed as string so a republish can append live records to it.
 const PROJECT_TASKS_DESCRIPTION: string =
-  'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam) and an urgency (low, normal or high). It also shows "My priorities", the current user Chris\'s own ordered list of tasks. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.';
+  'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam) and an urgency (low, normal or high), a status (todo, doing or done) and, when it came from the feedback, the feedback quote it came from. It also shows "My priorities", the current user Chris\'s own ordered list of tasks. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.';
 
 export const projectTasksVessel = defineVessel({
   id: 'project-tasks',
@@ -54,6 +58,13 @@ export const projectTasksVessel = defineVessel({
               required: false,
               enum: [...TASK_URGENCIES],
               description: 'How urgent the task is. Defaults to normal.',
+            },
+            {
+              name: 'source',
+              type: 'string',
+              required: false,
+              description:
+                'The exact feedback quote this task comes from, copied from the feedback text. Omit when the task does not come from feedback.',
             },
           ],
         },
@@ -117,6 +128,21 @@ export const projectTasksVessel = defineVessel({
               type: 'string',
               enum: [...TASK_URGENCIES],
               description: 'New urgency.',
+            },
+          ],
+        },
+        {
+          name: 'setStatus',
+          idempotent: true,
+          description:
+            'Move a task to todo, doing (in progress) or done. Use it when the user starts, finishes or reopens a task.',
+          parameters: [
+            { name: 'task', type: 'string', description: TASK_REFERENCE },
+            {
+              name: 'status',
+              type: 'string',
+              enum: [...TASK_STATUSES],
+              description: 'New status.',
             },
           ],
         },

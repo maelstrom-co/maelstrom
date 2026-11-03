@@ -63,6 +63,7 @@ const TASK_PARAMETER_ACTIONS = [
   'setParent',
   'assignTask',
   'setUrgency',
+  'setStatus',
   'addToMyPriorities',
   'removeFromMyPriorities',
   'removeTask',
@@ -153,7 +154,9 @@ describe('projectTasksDefinition', () => {
       assignee: 'chris',
       urgency: 'high',
       description: 'Explain the host app',
+      source: 'Make the panels editable by hand.',
     });
+    projectTaskActions.setStatus('TL-3', 'doing');
     projectTaskActions.addToMyPriorities('TL-3');
     const { description } = projectTasksDefinition(getProjectTasksSnapshot());
 
@@ -161,10 +164,10 @@ describe('projectTasksDefinition', () => {
     const summary = description.slice(projectTasksVessel.description.length);
     expect(summary).toContain(TASK_SUMMARY_HEADING);
     expect(summary).toContain(
-      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, not in priorities, description "Refresh the setup steps for the demo app."',
+      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, status todo, not in priorities, description "Refresh the setup steps for the demo app."',
     );
     expect(summary).toContain(
-      'TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, priority #1, description "Explain the host app"',
+      'TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, status doing, priority #1, description "Explain the host app", from feedback "Make the panels editable by hand."',
     );
   });
 

@@ -14,6 +14,8 @@ import {
   orderedTaskRows,
   type ProjectTask,
   projectTaskActions,
+  TASK_STATUS_NAMES,
+  TASK_STATUSES,
   TASK_URGENCIES,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
@@ -47,7 +49,14 @@ export default function ProjectTasksComponent({
   const board = useRef<HTMLDivElement>(null);
 
   tasklaneM.useActions('project-tasks', instanceId, {
-    createTask: async ({ title, description, parent, assignee, urgency }) =>
+    createTask: async ({
+      title,
+      description,
+      parent,
+      assignee,
+      urgency,
+      source,
+    }) =>
       reportCreateTask(
         projectTaskActions.createTask({
           title,
@@ -55,6 +64,7 @@ export default function ProjectTasksComponent({
           parent,
           assignee,
           urgency,
+          source,
         }),
       ),
     updateTask: async ({ task, title, description }) =>
@@ -74,6 +84,8 @@ export default function ProjectTasksComponent({
         'setUrgency',
         projectTaskActions.setUrgency(task, urgency),
       ),
+    setStatus: async ({ task, status }) =>
+      reportTaskChange('setStatus', projectTaskActions.setStatus(task, status)),
     addToMyPriorities: async ({ task, position }) =>
       reportPriorityChange(
         'addToMyPriorities',
@@ -352,6 +364,23 @@ function TaskRow({
       )}
 
       <div className="tasklane-task-controls">
+        <select
+          className="tasklane-select"
+          aria-label={`Status for ${task.title}`}
+          value={task.status}
+          onChange={(event) =>
+            executeAction('setStatus', {
+              task: task.id,
+              status: event.target.value,
+            })
+          }
+        >
+          {TASK_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {TASK_STATUS_NAMES[status]}
+            </option>
+          ))}
+        </select>
         <select
           className="tasklane-select"
           aria-label={`Assignee for ${task.title}`}

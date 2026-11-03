@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import { FEEDBACK_CHARACTER_LIMIT } from './stores/feedback.store';
+import {
+  TASK_STATUS_NAMES,
+  type TaskStatus,
+} from './stores/project-tasks.store';
 
 export type ChangeKind =
   | 'created'
@@ -11,6 +15,7 @@ export type ChangeKind =
   | 'reassigned'
   | 'unassigned'
   | 'urgency'
+  | 'status'
   | 'prioritised'
   | 'reprioritised'
   | 'deprioritised'
@@ -23,7 +28,7 @@ export interface ChangeDescription {
   readonly subject: string;
   /** The task id, or "feedback". Receipts count distinct subjects, not entries. */
   readonly subjectId: string;
-  /** Kind-specific detail: parent title (null for top level), assignee name, urgency, priority position, or "truncated". */
+  /** Kind-specific detail: parent title (null for top level), assignee name, urgency, status, priority position, or "truncated". */
   readonly detail?: string | null;
 }
 
@@ -52,6 +57,7 @@ export const TASKLANE_DATA_ACTIONS: Readonly<Record<string, string>> = {
   setParent: 'move a task',
   assignTask: 'assign a task',
   setUrgency: 'set urgency',
+  setStatus: 'set a task status',
   addToMyPriorities: 'add to your priorities',
   removeFromMyPriorities: 'remove from your priorities',
   removeTask: 'delete a task',
@@ -317,6 +323,12 @@ function describeGroup(group: readonly ChangeDescription[]): string {
       return one
         ? `Set ${subject} to ${detail} urgency`
         : `Set ${tasks} to ${detail} urgency`;
+    case 'status': {
+      const status = statusPhrase(detail);
+      return one
+        ? `Marked ${subject} as ${status}`
+        : `Marked ${tasks} as ${status}`;
+    }
     case 'prioritised':
       return one
         ? `Added ${subject} to your priorities`
@@ -336,6 +348,11 @@ function describeGroup(group: readonly ChangeDescription[]): string {
         ? `Replaced the feedback (truncated to ${FEEDBACK_CHARACTER_LIMIT} characters)`
         : 'Replaced the feedback';
   }
+}
+
+function statusPhrase(status: string | null | undefined): string {
+  const name = TASK_STATUS_NAMES[status as TaskStatus];
+  return name ? name.toLowerCase() : String(status);
 }
 
 function subscribe(listener: () => void): () => void {

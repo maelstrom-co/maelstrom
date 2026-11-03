@@ -33,3 +33,34 @@ describe('stale reference receipts', () => {
     );
   });
 });
+
+describe('status receipts', () => {
+  it('marks a task as done, in progress or to do', () => {
+    reportTaskChange('setStatus', projectTaskActions.setStatus('TL-1', 'done'));
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Marked "Update demo README" as done',
+    );
+    reportTaskChange(
+      'setStatus',
+      projectTaskActions.setStatus('TL-1', 'doing'),
+    );
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Marked "Update demo README" as in progress',
+    );
+    reportTaskChange('setStatus', projectTaskActions.setStatus('TL-1', 'todo'));
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Marked "Update demo README" as to do',
+    );
+  });
+
+  it('names an unknown status in the failure receipt', () => {
+    const result = reportTaskChange(
+      'setStatus',
+      projectTaskActions.setStatus('TL-1', 'blocked'),
+    );
+    expect(result.ok).toBe(false);
+    expect(getLatestReceipt()?.text).toBe(
+      '✗ Couldn\'t set the status to "blocked"',
+    );
+  });
+});

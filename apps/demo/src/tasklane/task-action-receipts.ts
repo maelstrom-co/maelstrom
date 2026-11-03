@@ -10,7 +10,7 @@ import {
   type RemoveTaskResult,
   type TaskChange,
   type TaskFailure,
-  taskStatus,
+  taskSummary,
 } from './stores/project-tasks.store';
 import {
   type ChangeDescription,
@@ -23,7 +23,8 @@ type TaskChangeAction =
   | 'updateTask'
   | 'setParent'
   | 'assignTask'
-  | 'setUrgency';
+  | 'setUrgency'
+  | 'setStatus';
 type PriorityAction = 'addToMyPriorities' | 'removeFromMyPriorities';
 
 const VERBS: Readonly<Record<string, string>> = {
@@ -32,6 +33,7 @@ const VERBS: Readonly<Record<string, string>> = {
   setParent: 'move',
   assignTask: 'assign',
   setUrgency: 'change the urgency of',
+  setStatus: 'change the status of',
   addToMyPriorities: 'add to your priorities',
   removeFromMyPriorities: 'remove from your priorities',
   removeTask: 'delete',
@@ -137,8 +139,8 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
       return `Couldn't tell which task "${failure.query}" means`;
     case 'stale_reference':
       return failure.role === 'parent'
-        ? `Couldn't use "${failure.task.title}" as the parent because it changed: now ${taskStatus(failure.task)}`
-        : `Couldn't ${verb} "${failure.task.title}" because it changed: now ${taskStatus(failure.task)}`;
+        ? `Couldn't use "${failure.task.title}" as the parent because it changed: now ${taskSummary(failure.task)}`
+        : `Couldn't ${verb} "${failure.task.title}" because it changed: now ${taskSummary(failure.task)}`;
     case 'cycle':
       return failure.task.id === failure.parent.id
         ? `Couldn't move "${failure.task.title}" under itself`
@@ -147,6 +149,8 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
       return `Couldn't find a team member called "${failure.query}"`;
     case 'unknown_urgency':
       return `Couldn't set the urgency to "${failure.query}"`;
+    case 'unknown_status':
+      return `Couldn't set the status to "${failure.query}"`;
     case 'bad_position':
       return `Couldn't use priority position ${failure.position}`;
     case 'not_in_priorities':
@@ -199,5 +203,7 @@ function describeTaskChange(
       };
     case 'setUrgency':
       return { kind: 'urgency', subject, subjectId, detail: task.urgency };
+    case 'setStatus':
+      return { kind: 'status', subject, subjectId, detail: task.status };
   }
 }

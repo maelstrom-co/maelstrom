@@ -180,6 +180,29 @@ describe('Tasks Vessel by hand', () => {
     expect(getProjectTasksSnapshot().tasks[1]?.urgency).toBe('high');
   });
 
+  it('changes a task status through the setStatus Action', async () => {
+    const vesselProps = props('project-tasks');
+    render(<ProjectTasksComponent {...vesselProps} />);
+
+    const status = screen.getByRole('combobox', {
+      name: 'Status for Update demo README',
+    }) as unknown as HTMLSelectElement;
+    expect(status.value).toBe('todo');
+    expect(Array.from(status.options, (option) => option.text)).toEqual([
+      'To do',
+      'In progress',
+      'Done',
+    ]);
+    await act(async () => {
+      fireEvent.change(status, { target: { value: 'done' } });
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('setStatus', {
+      task: 'TL-1',
+      status: 'done',
+    });
+    expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('done');
+  });
+
   it('nests a task under a parent and offers no parent that would make a cycle', async () => {
     const vesselProps = props('project-tasks');
     render(<ProjectTasksComponent {...vesselProps} />);
@@ -408,6 +431,7 @@ describe('Tasks Vessel through Actions', () => {
         parent: 'Improve the demo',
         assignee: 'chris',
         urgency: 'high',
+        source: 'Can I edit things inside the panels?',
       }),
     ).toMatchObject({ ok: true });
 
@@ -417,6 +441,8 @@ describe('Tasks Vessel through Actions', () => {
       parentId: 'TL-3',
       assigneeId: 'chris',
       urgency: 'high',
+      status: 'todo',
+      sourceFeedback: 'Can I edit things inside the panels?',
     });
   });
 
