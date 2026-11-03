@@ -278,7 +278,8 @@
     "sharp": "0.35.5",
     "shell-quote": "1.11.0",
     "valibot": "1.4.2",
-    "unifont>undici": "8.12.2"
+    "unifont>undici": "8.12.2",
+    "@effect/platform-node-shared": "4.1.0"
   },
   "patchedDependencies": {
     "typedoc@0.28.20": "patches/typedoc@0.28.20.patch",
