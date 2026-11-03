@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-openai-live-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Server-held-key session exchange for OpenAI Live WebRTC.",
   "keywords": [
     "maelstrom",
