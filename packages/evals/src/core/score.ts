@@ -25,9 +25,10 @@ export interface ArrangedScore extends Score {
  * sets, ordered actions with parsed parameters, and the variant invariant
  * (the shipped execution plan replays, with the engine's own rule, from the
  * variant the layout declares for each existing instance, which is its
- * variant before the plan runs). New instance ids
- * are matched to the expected ones by Vessel and order, so a planner's own
- * ids score fairly.
+ * variant before the plan runs, and no existing instance switches twice: a
+ * layout variant change followed by a transition action to another variant).
+ * New instance ids are matched to the expected ones by Vessel and order, so a
+ * planner's own ids score fairly.
  */
 export function scoreResponse(
   scenario: Scenario,
@@ -158,6 +159,67 @@ function compareVariants(
       `Execution plan does not simulate: ${step.action} on ${step.instanceId} (${kind})`,
     );
   }
+  for (const conflict of doubleSwitches(scenario, layout, executionPlan)) {
+    failures.push(
+      `Variant of ${conflict.instanceId} switches twice: the layout moves it from ${conflict.requestVariant} to ${conflict.layoutVariant}, then ${conflict.action} transitions it to ${conflict.actionTarget}`,
+    );
+  }
+}
+
+// Mirrors the Engine's layout_variant_and_action_transition_conflict warning:
+// the first transition Action, looked up on the request Variant and then the
+// Layout Variant, whose target is not the Layout Variant.
+function doubleSwitches(
+  scenario: Scenario,
+  layout: TilingLayout,
+  executionPlan: MaelstromResponse['executionPlan'],
+): {
+  readonly instanceId: string;
+  readonly requestVariant: string;
+  readonly layoutVariant: string;
+  readonly action: string;
+  readonly actionTarget: string;
+}[] {
+  const { request } = scenario;
+  return request.instances.flatMap((requested) => {
+    const declared = layout.instances.find(
+      (candidate) => candidate.instanceId === requested.instanceId,
+    );
+    if (
+      declared === undefined ||
+      declared.vesselId !== requested.vesselId ||
+      declared.variant === requested.variant
+    ) {
+      return [];
+    }
+    const vessel = request.vessels.find(
+      (candidate) => candidate.id === requested.vesselId,
+    );
+    if (vessel === undefined) return [];
+    for (const step of executionPlan) {
+      if (step.instanceId !== requested.instanceId) continue;
+      const target = [requested.variant, declared.variant]
+        .filter((variant) => Object.hasOwn(vessel.variants, variant))
+        .map((variant) =>
+          vessel.variants[variant].actions.find(
+            (action) => action.name === step.action,
+          ),
+        )
+        .find((definition) => definition !== undefined)?.transitionsTo;
+      if (target !== undefined && target !== declared.variant) {
+        return [
+          {
+            instanceId: requested.instanceId,
+            requestVariant: requested.variant,
+            layoutVariant: declared.variant,
+            action: step.action,
+            actionTarget: target,
+          },
+        ];
+      }
+    }
+    return [];
+  });
 }
 
 /**

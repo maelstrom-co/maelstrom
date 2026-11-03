@@ -142,7 +142,7 @@ describe('scoreResponse', () => {
     expect(score).toEqual({ pass: true, failures: [] });
   });
 
-  test('replays the execution plan from the Layout Variant, not the request Variant', () => {
+  test('fails a double switch: a Layout Variant change plus a transition Action to another Variant', () => {
     const variant = scenario('variant');
     const score = scoreResponse(
       variant,
@@ -151,7 +151,31 @@ describe('scoreResponse', () => {
         actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
       }),
     );
-    expect(score).toEqual({ pass: true, failures: [] });
+    expect(score).toEqual({
+      pass: false,
+      failures: [
+        'Variant of weather-main switches twice: the layout moves it from current to hourly, then showWeekly transitions it to weekly',
+      ],
+    });
+  });
+
+  test('fails a double switch alongside the expected Actions', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'calendar-main': 'day' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'showWeek' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures).toContain(
+      'Variant of calendar-main switches twice: the layout moves it from month to day, then showWeek transitions it to week',
+    );
+    expect(score.failures.join()).not.toContain('does not simulate');
   });
 
   test('passes a direct switch that no Action transitions to', () => {
