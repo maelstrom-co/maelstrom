@@ -75,13 +75,17 @@ describe('Provider initialLayout', () => {
   it('still seeds the surviving Orchestrator when StrictMode double-invokes the mount effect', async () => {
     const contextPair = createMaelstromContext();
     const Provider = createProvider(contextPair, [entry], {});
-    // Counted so the test fails rather than silently degrading into a
-    // duplicate of the one above if the double-invoke ever stops firing.
     let connects = 0;
+    let disconnects = 0;
+    const baseConnector = createMockConnector();
     const connector: EngineConnector = {
-      ...createMockConnector(),
+      ...baseConnector,
       connect: async () => {
         connects += 1;
+      },
+      disconnect: async () => {
+        disconnects += 1;
+        await baseConnector.disconnect();
       },
     };
 
@@ -95,7 +99,8 @@ describe('Provider initialLayout', () => {
       );
     });
 
-    expect(connects).toBe(2);
+    expect(disconnects).toBe(1);
+    expect(connects).toBe(1);
 
     const orchestrator = contextPair.contextRef.current?.orchestrator;
     const seeded = orchestrator?.commandProcessor.store.state.instances.get(

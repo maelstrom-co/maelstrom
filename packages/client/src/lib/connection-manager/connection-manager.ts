@@ -71,6 +71,9 @@ export class ConnectionManager {
   readonly #emitter = new TypedEmitter<ConnectionManagerEvents>();
   readonly events: EventSubscriber<ConnectionManagerEvents> = this.#emitter;
   #connector: EngineConnector;
+  // Object identity can return after a swap; attempts belong to a binding generation.
+  #connectorGeneration = 0;
+  readonly #pendingDisconnects = new Map<EngineConnector, Promise<void>>();
   // Required<ConnectionOptions>, not the public ConnectionOptions: every field
   // is guaranteed populated by the DEFAULT_CONNECTION_OPTIONS merge below, and
   // the class body should see that guarantee in the type rather than treating
@@ -104,6 +107,9 @@ export class ConnectionManager {
    * If the circuit breaker is open, this will throw an error immediately.
    * Otherwise, it will attempt to connect with exponential backoff retry.
    *
+   * Startup waits for this Connector's pending shutdowns owned by this manager.
+   * Superseded or disposed attempts do not dial after that wait.
+   *
    * This is the deliberate, user-initiated entry point, so it always starts
    * with a full `maxRetries` budget: `connectionRetryCount` is reset to 0
    * here regardless of what a previous connect/disconnect cycle left behind.
@@ -136,20 +142,16 @@ export class ConnectionManager {
    * Disconnects from the engine and cleans up connection state.
    */
   async disconnect(): Promise<void> {
+    const connector = this.#connector;
+    const generation = ++this.#connectorGeneration;
     this.#logger.info('Disconnecting...');
     this.#isIntentionalDisconnect = true;
     this.#clearTimeouts();
     this.#cleanupConnectorSubscription();
 
-    try {
-      await this.#connector.disconnect();
-    } catch (err) {
-      // Best-effort: state must reach 'disconnected' even when the connector
-      // throws (e.g. transport already gone). Warn rather than escalate —
-      // the caller already wanted disconnect.
-      this.#logger.warn('Connector disconnect failed', err);
-    }
+    await this.#disconnectConnector(connector, 'Connector disconnect failed');
 
+    if (generation !== this.#connectorGeneration) return;
     this.store.setState((state) => ({
       ...state,
       connectionStatus: 'disconnected',
@@ -189,6 +191,9 @@ export class ConnectionManager {
    * `#attemptHalfOpenProbe`): its eventual settlement is a no-op once this
    * has moved `#connector` on.
    *
+   * Outgoing shutdowns remain tracked even while idle. Reusing the same
+   * Connector waits for those shutdowns before starting another connection.
+   *
    * Otherwise — a genuinely idle manager, with nothing connected, no dial in
    * flight and no reconnect armed — the swap severs and stops there;
    * `connect()` remains the caller's own explicit trigger.
@@ -204,6 +209,7 @@ export class ConnectionManager {
    * unfenced, because its epoch will not have advanced.
    */
   setConnector(next: EngineConnector): void {
+    if (this.#isDisposed) return;
     if (Object.is(next, this.#connector)) return;
     const previous = this.#connector;
     const status = this.store.state.connectionStatus;
@@ -213,11 +219,14 @@ export class ConnectionManager {
       status === 'connecting' ||
       this.#reconnectTimeoutId !== null;
     this.#connector = next;
+    const generation = ++this.#connectorGeneration;
 
     this.#cleanupConnectorSubscription();
-    previous.disconnect().catch((err) => {
-      this.#logger.warn('Outgoing connector disconnect failed', err);
-    });
+    void this.#disconnectConnector(
+      previous,
+      'Outgoing connector disconnect failed',
+    );
+    if (!this.#isCurrentConnector(next, generation)) return;
 
     // Deliberately not #clearTimeouts(): that also kills the circuit-breaker
     // timer, and the breaker's state carries across the swap — clearing it
@@ -239,6 +248,7 @@ export class ConnectionManager {
 
   /**
    * Permanently disposes the ConnectionManager and releases all resources.
+   * Waits for current and outgoing Connector shutdowns.
    * After disposal, the ConnectionManager cannot be reused.
    */
   async dispose(): Promise<void> {
@@ -246,9 +256,59 @@ export class ConnectionManager {
 
     this.#isDisposed = true;
     await this.disconnect();
+    await Promise.all(this.#pendingDisconnects.values());
     this.#emitter.dispose();
     this.#clearTimeouts();
     this.#logger.info('Disposed ConnectionManager');
+  }
+
+  #disconnectConnector(
+    connector: EngineConnector,
+    failureMessage: string,
+  ): Promise<void> {
+    let complete!: () => void;
+    const current = new Promise<void>((resolve) => {
+      complete = resolve;
+    });
+    const pending = Promise.all([
+      this.#pendingDisconnects.get(connector),
+      current,
+    ]).then(() => undefined);
+    // Register before invoking the Connector, which can call back synchronously.
+    this.#pendingDisconnects.set(connector, pending);
+    void (async () => {
+      try {
+        await connector.disconnect();
+      } catch (error) {
+        this.#logger.warn(failureMessage, error);
+      } finally {
+        complete();
+      }
+    })();
+    void pending.then(() => {
+      if (this.#pendingDisconnects.get(connector) === pending)
+        this.#pendingDisconnects.delete(connector);
+    });
+    return pending;
+  }
+
+  #isCurrentConnector(connector: EngineConnector, generation: number): boolean {
+    return (
+      !this.#isDisposed &&
+      generation === this.#connectorGeneration &&
+      Object.is(connector, this.#connector)
+    );
+  }
+
+  async #connectConnector(
+    connector: EngineConnector,
+    generation: number,
+  ): Promise<boolean> {
+    const pending = this.#pendingDisconnects.get(connector);
+    if (pending) await pending;
+    if (!this.#isCurrentConnector(connector, generation)) return false;
+    await connector.connect(this.#sessionId);
+    return true;
   }
 
   async #connectWithRetries(): Promise<void> {
@@ -263,12 +323,14 @@ export class ConnectionManager {
     // the field back instead would let a superseded loop dial the connector
     // the swap already owns, concurrently with that swap's own loop.
     const connector = this.#connector;
+    const generation = this.#connectorGeneration;
 
     while (attempt < maxAttempts) {
       attempt++;
 
       if (attempt === 1) {
         this.#setConnectionStatus('connecting');
+        if (!this.#isCurrentConnector(connector, generation)) return;
       }
 
       this.#logger.debug(`Connection attempt ${attempt}/${maxAttempts}`);
@@ -277,14 +339,17 @@ export class ConnectionManager {
         attempt,
         maxAttempts,
       });
+      if (!this.#isCurrentConnector(connector, generation)) return;
 
       try {
-        await connector.connect(this.#sessionId);
-        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
+        if (!(await this.#connectConnector(connector, generation))) return;
+        if (!this.#isCurrentConnector(connector, generation)) return; // superseded mid-dial
 
         this.#logger.info('Connected successfully');
         this.#setConnectionStatus('connected');
-        this.#setupConnectorSubscription();
+        if (!this.#isCurrentConnector(connector, generation)) return;
+        this.#setupConnectorSubscription(connector, generation);
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.store.setState((state) => ({
           ...state,
@@ -292,8 +357,10 @@ export class ConnectionManager {
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        if (!this.#isCurrentConnector(connector, generation)) return;
         this.#scheduleStabilityReset();
 
         return;
@@ -303,7 +370,7 @@ export class ConnectionManager {
         // connector must not describe itself on the store, and must not fall
         // through to the circuit-breaker-opening tail below, which would
         // stomp a dial that may be seconds from succeeding — or already has.
-        if (!Object.is(connector, this.#connector)) {
+        if (!this.#isCurrentConnector(connector, generation)) {
           this.#logger.debug(
             'Connection attempt failed on a superseded connector; abandoning this retry loop',
           );
@@ -321,12 +388,14 @@ export class ConnectionManager {
           error: lastError,
           attempt,
         });
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.store.setState((state) => ({
           ...state,
           connectionRetryCount: attempt,
           connectionError: lastError,
         }));
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         if (attempt < maxAttempts) {
           const delay = this.#calculateBackoffDelay(attempt);
@@ -334,7 +403,7 @@ export class ConnectionManager {
           // The backoff sleep is the widest suspension point of all — a
           // re-auth swap lands here, not mid-dial, in the case this whole
           // seam exists for.
-          if (!Object.is(connector, this.#connector)) {
+          if (!this.#isCurrentConnector(connector, generation)) {
             this.#logger.debug(
               'Connector superseded during backoff; abandoning this retry loop',
             );
@@ -348,26 +417,26 @@ export class ConnectionManager {
       `All ${maxAttempts} connection attempts failed, opening circuit breaker`,
     );
     this.#setConnectionStatus('error');
+    if (!this.#isCurrentConnector(connector, generation)) return;
 
     this.store.setState((state) => ({
       ...state,
       connectionError: lastError,
       circuitBreakerStatus: 'open',
     }));
-
-    this.#emitter.emit('circuit_opened', {
-      resetAfterMs: this.#options.circuitBreakerTimeoutMs,
-    });
-
-    this.#scheduleCircuitBreakerReset();
+    this.#publishCircuitOpen();
 
     throw lastError;
   }
 
-  #setupConnectorSubscription(): void {
+  #setupConnectorSubscription(
+    connector: EngineConnector,
+    generation: number,
+  ): void {
     this.#cleanupConnectorSubscription();
-
-    this.#unsubscribeConnector = this.#connector.subscribe((event) => {
+    if (!this.#isCurrentConnector(connector, generation)) return;
+    const unsubscribe = connector.subscribe((event) => {
+      if (!this.#isCurrentConnector(connector, generation)) return;
       switch (event.type) {
         case 'disconnected': {
           // A connection that dies before proving stable must not have
@@ -375,10 +444,12 @@ export class ConnectionManager {
           // pending reset before deciding what to do next.
           this.#cancelStabilityReset();
           this.#setConnectionStatus('disconnected');
+          if (!this.#isCurrentConnector(connector, generation)) return;
           this.store.setState((state) => ({
             ...state,
             lastDisconnectedAt: Date.now(),
           }));
+          if (!this.#isCurrentConnector(connector, generation)) return;
           if (this.#isIntentionalDisconnect) break;
 
           if (event.retryable === false) {
@@ -400,15 +471,13 @@ export class ConnectionManager {
               event.message,
             );
             this.#setConnectionStatus('error');
+            if (!this.#isCurrentConnector(connector, generation)) return;
             this.store.setState((state) => ({
               ...state,
               connectionError: new Error(event.message),
               circuitBreakerStatus: 'open',
             }));
-            this.#emitter.emit('circuit_opened', {
-              resetAfterMs: this.#options.circuitBreakerTimeoutMs,
-              terminal: true,
-            });
+            this.#publishCircuitOpen(true);
             break;
           }
 
@@ -423,13 +492,18 @@ export class ConnectionManager {
 
         case 'error':
           this.#setConnectionStatus('error');
+          if (!this.#isCurrentConnector(connector, generation)) return;
           this.store.setState((state) => ({
             ...state,
             connectionError: event.error,
           }));
+          if (!this.#isCurrentConnector(connector, generation)) return;
           break;
       }
     });
+    if (this.#isCurrentConnector(connector, generation))
+      this.#unsubscribeConnector = unsubscribe;
+    else unsubscribe();
   }
 
   #handleAutoReconnect(): void {
@@ -438,17 +512,17 @@ export class ConnectionManager {
       return;
     }
 
+    const connector = this.#connector;
+    const generation = this.#connectorGeneration;
     const reconnectAttempt = this.store.state.connectionRetryCount + 1;
     if (reconnectAttempt > this.#options.maxRetries) {
       this.#setConnectionStatus('error');
+      if (!this.#isCurrentConnector(connector, generation)) return;
       this.store.setState((state) => ({
         ...state,
         circuitBreakerStatus: 'open',
       }));
-      this.#emitter.emit('circuit_opened', {
-        resetAfterMs: this.#options.circuitBreakerTimeoutMs,
-      });
-      this.#scheduleCircuitBreakerReset();
+      this.#publishCircuitOpen();
       return;
     }
 
@@ -456,16 +530,21 @@ export class ConnectionManager {
       ...state,
       connectionRetryCount: reconnectAttempt,
     }));
+    if (!this.#isCurrentConnector(connector, generation)) return;
 
     const delay = this.#calculateBackoffDelay(reconnectAttempt);
 
+    if (!this.#isCurrentConnector(connector, generation)) return;
     this.#reconnectTimeoutId = setTimeout(async () => {
+      if (!this.#isCurrentConnector(connector, generation)) return;
       this.#setConnectionStatus('connecting');
+      if (!this.#isCurrentConnector(connector, generation)) return;
 
       this.#emitter.emit('connection_attempt', {
         attempt: reconnectAttempt,
         maxAttempts: this.#options.maxRetries,
       });
+      if (!this.#isCurrentConnector(connector, generation)) return;
 
       // Captured per attempt, not read back through the field — same reason
       // as #connectWithRetries: setConnector can move `#connector` on while
@@ -473,13 +552,14 @@ export class ConnectionManager {
       // which this timer itself just set), and a belated success from the
       // connector THIS attempt actually dialed must not be attributed to
       // whatever connector the field points at by the time it settles.
-      const connector = this.#connector;
       try {
-        await connector.connect(this.#sessionId);
-        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
+        if (!(await this.#connectConnector(connector, generation))) return;
+        if (!this.#isCurrentConnector(connector, generation)) return; // superseded mid-dial
 
         this.#setConnectionStatus('connected');
-        this.#setupConnectorSubscription();
+        if (!this.#isCurrentConnector(connector, generation)) return;
+        this.#setupConnectorSubscription(connector, generation);
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.store.setState((state) => ({
           ...state,
@@ -487,15 +567,17 @@ export class ConnectionManager {
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        if (!this.#isCurrentConnector(connector, generation)) return;
         this.#scheduleStabilityReset();
       } catch (error) {
         // Same supersession guard as the success branch: a failure from a
         // connector setConnector has already moved past must not schedule
         // yet another reconnect cycle (or record its error) against a
         // manager that has moved on to dialing something else entirely.
-        if (!Object.is(connector, this.#connector)) return;
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         const err = toError(error);
 
@@ -503,11 +585,13 @@ export class ConnectionManager {
           error: err,
           attempt: reconnectAttempt,
         });
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.store.setState((state) => ({
           ...state,
           connectionError: err,
         }));
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.#handleAutoReconnect();
       }
@@ -540,6 +624,7 @@ export class ConnectionManager {
 
   #setConnectionStatus(status: ConnectionStatus): void {
     const previousStatus = this.store.state.connectionStatus;
+    const generation = this.#connectorGeneration;
 
     if (previousStatus === status) return;
 
@@ -548,6 +633,11 @@ export class ConnectionManager {
       connectionStatus: status,
     }));
 
+    if (
+      generation !== this.#connectorGeneration ||
+      this.store.state.connectionStatus !== status
+    )
+      return;
     this.#emitter.emit('connection_status_changed', {
       status: status,
       previousStatus: previousStatus,
@@ -579,7 +669,24 @@ export class ConnectionManager {
     }
   }
 
+  // Committed engine health survives Connector replacement; attempt state does not.
+  #publishCircuitOpen(terminal = false): void {
+    if (this.#isDisposed || this.store.state.circuitBreakerStatus !== 'open')
+      return;
+    this.#emitter.emit('circuit_opened', {
+      resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+      ...(terminal ? { terminal: true } : {}),
+    });
+    if (!terminal) this.#scheduleCircuitBreakerReset();
+  }
+
   #scheduleCircuitBreakerReset(): void {
+    if (
+      this.#isDisposed ||
+      this.#isIntentionalDisconnect ||
+      this.store.state.circuitBreakerStatus !== 'open'
+    )
+      return;
     // Guards against leaking a previous timer if this is called more than
     // once while the breaker is already open (e.g. two non-retryable
     // disconnects back to back).
@@ -615,9 +722,13 @@ export class ConnectionManager {
    */
   #attemptHalfOpenProbe(): void {
     if (this.#isDisposed) return;
+    const connector = this.#connector;
+    const generation = this.#connectorGeneration;
 
     this.#setConnectionStatus('connecting');
+    if (!this.#isCurrentConnector(connector, generation)) return;
     this.#emitter.emit('connection_attempt', { attempt: 1, maxAttempts: 1 });
+    if (!this.#isCurrentConnector(connector, generation)) return;
 
     // Captured before dialing, not read back through the field — same
     // reason as #connectWithRetries and #handleAutoReconnect: setConnector
@@ -625,21 +736,22 @@ export class ConnectionManager {
     // redials during 'connecting', which this probe itself just set), and a
     // belated settlement must not be attributed to whatever connector the
     // field points at by the time it lands.
-    const connector = this.#connector;
-    connector
-      .connect(this.#sessionId)
-      .then(() => {
+    this.#connectConnector(connector, generation)
+      .then((connected) => {
+        if (!connected) return;
         // The probe outlives a dispose() that lands mid-flight: the guard at
         // the top of this method only covers the synchronous entry. Without
         // this, a late success re-subscribes to the connector and arms a
         // stability timer on a manager whose dispose() has already run its
         // cleanup, so neither is ever torn down.
         if (this.#isDisposed) return;
-        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
+        if (!this.#isCurrentConnector(connector, generation)) return; // superseded mid-dial
 
         this.#logger.info('Half-open probe succeeded, closing circuit');
         this.#setConnectionStatus('connected');
-        this.#setupConnectorSubscription();
+        if (!this.#isCurrentConnector(connector, generation)) return;
+        this.#setupConnectorSubscription(connector, generation);
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.store.setState((state) => ({
           ...state,
@@ -647,8 +759,10 @@ export class ConnectionManager {
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        if (!this.#isCurrentConnector(connector, generation)) return;
         this.#scheduleStabilityReset();
       })
       .catch((error: unknown) => {
@@ -659,7 +773,7 @@ export class ConnectionManager {
         // must not reopen the breaker (or schedule yet another probe cycle)
         // against a manager that may already be happily connected through
         // whatever it swapped to.
-        if (!Object.is(connector, this.#connector)) return;
+        if (!this.#isCurrentConnector(connector, generation)) return;
 
         const err = toError(error);
         this.#logger.warn(
@@ -668,16 +782,15 @@ export class ConnectionManager {
         );
 
         this.#emitter.emit('connection_error', { error: err, attempt: 1 });
+        if (!this.#isCurrentConnector(connector, generation)) return;
         this.#setConnectionStatus('error');
+        if (!this.#isCurrentConnector(connector, generation)) return;
         this.store.setState((state) => ({
           ...state,
           connectionError: err,
           circuitBreakerStatus: 'open',
         }));
-        this.#emitter.emit('circuit_opened', {
-          resetAfterMs: this.#options.circuitBreakerTimeoutMs,
-        });
-        this.#scheduleCircuitBreakerReset();
+        this.#publishCircuitOpen();
       });
   }
 

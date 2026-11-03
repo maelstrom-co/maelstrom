@@ -266,8 +266,8 @@ export function createProvider(
       }
     }, [initialLayoutSignature]);
 
-    // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
-    // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
+    // Effect reactivation can leave several connector teardowns pending.
+    const previousDisposal = useRef(Promise.resolve());
     const [orchestrator, setOrchestrator] = useState<InstanceType<
       typeof Orchestrator
     > | null>(null);
@@ -351,13 +351,23 @@ export function createProvider(
         },
       );
 
-      instance.connect().catch((err) => {
-        const error = toError(err);
-        onErrorRef.current?.(error);
-      });
+      let active = true;
+      previousDisposal.current
+        .then(async () => {
+          if (active) await instance.connect();
+        })
+        .catch((err) => {
+          if (active) onErrorRef.current?.(toError(err));
+        });
 
       return () => {
-        const disposal = instance.dispose();
+        active = false;
+        previousDisposal.current = Promise.all([
+          previousDisposal.current,
+          instance.dispose().catch((err) => {
+            console.error('[Maelstrom] Dispose error:', err);
+          }),
+        ]).then(() => undefined);
         for (const release of diagnosticReleases) {
           try {
             release();
@@ -367,9 +377,6 @@ export function createProvider(
         }
         unsubProcessingError();
         unsubBatchAbandoned();
-        disposal.catch((err) => {
-          console.error('[Maelstrom] Dispose error:', err);
-        });
       };
     }, [stableSessionId]);
 
