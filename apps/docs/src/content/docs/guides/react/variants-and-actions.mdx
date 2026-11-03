@@ -154,7 +154,7 @@ When an action defines `transitionsTo`, invoking it does two things: it runs the
 The order of those two steps depends on who invoked the action:
 
 - **Local `executeAction`**: the instance moves to the target variant first, so the UI responds at once. The handler runs next, and if it fails, the variant reverts, unless a newer change has already replaced it.
-- **Engine-planned action**: the handler runs first, while the instance is still in the variant it had before the action. The transition applies only after the handler succeeds, so a failed handler leaves the variant alone. A pure transition, one with no handler, applies on its own. Each engine action is checked against the variant the instance has when that action's turn comes, so an action that a previous action moved away from is skipped.
+- **Engine-planned action**: the handler runs first, while the instance is still in the variant it had before the action. The transition applies only after the handler succeeds, so a failed handler leaves the variant alone. A pure transition, one with no handler, applies on its own, as long as the component has called `useActions` for that instance. Each engine action is checked against the variant the instance has when that action's turn comes, so an action that a previous action moved away from is skipped.
 
 After a transition, your component re-renders with `variantProps` narrowed to the target variant. That is why `expand` above moves `card` → `expanded`: the next render hits the `expanded` branch and gains access to `message`. The target variant's `minSize` becomes the floor for later grid layout validation; it has no effect in tiling mode.
 
@@ -226,7 +226,7 @@ The handler params are typed from the vessel definition: `setName` receives `{ n
 
 ### Missing handlers and invalid parameters
 
-If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. An action with `transitionsTo` still moves the instance to its target variant, so actions that only transition variants need no handler. An engine-planned action with neither a handler nor `transitionsTo` is reported as skipped. When an action needs data or side effects, return `err(...)` from the handler for invalid parameters so the failure reaches the error surface instead of silently mutating state.
+If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. An action with `transitionsTo` still moves the instance to its target variant, so actions that only transition variants need no handler of their own. Engine-planned actions still need a registered runner: the Vessel's component must call `useActions` for the instance, with an empty handler map if none of its actions has side effects. If no runner registers before the readiness timeout, the engine's actions for that instance are reported as skipped and its variant does not change. An engine-planned action with neither a handler nor `transitionsTo` is reported as skipped. When an action needs data or side effects, return `err(...)` from the handler for invalid parameters so the failure reaches the error surface instead of silently mutating state.
 
 ```tsx
 setName: async ({ name }) => {

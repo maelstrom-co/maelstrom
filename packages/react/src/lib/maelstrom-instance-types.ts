@@ -104,7 +104,10 @@ export interface MaelstromInstanceCore<
    *
    * For Engine-planned actions the handler runs while the instance is still in its
    * pre-action Variant, and the action's `transitionsTo` applies after the handler succeeds.
-   * An Engine action with `transitionsTo` and no handler still transitions.
+   * An Engine action with `transitionsTo` and no handler still transitions, but only once
+   * this hook has registered a runner for the instance. A Vessel that only transitions must
+   * still call `useActions`, with an empty handler map if it has no side effects. Otherwise
+   * its Engine actions are skipped after the readiness timeout and its Variant does not change.
    *
    * @example
    * m.useActions('calendar', instanceId, {
