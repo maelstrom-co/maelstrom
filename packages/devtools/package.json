@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/devtools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Development diagnostics and shared browser inspector for Maelstrom.",
   "keywords": [
     "maelstrom",
@@ -52,13 +52,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.2.0",
-    "@maelstrom-co/protocol": "0.2.0",
-    "@maelstrom-co/telemetry": "0.2.0",
+    "@maelstrom-co/client": "0.2.1",
+    "@maelstrom-co/protocol": "0.2.1",
+    "@maelstrom-co/telemetry": "0.2.1",
     "@pgrabovets/json-view": "catalog:",
     "solid-js": "catalog:",
     "zod": "catalog:",
-    "@maelstrom-co/devtools-protocol": "0.2.0"
+    "@maelstrom-co/devtools-protocol": "0.2.1"
   },
   "devDependencies": {},
   "nx": {

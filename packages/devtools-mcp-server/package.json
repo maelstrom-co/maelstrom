@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/devtools-mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local read-only MCP server for Maelstrom DevTools.",
   "keywords": [
     "maelstrom",
@@ -41,15 +41,15 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/devtools-protocol": "0.2.0",
+    "@maelstrom-co/devtools-protocol": "0.2.1",
     "@modelcontextprotocol/server": "2.4.0",
     "ws": "8.22.0",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@maelstrom-co/devtools": "0.2.0",
-    "@maelstrom-co/client": "0.2.0",
-    "@maelstrom-co/protocol": "0.2.0",
+    "@maelstrom-co/devtools": "0.2.1",
+    "@maelstrom-co/client": "0.2.1",
+    "@maelstrom-co/protocol": "0.2.1",
     "@modelcontextprotocol/client": "2.4.0",
     "@types/ws": "^8.18.1"
   },
