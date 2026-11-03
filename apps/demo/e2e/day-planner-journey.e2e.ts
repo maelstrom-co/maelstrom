@@ -213,11 +213,15 @@ test('completes the day-planner journey across conversation and clicks', async (
   before = resizeRequests.length;
   // The entry just written stays selected, so the list opens it already.
   await expect(row).toHaveAttribute('aria-expanded', 'true');
-  await row.focus();
-  await page.keyboard.press('Enter');
-  await expect(row).toHaveAttribute('aria-expanded', 'false');
-  await page.keyboard.press('Enter');
-  await expect(row).toHaveAttribute('aria-expanded', 'true');
+  // Space and Enter each toggle the row exactly once. Opening the row moves
+  // focus into its editor, so the row is focused again before each pair.
+  for (const key of ['Space', 'Enter']) {
+    await row.focus();
+    await page.keyboard.press(key);
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press(key);
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+  }
   const editor = page.getByLabel('Text of Design review prep');
   await editor.fill('Prototype checked. Questions drafted for the review.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();

@@ -29,6 +29,32 @@ export default function JournalComponent({
 }: TypedVesselProps<typeof journalVessel>) {
   const { entries, activeEntryId } = useJournalStore();
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  // Unsaved text lives here, per entry, so switching rows or entries keeps it
+  // until the user saves or cancels.
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+
+  const setDraft = (id: string, text: string | null) =>
+    setDrafts((current) => {
+      if (text === null && !current.has(id)) return current;
+      const next = new Map(current);
+      if (text === null) next.delete(id);
+      else next.set(id, text);
+      return next;
+    });
+
+  // A save confirmed after its editor closed leaves a draft equal to the
+  // stored text, which would otherwise hide later dictated words.
+  useEffect(() => {
+    setDrafts((current) => {
+      const stale = entries.filter((e) => current.get(e.id) === e.content);
+      if (stale.length === 0) return current;
+      const next = new Map(current);
+      for (const e of stale) next.delete(e.id);
+      return next;
+    });
+  }, [entries]);
 
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
@@ -120,6 +146,8 @@ export default function JournalComponent({
           <EntryEditor
             key={activeEntry.id}
             entry={activeEntry}
+            draft={drafts.get(activeEntry.id) ?? null}
+            onDraftChange={(text) => setDraft(activeEntry.id, text)}
             ruled
             onSave={(content) => saveEntry(activeEntry, content)}
           />
@@ -180,6 +208,8 @@ export default function JournalComponent({
                 <div className="pb-2.5">
                   <EntryEditor
                     entry={entry}
+                    draft={drafts.get(entry.id) ?? null}
+                    onDraftChange={(text) => setDraft(entry.id, text)}
                     autoFocus
                     onSave={(content) => saveEntry(entry, content)}
                     onSaved={() => closeRow(entry.id)}
@@ -197,6 +227,8 @@ export default function JournalComponent({
 
 function EntryEditor({
   entry,
+  draft,
+  onDraftChange,
   ruled = false,
   autoFocus = false,
   onSave,
@@ -204,15 +236,16 @@ function EntryEditor({
   onCancel,
 }: {
   entry: JournalEntry;
+  // A null draft follows the stored text, so dictated words keep appearing
+  // until the user starts typing.
+  draft: string | null;
+  onDraftChange: (text: string | null) => void;
   ruled?: boolean;
   autoFocus?: boolean;
   onSave: (content: string) => void;
   onSaved?: () => void;
   onCancel?: () => void;
 }) {
-  // A null draft follows the stored text, so dictated words keep appearing
-  // until the user starts typing.
-  const [draft, setDraft] = useState<string | null>(null);
   // executeAction only queues the edit, so the draft stays until the store
   // holds the saved text. A skipped or failed save keeps the user's words.
   const [pendingSave, setPendingSave] = useState<string | null>(null);
@@ -229,13 +262,13 @@ function EntryEditor({
     setPendingSave(null);
     // Text typed after Save is newer than the confirmed save, so it stays.
     if (draft !== null && draft !== pendingSave) return;
-    setDraft(null);
+    onDraftChange(null);
     onSaved?.();
-  }, [entry.content, pendingSave, draft, onSaved]);
+  }, [entry.content, pendingSave, draft, onDraftChange, onSaved]);
 
   const cancel = () => {
     setPendingSave(null);
-    setDraft(null);
+    onDraftChange(null);
     onCancel?.();
   };
 
@@ -271,7 +304,7 @@ function EntryEditor({
         autoFocus={autoFocus}
         placeholder="Waiting for content..."
         rows={ruled ? undefined : 3}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => onDraftChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key !== 'Escape') return;
           event.preventDefault();
