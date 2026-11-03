@@ -1,0 +1,21 @@
+{
+  "engine": "phonon",
+  "clips": [
+    {
+      "id": "goal",
+      "text": "One goal creates a note and focuses the new record. The external agent owns the goal. Maelstrom keeps the workspace model. The engine validates the layout and actions. The browser mounts the Notes vessel before create runs. An acknowledgment reports what actually settled. That is the integration we built."
+    },
+    {
+      "id": "loop",
+      "text": "The first action creates a record. Its identifier was not in the original goal. A delegated read gets the identifier and version. The second workspace action focuses that exact record. Three runs complete one goal, without another user prompt. This lets later decisions depend on observed application results."
+    },
+    {
+      "id": "code",
+      "text": "The change is a private prototype. Host handles the agent loop. Planner uses the real engine. Workspace applies responses through the real orchestrator. Boundary translates the released protocol differences. Tests cover delayed, failed, stale, missing, and duplicate acknowledgments. When the business outcome is unknown, the agent stops without retrying."
+    },
+    {
+      "id": "proof",
+      "text": "The new browser experiment verifies a real Chart and React action handlers. A separate subagent experiment pauses for approval, then resumes the same child. Denial prevents the read. These are scripted models with no provider keys. Production recovery, multiple writers, and voice remain unproven. The gain is a tested integration path with clear limits."
+    }
+  ]
+}
