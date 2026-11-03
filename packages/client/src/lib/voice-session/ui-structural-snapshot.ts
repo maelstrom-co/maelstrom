@@ -8,6 +8,7 @@ import {
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
+import { withLiveVariants } from '../command-processor/tiling-layout-live-variants.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
 
 /**
@@ -39,7 +40,8 @@ export interface UIStructuralSnapshot {
  * stored layout used by Engine requests and remount. Rendered IDs are the
  * intersection of retained IDs and {@link getVisibleInstanceIds}. Grid
  * positions, tiling declarations, and top-level Instances are copied and
- * filtered to that set. The complete tiling token array is copied iteratively;
+ * filtered to that set. Tiling declarations carry the live Variant of each
+ * Instance, so every Instance reports one Variant. The complete tiling token array is copied iteratively;
  * split and existing `null` tokens keep their positions, while every other
  * token outside the rendered set becomes `null`. This preserves consumed
  * partial roots and nulls retained trailing tokens without promoting them.
@@ -71,8 +73,8 @@ export function readStructuralSnapshot(
         if (instanceId === null) return token;
         return renderedInstanceIds.has(instanceId) ? token : null;
       }),
-      instances: layout.instances.filter(({ instanceId }) =>
-        renderedInstanceIds.has(instanceId),
+      instances: withLiveVariants(layout, instances).instances.filter(
+        ({ instanceId }) => renderedInstanceIds.has(instanceId),
       ),
     };
   }
