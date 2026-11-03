@@ -10,10 +10,17 @@ import type {
 } from '@maelstrom-co/protocol';
 import { isOk } from '@maelstrom-co/protocol';
 
+import type { Logger } from '../../../logger.js';
 import { finalVariants } from '../../../response/execution-plan/final-variants.js';
+import {
+  type PlanContext,
+  parseExecutionPlan,
+} from '../../../response/execution-plan/parse-execution-plan.js';
 import type { HealedTilingInstance, LayoutWarning } from '../healed-layout.js';
 
 type PlannedAction = TilingResponse['executionPlan'][number];
+
+export type ActionAcceptance = Pick<PlanContext, 'enumSnapshot' | 'turn'>;
 
 /**
  * Resets each existing Instance that the response declared in its
@@ -22,19 +29,22 @@ type PlannedAction = TilingResponse['executionPlan'][number];
  * The client applies the Layout before it runs the Execution Plan, so a
  * Layout that already names the Variant a transition Action leads to makes
  * that Action resolve against its own target. An Instance is restored only
- * when its Actions, replayed in plan order from the request Variant, all
- * resolve and end exactly on the Layout Variant. That one rule leaves a
- * direct switch (no transition), an Action the request Variant does not
- * offer, and a transition to some other Variant untouched.
+ * when the Engine would accept every one of its Actions, replayed in plan
+ * order from the request Variant under the same params and turn rules, and
+ * the accepted Actions end exactly on the Layout Variant. That one rule
+ * leaves a direct switch (no transition), an Action the request Variant does
+ * not offer, an Action the Engine would skip, and a transition to some other
+ * Variant untouched.
  *
  * An unrestored Instance whose Layout changes its Variant while one of its
- * transition Actions targets a different Variant is reported as a conflict
- * and kept exactly as declared.
+ * Actions, looked up on the Layout Variant, transitions to a different
+ * Variant is reported as a conflict and kept exactly as declared.
  */
 export function restorePreActionVariants(
   healedInstances: readonly HealedTilingInstance[],
   executionPlan: readonly PlannedAction[],
   request: ChartRequest,
+  acceptance: ActionAcceptance,
 ): {
   readonly instances: HealedTilingInstance[];
   readonly warnings: LayoutWarning[];
@@ -57,10 +67,14 @@ export function restorePreActionVariants(
     const actions = executionPlan.filter(
       (step) => step.instanceId === instance.instanceId,
     );
-    const replay = finalVariants([requested], actions, request.vessels);
     if (
-      isOk(replay) &&
-      replay.value.get(instance.instanceId) === instance.variant
+      acceptedActionsEndOn(
+        instance.variant,
+        requested,
+        actions,
+        request.vessels,
+        acceptance,
+      )
     ) {
       warnings.push({
         kind: 'pre_action_variant_restored',
@@ -74,7 +88,6 @@ export function restorePreActionVariants(
     const conflict = firstTransitionAwayFromLayout(
       actions,
       instance.vesselId,
-      [requested.variant, instance.variant],
       instance.variant,
       request.vessels,
     );
@@ -94,42 +107,54 @@ export function restorePreActionVariants(
   return { instances, warnings };
 }
 
-/**
- * Finds the first Action whose transition, looked up on each of
- * `lookupVariants` in order, targets a Variant other than `layoutVariant`.
- */
+// The Engine parses the plan again after the heal and logs its skips there.
+const silentLogger: Logger = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
+
+function acceptedActionsEndOn(
+  layoutVariant: VariantName,
+  requested: VesselInstanceSnapshot,
+  actions: readonly PlannedAction[],
+  vessels: readonly Vessel[],
+  acceptance: ActionAcceptance,
+): boolean {
+  const { plan, skippedActions } = parseExecutionPlan(actions, {
+    instances: [requested],
+    vessels,
+    ...acceptance,
+    logger: silentLogger,
+  });
+  if (skippedActions.length > 0) return false;
+  const replay = finalVariants([requested], plan, vessels);
+  return (
+    isOk(replay) && replay.value.get(requested.instanceId) === layoutVariant
+  );
+}
+
 function firstTransitionAwayFromLayout(
   actions: readonly PlannedAction[],
   vesselId: VesselId,
-  lookupVariants: readonly VariantName[],
   layoutVariant: VariantName,
   vessels: readonly Vessel[],
 ):
   | { readonly actionName: ActionName; readonly actionTarget: VariantName }
   | undefined {
   const vessel = vessels.find((candidate) => candidate.id === vesselId);
-  if (vessel === undefined) return undefined;
+  if (vessel === undefined || !Object.hasOwn(vessel.variants, layoutVariant)) {
+    return undefined;
+  }
 
   for (const step of actions) {
-    const target = transitionTarget(vessel, lookupVariants, step.action);
+    const target = vessel.variants[layoutVariant].actions.find(
+      (action) => action.name === step.action,
+    )?.transitionsTo;
     if (target !== undefined && target !== layoutVariant) {
       return { actionName: step.action, actionTarget: target };
     }
-  }
-  return undefined;
-}
-
-function transitionTarget(
-  vessel: Vessel,
-  lookupVariants: readonly VariantName[],
-  actionName: ActionName,
-): VariantName | undefined {
-  for (const variant of lookupVariants) {
-    if (!Object.hasOwn(vessel.variants, variant)) continue;
-    const definition = vessel.variants[variant].actions.find(
-      (action) => action.name === actionName,
-    );
-    if (definition !== undefined) return definition.transitionsTo;
   }
   return undefined;
 }

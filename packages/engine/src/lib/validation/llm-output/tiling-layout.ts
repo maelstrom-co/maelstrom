@@ -20,7 +20,10 @@ import type {
 } from './healed-layout.js';
 import { parseTree } from './tiling-layout/parse-tree.js';
 import { pruneAst } from './tiling-layout/prune-ast.js';
-import { restorePreActionVariants } from './tiling-layout/restore-pre-action-variants.js';
+import {
+  type ActionAcceptance,
+  restorePreActionVariants,
+} from './tiling-layout/restore-pre-action-variants.js';
 
 /**
  * Recovery rules:
@@ -42,16 +45,18 @@ import { restorePreActionVariants } from './tiling-layout/restore-pre-action-var
  *   because a split's arity is exactly what could not be read.
  * - missing rationale → warning, response accepted as-is.
  * - Existing Instance declared in the Variant its own transition Actions lead
- *   to → warning, the Variant is reset to the request Variant and every
+ *   to, when the Engine accepts every one of those Actions from the request
+ *   Variant → warning, the Variant is reset to the request Variant and every
  *   Action is kept. The Layout holds each Instance's Variant before the
  *   Execution Plan runs, because the client applies the Layout first.
  * - Existing Instance whose Layout Variant changes directly while one of its
- *   transition Actions targets another Variant → warning only, Layout and
- *   Actions kept as declared.
+ *   Actions, looked up on the Layout Variant, transitions to another Variant
+ *   → warning only, Layout and Actions kept as declared.
  */
 export function healTilingLayout(
   response: TilingResponse,
   request: ChartRequest,
+  acceptance: ActionAcceptance,
 ): HealedTilingLayout {
   const droppedEntries: DroppedLayoutEntry[] = [];
   const warnings: LayoutWarning[] = [];
@@ -97,6 +102,7 @@ export function healTilingLayout(
     declaredInstances,
     response.executionPlan,
     request,
+    acceptance,
   );
   const healedInstances = restored.instances;
   warnings.push(...restored.warnings);

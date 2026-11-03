@@ -3191,6 +3191,45 @@ describe('processResponse pre-action Layout Variant', () => {
     ]);
   });
 
+  test('a transition Action skipped for its params next to an accepted Action keeps the declared Layout Variant and reports the skip', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'add an event and switch to the week view',
+        executionPlan: [
+          { instanceId: 'calendar-main', action: 'addEvent' },
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: '{"view":"next"}',
+          },
+        ],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      },
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('week'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('addEvent'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({ action: ActionName('showWeek') }),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).not.toContain(
+      'pre_action_variant_restored',
+    );
+  });
+
   test('a Layout Variant that disagrees with the transition target is kept with a conflict warning and no retry', () => {
     const response = run(
       calendarResponse('month', ['showWeek']),

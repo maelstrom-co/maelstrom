@@ -8,9 +8,9 @@ import type {
   TilingSplitToken,
 } from '@maelstrom-co/protocol';
 import { ActionName, InstanceId, VariantName } from '@maelstrom-co/protocol';
-
 import {
   type AuthorInstanceSnapshot,
+  type AuthorVessel,
   brandTilingResponse,
   brandTilingTree,
   forwardOnlyWizardVessel,
@@ -18,7 +18,19 @@ import {
   type TilingResponseAuthor,
   threeViewCalendarVessel,
 } from '../../__test-helpers__/fixtures.js';
-import { healTilingLayout } from './tiling-layout.js';
+import { buildActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
+import { classifyExecutionTurn } from '../../response/execution-plan/index.js';
+import { healTilingLayout as healTilingLayoutAccepting } from './tiling-layout.js';
+
+function healTilingLayout(
+  response: TilingResponse,
+  request: ChartRequest,
+): ReturnType<typeof healTilingLayoutAccepting> {
+  return healTilingLayoutAccepting(response, request, {
+    enumSnapshot: buildActionParameterEnumSnapshot(request.vessels),
+    turn: classifyExecutionTurn(request),
+  });
+}
 
 function makeTilingResponse(
   overrides: Partial<TilingResponseAuthor> = {},
@@ -900,25 +912,131 @@ describe('healTilingLayout pre-action Variant restore', () => {
   function healCalendar(options: {
     readonly requestVariant: string;
     readonly layoutVariant: string;
-    readonly plan: readonly string[];
+    readonly plan: readonly (
+      | string
+      | { readonly action: string; readonly paramsJson: string }
+    )[];
+    readonly vessel?: AuthorVessel;
+    readonly context?: ChartRequest['context'];
   }) {
     return healTilingLayout(
       makeTilingResponse({
-        executionPlan: options.plan.map((action) => ({
-          instanceId: 'calendar-main',
-          action,
-        })),
+        executionPlan: options.plan.map((step) =>
+          typeof step === 'string'
+            ? { instanceId: 'calendar-main', action: step }
+            : { instanceId: 'calendar-main', ...step },
+        ),
         layout: {
           tree: ['calendar-main'],
           instances: [calendarSnapshot(options.layoutVariant)],
         },
       }),
       makeTilingRequest({
+        ...(options.context === undefined ? {} : { context: options.context }),
         instances: [calendarSnapshot(options.requestVariant)],
-        vessels: [threeViewCalendarVessel],
+        vessels: [options.vessel ?? threeViewCalendarVessel],
       }),
     );
   }
+
+  const agendaOnDayCalendarVessel: AuthorVessel = {
+    ...threeViewCalendarVessel,
+    variants: {
+      ...threeViewCalendarVessel.variants,
+      day: {
+        ...threeViewCalendarVessel.variants.day,
+        actions: [
+          ...threeViewCalendarVessel.variants.day.actions,
+          {
+            name: 'openAgenda',
+            description: 'Agenda in the month view',
+            transitionsTo: 'month',
+          },
+        ],
+      },
+    },
+  };
+
+  const addEventOpensDayCalendarVessel: AuthorVessel = {
+    ...threeViewCalendarVessel,
+    variants: {
+      ...threeViewCalendarVessel.variants,
+      month: {
+        ...threeViewCalendarVessel.variants.month,
+        actions: threeViewCalendarVessel.variants.month.actions.map((action) =>
+          action.name === 'addEvent'
+            ? { ...action, transitionsTo: 'day' }
+            : action,
+        ),
+      },
+    },
+  };
+
+  test('an Action offered only on the request Variant is not reported as a conflict', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: ['openAgenda'],
+      vessel: agendaOnDayCalendarVessel,
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('week'));
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a conflict is resolved on the Layout Variant even when the request Variant offers the Action without a transition', () => {
+    const healed = healCalendar({
+      requestVariant: 'week',
+      layoutVariant: 'month',
+      plan: ['addEvent'],
+      vessel: addEventOpensDayCalendarVessel,
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('month'));
+    expect(healed.warnings).toEqual([
+      {
+        kind: 'layout_variant_and_action_transition_conflict',
+        instanceId: calendarId,
+        requestVariant: VariantName('week'),
+        layoutVariant: VariantName('month'),
+        actionName: ActionName('addEvent'),
+        actionTarget: VariantName('day'),
+      },
+    ]);
+  });
+
+  test('a transition Action the Engine will skip for its params keeps the declared Layout Variant', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: ['addEvent', { action: 'showWeek', paramsJson: '{"view":"next"}' }],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('week'));
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a non-idempotent transition on a resize-only turn keeps the declared Layout Variant', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: ['showWeek'],
+      context: {
+        updateReasons: [
+          {
+            type: 'chart_resize',
+            previous: { columns: 12, rows: 8 },
+            current: { columns: 6, rows: 8 },
+          },
+        ],
+        chartDimensions: { columns: 6, rows: 8 },
+        layoutMode: 'tiling',
+      },
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('week'));
+    expect(healed.warnings).toEqual([]);
+  });
 
   test('a post-action Layout Variant reached by its transition Action is restored to the request Variant', () => {
     const healed = healCalendar({
