@@ -324,7 +324,10 @@ describe('buildSystemPrompt', () => {
         'The client applies the layout first, then runs the executionPlan actions in order. An action with a transition changes the instance variant when it runs.',
       );
       expect(prompt).toContain(
-        'Only invoke actions that are available in the variant the instance has when the action runs',
+        'Only invoke actions that are available in the variant the instance has when the action runs: the variant it has before the executionPlan runs (in tiling mode, the variant declared for it in the layout instances array; in grid mode, its current variant), or the target of an earlier transition action on the same instance',
+      );
+      expect(prompt).not.toContain(
+        'when the action runs: its current variant, or the target',
       );
       expect(prompt).not.toContain('Execute actions before layout');
     });
