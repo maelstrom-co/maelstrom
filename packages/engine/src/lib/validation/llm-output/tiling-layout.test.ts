@@ -7,13 +7,16 @@ import type {
   TilingSplitRepairReason,
   TilingSplitToken,
 } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import { ActionName, InstanceId, VariantName } from '@maelstrom-co/protocol';
 
 import {
+  type AuthorInstanceSnapshot,
   brandTilingResponse,
   brandTilingTree,
+  forwardOnlyWizardVessel,
   makeTilingRequest,
   type TilingResponseAuthor,
+  threeViewCalendarVessel,
 } from '../../__test-helpers__/fixtures.js';
 import { healTilingLayout } from './tiling-layout.js';
 
@@ -884,5 +887,196 @@ describe('healTilingLayout — weighted splits', () => {
     const healed = healTree(new Array(10_000).fill('V:1,1,1'), []);
     expect(healed.layout.tree).toEqual(tree());
     expect(healed.droppedEntries).toHaveLength(10_000);
+  });
+});
+
+describe('healTilingLayout pre-action Variant restore', () => {
+  const calendarId = InstanceId('calendar-main');
+
+  function calendarSnapshot(variant: string): AuthorInstanceSnapshot {
+    return { instanceId: 'calendar-main', vesselId: 'calendar', variant };
+  }
+
+  function healCalendar(options: {
+    readonly requestVariant: string;
+    readonly layoutVariant: string;
+    readonly plan: readonly string[];
+  }) {
+    return healTilingLayout(
+      makeTilingResponse({
+        executionPlan: options.plan.map((action) => ({
+          instanceId: 'calendar-main',
+          action,
+        })),
+        layout: {
+          tree: ['calendar-main'],
+          instances: [calendarSnapshot(options.layoutVariant)],
+        },
+      }),
+      makeTilingRequest({
+        instances: [calendarSnapshot(options.requestVariant)],
+        vessels: [threeViewCalendarVessel],
+      }),
+    );
+  }
+
+  test('a post-action Layout Variant reached by its transition Action is restored to the request Variant', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: ['showWeek'],
+    });
+
+    expect(healed.layout.instances).toEqual([
+      {
+        instanceId: calendarId,
+        vesselId: expect.anything(),
+        variant: VariantName('day'),
+      },
+    ]);
+    expect(healed.warnings).toEqual([
+      {
+        kind: 'pre_action_variant_restored',
+        instanceId: calendarId,
+        declaredVariant: VariantName('week'),
+        restoredVariant: VariantName('day'),
+      },
+    ]);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('a side-effect Action before the transition still restores the request Variant', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: ['addEvent', 'showWeek'],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('day'));
+    expect(healed.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+  });
+
+  test('a direct switch with no Action keeps the Layout Variant and warns about nothing', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'week',
+      plan: [],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('week'));
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a transition not offered on the request Variant is not restored', () => {
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        executionPlan: [{ instanceId: 'wizard-main', action: 'finish' }],
+        layout: {
+          tree: ['wizard-main'],
+          instances: [
+            { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'done' },
+          ],
+        },
+      }),
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'start' },
+        ],
+        vessels: [forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('done'));
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a transition Action that targets another Variant than the Layout keeps both and warns about the conflict', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'month',
+      plan: ['showWeek'],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('month'));
+    expect(healed.warnings).toEqual([
+      {
+        kind: 'layout_variant_and_action_transition_conflict',
+        instanceId: calendarId,
+        requestVariant: VariantName('day'),
+        layoutVariant: VariantName('month'),
+        actionName: ActionName('showWeek'),
+        actionTarget: VariantName('week'),
+      },
+    ]);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('a Layout Variant equal to the request Variant warns about nothing', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'day',
+      plan: ['showWeek'],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('day'));
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a new Instance is never restored and never reported as a conflict', () => {
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        executionPlan: [{ instanceId: 'calendar-side', action: 'showWeek' }],
+        layout: {
+          tree: ['V', 'calendar-main', 'calendar-side'],
+          instances: [
+            calendarSnapshot('day'),
+            {
+              instanceId: 'calendar-side',
+              vesselId: 'calendar',
+              variant: 'month',
+            },
+          ],
+        },
+      }),
+      makeTilingRequest({
+        instances: [calendarSnapshot('day')],
+        vessels: [threeViewCalendarVessel],
+      }),
+    );
+
+    expect(healed.layout.instances.map((i) => i.variant)).toEqual([
+      VariantName('day'),
+      VariantName('month'),
+    ]);
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('an Instance whose Vessel changed is treated as new', () => {
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        executionPlan: [{ instanceId: 'calendar-main', action: 'finish' }],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'wizard',
+              variant: 'done',
+            },
+          ],
+        },
+      }),
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'day' },
+        ],
+        vessels: [threeViewCalendarVessel, forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('done'));
+    expect(healed.warnings).toEqual([]);
   });
 });

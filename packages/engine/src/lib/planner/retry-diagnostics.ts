@@ -177,8 +177,10 @@ function describeLayoutDrops(
  * model can act on.
  *
  * An omitted rationale rewrote nothing, so filing it under repairs would tell
- * a model whose layout was untouched to go and fix that layout. The `switch`
- * makes every future warning kind pick a section rather than inherit one.
+ * a model whose layout was untouched to go and fix that layout. A layout and
+ * transition conflict also rewrote nothing, so it is a quality note too. The
+ * `switch` makes every future warning kind pick a section rather than inherit
+ * one.
  */
 function describeLayoutWarnings(warnings: readonly LayoutWarning[]): {
   repairs: string[];
@@ -203,6 +205,20 @@ function describeLayoutWarnings(warnings: readonly LayoutWarning[]): {
         const cause = repairClause(warning.repairReason);
         repairs.push(
           `The split token ${quoteIdentifier(warning.token)} ${cause} read as ${warning.weights.length} children weighted ${warning.weights.join(',')}. Weights are comma-separated positive integers, and the weight count is exactly how many subtrees must follow the token.`,
+        );
+        break;
+      }
+      case 'pre_action_variant_restored': {
+        const instance = quoteIdentifier(warning.instanceId);
+        repairs.push(
+          `Instance ${instance} was declared in variant ${quoteIdentifier(warning.declaredVariant)}, which its own transition actions lead to, and was reset to its current variant ${quoteIdentifier(warning.restoredVariant)}. The layout is applied before the executionPlan runs: when a transition action drives a variant change, keep its current variant in "instances" and let the action move it.`,
+        );
+        break;
+      }
+      case 'layout_variant_and_action_transition_conflict': {
+        const instance = quoteIdentifier(warning.instanceId);
+        quality.push(
+          `Instance ${instance} changes variant twice: the layout switches it directly from ${quoteIdentifier(warning.requestVariant)} to ${quoteIdentifier(warning.layoutVariant)}, then the transition action ${quoteIdentifier(warning.actionName)} moves it to ${quoteIdentifier(warning.actionTarget)}. Use one method per change: keep the current variant in "instances" and let the action move it, or switch the layout directly without the action.`,
         );
         break;
       }

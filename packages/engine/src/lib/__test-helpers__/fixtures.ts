@@ -424,6 +424,88 @@ export function buildGridResponse(
   });
 }
 
+/**
+ * A `calendar` Vessel whose `month`, `week` and `day` Variants each offer a
+ * switch to the other two plus a parameterless `addEvent` that changes no
+ * Variant, matching the demo calendar's view graph.
+ */
+export const threeViewCalendarVessel: AuthorVessel = {
+  id: 'calendar',
+  name: 'Calendar',
+  description: 'Calendar with three views',
+  defaultVariant: 'month',
+  variants: {
+    month: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
+      ],
+    },
+    week: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        {
+          name: 'showMonth',
+          description: 'Month view',
+          transitionsTo: 'month',
+        },
+        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
+      ],
+    },
+    day: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        {
+          name: 'showMonth',
+          description: 'Month view',
+          transitionsTo: 'month',
+        },
+        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+      ],
+    },
+  },
+};
+
+/**
+ * A `wizard` Vessel that only moves forward: `start` offers `next` into
+ * `review`, and only `review` offers `finish` into `done`. No Variant offers a
+ * transition straight from `start` to `done`.
+ */
+export const forwardOnlyWizardVessel: AuthorVessel = {
+  id: 'wizard',
+  name: 'Wizard',
+  description: 'Three-step wizard',
+  defaultVariant: 'start',
+  variants: {
+    start: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'next', description: 'Review', transitionsTo: 'review' },
+      ],
+    },
+    review: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'finish', description: 'Finish', transitionsTo: 'done' },
+      ],
+    },
+    done: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [],
+    },
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Skipped-action builder. `SkippedAction` is a closed discriminated union
 // whose per-arm fields use branded IDs; this builder brands a raw-string

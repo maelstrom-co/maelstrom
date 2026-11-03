@@ -1,4 +1,5 @@
 import type {
+  ActionName,
   GridResponse,
   InstanceId,
   TilingNode,
@@ -99,8 +100,10 @@ export const isTreeDrop = (
 ): entry is TreeDroppedLayoutEntry => entry.reason.startsWith('tree_');
 
 /**
- * Repairs, as distinct from drops: nothing was removed from the layout, so
- * these never belong in `droppedEntries`.
+ * Repairs and notes, as distinct from drops: nothing was removed from the
+ * layout, so these never belong in `droppedEntries`. A note such as
+ * `layout_variant_and_action_transition_conflict` changes nothing at all and
+ * only makes a suspicious shape visible.
  *
  * A split token's arity is what its weight count says, so a malformed weight
  * suffix cannot be dropped — dropping the token would mean dropping subtrees
@@ -122,6 +125,38 @@ export type LayoutWarning =
        * from the fact that some repair happened.
        */
       readonly repairReason: TilingSplitRepairReason;
+    }
+  | {
+      /**
+       * An existing Instance was declared in the Variant its own transition
+       * Actions lead to. The Layout is applied before the Execution Plan
+       * runs, so the declaration was reset to the Instance's current Variant
+       * and the Actions were kept to drive the change.
+       */
+      readonly kind: 'pre_action_variant_restored';
+      readonly instanceId: InstanceId;
+      /** The post-action Variant the response declared. */
+      readonly declaredVariant: VariantName;
+      /** The request Variant the Layout now declares instead. */
+      readonly restoredVariant: VariantName;
+    }
+  | {
+      /**
+       * The Layout changes an existing Instance's Variant directly and a
+       * transition Action on the same Instance changes it again, to a
+       * different Variant. Both are kept as declared, so the Instance moves
+       * twice and ends on the Action's target.
+       */
+      readonly kind: 'layout_variant_and_action_transition_conflict';
+      readonly instanceId: InstanceId;
+      /** The Variant the Instance had when the request was sent. */
+      readonly requestVariant: VariantName;
+      /** The Variant the Layout declares. */
+      readonly layoutVariant: VariantName;
+      /** The first transition Action whose target is not the Layout Variant. */
+      readonly actionName: ActionName;
+      /** The Variant that Action transitions to. */
+      readonly actionTarget: VariantName;
     };
 
 /**
@@ -247,6 +282,10 @@ export function formatLayoutWarning(warning: LayoutWarning): string {
       const cause = describeSplitRepairReason(warning.repairReason);
       return `tiling tree split token ${token} at token index ${warning.atTokenIndex} ${cause}, read as ${warning.weights.join(',')}`;
     }
+    case 'pre_action_variant_restored':
+      return `instance "${warning.instanceId}" declared post-action variant "${warning.declaredVariant}", restored to "${warning.restoredVariant}" so its transition actions drive the change`;
+    case 'layout_variant_and_action_transition_conflict':
+      return `instance "${warning.instanceId}" moves from "${warning.requestVariant}" to "${warning.layoutVariant}" in the layout and then to "${warning.actionTarget}" through action "${warning.actionName}"`;
     default:
       return assertNever(warning, 'formatLayoutWarning');
   }
