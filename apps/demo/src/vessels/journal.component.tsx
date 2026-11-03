@@ -162,11 +162,6 @@ export default function JournalComponent({
                 }}
                 aria-expanded={expanded}
                 onClick={() => toggleRow(entry.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  toggleRow(entry.id);
-                }}
                 className="journal-row w-full py-2.5 text-left"
               >
                 <div className="text-sm font-medium text-ink">
@@ -232,9 +227,11 @@ function EntryEditor({
   useEffect(() => {
     if (pendingSave === null || entry.content !== pendingSave) return;
     setPendingSave(null);
+    // Text typed after Save is newer than the confirmed save, so it stays.
+    if (draft !== null && draft !== pendingSave) return;
     setDraft(null);
     onSaved?.();
-  }, [entry.content, pendingSave, onSaved]);
+  }, [entry.content, pendingSave, draft, onSaved]);
 
   const cancel = () => {
     setPendingSave(null);

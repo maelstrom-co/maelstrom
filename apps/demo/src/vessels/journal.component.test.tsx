@@ -165,16 +165,21 @@ describe('JournalComponent list view', () => {
     expect(editor.value).toBe(contentOf('J-1'));
   });
 
-  it('opens a row with Enter and Space', () => {
+  it('toggles a row through native button activation only', () => {
     render(<JournalComponent {...props('list')} />);
     const row = screen.getByRole('button', { name: /Architecture review/ });
     act(() => {
-      fireEvent.keyDown(row, { key: 'Enter' });
+      fireEvent.keyDown(row, { key: ' ' });
+    });
+    expect(getJournalSnapshot().activeEntryId).toBeNull();
+
+    act(() => {
+      fireEvent.click(row);
     });
     expect(getJournalSnapshot().activeEntryId).toBe('J-2');
 
     act(() => {
-      fireEvent.keyDown(row, { key: ' ' });
+      fireEvent.click(row);
     });
     expect(getJournalSnapshot().activeEntryId).toBeNull();
   });
@@ -231,6 +236,33 @@ describe('JournalComponent list view', () => {
       screen.getByRole('button', { name: /Sprint kickoff/ }),
     );
     expect(executeAction).not.toHaveBeenCalled();
+  });
+
+  it('keeps text typed after Save when the store confirms the earlier text', async () => {
+    executeAction.mockImplementationOnce(async () => {});
+    render(<JournalComponent {...props('list')} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Sprint kickoff/ }));
+    });
+    const editor = screen.getByLabelText(
+      'Text of Sprint kickoff',
+    ) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'Queued words' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    fireEvent.change(editor, { target: { value: 'Queued words and more' } });
+
+    await invoke('editEntry', { entry: 'J-1', content: 'Queued words' });
+
+    expect(
+      (screen.getByLabelText('Text of Sprint kickoff') as HTMLTextAreaElement)
+        .value,
+    ).toBe('Queued words and more');
+    expect(
+      (screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it('keeps the draft and the open row until the store confirms the save', async () => {
