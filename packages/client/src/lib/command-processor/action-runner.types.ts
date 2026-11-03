@@ -182,6 +182,12 @@ export interface ActionRecord {
   skipped?: boolean;
   /** Producer-known cause of skipped or failed work; omitted when unavailable. */
   errorCategory?: TelemetryErrorCategory;
+  /**
+   * Why a skipped Action did not run, naming the Action, the Instance and,
+   * when known, its Variant. Set only on skips decided against the
+   * Instance's Variant.
+   */
+  reason?: string;
 }
 
 /**
