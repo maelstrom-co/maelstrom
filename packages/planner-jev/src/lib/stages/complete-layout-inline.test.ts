@@ -245,6 +245,60 @@ describe('completeLayoutInline', () => {
   });
 });
 
+describe('completeLayoutInline variants', () => {
+  const journalWithWeather = () =>
+    completionPlan(makeRequest('open the Monday entry'), {
+      actions: [planned('journal-main/openEntry', { title: 'Monday' })],
+      decisions: {
+        'journal-main': 'keep',
+        'calendar-main': 'hide',
+        'tasks-main': 'hide',
+      },
+    });
+
+  test('on a hand-off, the prompt sizes an instance in its post-action variant', async () => {
+    const tree = ['H:2,1', 'ID:journal-main', 'ID:weather-main'];
+    mockChat.mockResolvedValue({ userMessage: 'Opened it.', layout: { tree } });
+    await run(handOff(journalWithWeather()));
+    expect(chatPrompt()).toContain(
+      '- ID:journal-main (journal, entry view, at least 16x12)',
+    );
+  });
+
+  test('on a hand-off, defers invalid_layout when a region fits the pre-action variant but not the post-action one', async () => {
+    mockChat.mockResolvedValue({
+      userMessage: 'Opened it.',
+      layout: { tree: ['H:1,1', 'ID:journal-main', 'ID:weather-main'] },
+    });
+    const result = await run(handOff(journalWithWeather()));
+    expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+  });
+
+  test('on a hand-off, fits the tree on post-action variants and declares pre-action ones', async () => {
+    const tree = ['H:2,1', 'ID:journal-main', 'ID:weather-main'];
+    mockChat.mockResolvedValue({ userMessage: 'Opened it.', layout: { tree } });
+    const result = await run(handOff(journalWithWeather()));
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(plain(result.value.layout)).toEqual({
+      tree,
+      instances: [
+        { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'weather-main', vesselId: 'weather', variant: 'current' },
+        { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
+        { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
+        { instanceId: 'journal-main', vesselId: 'journal', variant: 'list' },
+      ],
+    });
+    expect(plain(result.value.executionPlan)).toEqual([
+      {
+        instanceId: 'journal-main',
+        action: 'openEntry',
+        paramsJson: '{"title":"Monday"}',
+      },
+    ]);
+  });
+});
+
 describe('completeLayoutInline layout summary', () => {
   test('the prompt and rationale state the layout summary when the stage gives one', async () => {
     const layoutPlan = hidden();
@@ -307,7 +361,7 @@ describe('completeLayoutInline repeated actions', () => {
     expect(dropped).toHaveLength(1);
   });
 
-  test('declares the variants the actions left after dropping repeats leave', async () => {
+  test('declares calendar-main in its pre-action variant after dropping repeats', async () => {
     const { steps, layout } = await runLogged(
       [
         planned('calendar-main/showWeek'),
