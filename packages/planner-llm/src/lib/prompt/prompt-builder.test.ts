@@ -336,10 +336,11 @@ describe('buildSystemPrompt', () => {
   // The layout declares each instance's variant before the executionPlan
   // runs, and the transition action moves it. Declaring the target variant
   // and also adding the transition makes the action find the instance
-  // already in its target, so it is skipped and the turn reports an
-  // unconfirmed change. The negative assertions are load-bearing: the old
-  // advice told the model to record the post-action variant, and a revert or
-  // merge resolution would teach that pattern again.
+  // already in its target, so the Engine has to reset the layout to the
+  // current variant with a warning, and skips the action when that reset
+  // cannot apply. The negative assertions are load-bearing: the old advice
+  // told the model to record the post-action variant, and a revert or merge
+  // resolution would teach that pattern again.
   test('tiling system prompt keeps the current variant in the layout when a transition action drives the change', () => {
     const prompt = buildSystemPrompt('tiling');
     expect(prompt).toContain(
@@ -354,8 +355,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain(
       'each in the variant it has BEFORE the executionPlan runs',
     );
+    expect(prompt).toContain(
+      'The Engine then has to reset the instance to its current variant to keep the action, and skips the action when it cannot.',
+    );
     expect(prompt).not.toContain('record the post-action variant');
     expect(prompt).not.toContain('just confirms the resulting state');
+    expect(prompt).not.toContain(
+      'already in the target and the action is skipped',
+    );
   });
 
   test('tiling system prompt treats a new instance variant as its starting variant', () => {

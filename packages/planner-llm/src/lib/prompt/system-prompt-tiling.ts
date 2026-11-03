@@ -104,7 +104,7 @@ To HIDE an instance:
 To CHANGE an EXISTING instance's variant, pick exactly ONE method:
 - PREFERRED: keep the instance's current variant in the instances array and add the transition action (listed as "actionName → targetVariant" in its available actions) to executionPlan. The client applies the layout first, then runs the action, which moves the instance to the target variant.
 - DIRECT: only when no transition action exists for the change you want. Set the new variant in the instances array and add NO transition action.
-- NEVER declare the target variant in the instances array AND add a transition action to it. Each action is validated against the variant the instance has when the action runs, starting from the declared variant, so the instance is already in the target and the action is skipped.
+- NEVER declare the target variant in the instances array AND add a transition action to it. Each action is validated against the variant the instance has when the action runs, starting from the declared variant, so the instance is already in the target. The Engine then has to reset the instance to its current variant to keep the action, and skips the action when it cannot.
 - ${NO_OP_VARIANT_ACKNOWLEDGEMENT}
 
 Examples:
