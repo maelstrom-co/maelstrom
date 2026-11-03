@@ -3,7 +3,7 @@ id: maelstrom-project-onboarding
 prompt_version: 0.2.1
 compatibility:
   sdk:
-    "@maelstrom-co/react": "^0.1.0 || ^0.2.0"
+    "@maelstrom-co/react": "^0.2.1"
 ---
 
 Help me get started with Maelstrom. Ask what I want to build and whether I am

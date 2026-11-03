@@ -3,9 +3,9 @@ id: maelstrom-sdk-scaffold
 prompt_version: 0.1.1
 compatibility:
   sdk:
-    "@maelstrom-co/react": "^0.1.0 || ^0.2.0"
-    "@maelstrom-co/client": "^0.1.0 || ^0.2.0"
-    "@maelstrom-co/protocol": "^0.1.0 || ^0.2.0"
+    "@maelstrom-co/react": "^0.2.1"
+    "@maelstrom-co/client": "^0.2.1"
+    "@maelstrom-co/protocol": "^0.2.1"
 ---
 
 Integrate the Maelstrom SDK into this application for the following bounded goal:
