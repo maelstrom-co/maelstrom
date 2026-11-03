@@ -63,6 +63,8 @@ If the change affects public API or generated docs, mention which package or pag
 
 The credentialed voice benchmark runs against a deployed preview for an open, same-repository PR. Apply both `deploy-preview` and `bench-voice`; deployment approval remains tied to the exact head SHA, and `bench-voice` does not authorize deployment. Workflow and harness changes must land on the default branch before they can run.
 
+A deployment or label change asks for the benchmark's `preview` approval only when both labels are live on the PR. Removing either label stops an active benchmark at its next periodic check.
+
 To request a fresh paid benchmark after the current PR/head was already claimed, manually run **Deploy PR Preview** from the default branch with the PR number and `new_benchmark_request` set to `true`. This authorizes one benchmark per GitHub workflow attempt; rerunning that opted-in workflow authorizes another attempt, while duplicate execution within the same attempt remains suppressed. Leave the input false for normal deduplication. The open-PR, label, approved/deployed-SHA, preview-URL, ownership, and cleanup checks still apply.
 
 Benchmark request history is stored in bot-owned PR comments. The active claim rolls older identities into immutable, hash-linked archive comments every 256 entries; do not edit or delete them. Missing or corrupted history fails closed. Comment discovery is bounded to 50 pages of 100 comments, so PRs exceeding 5,000 comments cannot launch the benchmark until that limit is addressed.

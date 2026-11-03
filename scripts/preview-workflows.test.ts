@@ -6,6 +6,8 @@ const root = resolve(import.meta.dir, '..');
 const read = (name: string) =>
   readFileSync(resolve(root, '.github/workflows', name), 'utf8');
 const expression = (value: string) => ['$', `{{ ${value} }}`].join('');
+const approvalNoticeLookup =
+  'select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->")))';
 const step = (workflow: string, name: string) => {
   const start = workflow.indexOf(`- name: ${name}`);
   if (start < 0) throw new Error(`Missing step ${name}`);
@@ -74,22 +76,29 @@ describe('preview workflows', () => {
     expect(runner.env).not.toHaveProperty('GITHUB_RUN_ATTEMPT');
   });
 
-  test('voice benchmarking reconciles either label change without cancelling lifecycle mutations', () => {
+  test('voice benchmarking requests approval only for a live label request without cancelling lifecycle mutations', () => {
     const workflow = read('deploy-preview.yml');
+    const gate = workflow.slice(
+      workflow.indexOf('\n  benchmark-gate:'),
+      workflow.indexOf('\n  voice-benchmark:'),
+    );
     const job = workflow.slice(workflow.indexOf('\n  voice-benchmark:'));
-    expect(job).toContain('needs: deploy');
-    expect(job).toContain("needs.deploy.result == 'success'");
+    expect(gate).toContain('needs: deploy');
+    expect(job).toContain('needs: [deploy, benchmark-gate]');
     expect(workflow).toContain('types: [labeled, unlabeled]');
-    expect(job).toContain("github.event.action == 'labeled'");
-    expect(job).toContain("github.event.action == 'unlabeled'");
-    expect(job).toContain("github.event.label.name == 'bench-voice'");
-    expect(job).toContain("github.event.label.name == 'deploy-preview'");
-    expect(job).not.toContain(
-      'contains(github.event.pull_request.labels.*.name',
-    );
-    expect(job).toContain(
-      'github.event.pull_request.head.repo.full_name == github.repository',
-    );
+    for (const routed of [gate, job]) {
+      expect(routed).toContain("needs.deploy.result == 'success'");
+      expect(routed).toContain("github.event.action == 'labeled'");
+      expect(routed).toContain("github.event.action == 'unlabeled'");
+      expect(routed).toContain("github.event.label.name == 'bench-voice'");
+      expect(routed).toContain("github.event.label.name == 'deploy-preview'");
+      expect(routed).not.toContain(
+        'contains(github.event.pull_request.labels.*.name',
+      );
+      expect(routed).toContain(
+        'github.event.pull_request.head.repo.full_name == github.repository',
+      );
+    }
     expect(job).toContain(
       `group: deploy-preview-pr-${expression('github.event.pull_request.number || inputs.pr_number')}`,
     );
@@ -120,10 +129,55 @@ describe('preview workflows', () => {
     ).not.toContain('bench-voice');
   });
 
-  test('benchmark label routing admits removals without admitting unrelated or untrusted events', () => {
+  test('the benchmark gate reads live labels outside the approval environment and per-PR queue', () => {
+    const source = read('deploy-preview.yml');
+    const workflow = Bun.YAML.parse(source) as {
+      jobs: Record<
+        string,
+        {
+          if: string;
+          environment?: unknown;
+          concurrency?: unknown;
+          permissions?: Record<string, string>;
+          outputs?: Record<string, string>;
+          steps: {
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const gate = workflow.jobs['benchmark-gate']!;
+    expect(gate.environment).toBeUndefined();
+    expect(gate.concurrency).toBeUndefined();
+    expect(gate.permissions).toEqual({ 'pull-requests': 'read' });
+    expect(gate.steps.some((entry) => entry.uses !== undefined)).toBe(false);
+    const script = gate.steps.map((entry) => entry.run ?? '').join('\n');
+    expect(script).toContain(
+      'gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/labels"',
+    );
+    expect(script).toContain('grep -Fxq deploy-preview');
+    expect(script).toContain('grep -Fxq bench-voice');
+    expect(script).not.toContain(['$', '{{'].join(''));
+    expect(gate.steps[0]!.env!.PR_NUMBER).toBe(
+      expression('github.event.pull_request.number || inputs.pr_number'),
+    );
+    expect(gate.outputs!.requested).toBe(
+      expression('steps.labels.outputs.requested'),
+    );
+    expect(workflow.jobs['voice-benchmark']!.if).toContain(
+      "&& needs.benchmark-gate.outputs.requested == 'true'",
+    );
+  });
+
+  test.each([
+    'benchmark-gate',
+    'voice-benchmark',
+  ])('%s label routing admits removals without admitting unrelated or untrusted events', (name) => {
     const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
       on: { pull_request_target: { types: string[] } };
-      jobs: { 'voice-benchmark': { if: string } };
+      jobs: Record<string, { if: string }>;
     };
     expect(workflow.on.pull_request_target.types).toEqual([
       'labeled',
@@ -136,13 +190,18 @@ describe('preview workflows', () => {
       'always',
       'cancelled',
       'format',
-      `return (${workflow.jobs['voice-benchmark'].if});`,
+      `return (${workflow.jobs[name]!.if.replaceAll('needs.benchmark-gate.', "needs['benchmark-gate'].")});`,
     );
+    const needs = (requested: string) => ({
+      deploy: { result: 'skipped' },
+      'benchmark-gate': { outputs: { requested } },
+    });
     const permits = (
       action: string,
       label: string,
       overrides: Record<string, unknown> = {},
       cancelled = false,
+      requested = 'true',
     ) =>
       evaluate(
         {
@@ -159,7 +218,7 @@ describe('preview workflows', () => {
             ...overrides,
           },
         },
-        { deploy: { result: 'skipped' } },
+        needs(requested),
         {},
         () => true,
         () => cancelled,
@@ -168,6 +227,10 @@ describe('preview workflows', () => {
     for (const action of ['labeled', 'unlabeled']) {
       for (const label of ['deploy-preview', 'bench-voice']) {
         expect(permits(action, label)).toBe(true);
+        for (const requested of ['false', ''])
+          expect(permits(action, label, {}, false, requested)).toBe(
+            name === 'benchmark-gate',
+          );
         expect(permits(action, label, { sender: { type: 'Bot' } })).toBe(false);
         for (const [state, repository] of [
           ['closed', 'maelstrom-co/maelstrom'],
@@ -190,7 +253,10 @@ describe('preview workflows', () => {
     expect(
       evaluate(
         { event_name: 'workflow_run', event: {} },
-        { deploy: { result: 'success' } },
+        {
+          deploy: { result: 'success' },
+          'benchmark-gate': { outputs: { requested: 'true' } },
+        },
         {},
         () => true,
         () => false,
@@ -544,6 +610,171 @@ describe('preview workflows', () => {
       `group: deploy-preview-pr-${expression('matrix.pr-number')}`,
     );
     expect(workflow).toContain('PREVIEW_TRIGGER: schedule');
+  });
+
+  test.each([
+    ['invalidate-preview-approval.yml', 'cancel-superseded', true],
+    ['teardown-preview.yml', 'cancel-waiting', false],
+  ])('%s %s cancels waiting deploy runs without checking out source', (file, name, keepsCurrentHead) => {
+    const workflow = Bun.YAML.parse(read(file)) as {
+      jobs: Record<
+        string,
+        {
+          if: string;
+          environment?: string;
+          permissions: Record<string, string>;
+          steps: { uses?: string; run?: string }[];
+        }
+      >;
+    };
+    const job = workflow.jobs[name]!;
+    expect(job.permissions).toEqual({
+      actions: 'write',
+      'pull-requests': 'write',
+    });
+    expect(job.environment).toBeUndefined();
+    expect(job.if).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    );
+    expect(job.steps.some((step) => step.uses !== undefined)).toBe(false);
+    const script = job.steps.map((step) => step.run ?? '').join('\n');
+    expect(script).toContain('--workflow deploy-preview.yml');
+    expect(script).toContain('--event pull_request_target');
+    expect(script).toContain('--status waiting');
+    expect(script).toContain('--branch "$HEAD_REF"');
+    expect(script.includes('select(.headSha != $head)')).toBe(keepsCurrentHead);
+    expect(script.indexOf('gh run cancel')).toBeLessThan(
+      script.indexOf('--method DELETE'),
+    );
+    expect(script).toContain(approvalNoticeLookup);
+    expect(script).toContain(
+      'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
+    );
+    expect(script.includes('contains($head) | not')).toBe(keepsCurrentHead);
+    expect(script).not.toContain(['$', '{{'].join(''));
+  });
+
+  test('teardown cancels pending approvals on close or deploy label removal only', () => {
+    const workflow = Bun.YAML.parse(read('teardown-preview.yml')) as {
+      jobs: Record<string, { if: string }>;
+    };
+    const evaluate = new Function(
+      'github',
+      `return (${workflow.jobs['cancel-waiting']!.if});`,
+    );
+    const permits = (
+      action: string,
+      label?: string,
+      repository = 'maelstrom-co/maelstrom',
+      event_name = 'pull_request_target',
+    ) =>
+      evaluate({
+        event_name,
+        repository: 'maelstrom-co/maelstrom',
+        event: {
+          action,
+          ...(label === undefined ? {} : { label: { name: label } }),
+          pull_request: { head: { repo: { full_name: repository } } },
+        },
+      });
+    expect(permits('closed')).toBe(true);
+    expect(permits('unlabeled', 'deploy-preview')).toBe(true);
+    expect(permits('unlabeled', 'bench-voice')).toBe(false);
+    expect(permits('unlabeled', 'unrelated')).toBe(false);
+    expect(permits('closed', undefined, 'outsider/fork')).toBe(false);
+    expect(permits('unlabeled', 'deploy-preview', 'outsider/fork')).toBe(false);
+    expect(permits('closed', undefined, undefined, 'workflow_dispatch')).toBe(
+      false,
+    );
+  });
+
+  test('the approval notice is cleared once the run stops waiting', () => {
+    const source = read('deploy-preview.yml');
+    const workflow = Bun.YAML.parse(source) as {
+      jobs: Record<
+        string,
+        {
+          needs?: string[];
+          if?: string;
+          environment?: unknown;
+          concurrency?: unknown;
+          permissions?: Record<string, string>;
+          steps: {
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const jobs = Object.keys(workflow.jobs);
+    expect(jobs.indexOf('clear-approval-notice')).toBe(
+      jobs.indexOf('voice-benchmark') + 1,
+    );
+    const job = workflow.jobs['clear-approval-notice']!;
+    expect(job.needs).toEqual([
+      'approve',
+      'deploy',
+      'benchmark-gate',
+      'voice-benchmark',
+    ]);
+    expect(job.if).toBe(
+      "always() && github.event_name == 'pull_request_target' && needs.approve.outputs.pr-number != ''",
+    );
+    expect(job.environment).toBeUndefined();
+    expect(job.concurrency).toBeUndefined();
+    expect(job.permissions).toEqual({ 'pull-requests': 'write' });
+    expect(job.steps.some((entry) => entry.uses !== undefined)).toBe(false);
+    const script = job.steps.map((entry) => entry.run ?? '').join('\n');
+    expect(script).toContain(approvalNoticeLookup);
+    expect(script).toContain('contains("(" + $run + ")")');
+    expect(script).toContain(
+      'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
+    );
+    expect(script).not.toContain(['$', '{{'].join(''));
+    expect(job.steps[0]!.env!.PR_NUMBER).toBe(
+      expression('needs.approve.outputs.pr-number'),
+    );
+  });
+
+  test('a label-triggered approval fails before any notice when the pull request head moved', () => {
+    const workflow = read('deploy-preview.yml');
+    const approve = workflow.slice(
+      workflow.indexOf('  approve:'),
+      workflow.indexOf('  deploy:'),
+    );
+    const name = 'Confirm the approved revision is still the pull request head';
+    const check = step(approve, name);
+    expect(check).toContain(
+      "if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''",
+    );
+    expect(check).toContain(
+      `HEAD_SHA: ${expression('steps.manual.outputs.head-sha')}`,
+    );
+    expect(check).toContain(
+      'gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .head.sha',
+    );
+    expect(check).toContain('exit 1');
+    expect(
+      approve.indexOf('- name: Record exact approved revision'),
+    ).toBeLessThan(approve.indexOf(`- name: ${name}`));
+    expect(approve.indexOf(`- name: ${name}`)).toBeLessThan(
+      approve.indexOf('- name: Link pending approval on the pull request'),
+    );
+  });
+
+  test('label-triggered approval requests link the pending run on the pull request', () => {
+    const workflow = read('deploy-preview.yml');
+    const notice = step(workflow, 'Link pending approval on the pull request');
+    expect(workflow.indexOf(notice)).toBeLessThan(
+      workflow.indexOf('  deploy:'),
+    );
+    expect(notice).toContain(
+      "if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''",
+    );
+    expect(notice).toContain('<!-- preview-approval-request -->');
+    expect(notice).toContain(expression('github.run_id'));
+    expect(notice).toContain('github-actions[bot]');
   });
 
   test('trusted workflows invoke lifecycle commands through captured absolute Bun paths', () => {

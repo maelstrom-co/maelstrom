@@ -90,3 +90,41 @@ jobs:
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts teardown
+
+  # A closed or unlabeled PR has nothing left to approve, and a waiting run
+  # would otherwise sit in the approval queue for GitHub's 30-day limit.
+  cancel-waiting:
+    name: Cancel Pending Approval Requests
+    if: >-
+      github.event_name == 'pull_request_target'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.event.action == 'closed'
+        || (github.event.action == 'unlabeled'
+          && github.event.label.name == 'deploy-preview'))
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    permissions:
+      actions: write
+      pull-requests: write
+    steps:
+      - name: Cancel deploy runs waiting for approval
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          gh run list --workflow deploy-preview.yml --event pull_request_target \
+            --branch "$HEAD_REF" --status waiting --limit 100 --json databaseId \
+            --jq '.[].databaseId' \
+            | xargs -r -n1 gh run cancel
+
+      - name: Clear the pending approval notice
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+            | jq -r '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->"))) | .id' \
+            | xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"
