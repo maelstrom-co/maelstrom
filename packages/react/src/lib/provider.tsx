@@ -266,7 +266,7 @@ export function createProvider(
       }
     }, [initialLayoutSignature]);
 
-    // Strict Mode reuses the connector while asynchronous teardown is still pending.
+    // Effect reactivation can leave several connector teardowns pending.
     const previousDisposal = useRef(Promise.resolve());
     const [orchestrator, setOrchestrator] = useState<InstanceType<
       typeof Orchestrator
@@ -362,10 +362,12 @@ export function createProvider(
 
       return () => {
         active = false;
-        const disposal = instance.dispose();
-        previousDisposal.current = disposal.catch((err) => {
-          console.error('[Maelstrom] Dispose error:', err);
-        });
+        previousDisposal.current = Promise.all([
+          previousDisposal.current,
+          instance.dispose().catch((err) => {
+            console.error('[Maelstrom] Dispose error:', err);
+          }),
+        ]).then(() => undefined);
         for (const release of diagnosticReleases) {
           try {
             release();

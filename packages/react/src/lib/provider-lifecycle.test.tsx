@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { createMaelstrom } from './create-maelstrom.js';
 
 function deferred() {
@@ -95,6 +95,40 @@ describe('Provider connection lifetime', () => {
     );
     expect(transport.connected).toBe(true);
     expect(transport.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for every pending teardown when the same Provider reactivates', async () => {
+    const transport = createConnector();
+    const m = createMaelstrom({ vessels: [] });
+    function Status() {
+      return <output>{m.useMaelstrom().connectionStatus}</output>;
+    }
+    const tree = (mode: 'visible' | 'hidden') => (
+      <StrictMode>
+        <Activity mode={mode}>
+          <m.Provider connector={transport.connector}>
+            <Status />
+          </m.Provider>
+        </Activity>
+      </StrictMode>
+    );
+    const view = render(tree('visible'));
+    await waitFor(() => expect(transport.pendingDisconnects).toHaveLength(1));
+
+    await act(async () => view.rerender(tree('hidden')));
+    await waitFor(() => expect(transport.pendingDisconnects).toHaveLength(2));
+    await act(async () => view.rerender(tree('visible')));
+    await act(async () => {
+      for (const gate of transport.pendingDisconnects.slice(1)) gate.resolve();
+    });
+
+    expect(transport.connect).not.toHaveBeenCalled();
+    await act(async () => transport.pendingDisconnects[0]?.resolve());
+    await waitFor(() =>
+      expect(view.getByRole('status').textContent).toBe('connected'),
+    );
+    expect(transport.connect).toHaveBeenCalledTimes(1);
+    expect(transport.connected).toBe(true);
   });
 
   it('connects the latest connector prop after the teardown barrier', async () => {
