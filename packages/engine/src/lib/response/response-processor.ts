@@ -71,6 +71,7 @@ export function processResponse({
   // (rather than in a helper) so the discriminator → branch correspondence
   // is locally legible; each cast is paired with the case that justifies it.
   const mode = request.context.layoutMode;
+  const turn = classifyExecutionTurn(request);
   let healed: HealedLayout;
   let layout: GridLayout | TilingLayout;
   switch (mode) {
@@ -85,7 +86,10 @@ export function processResponse({
       break;
     }
     case 'tiling': {
-      healed = healTilingLayout(llmOutput as TilingResponse, request);
+      healed = healTilingLayout(llmOutput as TilingResponse, request, {
+        enumSnapshot,
+        turn,
+      });
       // Same union-narrowing rationale as the `grid` arm.
       layout = buildTilingLayout(
         healed.layout as {
@@ -119,7 +123,7 @@ export function processResponse({
       instances: planInstances,
       vessels: request.vessels,
       enumSnapshot,
-      turn: classifyExecutionTurn(request),
+      turn,
       logger,
     },
   );
