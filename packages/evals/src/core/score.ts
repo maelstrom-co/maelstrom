@@ -24,8 +24,9 @@ export interface ArrangedScore extends Score {
 /**
  * Scores a shipped (validated and healed) response: visible and retained
  * sets, ordered actions with parsed parameters, and the variant invariant
- * (an existing instance's declared variant is the one the shipped execution
- * plan leaves it in, simulated with the engine's own rule). New instance ids
+ * (the shipped execution plan replays, with the engine's own rule, from the
+ * variant the layout declares for each existing instance, which is its
+ * variant before the plan runs). New instance ids
  * are matched to the expected ones by Vessel and order, so a planner's own
  * ids score fairly.
  */
@@ -141,8 +142,14 @@ function compareVariants(
   const existing = new Set<string>(
     request.instances.map((instance) => instance.instanceId),
   );
+  const preAction = request.instances.map(
+    (instance) =>
+      layout.instances.find(
+        (candidate) => candidate.instanceId === instance.instanceId,
+      ) ?? instance,
+  );
   const simulated = finalVariants(
-    request.instances,
+    preAction,
     executionPlan.filter((step) => existing.has(step.instanceId)),
     request.vessels,
   );
@@ -151,17 +158,6 @@ function compareVariants(
     failures.push(
       `Execution plan does not simulate: ${step.action} on ${step.instanceId} (${kind})`,
     );
-    return;
-  }
-  for (const instance of request.instances) {
-    const declared = layout.instances.find(
-      (candidate) => candidate.instanceId === instance.instanceId,
-    );
-    const wanted = simulated.value.get(instance.instanceId) ?? instance.variant;
-    if (declared && declared.variant !== wanted)
-      failures.push(
-        `Variant of ${instance.instanceId} is ${declared.variant}, but the execution plan leaves it ${wanted}`,
-      );
   }
 }
 

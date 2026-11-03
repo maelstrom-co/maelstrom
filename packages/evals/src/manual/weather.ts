@@ -34,6 +34,7 @@ import {
   weatherActionBackedInputsSchema,
 } from '../adapters/weather-action-backed-transition.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import { postActionLayout } from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -233,13 +234,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForward(previous, initial)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent }],
@@ -281,6 +276,7 @@ export function scoreWeatherTurns(
       );
     const action = sample.actions[index];
     const variant = sample.variants[index];
+    const shipped = postActionLayout(turn.response, initial.vessels);
     const plan =
       action === undefined ? [] : [{ instanceId: 'weather-main', action }];
     if (selected === 'D39') {
@@ -288,11 +284,8 @@ export function scoreWeatherTurns(
         ...scoreWeatherActionBackedResponse({
           executionPlan: turn.response.executionPlan,
           layout: {
-            type: turn.response.layout.type,
-            instances:
-              turn.response.layout.type === 'tiling'
-                ? turn.response.layout.instances
-                : [],
+            type: shipped.type,
+            instances: shipped.type === 'tiling' ? shipped.instances : [],
           },
         }).failures,
       );
@@ -321,12 +314,12 @@ export function scoreWeatherTurns(
     }));
     if (
       selected !== 'D39' &&
-      (!isDeepStrictEqual(turn.response.layout, {
+      (!isDeepStrictEqual(shipped, {
         ...initial.layout,
         instances,
       }) ||
-        turn.response.layout.type !== 'tiling' ||
-        !isDeepStrictEqual(turn.response.layout.instances, instances))
+        shipped.type !== 'tiling' ||
+        !isDeepStrictEqual(shipped.instances, instances))
     )
       failures.push(
         `Chart layout/Instance snapshot mismatch at turn ${index + 1}`,
@@ -547,4 +540,14 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   }
+}
+
+/** The Chart state the client holds after a response: its Layout with the plan's transitions applied. */
+function carriedForward(previous: MaelstromResponse, initial: ChartRequest) {
+  const layout = postActionLayout(previous, initial.vessels);
+  return {
+    layout: structuredClone(layout),
+    instances:
+      layout.type === 'tiling' ? structuredClone(layout.instances) : [],
+  };
 }
