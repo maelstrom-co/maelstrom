@@ -101,9 +101,11 @@ export type SkippedAction =
   // but present elsewhere on the vessel with `transitionsTo` equal to that
   // current variant — i.e. a transition action whose target is where the
   // instance already is. The action would be a no-op even if it were valid
-  // on the current variant, and re-prompting the LLM cannot fix the pattern.
-  // `deriveRetryHint` excludes this from `anySkipFixable` so the retry layer
-  // doesn't waste calls on it.
+  // on the current variant. In tiling mode this also covers a layout that
+  // declares a variant the healer cannot restore, where a re-prompt asking for
+  // the pre-action variant could still fix a two-step transition. By policy
+  // `deriveRetryHint` excludes this from `anySkipFixable`, so the skip is not
+  // retried.
   | {
       readonly reason: 'self_transition_noop';
       readonly instanceId: InstanceId;
