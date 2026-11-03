@@ -513,5 +513,29 @@ for (const runtime of ['bun', 'node'] as const) {
         else expect(stdout).toBe('Alpha\nMaelstromDemoPreview\nZulu\n');
       },
     );
+
+    test.each(['get', 'stacks'] as const)(
+      'honors JSON diagnostic formatting for %s',
+      async (command) => {
+        const { run } = await fixture(false, true, {
+          latestVersion: '999.0.0',
+        });
+        const { stdout, stderr } = await run([
+          ...(command === 'get' ? legacyGet() : ['state', 'stacks']),
+          '--log-format',
+          'json',
+        ]);
+        const records = stderr
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        expect(records.length).toBeGreaterThan(0);
+        expect(stderr).toContain('alchemy 999.0.0 is available');
+        expect(stdout).not.toContain('is available');
+        if (command === 'get')
+          expect(JSON.parse(stdout).attr.workerName).toBe('preview-worker');
+        else expect(stdout).toBe('Alpha\nMaelstromDemoPreview\nZulu\n');
+      },
+    );
   });
 }

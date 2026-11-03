@@ -110,13 +110,15 @@ async function probe(
           })
       : options.resume
         ? () => Effect.succeed({ action: 'update' as const })
-        : options.replace
-          ? () =>
-              Effect.succeed({
-                action: 'replace' as const,
-                deleteFirst: options.deleteFirst,
-              })
-          : undefined,
+        : ({ olds, news }) =>
+            Effect.succeed(
+              options.replace && (!isResolved(news) || olds.name !== news.name)
+                ? {
+                    action: 'replace' as const,
+                    deleteFirst: options.deleteFirst,
+                  }
+                : { action: 'update' as const },
+            ),
     read: ({ olds }) =>
       Effect.sync(() => {
         reads.push(olds);
