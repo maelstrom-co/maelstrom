@@ -81,31 +81,9 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      # Pull requests run only affected projects, and every target for each of
-      # them. Nx's default affected selection is task-based and would skip
-      # targets whose own inputs did not change, so this passes the affected
-      # project list to run-many. Several test targets are not cacheable, so
-      # run-many re-ran them on every pull request regardless of what changed.
-      # Pushes to main still run everything.
-      - name: Select projects
-        id: scope
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" = pull_request ]; then
-            affected=$(bunx nx show projects --affected --json)
-            projects=$(jq -r 'join(",")' <<< "$affected")
-            run=$(jq 'length > 0' <<< "$affected")
-            docs=$(jq 'index("@maelstrom-co/docs") != null' <<< "$affected")
-          else
-            projects=""
-            run=true
-            docs=true
-          fi
-          echo "projects=$projects" >> "$GITHUB_OUTPUT"
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "docs=$docs" >> "$GITHUB_OUTPUT"
-
+      # Pull requests run Nx's task-based affected selection, so each target
+      # runs only when its own inputs changed. Pushes to main run everything.
+      #
       # `check` and not `format`: the format target writes. Running it here
       # reformatted the checkout and then reported success, so formatting drift
       # could never fail CI — it was silently fixed and thrown away. `check`
@@ -113,12 +91,11 @@ jobs:
       # assists, and the biome plugin passes --error-on-warnings so a warning
       # fails the build rather than scrolling past.
       - name: Run check, test, build, typecheck
-        if: steps.scope.outputs.run == 'true'
         env:
-          PROJECTS: ${{ steps.scope.outputs.projects }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -n "$PROJECTS" ]; then
-            bunx nx run-many -t check test build typecheck --projects="$PROJECTS"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            bunx nx affected -t check test build typecheck
           else
             bunx nx run-many -t check test build typecheck
           fi
@@ -132,10 +109,12 @@ jobs:
         run: bun --no-install scripts/assert-sdk-validation.ts
 
       # Reads apps/docs/dist, so it has to follow the build rather than join the
-      # nx run above. The e2e suite link-checks a handful of pages it navigates;
-      # this covers every page the build emits, including generated reference.
+      # nx run above. It runs only when this job built or restored the docs;
+      # otherwise the pages are unchanged. The e2e suite link-checks a handful
+      # of pages it navigates; this covers every page the build emits,
+      # including generated reference.
       - name: Assert no dead links in the built docs
-        if: steps.scope.outputs.docs == 'true'
+        if: hashFiles('apps/docs/dist/**') != ''
         run: bun scripts/assert-docs-links.ts
       # - run: bunx nx fix-ci
       #   if: always()
@@ -170,15 +149,12 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
             affected=$(bunx nx show projects --affected --withTarget=e2e --json)
-            projects=$(jq -r 'join(",")' <<< "$affected")
             e2e=$(jq 'length > 0' <<< "$affected")
             docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
           else
-            projects=""
             e2e=true
             docs=true
           fi
-          echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
           if [ "$e2e" = true ] || [ "$docs" = true ]; then
@@ -211,10 +187,10 @@ jobs:
       - name: Run e2e
         if: steps.scope.outputs.e2e == 'true'
         env:
-          PROJECTS: ${{ steps.scope.outputs.projects }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -n "$PROJECTS" ]; then
-            bunx nx run-many -t e2e --projects="$PROJECTS"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            bunx nx affected -t e2e
           else
             bunx nx run-many -t e2e
           fi
