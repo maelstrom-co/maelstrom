@@ -35,7 +35,11 @@ export default function JournalComponent({
     () => new Map(),
   );
 
-  const setDraft = (id: string, text: string | null) =>
+  // Saves executeAction has queued but the store does not hold yet.
+  const pendingSaves = useRef(new Map<string, string>());
+
+  const setDraft = (id: string, text: string | null) => {
+    if (text === null) pendingSaves.current.delete(id);
     setDrafts((current) => {
       if (text === null && !current.has(id)) return current;
       const next = new Map(current);
@@ -43,12 +47,23 @@ export default function JournalComponent({
       else next.set(id, text);
       return next;
     });
+  };
 
   // A save confirmed after its editor closed leaves a draft equal to the
-  // stored text, which would otherwise hide later dictated words.
+  // stored text, which would otherwise hide later dictated words. While a
+  // save is queued the stored text is about to change, so a draft matching
+  // it is still the user's latest words.
   useEffect(() => {
+    for (const e of entries) {
+      if (pendingSaves.current.get(e.id) === e.content) {
+        pendingSaves.current.delete(e.id);
+      }
+    }
+    const queued = new Set(pendingSaves.current.keys());
     setDrafts((current) => {
-      const stale = entries.filter((e) => current.get(e.id) === e.content);
+      const stale = entries.filter(
+        (e) => !queued.has(e.id) && current.get(e.id) === e.content,
+      );
       if (stale.length === 0) return current;
       const next = new Map(current);
       for (const e of stale) next.delete(e.id);
@@ -110,6 +125,7 @@ export default function JournalComponent({
 
   const saveEntry = (entry: JournalEntry, content: string) => {
     markDirectAction(source('editEntry'));
+    pendingSaves.current.set(entry.id, content);
     executeAction('editEntry', { entry: entry.id, content });
   };
 

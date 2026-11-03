@@ -386,6 +386,35 @@ describe('JournalComponent list view', () => {
     ).toBe(contentOf('J-1'));
   });
 
+  it('keeps a draft reverted to the stored text while its save is queued', async () => {
+    executeAction.mockImplementationOnce(async () => {});
+    render(<JournalComponent {...props('list')} />);
+    const original = contentOf('J-1') ?? '';
+    const kickoff = screen.getByRole('button', { name: /Sprint kickoff/ });
+    act(() => {
+      fireEvent.click(kickoff);
+    });
+    const editor = screen.getByLabelText('Text of Sprint kickoff');
+    fireEvent.change(editor, { target: { value: 'Queued words' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    fireEvent.change(editor, { target: { value: original } });
+
+    await invoke('createEntry', { title: 'Unrelated entry' });
+    await invoke('editEntry', { entry: 'J-1', content: 'Queued words' });
+
+    // createEntry selects the new entry, so the kickoff row is closed now.
+    expect(screen.queryByLabelText('Text of Sprint kickoff')).toBeNull();
+    act(() => {
+      fireEvent.click(kickoff);
+    });
+    expect(
+      (screen.getByLabelText('Text of Sprint kickoff') as HTMLTextAreaElement)
+        .value,
+    ).toBe(original);
+  });
+
   it('cancels with the Cancel button', () => {
     render(<JournalComponent {...props('list')} />);
     act(() => {
