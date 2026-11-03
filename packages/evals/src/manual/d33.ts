@@ -27,7 +27,10 @@ import {
   labsStateResetSubsetInputsSchema,
 } from '../adapters/legacy-labs-state-reset-subset.js';
 import { evalCaseSchema } from '../core/case-schema.js';
-import { postActionLayout } from '../core/post-action-instances.js';
+import {
+  carriedForwardChartState,
+  postActionLayout,
+} from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -179,7 +182,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && carriedForward(previous, initial)),
+    ...(previous && carriedForwardChartState(previous, initial.vessels)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent }],
@@ -467,14 +470,4 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   }
-}
-
-/** The Chart state the client holds after a response: its Layout with the plan's transitions applied. */
-function carriedForward(previous: MaelstromResponse, initial: ChartRequest) {
-  const layout = postActionLayout(previous, initial.vessels);
-  return {
-    layout: structuredClone(layout),
-    instances:
-      layout.type === 'tiling' ? structuredClone(layout.instances) : [],
-  };
 }

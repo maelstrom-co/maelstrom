@@ -56,3 +56,24 @@ export function postActionLayout(
     ),
   };
 }
+
+/**
+ * The Chart state a client holds after a response, as the next turn's request
+ * carries it: the response's Layout with the execution plan's transitions
+ * applied (see {@link postActionLayout}), and its tiling Instances. Both are
+ * deep copies. A grid Layout carries no Instances.
+ */
+export function carriedForwardChartState(
+  previous: Pick<MaelstromResponse, 'layout' | 'executionPlan'>,
+  vessels: readonly Vessel[],
+): {
+  readonly layout: MaelstromResponse['layout'];
+  readonly instances: readonly VesselInstanceSnapshot[];
+} {
+  const layout = postActionLayout(previous, vessels);
+  return {
+    layout: structuredClone(layout),
+    instances:
+      layout.type === 'tiling' ? structuredClone(layout.instances) : [],
+  };
+}

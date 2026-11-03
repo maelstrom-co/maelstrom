@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
-import { postActionInstances } from './post-action-instances.js';
+import {
+  carriedForwardChartState,
+  postActionInstances,
+} from './post-action-instances.js';
 import { selectScenarios } from './scenarios.js';
 
 const [scenario] = selectScenarios('development', ['quoted-location']);
@@ -52,5 +55,41 @@ describe('postActionInstances', () => {
       vessels,
     );
     expect(variantOf(shipped, 'weather-main')).toBe('weekly');
+  });
+});
+
+describe('carriedForwardChartState', () => {
+  test('carries the post-action tiling layout and its instances as copies', () => {
+    const layout = {
+      type: 'tiling',
+      tree: ['ID:weather-main'],
+      instances,
+    } as const;
+    const state = carriedForwardChartState(
+      {
+        layout,
+        executionPlan: [
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ] as never,
+      } as never,
+      vessels,
+    );
+    expect(variantOf(state.instances, 'weather-main')).toBe('weekly');
+    expect(state.layout).toEqual({
+      ...layout,
+      instances: state.instances,
+    });
+    expect(state.layout).not.toBe(layout);
+    if (state.layout.type !== 'tiling') throw new Error('expected tiling');
+    expect(state.instances).not.toBe(state.layout.instances);
+  });
+
+  test('carries a grid layout unchanged with no instances', () => {
+    const layout = { type: 'grid', positions: [] } as const;
+    const state = carriedForwardChartState(
+      { layout, executionPlan: [] } as never,
+      vessels,
+    );
+    expect(state).toEqual({ layout, instances: [] });
   });
 });
