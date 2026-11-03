@@ -11,12 +11,6 @@ type Workflow = { jobs: Record<string, { steps: Step[] }> };
 const readCi = async (): Promise<Workflow> =>
   Bun.YAML.parse(await Bun.file('.github/workflows/ci.yml').text()) as Workflow;
 
-const stepNamed = (workflow: Workflow, job: string, name: string): Step => {
-  const step = workflow.jobs[job]!.steps.find((s) => s.name === name);
-  if (!step) throw new Error(`Missing step "${name}" in ${job}`);
-  return step;
-};
-
 const nxStep = (workflow: Workflow, job: string, targets: string): Step => {
   const step = workflow.jobs[job]!.steps.find((s) =>
     s.run?.includes(`-t ${targets}`),
@@ -26,7 +20,7 @@ const nxStep = (workflow: Workflow, job: string, targets: string): Step => {
 };
 
 test.each([
-  ['verify', 'check test build typecheck'],
+  ['verify', 'check test build typecheck check-links'],
   ['e2e', 'e2e'],
 ])('%s uses task-based affected on PRs and run-many on push', async (job, targets) => {
   const workflow = await readCi();
@@ -48,16 +42,19 @@ test('no step plumbs a project list into nx', async () => {
   }
 });
 
-test('the dead-link check depends on the docs build output, not the docs project', async () => {
+test('the dead-link check runs as a docs nx target, not a separate step', async () => {
   const workflow = await readCi();
-  const step = stepNamed(
-    workflow,
-    'verify',
-    'Assert no dead links in the built docs',
+  for (const step of workflow.jobs.verify!.steps) {
+    expect(step.run ?? '').not.toContain('assert-docs-links.ts');
+    expect(step.if ?? '').not.toContain('apps/docs/dist');
+  }
+  const docs = JSON.parse(await Bun.file('apps/docs/package.json').text());
+  const target = docs.nx.targets['check-links'];
+  expect(target.dependsOn).toContain('build');
+  expect(target.inputs).toContain(
+    '{workspaceRoot}/scripts/assert-docs-links.ts',
   );
-  expect(step.if).toContain('apps/docs/dist');
-  expect(step.if).not.toContain('steps.scope');
-  expect(step.run).toContain('assert-docs-links.ts');
+  expect(target.inputs).toContain('{workspaceRoot}/scripts/lib/docs-links.ts');
 });
 
 test('the starter consumer check in e2e stays gated on docs', async () => {

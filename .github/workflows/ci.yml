@@ -90,14 +90,19 @@ jobs:
       # is read-only and supersets lint, adding the formatter and import-order
       # assists, and the biome plugin passes --error-on-warnings so a warning
       # fails the build rather than scrolling past.
-      - name: Run check, test, build, typecheck
+      #
+      # `check-links` is a docs target that depends on the docs build, so it
+      # runs whenever the build inputs or the checker scripts change. The e2e
+      # suite link-checks a handful of pages; this covers every page the build
+      # emits, including generated reference.
+      - name: Run check, test, build, typecheck, check-links
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
-            bunx nx affected -t check test build typecheck
+            bunx nx affected -t check test build typecheck check-links
           else
-            bunx nx run-many -t check test build typecheck
+            bunx nx run-many -t check test build typecheck check-links
           fi
 
       # The validation reads every SDK package's build output, including
@@ -107,15 +112,6 @@ jobs:
         run: bunx nx run-many -t build --projects='packages/*'
       - name: Verify bundled SDK validation
         run: bun --no-install scripts/assert-sdk-validation.ts
-
-      # Reads apps/docs/dist, so it has to follow the build rather than join the
-      # nx run above. It runs only when this job built or restored the docs;
-      # otherwise the pages are unchanged. The e2e suite link-checks a handful
-      # of pages it navigates; this covers every page the build emits,
-      # including generated reference.
-      - name: Assert no dead links in the built docs
-        if: hashFiles('apps/docs/dist/**') != ''
-        run: bun scripts/assert-docs-links.ts
       # - run: bunx nx fix-ci
       #   if: always()
 
