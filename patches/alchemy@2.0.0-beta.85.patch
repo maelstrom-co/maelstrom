@@ -139,15 +139,46 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            // A creating checkpoint retains olds: undefined on retry.
            yield* checkpoint(attr);
          }
-@@ -1301,6 +1337,7 @@
+@@ -1296,15 +1332,35 @@
+           }
+         });
+ 
+-      const deleteFirst = Effect.fn(function* () {
++      let attr: any = replState.attr;
++      const checkpoint = (props: Record<string, any>) =>
++        commit<ReplacingResourceState>({
++          status: "replacing",
++          fqn,
++          logicalId,
++          instanceId,
++          resourceType: node.resource.Type,
++          props,
++          attr,
++          providerVersion: node.provider.version ?? 0,
++          bindings: excludeDeletedBindings(node.bindings),
++          downstream: node.downstream,
++          old: replState.old,
++          deleteFirst: node.deleteFirst,
++          removalPolicy: node.resource.RemovalPolicy,
++          providerMode: node.mode,
++          adoptionBlocked: node.adoptionBlocked,
++        });
++
++      const deleteFirst = Effect.fn(function* (props: Record<string, any>) {
+         yield* scopedSession.note(
            "Deleting previous resource before creating its replacement (deleteFirst)...",
          );
          yield* deleteOldGenerations(replState.old);
 +        attr = undefined;
++        yield* checkpoint(props);
        });
  
-       let attr: any = replState.attr;
-@@ -1316,7 +1353,7 @@
+-      let attr: any = replState.attr;
+-
+       // ── replacement admission ──
+       //
+       // The replacement may resolve to a physical identity that already
+@@ -1316,7 +1372,7 @@
        let admitted = attr !== undefined || node.deferredAdoption === undefined;
        const admit = Effect.fn(function* (props: Record<string, any>) {
          admitted = true;
@@ -156,16 +187,36 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            node,
            props,
            fqn,
-@@ -1339,7 +1376,7 @@
+@@ -1324,8 +1380,7 @@
+           instanceId,
+           replState.old?.attr,
+         );
+-        if (observed === undefined) return;
+-        if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
++        if (observed !== undefined && Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+           return yield* new OwnedBySomeoneElse({
+             message:
+               `Cannot replace resource '${fqn}' (${node.resource.Type}): ` +
+@@ -1339,7 +1394,8 @@
          // A delete-first target may be the previous generation itself, which
          // is about to be deleted — never hand its attributes to reconcile.
          // Reconcile keeps a precreated stub as its output.
 -        if (!node.deleteFirst) attr ??= stripUnowned(observed);
 +        if (!node.deleteFirst && attributes !== undefined) attr ??= stripUnowned(attributes);
++        yield* checkpoint(props);
        });
  
        // A cycle precreates on the props its upstreams outside the cycle
-@@ -1397,7 +1434,7 @@
+@@ -1385,7 +1441,7 @@
+       // about to run, so a failed upstream never leaves the resource missing.
+       let deletedFirst = false;
+       if (node.deleteFirst && inCycle) {
+-        yield* deleteFirst();
++        yield* deleteFirst(precreateProps);
+         deletedFirst = true;
+       }
+ 
+@@ -1397,7 +1453,7 @@
  
        if (inCycle && node.provider.precreate && attr === undefined) {
          yield* report("pre-creating");
@@ -174,33 +225,45 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            .precreate({
              id: logicalId,
              fqn,
-@@ -1407,6 +1444,7 @@
+@@ -1407,25 +1463,9 @@
              bindings: excludeDeletedBindings(node.bindings),
            })
            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
-+        attr = admitted ? stub : undefined;
-         yield* commit<ReplacingResourceState>({
-           status: "replacing",
-           fqn,
-@@ -1416,7 +1454,7 @@
-           props: node.props,
-           // A stub for an unresolved identity claims nothing. Leave the
-           // checkpoint without it, so a retry checks the identity again.
+-        yield* commit<ReplacingResourceState>({
+-          status: "replacing",
+-          fqn,
+-          logicalId,
+-          instanceId,
+-          resourceType: node.resource.Type,
+-          props: node.props,
+-          // A stub for an unresolved identity claims nothing. Leave the
+-          // checkpoint without it, so a retry checks the identity again.
 -          attr: admitted ? attr : undefined,
-+          attr,
-           providerVersion: node.provider.version ?? 0,
-           bindings: excludeDeletedBindings(node.bindings),
-           downstream: node.downstream,
-@@ -1425,7 +1463,7 @@
-           removalPolicy: node.resource.RemovalPolicy,
-           providerMode: node.mode,
-         });
+-          providerVersion: node.provider.version ?? 0,
+-          bindings: excludeDeletedBindings(node.bindings),
+-          downstream: node.downstream,
+-          old: replState.old,
+-          deleteFirst: node.deleteFirst,
+-          removalPolicy: node.resource.RemovalPolicy,
+-          providerMode: node.mode,
+-        });
 -        yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++        attr = admitted ? stub : undefined;
++        yield* checkpoint(precreateProps);
 +        yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
        }
  
        // See create-flow note: while we're waiting on upstream outputs
-@@ -1761,6 +1799,7 @@
+@@ -1446,7 +1486,7 @@
+         yield* admit(news);
+       }
+       if (node.deleteFirst && !deletedFirst) {
+-        yield* deleteFirst();
++        yield* deleteFirst(news);
+       }
+ 
+       attr = yield* node.provider
+@@ -1761,6 +1801,7 @@
    >,
    reportEvent: Reporter,
    state: {
@@ -208,7 +271,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
      set: <V extends PersistedState>(req: {
        stack: string;
        stage: string;
-@@ -1803,7 +1842,7 @@
+@@ -1803,7 +1844,7 @@
        // these props resolve to before reconcile claims it.
        const deferredAdoption = "deferredAdoption" in node ? node.deferredAdoption : undefined;
        if (propsChanged && deferredAdoption !== undefined) {
@@ -217,7 +280,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            node,
            newProps,
            fqn,
-@@ -1844,12 +1883,17 @@
+@@ -1844,12 +1885,17 @@
          instanceId,
        });
  
@@ -236,7 +299,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            fqn,
            logicalId,
            instanceId,
-@@ -1870,7 +1914,7 @@
+@@ -1870,7 +1916,7 @@
            removalPolicy: node.resource.RemovalPolicy,
            providerMode: node.mode,
            adoptionBlocked: node.adoptionBlocked,
@@ -245,7 +308,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
        });
  
        terminalStatuses.set(fqn, {
-@@ -2132,6 +2176,8 @@
+@@ -2132,6 +2178,8 @@
                providerMode: generation.providerMode,
              };
  
@@ -254,7 +317,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
          const adoptionBlocked = isDeleteNode(node)
            ? node.state.adoptionBlocked
            : generation.adoptionBlocked;
-@@ -2239,6 +2285,10 @@
+@@ -2239,6 +2287,10 @@
  
          function deleteResourceBody() {
            return Effect.gen(function* () {
@@ -265,7 +328,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
              if (isDeleteNode(node)) {
                yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
                if (node.action === "orphaned") {
-@@ -2281,7 +2331,7 @@
+@@ -2281,7 +2333,7 @@
                      "migrated predecessor. Any interrupted new physical " +
                      "resource must be identified and cleaned up manually.",
                  );
@@ -274,7 +337,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
                  yield* scopedSession.note(
                    "Skipping recovery: unresolved properties were omitted from " +
                      "this interrupted create's state, so they cannot identify it. " +
-@@ -2349,6 +2399,8 @@
+@@ -2349,6 +2401,8 @@
                  removalPolicy: node.resource.RemovalPolicy,
                  providerMode,
                  adoptionBlocked,
@@ -283,7 +346,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
                  propsIncomplete: incompleteProps,
                });
              }
-@@ -2420,6 +2472,8 @@
+@@ -2420,6 +2474,8 @@
                    bindings: excludeDeletedBindings(node.bindings),
                    removalPolicy: node.removalPolicy,
                    providerMode: node.providerMode,
@@ -492,10 +555,11 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
  import { Command, Flag } from "effect/cli";
  import * as Argument from "effect/cli/Argument";
  import * as Console from "effect/Console";
-@@ -114,6 +119,60 @@
+@@ -113,7 +118,66 @@
+         Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` })),
        ),
      );
- 
++
 +const legacyMain = Argument.File("main", { mustExist: true }).pipe(
 +  Argument.withDescription("Main file to deploy, defaults to alchemy.run.ts"),
 +  Argument.withDefault("alchemy.run.ts"),
@@ -513,6 +577,11 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
 +  Logger.layer([Logger.make((options) => { if (options.fiber.getRef(CurrentLogAnnotations)["alchemy.event"] !== true) makeConsoleLogger(Logger.withConsoleError(Logger.formatLogFmt)).log(options); })]),
 +);
 +
++// Version notices run before handlers and must use the same machine-output routing.
++const legacyInstrumentCommand = (command: string) =>
++  <Args, A, E, R>(handler: (args: Args) => Effect.Effect<A, E, R>) =>
++  (args: Args) => instrumentCommand(command)(handler)(args).pipe(Effect.provide(legacyDiagnostics));
++
 +const getCommand = Command.make(
 +  "get",
 +  {
@@ -524,7 +593,7 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
 +    profile,
 +    local: legacyLocal,
 +  },
-+  instrumentCommand("state.get")(
++  legacyInstrumentCommand("state.get")(
 +    Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
 +      const store = yield* Alchemist.State.store(legacySource(args));
 +      const value = yield* store.get({ stack, stage: stageName, fqn });
@@ -533,19 +602,19 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
 +          ? `(not found: ${stack}/${stageName}/${fqn})`
 +          : JSON.stringify(encodeState(value), null, 2),
 +      );
-+    }, Effect.provide(legacyDiagnostics)),
++    }),
 +  ),
 +);
-+
+ 
 +const stacksCommand = Command.make(
 +  "stacks",
 +  { main: legacyMain, envFile, profile, local: legacyLocal },
-+  instrumentCommand("state.stacks")(
++  legacyInstrumentCommand("state.stacks")(
 +    Effect.fn(function* (args) {
 +      const store = yield* Alchemist.State.store(legacySource(args));
 +      const stacks = [...(yield* store.listStacks())].sort();
 +      yield* Console.log(stacks.length === 0 ? "(no stacks)" : stacks.join("\n"));
-+    }, Effect.provide(legacyDiagnostics)),
++    }),
 +  ),
 +);
 +
@@ -553,7 +622,7 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
  const listCommand = Command.make(
    "list",
    { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName },
-@@ -453,7 +512,7 @@
+@@ -453,7 +517,7 @@
    ),
  ).pipe(
    Command.withDescription("Inspect and manage deployment state"),
@@ -700,24 +769,53 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                  // A creating checkpoint retains olds: undefined on retry.
                  yield* checkpoint(attr);
              }
-@@ -920,6 +953,7 @@
-         const deleteFirst = Effect.fn(function* () {
+@@ -917,11 +950,30 @@
+                 yield* deleteOldGenerations(old.old);
+             }
+         });
+-        const deleteFirst = Effect.fn(function* () {
++        let attr = replState.attr;
++        const checkpoint = (props) => commit({
++            status: "replacing",
++            fqn,
++            logicalId,
++            instanceId,
++            resourceType: node.resource.Type,
++            props,
++            attr,
++            providerVersion: node.provider.version ?? 0,
++            bindings: excludeDeletedBindings(node.bindings),
++            downstream: node.downstream,
++            old: replState.old,
++            deleteFirst: node.deleteFirst,
++            removalPolicy: node.resource.RemovalPolicy,
++            providerMode: node.mode,
++            adoptionBlocked: node.adoptionBlocked,
++        });
++        const deleteFirst = Effect.fn(function* (props) {
              yield* scopedSession.note("Deleting previous resource before creating its replacement (deleteFirst)...");
              yield* deleteOldGenerations(replState.old);
 +            attr = undefined;
++            yield* checkpoint(props);
          });
-         let attr = replState.attr;
+-        let attr = replState.attr;
          // ── replacement admission ──
-@@ -933,7 +967,7 @@
+         //
+         // The replacement may resolve to a physical identity that already
+@@ -933,10 +985,8 @@
          let admitted = attr !== undefined || node.deferredAdoption === undefined;
          const admit = Effect.fn(function* (props) {
              admitted = true;
 -            const observed = yield* observeResolved(node, props, fqn, logicalId, instanceId, replState.old?.attr);
+-            if (observed === undefined)
+-                return;
+-            if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
 +            const { observed, attributes } = yield* observeResolved(node, props, fqn, logicalId, instanceId, replState.old?.attr);
-             if (observed === undefined)
-                 return;
-             if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
-@@ -949,8 +983,8 @@
++            if (observed !== undefined && Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+                 return yield* new OwnedBySomeoneElse({
+                     message: `Cannot replace resource '${fqn}' (${node.resource.Type}): ` +
+                         "its replacement exists in the cloud but is not owned by this " +
+@@ -949,8 +999,9 @@
              // A delete-first target may be the previous generation itself, which
              // is about to be deleted — never hand its attributes to reconcile.
              // Reconcile keeps a precreated stub as its output.
@@ -725,10 +823,20 @@ diff --git a/lib/Apply.js b/lib/Apply.js
 -                attr ??= stripUnowned(observed);
 +            if (!node.deleteFirst && attributes !== undefined)
 +                attr ??= stripUnowned(attributes);
++            yield* checkpoint(props);
          });
          // A cycle precreates on the props its upstreams outside the cycle
          // determine; anything else waits for every upstream.
-@@ -994,7 +1028,7 @@
+@@ -984,7 +1035,7 @@
+         // about to run, so a failed upstream never leaves the resource missing.
+         let deletedFirst = false;
+         if (node.deleteFirst && inCycle) {
+-            yield* deleteFirst();
++            yield* deleteFirst(precreateProps);
+             deletedFirst = true;
+         }
+         if (attr !== undefined) {
+@@ -994,7 +1045,7 @@
          }
          if (inCycle && node.provider.precreate && attr === undefined) {
              yield* report("pre-creating");
@@ -737,32 +845,44 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                  .precreate({
                  id: logicalId,
                  fqn,
-@@ -1004,6 +1038,7 @@
+@@ -1004,25 +1055,9 @@
                  bindings: excludeDeletedBindings(node.bindings),
              })
                  .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
-+            attr = admitted ? stub : undefined;
-             yield* commit({
-                 status: "replacing",
-                 fqn,
-@@ -1013,7 +1048,7 @@
-                 props: node.props,
-                 // A stub for an unresolved identity claims nothing. Leave the
-                 // checkpoint without it, so a retry checks the identity again.
+-            yield* commit({
+-                status: "replacing",
+-                fqn,
+-                logicalId,
+-                instanceId,
+-                resourceType: node.resource.Type,
+-                props: node.props,
+-                // A stub for an unresolved identity claims nothing. Leave the
+-                // checkpoint without it, so a retry checks the identity again.
 -                attr: admitted ? attr : undefined,
-+                attr,
-                 providerVersion: node.provider.version ?? 0,
-                 bindings: excludeDeletedBindings(node.bindings),
-                 downstream: node.downstream,
-@@ -1022,7 +1057,7 @@
-                 removalPolicy: node.resource.RemovalPolicy,
-                 providerMode: node.mode,
-             });
+-                providerVersion: node.provider.version ?? 0,
+-                bindings: excludeDeletedBindings(node.bindings),
+-                downstream: node.downstream,
+-                old: replState.old,
+-                deleteFirst: node.deleteFirst,
+-                removalPolicy: node.resource.RemovalPolicy,
+-                providerMode: node.mode,
+-            });
 -            yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++            attr = admitted ? stub : undefined;
++            yield* checkpoint(precreateProps);
 +            yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
          }
          // See create-flow note: while we're waiting on upstream outputs
          // the replacement isn't actually being created yet.
+@@ -1037,7 +1072,7 @@
+             yield* admit(news);
+         }
+         if (node.deleteFirst && !deletedFirst) {
+-            yield* deleteFirst();
++            yield* deleteFirst(news);
+         }
+         attr = yield* node.provider
+             .reconcile({
 @@ -1292,7 +1327,7 @@
              // these props resolve to before reconcile claims it.
              const deferredAdoption = "deferredAdoption" in node ? node.deferredAdoption : undefined;
@@ -997,16 +1117,7 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
  import { Command, Flag } from "effect/cli";
  import * as Argument from "effect/cli/Argument";
  import * as Console from "effect/Console";
-@@ -7,7 +12,7 @@
- import * as Alchemist from "../../Alchemist/index.js";
- import * as Interaction from "../../Interaction.js";
- import * as State from "../../State/index.js";
--import { stateExplorerScreen, } from "../components/view/StateExplorer.js";
-+import { stateExplorerScreen, } from "../components/view/StateExplorer.jsx";
- import { formatLocalTimestamp } from "../Format.js";
- import { confirmOrDecline } from "./confirm.js";
- import { failWithHelp, UserInputError } from "./errors.js";
-@@ -55,6 +60,33 @@
+@@ -55,6 +60,35 @@
  /** Run a state tree operation against a resolved store, mapping a bad path
   * to a single-line user error instead of a cause dump. */
  const usingStore = (store) => (operation) => provideStore(store)(operation).pipe(Effect.catchTag("InvalidStatePath", (error) => Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` }))));
@@ -1017,6 +1128,8 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
 +// The ambient Interaction layer is already memoized against stdout.
 +Layer.fresh(Interaction.layerNonInteractive({ stdout: process.stderr })), Logger.layer([Logger.make((options) => { if (options.fiber.getRef(CurrentLogAnnotations)["alchemy.event"] !== true)
 +        makeConsoleLogger(Logger.withConsoleError(Logger.formatLogFmt)).log(options); })]));
++// Version notices run before handlers and must use the same machine-output routing.
++const legacyInstrumentCommand = (command) => (handler) => (args) => instrumentCommand(command)(handler)(args).pipe(Effect.provide(legacyDiagnostics));
 +const getCommand = Command.make("get", {
 +    stack: Flag.String("stack"),
 +    stageName: Flag.String("stage"),
@@ -1025,22 +1138,22 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
 +    envFile,
 +    profile,
 +    local: legacyLocal,
-+}, instrumentCommand("state.get")(Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
++}, legacyInstrumentCommand("state.get")(Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
 +    const store = yield* Alchemist.State.store(legacySource(args));
 +    const value = yield* store.get({ stack, stage: stageName, fqn });
 +    yield* Console.log(value === undefined
 +        ? `(not found: ${stack}/${stageName}/${fqn})`
 +        : JSON.stringify(encodeState(value), null, 2));
-+}, Effect.provide(legacyDiagnostics))));
-+const stacksCommand = Command.make("stacks", { main: legacyMain, envFile, profile, local: legacyLocal }, instrumentCommand("state.stacks")(Effect.fn(function* (args) {
++})));
++const stacksCommand = Command.make("stacks", { main: legacyMain, envFile, profile, local: legacyLocal }, legacyInstrumentCommand("state.stacks")(Effect.fn(function* (args) {
 +    const store = yield* Alchemist.State.store(legacySource(args));
 +    const stacks = [...(yield* store.listStacks())].sort();
 +    yield* Console.log(stacks.length === 0 ? "(no stacks)" : stacks.join("\n"));
-+}, Effect.provide(legacyDiagnostics))));
++})));
  const listCommand = Command.make("list", { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName }, instrumentCommand("state.list")(Effect.fn(function* ({ path, recursive, ...args }) {
      const store = yield* Alchemist.State.store(source(args));
      const items = yield* usingStore(store)(State.listState({
-@@ -229,7 +261,7 @@
+@@ -229,7 +263,7 @@
          return yield* failWithHelp(["alchemy", "state"]);
      }
      yield* stateExplorer(args);
@@ -1049,7 +1162,7 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
      listCommand,
      readCommand,
      deleteCommand,
-@@ -239,4 +271,3 @@
+@@ -239,4 +273,3 @@
      logsCommand,
      unsafeCommand,
  ]));
