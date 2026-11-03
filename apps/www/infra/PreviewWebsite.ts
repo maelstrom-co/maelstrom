@@ -1,10 +1,10 @@
 import { resolve } from 'node:path';
+import * as Cloudflare from '@alchemy.run/cloudflare';
 import {
   ASTRO_WORKER_FLAGS,
   WORKER_COMPATIBILITY_DATE,
   workerObservabilityNoTraces,
 } from '@maelstrom-co/platform-infra';
-import * as Cloudflare from 'alchemy/Cloudflare';
 
 const appRoot = resolve(import.meta.dirname, '..');
 

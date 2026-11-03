@@ -66,8 +66,8 @@ const forbidden = () => Effect.die(new Error('Mutating state is forbidden'));
 const diagnostic = (phase: string) => Effect.gen(function* () {
   if (!${options.diagnostics ?? false}) return;
   yield* (yield* Interaction.Interaction).task({ label: phase + ' task' }, Effect.void);
-  yield* Interaction.accessors.output.info(phase + ' info');
-  yield* Interaction.accessors.output.warning(phase + ' warning');
+  yield* (yield* Interaction.Interaction).output.info(phase + ' info');
+  yield* (yield* Interaction.Interaction).output.warning(phase + ' warning');
   yield* Effect.logInfo(phase + ' log-info');
   yield* Effect.logWarning(phase + ' log-warning');
   if (${JSON.stringify(options.fail ?? '')} === phase || (${JSON.stringify(options.fail ?? '')} === 'read' && ['get', 'listStacks'].includes(phase))) {

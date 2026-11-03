@@ -1,4 +1,4 @@
-import * as Cloudflare from 'alchemy/Cloudflare';
+import * as Cloudflare from '@alchemy.run/cloudflare';
 import type { RequiredWorkerBinding } from '../src/worker-bindings.js';
 
 const WS_RATE_LIMIT_NAMESPACE_ID = 742;

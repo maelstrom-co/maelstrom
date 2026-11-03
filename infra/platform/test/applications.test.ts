@@ -156,7 +156,7 @@ describe('application infrastructure contract', () => {
       devDependencies?: Record<string, string>;
     };
     const catalog = root.catalog ?? {};
-    expect(catalog.effect).toBe('4.0.5');
+    expect(catalog.effect).toBe('4.1.0');
     expect(catalog['@effect/platform-node']).toBe(catalog.effect);
     expect(catalog['@effect/platform-bun']).toBe(catalog.effect);
     expect(catalog['@effect/sql-d1']).toBe(catalog.effect);
@@ -547,7 +547,7 @@ describe('application infrastructure contract', () => {
     });
   });
 
-  test('installs the reviewed beta.83 ownership patch for every deployment', () => {
+  test('installs the reviewed beta.85 ownership patch for every deployment', () => {
     for (const path of [
       'apps/www/package.json',
       'apps/docs/package.json',
@@ -560,19 +560,27 @@ describe('application infrastructure contract', () => {
       };
       expect(
         manifest.dependencies?.alchemy ?? manifest.devDependencies?.alchemy,
-      ).toBe('2.0.0-beta.83');
+      ).toBe('2.0.0-beta.85');
     }
     const root = readJson('package.json') as {
       patchedDependencies?: Record<string, string>;
     };
-    const patchPath = 'patches/alchemy@2.0.0-beta.83.patch';
-    expect(root.patchedDependencies?.['alchemy@2.0.0-beta.83']).toBe(patchPath);
+    const patchPath = 'patches/alchemy@2.0.0-beta.85.patch';
+    expect(root.patchedDependencies?.['alchemy@2.0.0-beta.85']).toBe(patchPath);
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
-      '256d6c41733f6f55295ee6b28c17328513302a3f7e631e8a179bc60dacf552f1',
+      '50aa6449a5ccee2d8553dd563fd4b64dcc1634c09400c956e1cddd2f777e3bdb',
     );
     const lockfile = read('bun.lock');
-    expect(lockfile).toContain('alchemy@2.0.0-beta.83');
+    expect(lockfile).toContain('alchemy@2.0.0-beta.85');
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.81');
+    expect(lockfile).not.toContain('alchemy@2.0.0-beta.83');
+    for (const provider of ['cloudflare', 'aws']) {
+      const name = `@alchemy.run/${provider}@2.0.0-beta.85`;
+      expect(root.patchedDependencies?.[name]).toBeDefined();
+      expect(lockfile).toContain(
+        root.patchedDependencies?.[name] ?? 'missing patch',
+      );
+    }
     expect(lockfile).toContain(patchPath);
     expect([
       ...new Bun.Glob('patches/alchemy@*.patch').scanSync({

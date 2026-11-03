@@ -17,9 +17,9 @@
     "@astrojs/react": "^7.1.0",
     "@astrojs/sitemap": "^3.7.4",
     "@cloudflare/workers-types": "5.20260722.1",
-    "@effect/sql-d1": "4.0.5",
-    "@effect/platform-bun": "4.0.5",
-    "@effect/platform-node": "4.0.5",
+    "@effect/sql-d1": "4.1.0",
+    "@effect/platform-bun": "4.1.0",
+    "@effect/platform-node": "4.1.0",
     "@langfuse/client": "5.13.1",
     "@opentelemetry/api": "1.9.1",
     "@pgrabovets/json-view": "^2.8.1",
@@ -41,7 +41,7 @@
     "@google-cloud/speech": "^7.3.0",
     "@google-cloud/text-to-speech": "^6.4.0",
     "astro": "^7.4.0",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "happy-dom": "21.0.4",
     "hono": "^4.13.11",
     "jsdom": "^27.3.0",
@@ -187,10 +187,12 @@
     "unifont>undici": "8.12.2"
   },
   "patchedDependencies": {
-    "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch",
     "typedoc@0.28.20": "patches/typedoc@0.28.20.patch",
     "nx@24.0.2": "patches/nx@24.0.2.patch",
     "@verdaccio/core@8.2.1": "patches/@verdaccio%2Fcore@8.2.1.patch",
-    "@verdaccio/utils@8.2.1": "patches/@verdaccio%2Futils@8.2.1.patch"
+    "@verdaccio/utils@8.2.1": "patches/@verdaccio%2Futils@8.2.1.patch",
+    "alchemy@2.0.0-beta.85": "patches/alchemy@2.0.0-beta.85.patch",
+    "@alchemy.run/aws@2.0.0-beta.85": "patches/@alchemy.run%2Faws@2.0.0-beta.85.patch",
+    "@alchemy.run/cloudflare@2.0.0-beta.85": "patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch"
   }
 }

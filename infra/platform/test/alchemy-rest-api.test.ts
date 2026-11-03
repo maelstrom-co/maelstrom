@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { AWSEnvironment } from '@alchemy.run/aws';
+import { RestApi, RestApiProvider } from '@alchemy.run/aws/ApiGateway';
 import {
   Credentials,
   fromAwsCredentialIdentity,
 } from '@distilled.cloud/aws/Credentials';
 import { BunServices } from '@effect/platform-bun';
 import * as Apply from 'alchemy/Apply';
-import { AWSEnvironment } from 'alchemy/AWS';
-import { RestApi, RestApiProvider } from 'alchemy/AWS/ApiGateway';
 import * as Plan from 'alchemy/Plan';
 import * as Provider from 'alchemy/Provider';
 import { Resource } from 'alchemy/Resource';
@@ -211,8 +211,6 @@ async function reconcile(options: {
         : undefined,
       session: {
         note: () => Effect.void,
-        emit: () => Effect.void,
-        done: () => Effect.void,
       },
     });
   });

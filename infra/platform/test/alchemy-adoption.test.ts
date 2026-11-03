@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { AdoptPolicy, Unowned } from 'alchemy/AdoptPolicy';
+import { CloudflareEnvironment } from '@alchemy.run/cloudflare';
+import { AdoptPolicy, Unowned, Unresolved } from 'alchemy/AdoptPolicy';
 import { AlchemyContext } from 'alchemy/AlchemyContext';
 import * as Apply from 'alchemy/Apply';
-import { CloudflareEnvironment } from 'alchemy/Cloudflare';
+import { isResolved } from 'alchemy/Diff';
 import * as Plan from 'alchemy/Plan';
 import * as Provider from 'alchemy/Provider';
 import { Resource } from 'alchemy/Resource';
@@ -77,6 +78,18 @@ async function probe(
   });
   const workerProvider = Provider.succeed(resource, {
     list: () => Effect.succeed([]),
+    observe: options.nonWorker
+      ? undefined
+      : ({ news }) =>
+          Effect.sync(() => {
+            if (!isResolved(news.name)) return Unresolved;
+            const attrs = { name: news.name };
+            return observation === 'foreign'
+              ? Unowned(attrs)
+              : observation === 'owned'
+                ? attrs
+                : undefined;
+          }),
     precreate: options.precreate
       ? ({ news }) =>
           Effect.gen(function* () {
@@ -577,15 +590,17 @@ describe('provider isolation for Worker ownership checks', () => {
     expect(Exit.isSuccess(result.exit)).toBe(true);
     expect(result.adoptionPolicies).toEqual([true]);
   });
-  test('does not use a generic provider read to find a replacement generation', async () => {
+  test('reads a generic replacement target independently of the old generation', async () => {
     const result = await probe('owned', { replace: true, nonWorker: true });
     expect(Exit.isSuccess(result.exit)).toBe(true);
-    expect(result.reads).toEqual([]);
+    expect(result.reads).toEqual([
+      { name: 'existing-worker', binding: 'resolved-binding-id' },
+    ]);
     expect(result.writes).toEqual([
       {
         news: { name: 'existing-worker', binding: 'resolved-binding-id' },
         olds: undefined,
-        output: undefined,
+        output: { name: 'existing-worker' },
       },
     ]);
     expect(result.deletions).toEqual([{ name: 'old-worker' }]);
@@ -602,6 +617,7 @@ describe('provider isolation for Worker ownership checks', () => {
     expect(Exit.isSuccess(result.exit)).toBe(true);
     expect(result.reads).toEqual([
       { name: 'old-worker', binding: 'old-binding' },
+      { name: 'existing-worker', binding: 'resolved-binding-id' },
     ]);
     expect(result.deletions).toEqual([{ name: 'old-worker' }]);
     expect(result.writes).toEqual([
