@@ -87,7 +87,7 @@ A `VesselAction` is an edge in the graph:
 - **`parameters`** — optional structured arguments (`ActionParameter[]`).
 - **`transitionsTo`** — the target variant after the action runs.
 
-`transitionsTo` is what makes the machine a machine. When it's set, the action moves the instance to a new state — and a new `minSize`, and a new action set. When it's omitted, the action is a *self-action*: it can still mutate `props` or trigger side effects via the framework binding, but the Vessel's variant doesn't change.
+`transitionsTo` is what makes the machine a machine. When it's set, the action moves the instance to a new state — and a new `minSize`, and a new action set. That holds wherever the action runs: a user's local action and an engine-planned action both apply it on the client. When it's omitted, the action is a *self-action*: it can still mutate `props` or trigger side effects via the framework binding, but the Vessel's variant doesn't change.
 
 The protocol validates that every `transitionsTo` target exists. Typos can't ship.
 
@@ -96,7 +96,7 @@ The protocol validates that every `transitionsTo` target exists. Typos can't shi
 The engine isn't choosing what to render. It's reasoning about what *can happen next*. A state machine gives it three things a flat config cannot:
 
 - **A closed set of legal moves per state.** For a `collapsed` Calendar instance, the only action offered as available is `expand`. The model can still see from the Vessel catalogue that `showWeek` exists on the `month` variant, but it can't invoke it from `collapsed` — and if it tries anyway, the engine's coherence pass rejects it (`action_not_valid`) rather than letting it silently fail.
-- **A checkable transition graph.** Every action names the variant it `transitionsTo`, so the whole state graph is known before anything runs. The protocol rejects a transition to a variant that doesn't exist, and the engine knows exactly which variant an action lands in without executing your component.
+- **A checkable transition graph.** Every action names the variant it `transitionsTo`, so the whole state graph is known before anything runs. The protocol rejects a transition to a variant that doesn't exist, and the engine knows exactly which variant an action lands in without executing your component. It simulates the plan from each instance's layout variant, the variant the instance has before any action runs, and follows each transition in order.
 - **Enforceable size per state.** Each variant carries its own `minSize`, and in grid mode the engine enforces it: the LLM plans in whole cells, and any placement that comes back smaller than the target variant's `minSize` is dropped before it renders. Each state gets to declare — and the engine to guarantee — its own footprint.
 
 A flat config — one component, one render function, one set of props — gives you none of that. Without explicit states and transitions, the engine has no closed set of legal actions to check a proposed action against — it can't tell a valid move from a hallucinated one.
@@ -109,7 +109,7 @@ Every `ChartRequest` carries the full set of registered vessels plus a snapshot 
 2. Here is each instance and what variant it is in *right now*.
 3. Here are the actions available from each instance's current variant — and what variant each one transitions to.
 
-Then it asks for an execution plan. The structured-output schema (`ActionExecutionSchema` in `packages/protocol/src/lib/schemas.ts`) requires `instanceId` and `action`, with any arguments carried as a `paramsJson` string; the engine's coherence pass then rejects actions that aren't valid for the instance's current state.
+Then it asks for an execution plan. The structured-output schema (`ActionExecutionSchema` in `packages/protocol/src/lib/schemas.ts`) requires `instanceId` and `action`, with any arguments carried as a `paramsJson` string; the engine's coherence pass then rejects actions that aren't valid for the instance's state at that action's turn, starting from the variant the layout declares and following earlier transitions in the plan.
 
 The variant the LLM ends up choosing is rarely the only legal one — it picks the transition and the layout that best fit the room it also wants to give Weather and Tasks, and the engine enforces each variant's `minSize` on the result. That trade-off is the orchestration loop — see [How the LLM Orchestrates UI](/understanding/llm-orchestration/) for the rest of the picture.
 
