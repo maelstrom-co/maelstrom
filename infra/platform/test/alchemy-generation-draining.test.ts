@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
+import { CloudflareEnvironment } from '@alchemy.run/cloudflare';
 import * as Apply from 'alchemy/Apply';
-import { CloudflareEnvironment } from 'alchemy/Cloudflare';
 import * as Plan from 'alchemy/Plan';
 import * as Provider from 'alchemy/Provider';
 import { Resource } from 'alchemy/Resource';

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
@@ -281,70 +281,16 @@ for (const [name, file, namespace, nocase] of [
   });
 }
 
-test('deployment static files cannot bypass protected-route middleware through a second path decode', () => {
-  const prisma = installedDependency(
-    'infra/platform/package.json',
-    'alchemy',
-    '@prisma/dev',
-  );
-  const result = spawnSync(
-    Bun.which('node') ?? 'node',
-    [
-      '--input-type=module',
-      '-e',
-      `
-    import { createRequire } from 'node:module';
-    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-    import { tmpdir } from 'node:os';
-    import { join } from 'node:path';
-    import { get } from 'node:http';
-    const require = createRequire(${JSON.stringify(join(prisma.root, 'package.json'))});
-    const { Hono } = require('hono');
-    const { serve } = require('@hono/node-server');
-    const { serveStatic } = require('@hono/node-server/serve-static');
-    const root = mkdtempSync(join(tmpdir(), 'deployment-static-'));
-    mkdirSync(join(root, 'static/admin'), { recursive: true });
-    writeFileSync(join(root, 'static/admin/secret.txt'), 'protected fixture');
-    writeFileSync(join(root, 'static/public.txt'), 'public fixture');
-    const app = new Hono();
-    app.use('/static/admin/*', context => context.text('Unauthorized', 401));
-    app.use('/static/*', serveStatic({ root }));
-    let server;
-    try {
-      const info = await new Promise(resolve => {
-        server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0, overrideGlobalObjects: false }, resolve);
-      });
-      const read = path => new Promise((resolve, reject) => {
-        get({ hostname: '127.0.0.1', port: info.port, path }, response => {
-          let body = '';
-          response.setEncoding('utf8');
-          response.on('data', chunk => body += chunk);
-          response.on('end', () => resolve({ status: response.statusCode, body }));
-        }).on('error', reject);
-      });
-      console.log(JSON.stringify({
-        public: await read('/static/public.txt'),
-        protected: await read('/static/admin/secret.txt'),
-        encoded: await read('/static/%%36%31dmin/secret.txt'),
-        backslash: await read('/static/public' + String.fromCharCode(92) + '..' + String.fromCharCode(92) + 'admin/secret.txt'),
-      }));
-    } finally {
-      if (server) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-      rmSync(root, { recursive: true, force: true });
-    }
-  `,
-    ],
-    { timeout: 10000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
-  );
-  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
-  const response = JSON.parse(result.stdout);
-  expect(response.public).toEqual({ status: 200, body: 'public fixture' });
-  expect(response.protected.status).toBe(401);
-  expect(response.encoded.status).toBe(404);
-  expect(response.encoded.body).not.toContain('protected fixture');
-  expect(response.backslash.status).toBe(400);
-  expect(response.backslash.body).not.toContain('protected fixture');
-}, 15000);
+test('deployment dependencies exclude the retired Prisma development server', () => {
+  const alchemy = installedDependency('infra/platform/package.json', 'alchemy');
+  const manifest = alchemy.require(join(alchemy.root, 'package.json')) as {
+    dependencies?: Record<string, string>;
+  };
+  expect(manifest.dependencies?.['@prisma/dev']).toBeUndefined();
+  const lockfile = readFileSync(resolve('bun.lock'), 'utf8');
+  expect(lockfile).not.toContain('"@prisma/dev"');
+  expect(lockfile).not.toContain('valibot@');
+});
 
 const qsPackage = installedDependency(
   'package.json',
@@ -373,40 +319,6 @@ test('bracketed comma lists cannot bypass the registry parser array limit', () =
     }),
   ).toThrow(RangeError);
 });
-
-const valibotPackage = installedDependency(
-  'infra/platform/package.json',
-  'alchemy',
-  '@prisma/dev',
-  'valibot',
-);
-const valibot = valibotPackage.require(valibotPackage.root) as {
-  string(): unknown;
-  number(): unknown;
-  record(key: unknown, value: unknown): unknown;
-  safeParse(
-    schema: unknown,
-    input: unknown,
-  ): { success: boolean; issues: unknown };
-  flatten(issues: unknown): { nested: Record<string, string[]> };
-};
-
-for (const key of [
-  'toString',
-  'valueOf',
-  'hasOwnProperty',
-  'isPrototypeOf',
-  'propertyIsEnumerable',
-  'toLocaleString',
-]) {
-  test(`deployment validation reports an invalid ${key} field without crashing error formatting`, () => {
-    const schema = valibot.record(valibot.string(), valibot.number());
-    const result = valibot.safeParse(schema, { [key]: 'invalid' });
-    expect(result.success).toBe(false);
-    expect(() => valibot.flatten(result.issues)).not.toThrow();
-    expect(valibot.flatten(result.issues).nested[key]).toHaveLength(1);
-  });
-}
 
 const katexPackage = installedDependency(
   'apps/docs/package.json',

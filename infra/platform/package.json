@@ -30,16 +30,18 @@
   "dependencies": {
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
-    "alchemy": "2.0.0-beta.83",
+    "alchemy": "2.0.0-beta.85",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "@alchemy.run/cloudflare": "2.0.0-beta.85"
   },
   "devDependencies": {
-    "@distilled.cloud/aws": "1.0.0-rc.13",
-    "@distilled.cloud/cloudflare": "1.0.0-rc.13",
+    "@distilled.cloud/aws": "1.0.0-rc.18",
+    "@distilled.cloud/cloudflare": "1.0.0-rc.18",
     "@types/bun": "1.4.3",
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "jsonc-parser": "3.3.1",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@alchemy.run/aws": "2.0.0-beta.85"
   }
 }

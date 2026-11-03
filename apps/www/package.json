@@ -32,12 +32,13 @@
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "alchemy": "2.0.0-beta.83",
+    "alchemy": "2.0.0-beta.85",
     "effect": "catalog:",
     "posthog-js": "1.438.21",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
-    "vite-tsconfig-paths": "catalog:"
+    "vite-tsconfig-paths": "catalog:",
+    "@alchemy.run/cloudflare": "2.0.0-beta.85"
   },
   "nx": {
     "targets": {

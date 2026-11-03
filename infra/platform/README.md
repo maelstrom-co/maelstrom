@@ -272,45 +272,50 @@ Completed:
 7. Migrated demo PR previews and their isolated `SessionDO` namespaces to
    Alchemy.
 
-`alchemy@2.0.0-beta.83` includes deferred adoption from
-[alchemy-run/alchemy#1695](https://github.com/alchemy-run/alchemy/pull/1695).
-Its precreate path can still bypass those checks. Keep the local beta.83 patch.
-Upstream includes the cycle-only precreation engine change from
-[alchemy-run/alchemy#2015](https://github.com/alchemy-run/alchemy/pull/2015).
-The patch retains REST API recovery and checks Worker ownership before cyclic
-precreation publishes attributes and checks Worker replacement identities before reconciliation.
-Unresolved cyclic Worker identities and unreadable ownership fail closed.
-Worker recovery from an attribute-free checkpoint requires matching, fully resolved
-desired props and an explicit complete-identity marker. Cleanup does not infer
-an identity from unmarked or incomplete Worker checkpoints. Those legacy or
-interrupted attempts can require manual cleanup. Recorded attributes remain trusted.
-Live Worker checkpoints also record the Cloudflare account before mutation.
-Planning, apply, and cleanup validate that account across replacement generations.
-Cyclic convergence preserves account metadata and generations whose deletion is
-still draining. Later applies retry cleanup without restoring already deleted generations.
-Legacy rows can use the account in their recorded attributes. An attribute-free
-row without an account requires manual identity recovery; changing profiles must
-not turn a same-tagged Worker in another account into a recovery candidate.
-Delete-first Worker replacements check admission before deleting old generations.
-Cloud ownership admission applies only to live Workers. Local providers keep
-their existing replacement lifecycle.
-Missing versions remain tolerable only when trusted attributes exist.
-Worker-specific admission checks do not alter other providers.
-The REST API backport recovers a uniquely matching API by name, ownership tags,
-and creation instance before creating another API. It searches all result pages
-and refuses ambiguous matches. Newly created APIs carry an `alchemy::instance`
-tag so replacement cannot reuse and then delete its predecessor. Legacy APIs
-without that tag are not recovery candidates. A missing recorded API fails
-rather than silently changing IDs that children treat as stable.
-Recovery requires collection GET access to `/restapis`. Its lookup is not an
-atomic create-if-absent operation.
-Version and preview Workers retain their separate upstream behavior.
+Alchemy beta.85 includes upstream ownership admission, replacement, and incomplete
+checkpoint fixes, including [#2620](https://github.com/alchemy-run/alchemy/pull/2620).
+Providers now ship separately. Deployment code imports Cloudflare from
+`@alchemy.run/cloudflare`; offline AWS fixtures use `@alchemy.run/aws`. Keep all
+three packages on beta.85 and the direct Distilled SDK dependencies on rc.18.
 
-The patch also restores the read-only `state get` and `state stacks` interfaces
-absent from beta.83. They retain the arguments and output required by the trusted
-deployment workflows and the operator runbook. Initialization diagnostics use
-`stderr`; successful reads write only the requested state output to `stdout`.
-Migrate those callers before removing the compatibility commands.
+Keep the three local package patches. They retain behavior that beta.85 does
+not provide:
+
+| Package | Retained behavior |
+| --- | --- |
+| `alchemy` | Account isolation, legacy Worker checkpoint provenance, replacement cleanup metadata, and read-only `state get` / `state stacks` commands. |
+| `@alchemy.run/cloudflare` | Fail closed on unreadable ownership and unresolved precreate names, while preserving delegated version and preview Workers. |
+| `@alchemy.run/aws` | Recover a uniquely owned REST API after interruption and refuse changes to recorded stable IDs. |
+
+The core patch also carries [#2732](https://github.com/alchemy-run/alchemy/pull/2732).
+Partial `observe` results prove ownership but cannot identify a physical resource
+for reconciliation, retry, or deletion. Unadmitted cycle stubs remain provisional.
+Full reads and admitted physical precreation retain their complete attributes.
+This prevents new incomplete checkpoints; existing damaged state needs explicit repair.
+
+Live Worker checkpoints record the Cloudflare account before mutation. Planning,
+apply, and cleanup reject a missing or changed account across all generations.
+Legacy rows may use an account recorded in complete attributes. An attribute-free
+row without an account needs manual identity recovery. Worker recovery also
+requires matching resolved props and an explicit complete-identity marker.
+Cleanup does not infer identities from unmarked or incomplete checkpoints.
+Cyclic convergence preserves identity metadata and any pending generation cleanup.
+
+Delete-first replacements admit their target before deleting the old generation.
+Cleanup clears attributes that the deletion may invalidate. Account checks apply
+only to live Workers. Generic ownership admission follows the provider contract.
+Version and preview Workers retain their separate upstream lifecycle.
+
+REST API recovery matches name, ownership tags, and creation instance across all
+result pages. It refuses ambiguous matches. Legacy APIs without an
+`alchemy::instance` tag are not recovery candidates. A missing recorded API fails
+instead of changing IDs used by child resources. Recovery needs collection GET
+access to `/restapis`; the lookup is not an atomic create-if-absent operation.
+
+Legacy state commands preserve the arguments and output required by deployment
+workflows and the operator runbook. Diagnostics use `stderr`. Successful reads
+write only the requested state output to `stdout`. Migrate callers before
+removing those compatibility commands.
 
 `test/alchemy-adoption.test.ts` exercises the engine with offline providers.
 It checks ownership refusal through all four Worker create producers, including
@@ -325,14 +330,16 @@ and completed cleanup, including a later retry of the draining generation.
 isolation with mocked AWS requests. `test/alchemy-cli-state.test.ts` runs the
 published CLI against offline stores. It verifies argument compatibility, read-only access,
 output channels, and local commands that must not initialize the configured store.
+`test/alchemy-observation-attributes.test.ts` covers partial evidence, retry,
+replacement, and cleanup in cyclic and acyclic deployments.
 These tests do not prove live account compatibility.
 A dry-run cannot verify deferred apply checks. Run the credentialed CI verification
 before merging, and follow the preview-first
 [state-store verification procedure](#state-store-bootstrap-rules) for the upgrade.
 
-Alchemy beta.83 deploys Durable Objects with declarative `exports`. After that
+Alchemy beta.85 deploys Durable Objects with declarative `exports`. After that
 deployment, Alchemy versions before beta.82 cannot redeploy the same Worker.
-Pin beta.83 on every machine and CI job before deploying the demo's `SessionDO`.
+Pin beta.85 on every machine and CI job before deploying the demo's `SessionDO`.
 The first deployment must send 100% of traffic to the new version. Follow the
 [upstream upgrade notes](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.83/website/src/content/docs/blog/2026-10-12-beta-83.md#durable-objects-deploy-with-exports)
 and do not roll back to beta.81 after that deployment.
@@ -344,8 +351,8 @@ lets Alchemy upload only the resulting `dist` artifact.
 
 Alchemy, Effect, and the Cloudflare toolchain are one compatibility unit.
 The root catalog pins `effect`, `@effect/platform-node`,
-`@effect/platform-bun`, and `@effect/sql-d1` to `4.0.5`, satisfying Alchemy's
-stable `^4.0.0` peers. App and infra packages take those through `catalog:`. Do not add
+`@effect/platform-bun`, and `@effect/sql-d1` to `4.1.0`, satisfying Alchemy's
+stable `^4.1.0` peers. App and infra packages take those through `catalog:`. Do not add
 `@effect/language-service` until a `tsconfig` plugin actually loads it.
 
 Review Alchemy upgrades monthly. Upgrade sooner for relevant security fixes or
