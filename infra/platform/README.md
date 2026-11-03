@@ -293,7 +293,16 @@ for reconciliation, retry, or deletion. Unadmitted cycle stubs remain provisiona
 Full reads and admitted physical precreation retain their complete attributes.
 Apply checkpoints resolved replacement props and read attributes before
 reconciliation. Delete-first cleanup clears persisted attributes before precreation.
+Create checkpoints retain evaluated props before and after physical precreation.
 This prevents new incomplete checkpoints; existing damaged state needs explicit repair.
+
+Ownership-aware providers must explicitly classify changing in-place inputs as
+`update` or `noop` when those inputs resolve after planning or change during
+cyclic convergence. Missing or inconclusive `diff` decisions fail closed.
+An immutable identity change requires a new plan; convergence cannot force it
+through reconciliation. Resolve identity from stable inputs outside the cycle.
+Providers can normalize Effect-valued runtime wiring in their `diff` when that
+wiring does not identify the physical resource. Binding-only changes remain supported.
 
 Live Worker checkpoints record the Cloudflare account before mutation. Planning,
 apply, and cleanup reject a missing or changed account across all generations.
@@ -319,6 +328,8 @@ workflows and the operator runbook. Diagnostics, including newer-version notices
 use `stderr`. Successful reads
 write only the requested state output to `stdout`. Migrate callers before
 removing those compatibility commands.
+The JSON log-format flag also applies to these diagnostics. The patched account
+helper includes declarations for typed imports as well as both runtime builds.
 
 `test/alchemy-adoption.test.ts` exercises the engine with offline providers.
 It checks ownership refusal through all four Worker create producers, including

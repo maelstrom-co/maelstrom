@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
+import { CloudflareEnvironment } from '@alchemy.run/cloudflare';
+import { currentWorkerAccountId } from 'alchemy/WorkerAccount';
+import * as Effect from 'effect/Effect';
+import * as Redacted from 'effect/Redacted';
+
 const project = resolve(import.meta.dirname, '..');
 test('the installed platform shared package supports the catalog Effect version', () => {
   const require = createRequire(resolve(project, 'package.json'));
@@ -85,3 +90,21 @@ for (const runtime of [process.execPath, node]) {
     expect(result.stdout.trim()).toBe('account-matched');
   });
 }
+
+test('the typed account reader uses the provider environment', async () => {
+  const accountId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const result = await Effect.runPromise(
+    currentWorkerAccountId.pipe(
+      Effect.provideService(
+        CloudflareEnvironment,
+        Effect.succeed({
+          type: 'apiToken',
+          apiToken: Redacted.make('offline-token'),
+          accountId,
+          source: { type: 'env' },
+        }),
+      ),
+    ),
+  );
+  expect(result).toBe(accountId);
+});
