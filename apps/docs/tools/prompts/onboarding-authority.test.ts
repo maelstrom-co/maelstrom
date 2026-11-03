@@ -53,8 +53,10 @@ test('integration prompts admit the frozen starter SDK and reject the next break
         `${name}: ${sdk}@${version}`,
       ).toBe(true);
       expect(sdkVersionMatches('0.1.0', range)).toBe(true);
-      expect(sdkVersionMatches('0.2.0', range)).toBe(false);
+      expect(sdkVersionMatches('0.2.0', range)).toBe(true);
+      expect(sdkVersionMatches('0.3.0', range)).toBe(false);
       expect(sdkVersionMatches('0.1.1-alpha.1', range)).toBe(false);
+      expect(sdkVersionMatches('0.2.2-alpha.1', range)).toBe(false);
     }
   }
 });
