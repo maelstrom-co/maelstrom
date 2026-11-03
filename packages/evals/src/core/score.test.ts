@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  type MaelstromResponse,
+  VariantName,
+} from '@maelstrom-co/protocol';
 
 import { type Expectation, type Scenario, scenarios } from './scenarios.js';
 import { scoreLayout, scoreResponse } from './score.js';
@@ -188,6 +192,96 @@ describe('scoreResponse', () => {
       }),
     );
     expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('fails a double switch resolved on the Layout Variant when the request Variant offers the Action without a transition', () => {
+    const variant = scenario('variant');
+    const fromWeek: Scenario = {
+      ...variant,
+      request: {
+        ...variant.request,
+        instances: variant.request.instances.map((instance) =>
+          instance.instanceId === 'calendar-main'
+            ? { ...instance, variant: VariantName('week') }
+            : instance,
+        ),
+      },
+    };
+    const score = scoreResponse(
+      fromWeek,
+      response(fromWeek, {
+        variants: { 'calendar-main': 'month' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'addEvent' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.failures).toContain(
+      'Variant of calendar-main switches twice: the layout moves it from week to month, then addEvent transitions it to day',
+    );
+  });
+
+  test('does not report a double switch for an Action offered only on the request Variant', () => {
+    const variant = scenario('variant');
+    const month = VariantName('month');
+    const withAgendaOnMonth: Scenario = {
+      ...variant,
+      request: {
+        ...variant.request,
+        vessels: variant.request.vessels.map((vessel) =>
+          vessel.id === 'calendar'
+            ? {
+                ...vessel,
+                variants: {
+                  ...vessel.variants,
+                  [month]: {
+                    ...vessel.variants[month],
+                    actions: [
+                      ...(vessel.variants[month]?.actions ?? []),
+                      {
+                        name: ActionName('openAgenda'),
+                        description: 'Agenda in the day view',
+                        idempotent: false,
+                        transitionsTo: VariantName('day'),
+                      },
+                    ],
+                  },
+                },
+              }
+            : vessel,
+        ),
+      },
+    };
+    const score = scoreResponse(
+      withAgendaOnMonth,
+      response(withAgendaOnMonth, {
+        variants: { 'calendar-main': 'week' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'openAgenda' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.failures.join()).not.toContain('switches twice');
+    expect(score.failures.join()).toContain(
+      'Execution plan does not simulate: openAgenda on calendar-main (action_not_valid)',
+    );
+  });
+
+  test('fails a Layout that already declares the transition target, which only an unhealed response can carry', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'weather-main': 'weekly' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures).toContain(
+      'Execution plan does not simulate: showWeekly on weather-main (action_not_valid)',
+    );
   });
 
   test('fails an execution plan the engine rule cannot simulate', () => {
