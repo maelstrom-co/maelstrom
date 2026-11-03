@@ -5,13 +5,15 @@ import {
   TASK_URGENCIES,
 } from '../stores/project-tasks.store';
 import { ASSIGNEE_CHOICES } from '../stores/team';
-
-const TASK_REFERENCE =
-  'The task to change: a reference from the published list (id, title and status), or the task id such as TL-3.';
+import {
+  ADD_TO_MY_PRIORITIES_ACTION,
+  REMOVE_FROM_MY_PRIORITIES_ACTION,
+  TASK_REFERENCE,
+} from './task-action.defs';
 
 // Typed as string so a republish can append live records to it.
 const PROJECT_TASKS_DESCRIPTION: string =
-  'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam) and an urgency (low, normal or high), a status (todo, doing or done) and, when it came from the feedback, the feedback quote it came from. It also shows "My priorities", the current user Chris\'s own ordered list of tasks. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.';
+  'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam), an urgency (low, normal or high), a status (todo, doing or done) and, when it came from the feedback, the feedback quote it came from. A star badge with a number marks each task in "My priorities", the current user Chris\'s own ordered list, and the separate My priorities Vessel shows that list in full. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.';
 
 export const projectTasksVessel = defineVessel({
   id: 'project-tasks',
@@ -146,31 +148,8 @@ export const projectTasksVessel = defineVessel({
             },
           ],
         },
-        {
-          name: 'addToMyPriorities',
-          idempotent: true,
-          description:
-            "Put a task in Chris's personal priorities list, at the end or at a position. A task already in the list moves to the position. Urgency is unchanged.",
-          parameters: [
-            { name: 'task', type: 'string', description: TASK_REFERENCE },
-            {
-              name: 'position',
-              type: 'number',
-              required: false,
-              description:
-                '1-based place in my priorities, 1 is the top. Omit to add at the end.',
-            },
-          ],
-        },
-        {
-          name: 'removeFromMyPriorities',
-          idempotent: true,
-          description:
-            "Take a task out of Chris's personal priorities list. The task itself stays.",
-          parameters: [
-            { name: 'task', type: 'string', description: TASK_REFERENCE },
-          ],
-        },
+        ADD_TO_MY_PRIORITIES_ACTION,
+        REMOVE_FROM_MY_PRIORITIES_ACTION,
         {
           name: 'removeTask',
           description:

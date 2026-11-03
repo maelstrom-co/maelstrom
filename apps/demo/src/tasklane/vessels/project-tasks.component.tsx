@@ -127,11 +127,6 @@ export default function ProjectTasksComponent({
   };
 
   const rows = orderedTaskRows(tasks);
-  const byId = new Map(tasks.map((task) => [task.id, task]));
-  const prioritised = myPriorities.flatMap((id) => {
-    const task = byId.get(id);
-    return task ? [task] : [];
-  });
 
   return (
     <VesselCard
@@ -143,66 +138,6 @@ export default function ProjectTasksComponent({
         ref={board}
         className="tasklane-board flex-1 min-h-0 overflow-y-auto"
       >
-        <section
-          className="tasklane-priorities"
-          aria-labelledby={`${instanceId}-priorities`}
-        >
-          <h3
-            id={`${instanceId}-priorities`}
-            className="tasklane-section-title"
-          >
-            My priorities
-          </h3>
-          {prioritised.length === 0 ? (
-            <p className="text-xs text-ink-3">
-              No tasks in your priorities yet.
-            </p>
-          ) : (
-            <ol aria-label="My priorities" className="tasklane-priority-list">
-              {prioritised.map((task, index) => (
-                <li
-                  key={task.id}
-                  data-task-id={task.id}
-                  className="tasklane-priority"
-                >
-                  <span className="tasklane-priority-rank">{index + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {task.title}
-                  </span>
-                  <button
-                    type="button"
-                    className="tasklane-icon-button"
-                    aria-label={`Move ${task.title} up`}
-                    disabled={index === 0}
-                    onClick={() =>
-                      executeAction('addToMyPriorities', {
-                        task: task.id,
-                        position: index,
-                      })
-                    }
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="tasklane-icon-button"
-                    aria-label={`Move ${task.title} down`}
-                    disabled={index === prioritised.length - 1}
-                    onClick={() =>
-                      executeAction('addToMyPriorities', {
-                        task: task.id,
-                        position: index + 2,
-                      })
-                    }
-                  >
-                    ↓
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
         <section aria-labelledby={`${instanceId}-tasks`}>
           <h3 id={`${instanceId}-tasks`} className="tasklane-section-title">
             Project tasks
@@ -218,7 +153,7 @@ export default function ProjectTasksComponent({
                   task={task}
                   depth={depth}
                   tasks={tasks}
-                  inPriorities={myPriorities.includes(task.id)}
+                  priorityPosition={positionIn(myPriorities, task.id)}
                   draft={draft?.taskId === task.id ? draft : null}
                   confirmingDelete={confirmingDelete === task.id}
                   executeAction={executeAction}
@@ -250,7 +185,8 @@ interface TaskRowProps {
   readonly task: ProjectTask;
   readonly depth: number;
   readonly tasks: readonly ProjectTask[];
-  readonly inPriorities: boolean;
+  /** 1-based place in my priorities, or null when the task is not in them. */
+  readonly priorityPosition: number | null;
   readonly draft: TaskDraft | null;
   readonly confirmingDelete: boolean;
   readonly executeAction: ExecuteAction;
@@ -266,7 +202,7 @@ function TaskRow({
   task,
   depth,
   tasks,
-  inPriorities,
+  priorityPosition,
   draft,
   confirmingDelete,
   executeAction,
@@ -281,6 +217,7 @@ function TaskRow({
     (candidate) => candidate.id !== task.id && !excluded.has(candidate.id),
   );
   const fieldId = `${instanceId}-${task.id}`;
+  const inPriorities = priorityPosition !== null;
 
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
@@ -356,6 +293,14 @@ function TaskRow({
               {task.id}
             </span>
             <span className="tasklane-task-title">{task.title}</span>
+            {inPriorities ? (
+              <span
+                className="tasklane-priority-badge"
+                title={`Priority #${priorityPosition} in my priorities`}
+              >
+                ★{priorityPosition}
+              </span>
+            ) : null}
           </div>
           {task.description ? (
             <p className="tasklane-task-description">{task.description}</p>
@@ -495,4 +440,12 @@ function TaskRow({
       </div>
     </li>
   );
+}
+
+function positionIn(
+  priorities: readonly string[],
+  taskId: string,
+): number | null {
+  const index = priorities.indexOf(taskId);
+  return index === -1 ? null : index + 1;
 }

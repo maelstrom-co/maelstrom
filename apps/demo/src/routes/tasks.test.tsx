@@ -73,7 +73,11 @@ vi.mock('../lib/connector', () => ({
   }),
 }));
 
-const TASKLANE_VESSEL_IDS = ['project-tasks', 'source-feedback'];
+const TASKLANE_VESSEL_IDS = [
+  'my-priorities',
+  'project-tasks',
+  'source-feedback',
+];
 const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');
 
@@ -118,7 +122,7 @@ afterEach(() => {
 });
 
 describe('Tasklane Vessel catalog', () => {
-  it('registers only the Feedback and Tasks Vessels on its own instance', () => {
+  it('registers only the Tasklane Vessels on its own instance', () => {
     expect(tasklaneM.vessels.map((entry) => entry.vessel.id).sort()).toEqual(
       TASKLANE_VESSEL_IDS,
     );

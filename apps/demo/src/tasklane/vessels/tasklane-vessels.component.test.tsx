@@ -11,6 +11,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { myPrioritiesVessel } from './my-priorities.vessel.def';
 import { projectTasksVessel } from './project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './source-feedback.vessel.def';
 
@@ -24,6 +25,7 @@ const handlers = new Map<string, Record<string, Handler>>();
 const TASKLANE_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   'source-feedback': sourceFeedbackVessel,
   'project-tasks': projectTasksVessel,
+  'my-priorities': myPrioritiesVessel,
 };
 
 vi.mock('../maelstrom', () => ({
@@ -51,6 +53,8 @@ const {
 const SourceFeedbackComponent = (await import('./source-feedback.component'))
   .default;
 const ProjectTasksComponent = (await import('./project-tasks.component'))
+  .default;
+const MyPrioritiesComponent = (await import('./my-priorities.component'))
   .default;
 
 beforeEach(() => {
@@ -144,7 +148,7 @@ describe('Tasks Vessel by hand', () => {
         }) as unknown as HTMLSelectElement
       ).value,
     ).toBe('normal');
-    expect(screen.getByText('No tasks in your priorities yet.')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'My priorities' })).toBeNull();
   });
 
   it('reassigns and changes urgency through Actions with task ids', async () => {
@@ -230,17 +234,10 @@ describe('Tasks Vessel by hand', () => {
     expect(parentChoices).toEqual(['none']);
   });
 
-  it('adds to and reorders my priorities without touching urgency', async () => {
+  it('adds to my priorities and badges each prioritised task with its place', async () => {
     const vesselProps = props('project-tasks');
     render(<ProjectTasksComponent {...vesselProps} />);
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole('button', {
-          name: 'Add Update demo README to my priorities',
-        }),
-      );
-    });
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', {
@@ -248,50 +245,33 @@ describe('Tasks Vessel by hand', () => {
         }),
       );
     });
-    expect(vesselProps.executeAction).toHaveBeenCalledWith(
-      'addToMyPriorities',
-      { task: 'TL-1' },
-    );
-
-    const priorities = screen.getByRole('list', { name: 'My priorities' });
-    expect(
-      within(priorities)
-        .getAllByRole('listitem')
-        .map((item) => item.getAttribute('data-task-id')),
-    ).toEqual(['TL-1', 'TL-2']);
-
     await act(async () => {
       fireEvent.click(
-        within(priorities).getByRole('button', {
-          name: 'Move Record launch video up',
+        screen.getByRole('button', {
+          name: 'Add Update demo README to my priorities',
         }),
       );
     });
     expect(vesselProps.executeAction).toHaveBeenCalledWith(
       'addToMyPriorities',
-      { task: 'TL-2', position: 1 },
+      { task: 'TL-2' },
     );
-    expect(getProjectTasksSnapshot().myPriorities).toEqual(['TL-2', 'TL-1']);
-    expect(
-      (
-        within(priorities).getByRole('button', {
-          name: 'Move Record launch video up',
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(priorityBadge('Record launch video')).toBe('★1');
+    expect(priorityBadge('Update demo README')).toBe('★2');
 
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', {
-          name: 'Remove Update demo README from my priorities',
+          name: 'Remove Record launch video from my priorities',
         }),
       );
     });
     expect(vesselProps.executeAction).toHaveBeenCalledWith(
       'removeFromMyPriorities',
-      { task: 'TL-1' },
+      { task: 'TL-2' },
     );
-    expect(getProjectTasksSnapshot().myPriorities).toEqual(['TL-2']);
+    expect(priorityBadge('Record launch video')).toBeNull();
+    expect(priorityBadge('Update demo README')).toBe('★1');
     expect(getProjectTasksSnapshot().tasks.map((task) => task.urgency)).toEqual(
       ['normal', 'normal'],
     );
@@ -415,6 +395,97 @@ describe('Tasks Vessel by hand', () => {
   });
 });
 
+describe('My priorities Vessel', () => {
+  it('says when there are no priorities yet', () => {
+    render(<MyPrioritiesComponent {...props('my-priorities')} />);
+    expect(screen.getByText('No tasks in your priorities yet.')).toBeTruthy();
+  });
+
+  it('lists my priorities in order and reorders them without touching urgency', async () => {
+    projectTaskActions.addToMyPriorities('TL-1');
+    projectTaskActions.addToMyPriorities('TL-2');
+    const vesselProps = props('my-priorities');
+    render(<MyPrioritiesComponent {...vesselProps} />);
+
+    const priorities = screen.getByRole('list', { name: 'My priorities' });
+    expect(
+      within(priorities)
+        .getAllByRole('listitem')
+        .map((item) => item.getAttribute('data-task-id')),
+    ).toEqual(['TL-1', 'TL-2']);
+    expect(
+      (
+        within(priorities).getByRole('button', {
+          name: 'Move Update demo README up',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(
+        within(priorities).getByRole('button', {
+          name: 'Move Record launch video up',
+        }),
+      );
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith(
+      'addToMyPriorities',
+      { task: 'TL-2', position: 1 },
+    );
+    expect(getProjectTasksSnapshot().myPriorities).toEqual(['TL-2', 'TL-1']);
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Remove Record launch video from my priorities',
+        }),
+      );
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith(
+      'removeFromMyPriorities',
+      { task: 'TL-2' },
+    );
+    expect(getProjectTasksSnapshot().myPriorities).toEqual(['TL-1']);
+    expect(getProjectTasksSnapshot().tasks.map((task) => task.urgency)).toEqual(
+      ['normal', 'normal'],
+    );
+  });
+
+  it('shows the strip variant as one compact line without controls', () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.addToMyPriorities('TL-1');
+    render(
+      <MyPrioritiesComponent
+        {...props('my-priorities', 'priorities-strip', 'strip')}
+      />,
+    );
+
+    const strip = screen.getByRole('list', { name: 'My priorities' });
+    expect(
+      within(strip)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['1Record launch video', '2Update demo README']);
+    expect(screen.queryAllByRole('button')).toEqual([]);
+  });
+
+  it('runs priority Actions sent by the Planner', async () => {
+    render(<MyPrioritiesComponent {...props('my-priorities')} />);
+    expect(
+      await invoke('my-priorities', 'addToMyPriorities', { task: 'TL-2' }),
+    ).toMatchObject({ ok: true });
+    expect(
+      within(screen.getByRole('list', { name: 'My priorities' }))
+        .getAllByRole('listitem')
+        .map((item) => item.getAttribute('data-task-id')),
+    ).toEqual(['TL-2']);
+    const missing = await invoke('my-priorities', 'removeFromMyPriorities', {
+      task: 'TL-1',
+    });
+    expect(missing?.error?.message).toContain('is not in your priorities');
+  });
+});
+
 describe('Tasks Vessel through Actions', () => {
   it('creates a parent and children under it by title in plan order', async () => {
     render(<ProjectTasksComponent {...props('project-tasks')} />);
@@ -474,6 +545,7 @@ describe('Tasks Vessel through Actions', () => {
   it('registers a runner for every Action each definition declares', () => {
     render(<SourceFeedbackComponent {...props('source-feedback')} />);
     render(<ProjectTasksComponent {...props('project-tasks')} />);
+    render(<MyPrioritiesComponent {...props('my-priorities')} />);
 
     const registered = Object.fromEntries(
       Object.keys(TASKLANE_VESSELS).map((vesselId) => [
@@ -522,6 +594,7 @@ interface TestVesselProps {
 function props(
   vesselId: string,
   instanceId = 'test',
+  variant = TASKLANE_VESSELS[vesselId]?.defaultVariant ?? 'default',
 ): TestVesselProps & TypedVesselProps<never> {
   const executeAction = vi.fn(
     (name: string, params?: Record<string, unknown>) => {
@@ -530,7 +603,7 @@ function props(
   );
   return {
     instanceId,
-    variantProps: { variant: 'default' },
+    variantProps: { variant },
     executeAction,
   } as unknown as TestVesselProps & TypedVesselProps<never>;
 }
@@ -559,6 +632,13 @@ function taskRow(title: string): HTMLElement {
     );
   if (!row) throw new Error(`no task row titled ${title}`);
   return row;
+}
+
+function priorityBadge(title: string): string | null {
+  return (
+    taskRow(title).querySelector('.tasklane-priority-badge')?.textContent ??
+    null
+  );
 }
 
 function declaredActionNames(vessel: VesselDefinition): string[] {

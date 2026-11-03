@@ -392,6 +392,60 @@
   text-align: right;
 }
 
+.tasklane-app .tasklane-priority-badge {
+  flex: 0 0 auto;
+  color: var(--color-amber);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+/* My priorities Vessel, strip variant */
+.tasklane-app .tasklane-priority-strip {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.tasklane-app .tasklane-priority-strip-label {
+  flex: 0 0 auto;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasklane-app .tasklane-priority-strip-list {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  gap: 14px;
+  list-style: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tasklane-app .tasklane-priority-strip-item {
+  display: flex;
+  min-width: 0;
+  max-width: 24ch;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.tasklane-app .tasklane-priority-strip-item .tasklane-priority-rank {
+  width: auto;
+}
+
 .tasklane-app .tasklane-task {
   display: grid;
   min-width: 0;

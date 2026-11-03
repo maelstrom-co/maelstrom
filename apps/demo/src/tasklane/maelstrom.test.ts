@@ -62,8 +62,12 @@ const { tasklaneRequestActivity } = await import('./request-activity');
 type Opening = (context: { provider: string }) => unknown;
 
 describe('Tasklane instance', () => {
-  it('registers exactly the Feedback and Tasks Vessels', () => {
-    expect(state.vesselIds).toEqual(['source-feedback', 'project-tasks']);
+  it('registers exactly the Tasklane Vessels', () => {
+    expect(state.vesselIds).toEqual([
+      'source-feedback',
+      'project-tasks',
+      'my-priorities',
+    ]);
   });
 
   it('installs realtime, request activity, its own telemetry, then devtools', () => {

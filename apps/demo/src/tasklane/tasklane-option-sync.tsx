@@ -16,12 +16,15 @@ import {
   taskReferenceLabel,
   useProjectTasksStore,
 } from './stores/project-tasks.store';
+import { myPrioritiesVessel } from './vessels/my-priorities.vessel.def';
 import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
 
 export const TASK_SUMMARY_CHARACTER_LIMIT = 1500;
 export const TASK_SUMMARY_HEADING =
   '\n\nCurrent task records, kept up to date after every change:\n';
+export const MY_PRIORITIES_HEADING =
+  '\n\nCurrent priorities, top first, kept up to date after every change:\n';
 export const FEEDBACK_DESCRIPTION_HEADING =
   '\n\nCurrent feedback snapshot, the text "this feedback" refers to:\n';
 
@@ -35,6 +38,10 @@ const TASK_PARAMETER_ACTIONS = [
   'removeFromMyPriorities',
   'removeTask',
 ] as const;
+const PRIORITY_PARAMETER_ACTIONS = [
+  'addToMyPriorities',
+  'removeFromMyPriorities',
+] as const;
 const SUMMARY_DESCRIPTION_LIMIT = 60;
 
 /**
@@ -46,10 +53,7 @@ const SUMMARY_DESCRIPTION_LIMIT = 60;
 export function projectTasksDefinition(
   state: ProjectTasksState,
 ): typeof projectTasksVessel {
-  const references = cleanOptionValues(
-    state.tasks.map((task) => taskReferenceLabel(task, state.myPriorities)),
-    'project-tasks',
-  );
+  const references = taskReferences(state, 'project-tasks');
   const withReferences = withActionOptions(
     projectTasksVessel,
     Object.fromEntries(
@@ -59,6 +63,26 @@ export function projectTasksDefinition(
   return {
     ...withReferences,
     description: `${projectTasksVessel.description}${taskSummary(state)}`,
+  };
+}
+
+/** The My priorities definition with the live task references and the ordered list. */
+export function myPrioritiesDefinition(
+  state: ProjectTasksState,
+): typeof myPrioritiesVessel {
+  const references = taskReferences(state, 'my-priorities');
+  const withReferences = withActionOptions(
+    myPrioritiesVessel,
+    Object.fromEntries(
+      PRIORITY_PARAMETER_ACTIONS.map((action) => [
+        action,
+        { task: references },
+      ]),
+    ),
+  );
+  return {
+    ...withReferences,
+    description: `${myPrioritiesVessel.description}${MY_PRIORITIES_HEADING}${prioritySummary(state)}`,
   };
 }
 
@@ -72,18 +96,25 @@ export function sourceFeedbackDefinition(
   };
 }
 
-/** Renders nothing. Republishes both definitions whenever the records change. */
+/** Renders nothing. Republishes every Tasklane definition whenever the records change. */
 export function TasklaneOptionSync() {
   const tasksState = useProjectTasksStore();
   const feedbackState = useFeedbackStore();
   const isProcessing = tasklaneM.useMaelstrom((state) => state.isProcessing);
 
   const tasksDefinition = projectTasksDefinition(tasksState);
+  const prioritiesDefinition = myPrioritiesDefinition(tasksState);
   const feedbackDefinition = sourceFeedbackDefinition(feedbackState);
   const tasksKey = optionKey([
     tasksDefinition.description,
     ...TASK_PARAMETER_ACTIONS.map((action) =>
       JSON.stringify(taskEnum(tasksDefinition, action)),
+    ),
+  ]);
+  const prioritiesKey = optionKey([
+    prioritiesDefinition.description,
+    ...PRIORITY_PARAMETER_ACTIONS.map((action) =>
+      JSON.stringify(taskEnum(prioritiesDefinition, action)),
     ),
   ]);
   const feedbackKey = optionKey([feedbackDefinition.description]);
@@ -93,11 +124,40 @@ export function TasklaneOptionSync() {
     [tasksKey, isProcessing],
   );
   useEffect(
+    () =>
+      republishWithRetry(() => tasklaneM.updateVessel(prioritiesDefinition)),
+    [prioritiesKey, isProcessing],
+  );
+  useEffect(
     () => republishWithRetry(() => tasklaneM.updateVessel(feedbackDefinition)),
     [feedbackKey, isProcessing],
   );
 
   return null;
+}
+
+function taskReferences(state: ProjectTasksState, label: string): string[] {
+  return cleanOptionValues(
+    state.tasks.map((task) => taskReferenceLabel(task, state.myPriorities)),
+    label,
+  );
+}
+
+function prioritySummary(state: ProjectTasksState): string {
+  const byId = new Map(state.tasks.map((task) => [task.id, task]));
+  const lines = state.myPriorities.flatMap((id, index) => {
+    const task = byId.get(id);
+    return task ? [`#${index + 1} ${task.id} "${shorten(task.title)}"`] : [];
+  });
+  if (lines.length === 0) return 'None yet.';
+  let summary = '';
+  for (const [index, line] of lines.entries()) {
+    const remaining = lines.length - index;
+    if (summary.length + line.length > TASK_SUMMARY_CHARACTER_LIMIT)
+      return `${summary}and ${remaining} more.`;
+    summary += `${line}\n`;
+  }
+  return summary.trimEnd();
 }
 
 function taskSummary(state: ProjectTasksState): string {

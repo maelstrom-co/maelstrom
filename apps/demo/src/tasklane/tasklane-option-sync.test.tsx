@@ -33,6 +33,8 @@ vi.mock('./maelstrom', () => ({
 
 const {
   FEEDBACK_DESCRIPTION_HEADING,
+  MY_PRIORITIES_HEADING,
+  myPrioritiesDefinition,
   projectTasksDefinition,
   sourceFeedbackDefinition,
   TASK_SUMMARY_CHARACTER_LIMIT,
@@ -53,6 +55,9 @@ const {
 } = await import('./stores/feedback.store');
 const { projectTasksVessel } = await import(
   './vessels/project-tasks.vessel.def'
+);
+const { myPrioritiesVessel } = await import(
+  './vessels/my-priorities.vessel.def'
 );
 const { sourceFeedbackVessel } = await import(
   './vessels/source-feedback.vessel.def'
@@ -184,6 +189,50 @@ describe('projectTasksDefinition', () => {
   });
 });
 
+describe('myPrioritiesDefinition', () => {
+  it('publishes the task references on both priority Actions', () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    const definition = myPrioritiesDefinition(getProjectTasksSnapshot());
+    for (const action of ['addToMyPriorities', 'removeFromMyPriorities']) {
+      expect(taskEnum(definition, action), action).toEqual([
+        'TL-1 Update demo README (Alex, normal, not in priorities)',
+        'TL-2 Record launch video (Sam, normal, priority #1)',
+      ]);
+    }
+    expect(Object.keys(definition.variants)).toEqual(['list', 'strip']);
+  });
+
+  it('appends the ordered priorities to the description', () => {
+    expect(myPrioritiesDefinition(getProjectTasksSnapshot()).description).toBe(
+      `${myPrioritiesVessel.description}${MY_PRIORITIES_HEADING}None yet.`,
+    );
+
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.addToMyPriorities('TL-1');
+    expect(myPrioritiesDefinition(getProjectTasksSnapshot()).description).toBe(
+      `${myPrioritiesVessel.description}${MY_PRIORITIES_HEADING}#1 TL-2 "Record launch video"\n#2 TL-1 "Update demo README"`,
+    );
+  });
+
+  it('bounds a long priorities list and says how many it left out', () => {
+    for (let i = 0; i < 60; i++) {
+      const created = projectTaskActions.createTask({
+        title: `A fairly long generated task title number ${i}`,
+      });
+      if (created.ok) projectTaskActions.addToMyPriorities(created.task.id);
+    }
+    const { description } = myPrioritiesDefinition(getProjectTasksSnapshot());
+    const summary = description.slice(
+      myPrioritiesVessel.description.length + MY_PRIORITIES_HEADING.length,
+    );
+    expect(summary.length).toBeLessThanOrEqual(
+      TASK_SUMMARY_CHARACTER_LIMIT + 20,
+    );
+    expect(summary).toMatch(/^#1 TL-3 /);
+    expect(summary).toMatch(/and \d+ more\.$/);
+  });
+});
+
 describe('sourceFeedbackDefinition', () => {
   it('appends the current feedback snapshot to the description', () => {
     feedbackActions.replaceFeedback('Users want dark mode.\nAnd faster loads.');
@@ -207,13 +256,20 @@ describe('sourceFeedbackDefinition', () => {
 describe('TasklaneOptionSync', () => {
   it('republishes both definitions on mount and after a store change', () => {
     render(<TasklaneOptionSync />);
-    expect(publishedIds()).toEqual(['project-tasks', 'source-feedback']);
+    expect(publishedIds()).toEqual([
+      'my-priorities',
+      'project-tasks',
+      'source-feedback',
+    ]);
 
+    sync.published = [];
     act(() => {
       projectTaskActions.assignTask('TL-1', 'sam');
     });
-    const latest = sync.published.at(-1) as VesselDefinition;
-    expect(latest.id).toBe('project-tasks');
+    expect(publishedIds()).toEqual(['my-priorities', 'project-tasks']);
+    const latest = sync.published.find(
+      (vessel) => vessel.id === 'project-tasks',
+    ) as VesselDefinition;
     expect(taskEnum(latest, 'assignTask')?.[0]).toBe(
       'TL-1 Update demo README (Sam, normal, not in priorities)',
     );

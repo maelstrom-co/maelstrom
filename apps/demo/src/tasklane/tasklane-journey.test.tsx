@@ -14,7 +14,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
@@ -245,12 +244,11 @@ describe('Tasklane journey from feedback to my priorities', () => {
       mine.map((title) => task(title).id),
     );
     expect(
-      within(screen.getByRole('list', { name: 'My priorities' }))
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual(
-      mine.map((title, i) => expect.stringContaining(`${i + 1}${title}`)),
-    );
+      mine.map(
+        (title) =>
+          taskRow(title).querySelector('.tasklane-priority-badge')?.textContent,
+      ),
+    ).toEqual(mine.map((_, i) => `★${i + 1}`));
 
     // 5. Reassign one task to Alex by hand, then ask about "my tasks".
     const reassigned = 'Make task and journal controls interactive';

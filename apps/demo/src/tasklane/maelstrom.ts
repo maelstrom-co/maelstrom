@@ -12,6 +12,7 @@ import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { TASKLANE_CELL_SIZE_PX } from './default-layout';
 import { tasklaneRequestActivity } from './request-activity';
+import { myPrioritiesEntry } from './vessels/my-priorities.vessel';
 import { projectTasksEntry } from './vessels/project-tasks.vessel';
 import { sourceFeedbackEntry } from './vessels/source-feedback.vessel';
 import {
@@ -43,7 +44,7 @@ export function tasklaneVoiceOpening({
 // its factory's whole Vessel list as the Engine catalog on every chart
 // request, so this keeps other pages' Vessels out of the Tasklane prompt.
 export const tasklaneM = createMaelstrom({
-  vessels: [sourceFeedbackEntry, projectTasksEntry] as const,
+  vessels: [sourceFeedbackEntry, projectTasksEntry, myPrioritiesEntry] as const,
   cellSizePx: TASKLANE_CELL_SIZE_PX,
 })
   .with(
