@@ -5,8 +5,14 @@ import { useTasksStore } from '../vessels/tasks.store';
 import { CAPABILITY_NOTE } from './capability-note';
 import { DemoHeader } from './demo-header';
 import { KeylessVoiceProviderSelect } from './voice-provider-select';
+import {
+  type WorkspaceProtocol,
+  WorkspaceProtocolSelect,
+} from './workspace-protocol-select';
 
 interface KeylessDemoProps {
+  readonly protocol: WorkspaceProtocol;
+  readonly onProtocolChange: (protocol: WorkspaceProtocol) => void;
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
   readonly onRequireKey: () => void;
@@ -14,6 +20,8 @@ interface KeylessDemoProps {
 }
 
 export function KeylessDemo({
+  protocol,
+  onProtocolChange,
   intent,
   onIntentChange,
   onRequireKey,
@@ -34,6 +42,7 @@ export function KeylessDemo({
   return (
     <div className="demo-shell keyless-shell relative z-[2]">
       <DemoHeader>
+        <WorkspaceProtocolSelect value={protocol} onChange={onProtocolChange} />
         <KeylessVoiceProviderSelect options={availableVoiceProviders()} />
         <button
           type="button"
