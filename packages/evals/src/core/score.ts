@@ -167,8 +167,9 @@ function compareVariants(
 }
 
 // Mirrors the Engine's layout_variant_and_action_transition_conflict warning:
-// the first transition Action, looked up on the request Variant and then the
-// Layout Variant, whose target is not the Layout Variant.
+// the first Action whose transition, looked up on the Layout Variant, targets
+// another Variant. The client applies the Layout first, so Actions resolve
+// there.
 function doubleSwitches(
   scenario: Scenario,
   layout: TilingLayout,
@@ -195,17 +196,18 @@ function doubleSwitches(
     const vessel = request.vessels.find(
       (candidate) => candidate.id === requested.vesselId,
     );
-    if (vessel === undefined) return [];
+    if (
+      vessel === undefined ||
+      !Object.hasOwn(vessel.variants, declared.variant)
+    ) {
+      return [];
+    }
+    const layoutActions = vessel.variants[declared.variant].actions;
     for (const step of executionPlan) {
       if (step.instanceId !== requested.instanceId) continue;
-      const target = [requested.variant, declared.variant]
-        .filter((variant) => Object.hasOwn(vessel.variants, variant))
-        .map((variant) =>
-          vessel.variants[variant].actions.find(
-            (action) => action.name === step.action,
-          ),
-        )
-        .find((definition) => definition !== undefined)?.transitionsTo;
+      const target = layoutActions.find(
+        (action) => action.name === step.action,
+      )?.transitionsTo;
       if (target !== undefined && target !== declared.variant) {
         return [
           {

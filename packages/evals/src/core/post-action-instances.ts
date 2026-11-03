@@ -62,6 +62,11 @@ export function postActionLayout(
  * carries it: the response's Layout with the execution plan's transitions
  * applied (see {@link postActionLayout}), and its tiling Instances. Both are
  * deep copies. A grid Layout carries no Instances.
+ *
+ * The carried tiling Layout mirrors the client, which keeps its stored Layout
+ * as applied but rebuilds the request's `layout.instances` Variants from the
+ * live Instances when it builds a request, so both name the post-action
+ * Variant.
  */
 export function carriedForwardChartState(
   previous: Pick<MaelstromResponse, 'layout' | 'executionPlan'>,
