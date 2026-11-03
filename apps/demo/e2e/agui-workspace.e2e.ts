@@ -11,6 +11,7 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
   const operations: string[] = [];
   const vessels = new Set<string>();
   const retired: string[] = [];
+  const nativeActions: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
@@ -25,6 +26,8 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
     navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
   });
   await page.routeWebSocket('**/ws?*', (socket) => {
+    let native = false;
+    let nativeVariant = 'day';
     const engine = createEngine({
       retry: false,
       history: { store: createInMemoryStore(), maxEntries: 20 },
@@ -33,6 +36,39 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
         const task = request.context.updateReasons.some(
           (r) => r.type === 'user_intent',
         );
+        if (native) {
+          const showWeek = request.context.updateReasons.some(
+            (reason) =>
+              reason.type === 'user_intent' &&
+              reason.intent.includes('Show calendar week view'),
+          );
+          if (showWeek) nativeVariant = 'week';
+          return ok(
+            TilingResponseSchema.parse({
+              userMessage: 'Calendar view updated',
+              rationale: 'Browser transition fixture',
+              layout: {
+                tree: ['ID:calendar-main'],
+                instances: [
+                  {
+                    instanceId: 'calendar-main',
+                    vesselId: 'calendar',
+                    variant: nativeVariant,
+                  },
+                ],
+              },
+              executionPlan: showWeek
+                ? [
+                    {
+                      instanceId: 'calendar-main',
+                      action: 'showWeek',
+                      paramsJson: '{}',
+                    },
+                  ]
+                : [],
+            }),
+          );
+        }
         return ok(
           TilingResponseSchema.parse({
             userMessage: 'Fixture workspace updated',
@@ -68,6 +104,7 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
     });
     socket.onMessage(async (raw) => {
       const parsed = JSON.parse(String(raw));
+      if (parsed.type === 'chart_request') native = true;
       if (parsed.type === 'demo.agui.run')
         operations.push(parsed.input.forwardedProps.kind);
       const result = await dispatchFrame(raw, {
@@ -83,7 +120,17 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
         },
       });
       if (result.kind === 'hello') hello = true;
-      if (result.kind === 'reply') socket.send(result.wire);
+      if (result.kind === 'reply') {
+        const reply = JSON.parse(result.wire);
+        if (native && reply.type === 'engine.maelstrom.response') {
+          nativeActions.push(
+            ...reply.response.executionPlan.map(
+              (action: { action: string }) => action.action,
+            ),
+          );
+        }
+        socket.send(result.wire);
+      }
       if (result.kind === 'close')
         socket.close({ code: result.code, reason: result.reason });
     });
@@ -137,5 +184,12 @@ test('runs the hosted demo through AG-UI and returns to the normal protocol', as
   await expect(
     page.getByRole('combobox', { name: 'Voice provider' }),
   ).toBeVisible();
+  await intent.fill('Show calendar week view');
+  await intent.press('Enter');
+  await expect(page.getByText('Week View', { exact: true })).toBeVisible();
+  await expect(page.locator('.assistant-response-layer')).toContainText(
+    '“Show calendar week view”: Applied',
+  );
+  expect(nativeActions).toContain('showWeek');
   expect(errors).toEqual([]);
 });
