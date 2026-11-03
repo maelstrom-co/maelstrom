@@ -325,7 +325,7 @@ test('JSON weather turns, expectations and fixture state actually drive executio
 test('JSON client expectations are scored, never substituted as observed effects', async () => {
   expect((await run('client-order')).evaluation).toBe('pass');
   const data = json('client-order.json');
-  data.expectations.effects[0].variant = 'summary';
+  data.expectations.effects[0].variant = 'breakdown';
   save('client-order.json', data);
   const failed = await run('client-order');
   expect(failed.evaluation).toBe('fail');
@@ -334,7 +334,7 @@ test('JSON client expectations are scored, never substituted as observed effects
     effects: expect.arrayContaining([
       expect.objectContaining({
         action: 'openBreakdown',
-        variant: 'breakdown',
+        variant: 'summary',
       }),
       expect.objectContaining({ action: 'configure', variant: 'current' }),
     ]),
