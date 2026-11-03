@@ -5,6 +5,7 @@ import type {
   InstanceId,
   Result,
   TilingLayout,
+  VariantName,
   VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -14,7 +15,6 @@ import {
   findFirstDuplicateTilingLeaf,
   ok,
   toError,
-  VariantName,
 } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
@@ -31,6 +31,7 @@ import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
+import { resolveActionOnVariant } from './action-variant-resolution.js';
 import type { CommandBatchResult } from './command-batch-result.js';
 import {
   type CommandProcessingState,
@@ -677,23 +678,5 @@ function resolveActionVariant(
       variant: instance.variant,
     };
   }
-  const definition = Object.hasOwn(vessel.variants, instance.variant)
-    ? vessel.variants[instance.variant]?.actions.find(
-        (candidate) => candidate.name === action,
-      )
-    : undefined;
-  if (!definition) {
-    return { status: 'action_not_on_variant', variant: instance.variant };
-  }
-  const target = definition.transitionsTo;
-  return {
-    status: 'available',
-    variant: instance.variant,
-    transition:
-      target === undefined
-        ? { kind: 'none' }
-        : Object.hasOwn(vessel.variants, target)
-          ? { kind: 'to', variant: VariantName(target) }
-          : { kind: 'unknown_target', target },
-  };
+  return resolveActionOnVariant(vessel, instance.variant, action);
 }
