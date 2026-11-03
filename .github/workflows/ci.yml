@@ -81,6 +81,39 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
+      # Some docs unit tests launch Chromium: the browser grader in
+      # apps/docs/prompts/evaluation/graders/browser-case.mjs, exercised by
+      # browser-case.test.ts and index.test.ts. Playwright installs only when
+      # that project is in scope.
+      - name: Select browser need
+        id: browser-need
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            browser=$(bunx nx show projects --affected --projects=@maelstrom-co/docs --json | jq 'length > 0')
+          else
+            browser=true
+          fi
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
+
+      - name: Read Playwright version
+        id: playwright
+        if: steps.browser-need.outputs.browser == 'true'
+        run: echo "version=$(jq -r .version node_modules/@playwright/test/package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        if: steps.browser-need.outputs.browser == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Playwright browser
+        if: steps.browser-need.outputs.browser == 'true'
+        run: bunx playwright install --with-deps chromium
+        working-directory: apps/docs
+
       # Pull requests run Nx's task-based affected selection, so each target
       # runs only when its own inputs changed. Pushes to main run everything.
       #

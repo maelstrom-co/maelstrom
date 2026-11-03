@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 
 type Step = {
   name?: string;
+  id?: string;
+  'working-directory'?: string;
   if?: string;
   run?: string;
   env?: Record<string, string>;
@@ -63,4 +65,27 @@ test('the starter consumer check in e2e stays gated on docs', async () => {
     s.run?.includes('verify-starter-consumer.ts'),
   )!;
   expect(step.if).toContain("steps.scope.outputs.docs == 'true'");
+});
+
+test('verify installs Playwright before nx when a docs unit test needs a browser', async () => {
+  const workflow = await readCi();
+  const steps = workflow.jobs.verify!.steps;
+  const need = steps.find((s) => s.id === 'browser-need')!;
+  expect(need.run).toContain('--projects=@maelstrom-co/docs');
+  expect(need.run).not.toContain('${{');
+  expect(need.env?.EVENT_NAME).toBe(`\${{ github.event_name }}`);
+
+  const install = steps.find((s) => s.run?.includes('playwright install'))!;
+  expect(install.if).toContain("steps.browser-need.outputs.browser == 'true'");
+  const e2eInstall = workflow.jobs.e2e!.steps.find((s) =>
+    s.run?.includes('playwright install'),
+  )!;
+  expect(install.run).toBe(e2eInstall.run);
+  expect(install['working-directory']).toBe(e2eInstall['working-directory']);
+
+  const nxIndex = steps.indexOf(
+    nxStep(workflow, 'verify', 'check test build typecheck check-links'),
+  );
+  expect(steps.indexOf(need)).toBeLessThan(steps.indexOf(install));
+  expect(steps.indexOf(install)).toBeLessThan(nxIndex);
 });
