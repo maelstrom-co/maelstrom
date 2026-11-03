@@ -399,6 +399,65 @@
   font-size: 11px;
 }
 
+/* Task detail Vessel */
+.tasklane-app .tasklane-detail {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.tasklane-app .tasklane-detail-title {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.tasklane-app .tasklane-detail-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.tasklane-app .tasklane-detail-fields dt {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.tasklane-app .tasklane-detail-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.tasklane-app .tasklane-detail-quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--color-brand-3);
+  color: var(--color-ink-2);
+  font-size: 13px;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.tasklane-app .tasklane-detail-link {
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+
+.tasklane-app .tasklane-detail-link:focus-visible {
+  outline: 2px solid var(--color-brand-2);
+  outline-offset: 1px;
+}
+
 /* My priorities Vessel, strip variant */
 .tasklane-app .tasklane-priority-strip {
   display: flex;

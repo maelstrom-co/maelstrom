@@ -19,6 +19,7 @@ import {
 import { myPrioritiesVessel } from './vessels/my-priorities.vessel.def';
 import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
+import { taskDetailVessel } from './vessels/task-detail.vessel.def';
 
 export const TASK_SUMMARY_CHARACTER_LIMIT = 1500;
 export const TASK_SUMMARY_HEADING =
@@ -86,6 +87,15 @@ export function myPrioritiesDefinition(
   };
 }
 
+/** The Task detail definition with the live task references on showTask. */
+export function taskDetailDefinition(
+  state: ProjectTasksState,
+): typeof taskDetailVessel {
+  return withActionOptions(taskDetailVessel, {
+    showTask: { task: taskReferences(state, 'task-detail') },
+  });
+}
+
 /** The Feedback definition with the current snapshot, which the Planner cannot read from the page. */
 export function sourceFeedbackDefinition(
   state: FeedbackState,
@@ -104,6 +114,7 @@ export function TasklaneOptionSync() {
 
   const tasksDefinition = projectTasksDefinition(tasksState);
   const prioritiesDefinition = myPrioritiesDefinition(tasksState);
+  const detailDefinition = taskDetailDefinition(tasksState);
   const feedbackDefinition = sourceFeedbackDefinition(feedbackState);
   const tasksKey = optionKey([
     tasksDefinition.description,
@@ -117,6 +128,9 @@ export function TasklaneOptionSync() {
       JSON.stringify(taskEnum(prioritiesDefinition, action)),
     ),
   ]);
+  const detailKey = optionKey([
+    JSON.stringify(taskEnum(detailDefinition, 'showTask')),
+  ]);
   const feedbackKey = optionKey([feedbackDefinition.description]);
 
   useEffect(
@@ -127,6 +141,10 @@ export function TasklaneOptionSync() {
     () =>
       republishWithRetry(() => tasklaneM.updateVessel(prioritiesDefinition)),
     [prioritiesKey, isProcessing],
+  );
+  useEffect(
+    () => republishWithRetry(() => tasklaneM.updateVessel(detailDefinition)),
+    [detailKey, isProcessing],
   );
   useEffect(
     () => republishWithRetry(() => tasklaneM.updateVessel(feedbackDefinition)),

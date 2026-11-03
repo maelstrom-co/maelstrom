@@ -36,6 +36,7 @@ const {
   MY_PRIORITIES_HEADING,
   myPrioritiesDefinition,
   projectTasksDefinition,
+  taskDetailDefinition,
   sourceFeedbackDefinition,
   TASK_SUMMARY_CHARACTER_LIMIT,
   TASK_SUMMARY_HEADING,
@@ -59,6 +60,7 @@ const { projectTasksVessel } = await import(
 const { myPrioritiesVessel } = await import(
   './vessels/my-priorities.vessel.def'
 );
+const { taskDetailVessel } = await import('./vessels/task-detail.vessel.def');
 const { sourceFeedbackVessel } = await import(
   './vessels/source-feedback.vessel.def'
 );
@@ -233,6 +235,17 @@ describe('myPrioritiesDefinition', () => {
   });
 });
 
+describe('taskDetailDefinition', () => {
+  it('publishes the task references on showTask and keeps the description', () => {
+    const definition = taskDetailDefinition(getProjectTasksSnapshot());
+    expect(taskEnum(definition, 'showTask')).toEqual([
+      'TL-1 Update demo README (Alex, normal, not in priorities)',
+      'TL-2 Record launch video (Sam, normal, not in priorities)',
+    ]);
+    expect(definition.description).toBe(taskDetailVessel.description);
+  });
+});
+
 describe('sourceFeedbackDefinition', () => {
   it('appends the current feedback snapshot to the description', () => {
     feedbackActions.replaceFeedback('Users want dark mode.\nAnd faster loads.');
@@ -260,13 +273,18 @@ describe('TasklaneOptionSync', () => {
       'my-priorities',
       'project-tasks',
       'source-feedback',
+      'task-detail',
     ]);
 
     sync.published = [];
     act(() => {
       projectTaskActions.assignTask('TL-1', 'sam');
     });
-    expect(publishedIds()).toEqual(['my-priorities', 'project-tasks']);
+    expect(publishedIds()).toEqual([
+      'my-priorities',
+      'project-tasks',
+      'task-detail',
+    ]);
     const latest = sync.published.find(
       (vessel) => vessel.id === 'project-tasks',
     ) as VesselDefinition;

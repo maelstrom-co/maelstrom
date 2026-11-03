@@ -12,6 +12,7 @@ import {
   type TaskFailure,
   taskSummary,
 } from './stores/project-tasks.store';
+import type { OpenTaskDetailResult } from './stores/task-detail.store';
 import {
   type ChangeDescription,
   recordChange,
@@ -37,6 +38,7 @@ const VERBS: Readonly<Record<string, string>> = {
   addToMyPriorities: 'add to your priorities',
   removeFromMyPriorities: 'remove from your priorities',
   removeTask: 'delete',
+  showTask: 'open',
 };
 
 /**
@@ -100,6 +102,12 @@ export function reportRemoveTask(result: RemoveTaskResult) {
     subject: result.task.title,
     subjectId: result.task.id,
   });
+  return ok(undefined);
+}
+
+/** Opening a task changes no data, so only a failure reaches the receipt line. */
+export function reportShowTask(result: OpenTaskDetailResult) {
+  if (!result.ok) return fail('showTask', result);
   return ok(undefined);
 }
 

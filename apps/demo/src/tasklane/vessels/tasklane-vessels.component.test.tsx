@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { myPrioritiesVessel } from './my-priorities.vessel.def';
 import { projectTasksVessel } from './project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './source-feedback.vessel.def';
+import { taskDetailVessel } from './task-detail.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
@@ -26,6 +27,7 @@ const TASKLANE_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   'source-feedback': sourceFeedbackVessel,
   'project-tasks': projectTasksVessel,
   'my-priorities': myPrioritiesVessel,
+  'task-detail': taskDetailVessel,
 };
 
 vi.mock('../maelstrom', () => ({
@@ -56,11 +58,15 @@ const ProjectTasksComponent = (await import('./project-tasks.component'))
   .default;
 const MyPrioritiesComponent = (await import('./my-priorities.component'))
   .default;
+const TaskDetailComponent = (await import('./task-detail.component')).default;
+const { __resetTaskDetailStoreForTests, selectedTaskId, taskDetailActions } =
+  await import('../stores/task-detail.store');
 
 beforeEach(() => {
   handlers.clear();
   __resetProjectTasksStoreForTests();
   __resetFeedbackStoreForTests();
+  __resetTaskDetailStoreForTests();
 });
 
 afterEach(cleanup);
@@ -486,6 +492,108 @@ describe('My priorities Vessel', () => {
   });
 });
 
+describe('Task detail Vessel', () => {
+  it('asks for a task until showTask runs', () => {
+    render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
+    expect(screen.getByText(/No task open yet/)).toBeTruthy();
+  });
+
+  it('shows every field of the task the receiving Instance was sent', async () => {
+    projectTaskActions.createTask({
+      title: 'Add a compact weather view',
+      description: 'A one-line weather variant.',
+      parent: 'TL-1',
+      assignee: 'chris',
+      urgency: 'high',
+      source: 'I wanted a small one-line version.',
+    });
+    projectTaskActions.createTask({
+      title: 'Measure the strip',
+      parent: 'TL-3',
+    });
+    projectTaskActions.setStatus('TL-3', 'doing');
+    render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
+
+    expect(
+      await invoke('task-detail', 'showTask', { task: 'TL-3' }),
+    ).toMatchObject({ ok: true });
+    expect(selectedTaskId('detail-1')).toBe('TL-3');
+
+    const detail = screen.getByRole('article', {
+      name: 'TL-3 Add a compact weather view',
+    });
+    const fields = within(detail);
+    expect(fields.getByText('Chris')).toBeTruthy();
+    expect(fields.getByText('high')).toBeTruthy();
+    expect(fields.getByText('In progress')).toBeTruthy();
+    expect(fields.getByText('A one-line weather variant.')).toBeTruthy();
+    expect(
+      fields.getByRole('button', { name: 'Open TL-1 Update demo README' }),
+    ).toBeTruthy();
+    expect(detail.querySelector('blockquote')?.textContent).toBe(
+      'I wanted a small one-line version.',
+    );
+    expect(
+      within(fields.getByRole('list', { name: 'Subtasks' }))
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['TL-4 Measure the strip']);
+  });
+
+  it('opens a subtask in the same Instance when clicked', async () => {
+    projectTaskActions.createTask({ title: 'Child', parent: 'TL-1' });
+    const vesselProps = props('task-detail', 'detail-1');
+    render(<TaskDetailComponent {...vesselProps} />);
+    await invoke('task-detail', 'showTask', { task: 'TL-1' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open TL-3 Child' }));
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('showTask', {
+      task: 'TL-3',
+    });
+    expect(selectedTaskId('detail-1')).toBe('TL-3');
+  });
+
+  it('keeps one task per Instance when two are on screen', () => {
+    act(() => {
+      taskDetailActions.showTask('detail-left', 'TL-1');
+      taskDetailActions.showTask('detail-right', 'TL-2');
+    });
+    render(
+      <>
+        <TaskDetailComponent {...props('task-detail', 'detail-left')} />
+        <TaskDetailComponent {...props('task-detail', 'detail-right')} />
+      </>,
+    );
+    expect(
+      screen
+        .getAllByRole('article')
+        .map((article) => article.getAttribute('aria-label')),
+    ).toEqual(['TL-1 Update demo README', 'TL-2 Record launch video']);
+  });
+
+  it('says when the open task was deleted', async () => {
+    render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
+    await invoke('task-detail', 'showTask', { task: 'TL-2' });
+    act(() => {
+      projectTaskActions.removeTask('TL-2');
+    });
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(screen.getByText(/TL-2 was deleted/)).toBeTruthy();
+  });
+
+  it('returns an error listing the current tasks for an unknown task', async () => {
+    render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
+    const result = await invoke('task-detail', 'showTask', { task: 'Ghost' });
+    expect(result?.ok).toBe(false);
+    expect(result?.error?.message).toContain(
+      'TL-1 Update demo README, TL-2 Record launch video',
+    );
+    expect(selectedTaskId('detail-1')).toBeNull();
+  });
+});
+
 describe('Tasks Vessel through Actions', () => {
   it('creates a parent and children under it by title in plan order', async () => {
     render(<ProjectTasksComponent {...props('project-tasks')} />);
@@ -546,6 +654,7 @@ describe('Tasks Vessel through Actions', () => {
     render(<SourceFeedbackComponent {...props('source-feedback')} />);
     render(<ProjectTasksComponent {...props('project-tasks')} />);
     render(<MyPrioritiesComponent {...props('my-priorities')} />);
+    render(<TaskDetailComponent {...props('task-detail')} />);
 
     const registered = Object.fromEntries(
       Object.keys(TASKLANE_VESSELS).map((vesselId) => [

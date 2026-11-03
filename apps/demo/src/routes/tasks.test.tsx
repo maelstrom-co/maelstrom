@@ -77,6 +77,7 @@ const TASKLANE_VESSEL_IDS = [
   'my-priorities',
   'project-tasks',
   'source-feedback',
+  'task-detail',
 ];
 const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');

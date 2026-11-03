@@ -5,7 +5,11 @@ import {
   projectTaskActions,
   taskReferenceLabel,
 } from './stores/project-tasks.store';
-import { reportTaskChange } from './task-action-receipts';
+import {
+  __resetTaskDetailStoreForTests,
+  openTaskDetail,
+} from './stores/task-detail.store';
+import { reportShowTask, reportTaskChange } from './task-action-receipts';
 import {
   __resetTasklaneActivityForTests,
   getLatestReceipt,
@@ -14,6 +18,7 @@ import {
 beforeEach(() => {
   __resetProjectTasksStoreForTests();
   __resetTasklaneActivityForTests();
+  __resetTaskDetailStoreForTests();
 });
 
 describe('stale reference receipts', () => {
@@ -30,6 +35,21 @@ describe('stale reference receipts', () => {
 
     expect(getLatestReceipt()?.text).toMatch(
       /^✗ Couldn't use "Update demo README" as the parent because it changed: now /,
+    );
+  });
+});
+
+describe('showTask receipts', () => {
+  it('records nothing when a task opens, since opening changes no data', () => {
+    expect(reportShowTask(openTaskDetail('detail-1', 'TL-1')).ok).toBe(true);
+    expect(getLatestReceipt()).toBeNull();
+  });
+
+  it('reports a task it could not find', () => {
+    const result = reportShowTask(openTaskDetail('detail-1', 'Ghost'));
+    expect(result.ok).toBe(false);
+    expect(getLatestReceipt()?.text).toBe(
+      '✗ Couldn\'t find a task matching "Ghost"',
     );
   });
 });

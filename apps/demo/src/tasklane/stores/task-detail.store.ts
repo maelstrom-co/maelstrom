@@ -1,10 +1,23 @@
 import { useSyncExternalStore } from 'react';
+import {
+  type ProjectTask,
+  resolveTaskReference,
+  type TaskFailure,
+} from './project-tasks.store';
 
 /**
  * Which task each Task detail Instance shows, keyed by instanceId. The
  * protocol carries no per-Instance props, so an Action sets this instead.
  */
 export type TaskDetailSelection = ReadonlyMap<string, string>;
+
+export type OpenTaskDetailResult =
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly task: ProjectTask;
+    }
+  | TaskFailure;
 
 const INITIAL_STATE: TaskDetailSelection = new Map();
 
@@ -55,6 +68,29 @@ export const taskDetailActions = {
     return true;
   },
 };
+
+/**
+ * Resolves a task reference and points one Instance at it. Opening a task
+ * reads no field the label could have changed, so a label that went stale
+ * since it was published still opens its task.
+ */
+export function openTaskDetail(
+  instanceId: string,
+  reference: string,
+): OpenTaskDetailResult {
+  const match = resolveTaskReference(reference);
+  if (match.kind === 'not_found')
+    return { ok: false, reason: 'task_not_found', query: reference };
+  if (match.kind === 'ambiguous')
+    return {
+      ok: false,
+      reason: 'ambiguous_task',
+      query: reference,
+      candidates: match.candidates,
+    };
+  const changed = taskDetailActions.showTask(instanceId, match.task.id);
+  return { ok: true, changed, task: match.task };
+}
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);

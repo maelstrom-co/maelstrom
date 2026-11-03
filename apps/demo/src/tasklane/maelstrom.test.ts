@@ -67,6 +67,7 @@ describe('Tasklane instance', () => {
       'source-feedback',
       'project-tasks',
       'my-priorities',
+      'task-detail',
     ]);
   });
 
