@@ -15,7 +15,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 
 import {
   calendarMain,
-  calendarVessel,
+  calendarViewsVessel,
   createCalendarLayout,
 } from '../../../test-utils/calendar-vessel.js';
 import {
@@ -614,7 +614,9 @@ describe('CommandProcessor Engine Action transitions', () => {
       ...(withVesselResolution
         ? {
             resolveVessel: (vesselId: VesselId) =>
-              vesselId === calendarVessel.id ? calendarVessel : undefined,
+              vesselId === calendarViewsVessel.id
+                ? calendarViewsVessel
+                : undefined,
           }
         : {}),
     });

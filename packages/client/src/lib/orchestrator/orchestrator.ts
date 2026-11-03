@@ -249,6 +249,10 @@ export class Orchestrator {
     this.#commandProcessor = new CommandProcessor({
       debug: this.#config.debug,
       defaultActionWaitTimeoutMs: this.#config.readyTimeoutMs,
+      // Read lazily, so the VesselManager assigned below is in place by the
+      // first Action. Engine-applied transitions schedule no vessel_mutation:
+      // the Engine planned them, and reporting back would start another turn.
+      resolveVessel: (vesselId) => this.#vesselManager.get(vesselId),
     });
     this.#updateCoordinator = new UpdateCoordinator({
       debounceDelayMs: this.#config.debounceDelayMs,
