@@ -1011,28 +1011,35 @@ describe('variant transitions', () => {
   });
 
   it('waits for readiness again when the runner unregisters mid-sequence', async () => {
-    const { transitions } = createFakeVariantTransitions({
-      'calendar-main': 'day',
-    });
-    const secondAddEvent = mock(() => ok(undefined));
-    const unregister = manager.registerRunner(calendarMain, {
-      showWeek: () => {
-        unregister();
-        setTimeout(() => {
-          manager.registerRunner(calendarMain, { addEvent: secondAddEvent });
-        }, 5);
-        return ok(undefined);
-      },
-    });
+    // A readiness window far longer than the re-registration delay, so a slow
+    // timer cannot turn the wait into a readiness skip.
+    const patient = new ActionManager({ readinessTimeoutMs: 1_000 });
+    try {
+      const { transitions } = createFakeVariantTransitions({
+        'calendar-main': 'day',
+      });
+      const secondAddEvent = mock(() => ok(undefined));
+      const unregister = patient.registerRunner(calendarMain, {
+        showWeek: () => {
+          unregister();
+          setTimeout(() => {
+            patient.registerRunner(calendarMain, { addEvent: secondAddEvent });
+          }, 5);
+          return ok(undefined);
+        },
+      });
 
-    const result = await manager.executeActions(
-      plan('showWeek', 'addEvent'),
-      undefined,
-      transitions,
-    );
+      const result = await patient.executeActions(
+        plan('showWeek', 'addEvent'),
+        undefined,
+        transitions,
+      );
 
-    expect(result.successCount).toBe(2);
-    expect(secondAddEvent).toHaveBeenCalledTimes(1);
+      expect(result.successCount).toBe(2);
+      expect(secondAddEvent).toHaveBeenCalledTimes(1);
+    } finally {
+      patient.dispose();
+    }
   });
 
   it('skips as readiness without a transition when the runner stays gone mid-sequence', async () => {
@@ -1153,6 +1160,65 @@ describe('variant transitions', () => {
 
     expect(result.successCount).toBe(1);
     expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
+    expect(variants.get('calendar-main')).toBe('month');
+  });
+
+  it('runs each Instance in its own Variant sequence and counts across Instances', async () => {
+    const calendarSide = InstanceId('calendar-side');
+    const { transitions, variants } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+      'calendar-side': 'week',
+    });
+    const mainAddEvent = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, { addEvent: mainAddEvent });
+    manager.registerRunner(calendarSide, {});
+
+    const result = await manager.executeActions(
+      [
+        { instanceId: calendarMain, action: ActionName('showWeek') },
+        { instanceId: calendarSide, action: ActionName('showMonth') },
+        { instanceId: calendarMain, action: ActionName('addEvent') },
+        { instanceId: calendarSide, action: ActionName('showMonth') },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(variants.get('calendar-main')).toBe('week');
+    expect(variants.get('calendar-side')).toBe('month');
+    expect(mainAddEvent).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(3);
+    expect(result.skippedCount).toBe(1);
+    expect(
+      result.actions
+        .filter((record) => record.skipped)
+        .map((record) => [record.instanceId, record.action, record.reason]),
+    ).toEqual([
+      [
+        calendarSide,
+        ActionName('showMonth'),
+        'Action "showMonth" is not defined on Variant "month" of Instance "calendar-side"',
+      ],
+    ]);
+  });
+
+  it('reports readiness and handler starts to the observer, with no start for a pure transition', async () => {
+    const { transitions, variants } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, { addEvent: () => ok(undefined) });
+    const progress: string[] = [];
+
+    const result = await manager.executeActions(
+      plan('addEvent', 'showWeek', 'showMonth'),
+      ({ phase, action }) => {
+        progress.push(action ? `${phase}:${action}` : phase);
+      },
+      transitions,
+    );
+
+    expect(progress).toEqual(['waiting', 'ready', 'started:addEvent']);
+    expect(result.successCount).toBe(3);
     expect(variants.get('calendar-main')).toBe('month');
   });
 

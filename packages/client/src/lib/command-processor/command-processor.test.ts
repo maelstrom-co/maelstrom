@@ -639,6 +639,30 @@ describe('CommandProcessor Engine Action transitions', () => {
     processor.dispose();
   });
 
+  it('moves the store Variant of an Instance laid out in a grid', async () => {
+    const processor = createCalendarProcessor(true);
+    processor.registerRunner(calendarMain, {});
+    processor.setLayout(createCalendarLayout('day'));
+    processor.setLayout({
+      type: 'grid',
+      positions: [
+        {
+          instanceId: calendarMain,
+          position: { column: 0, row: 0 },
+          size: { width: 2, height: 2 },
+        },
+      ],
+    });
+    processor.executeActions([
+      { instanceId: calendarMain, action: ActionName('showWeek') },
+    ]);
+    await processor.waitForIdle();
+
+    expect(processor.store.state.layout?.type).toBe('grid');
+    expect(variantOf(processor)).toBe(VariantName('week'));
+    processor.dispose();
+  });
+
   it('never applies a transition for runLocalAction', async () => {
     const processor = createCalendarProcessor(true);
     processor.registerRunner(calendarMain, { showWeek: () => ok(undefined) });
