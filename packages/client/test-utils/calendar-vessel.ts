@@ -7,7 +7,7 @@ import {
 
 // The demo calendar shape: view switches are pure transitions, addEvent is a
 // handler-only Action.
-export const calendarVessel = {
+export const calendarViewsVessel = {
   id: 'calendar',
   name: 'Calendar',
   description: 'Calendar with day, week and month views',

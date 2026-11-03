@@ -11,7 +11,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import {
   calendarMain,
-  calendarVessel,
+  calendarViewsVessel,
   createCalendarLayout,
 } from '../../../test-utils/calendar-vessel.js';
 import {
@@ -125,7 +125,7 @@ describe('CommandProcessor.dispatchSettled with Vessel resolution', () => {
     processor = new CommandProcessor({
       defaultActionWaitTimeoutMs: 10,
       resolveVessel: (vesselId) =>
-        vesselId === calendarVessel.id ? calendarVessel : undefined,
+        vesselId === calendarViewsVessel.id ? calendarViewsVessel : undefined,
     });
   });
   afterEach(() => {

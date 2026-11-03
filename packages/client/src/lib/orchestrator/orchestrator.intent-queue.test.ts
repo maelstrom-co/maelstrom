@@ -16,6 +16,7 @@ import { createMockConnector } from '../../../test-utils/connector-mocks.js';
 import {
   createMockEmptyResponse,
   createMockResponse,
+  createMockResponseVessel,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
@@ -55,7 +56,10 @@ describe('Orchestrator intent queue', () => {
         return response.promise;
       }),
     });
-    const client = new Orchestrator(connector, options);
+    const client = new Orchestrator(connector, {
+      vessels: [createMockResponseVessel()],
+      ...options,
+    });
     clients.push(client);
     await client.connect();
     return { client, connector, sent, responses };
@@ -262,8 +266,10 @@ describe('Orchestrator intent queue', () => {
       client.commandProcessor.registerRunner(InstanceId('local'), {
         show: () => action.promise,
       });
-      client.commandProcessor.executeActions(
-        createMockResponse(MessageId('local'), 'local', 'show').executionPlan,
+      const local = createMockResponse(MessageId('local'), 'local', 'show');
+      client.commandProcessor.dispatch(
+        { kind: 'set_layout', layout: local.layout },
+        { kind: 'execute_actions', executionPlan: local.executionPlan },
       );
       client.chartManager.setDimensions({ columns: 10, rows: 6 });
       const mutation = {
@@ -580,9 +586,10 @@ describe('Orchestrator intent queue', () => {
     client.commandProcessor.registerRunner(InstanceId('instance-1'), {
       show: () => action.promise,
     });
-    client.commandProcessor.executeActions(
-      createMockResponse(MessageId('local'), 'instance-1', 'show')
-        .executionPlan,
+    const local = createMockResponse(MessageId('local'), 'instance-1', 'show');
+    client.commandProcessor.dispatch(
+      { kind: 'set_layout', layout: local.layout },
+      { kind: 'execute_actions', executionPlan: local.executionPlan },
     );
     const ticket = client.enqueueIntent('after local');
     await clock.tickAsync(2000);
