@@ -28,7 +28,7 @@ jobs:
       - name: Assert single resolved versions of shared packages
         run: node scripts/assert-single-copy-dependencies.mts
 
-  main:
+  verify:
     runs-on: ${{ github.repository == 'maelstrom-co/maelstrom' && github.event.pull_request.head.repo.fork != true && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -81,11 +81,22 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      # Browsers install per machine, not per project, so this one step covers
-      # both the docs and www e2e suites.
-      - name: Install Playwright browser
-        run: bunx playwright install --with-deps chromium
-        working-directory: apps/docs
+      # Pull requests run only affected projects. Several test targets are not
+      # cacheable, so run-many re-ran them on every pull request regardless of
+      # what changed. Pushes to main still run everything.
+      - name: Select projects
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            echo "nx-command=affected" >> "$GITHUB_OUTPUT"
+            docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
+          else
+            echo "nx-command=run-many" >> "$GITHUB_OUTPUT"
+            docs=true
+          fi
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
 
       # `check` and not `format`: the format target writes. Running it here
       # reformatted the checkout and then reported success, so formatting drift
@@ -93,17 +104,118 @@ jobs:
       # is read-only and supersets lint, adding the formatter and import-order
       # assists, and the biome plugin passes --error-on-warnings so a warning
       # fails the build rather than scrolling past.
-      - name: Run check, test, build, typecheck, e2e
-        run: bunx nx run-many -t check test build typecheck e2e
+      - name: Run check, test, build, typecheck
+        run: bunx nx ${{ steps.scope.outputs.nx-command }} -t check test build typecheck
+
+      # The validation reads every SDK package's build output, including
+      # packages the pull request did not affect. Those builds restore from
+      # cache.
+      - name: Build SDK packages
+        run: bunx nx run-many -t build --projects='packages/*'
       - name: Verify bundled SDK validation
         run: bun --no-install scripts/assert-sdk-validation.ts
-      - name: Verify the exported starter as a standalone consumer
-        run: bun apps/docs/tools/skills/verify-starter-consumer.ts "$GITHUB_SHA"
 
       # Reads apps/docs/dist, so it has to follow the build rather than join the
       # nx run above. The e2e suite link-checks a handful of pages it navigates;
       # this covers every page the build emits, including generated reference.
       - name: Assert no dead links in the built docs
+        if: steps.scope.outputs.docs == 'true'
         run: bun scripts/assert-docs-links.ts
       # - run: bunx nx fix-ci
       #   if: always()
+
+  # The only job that needs a browser, so Playwright installs here and only
+  # when an e2e suite or the docs starter is in scope.
+  e2e:
+    runs-on: ${{ github.repository == 'maelstrom-co/maelstrom' && github.event.pull_request.head.repo.fork != true && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+
+      - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
+
+      # The exported starter is built from apps/docs/starters, so a docs change
+      # is what puts its consumer check in scope.
+      - name: Select projects
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            echo "nx-command=affected" >> "$GITHUB_OUTPUT"
+            e2e=$(bunx nx show projects --json --affected --withTarget=e2e | jq 'length > 0')
+            docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
+          else
+            echo "nx-command=run-many" >> "$GITHUB_OUTPUT"
+            e2e=true
+            docs=true
+          fi
+          echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
+          if [ "$e2e" = true ] || [ "$docs" = true ]; then
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read Playwright version
+        id: playwright
+        if: steps.scope.outputs.browser == 'true'
+        run: echo "version=$(jq -r .version node_modules/@playwright/test/package.json)" >> "$GITHUB_OUTPUT"
+
+      # Caches the browser binaries only. `--with-deps` still installs the
+      # system libraries through apt on every run.
+      - name: Cache Playwright browsers
+        if: steps.scope.outputs.browser == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # Browsers install per machine, not per project, so this one step covers
+      # the docs, www, and demo e2e suites and the exported starter.
+      - name: Install Playwright browser
+        if: steps.scope.outputs.browser == 'true'
+        run: bunx playwright install --with-deps chromium
+        working-directory: apps/docs
+
+      - name: Run e2e
+        if: steps.scope.outputs.e2e == 'true'
+        run: bunx nx ${{ steps.scope.outputs.nx-command }} -t e2e
+
+      - name: Verify the exported starter as a standalone consumer
+        if: steps.scope.outputs.docs == 'true'
+        run: bun apps/docs/tools/skills/verify-starter-consumer.ts "$GITHUB_SHA"
+
+  # Branch protection requires a check named `main`. This job keeps that name
+  # stable while the work runs in parallel jobs.
+  main:
+    if: always()
+    needs:
+      - single-copy-dependencies
+      - verify
+      - e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "::error::A CI job finished as $result"
+              exit 1
+            fi
+          done
