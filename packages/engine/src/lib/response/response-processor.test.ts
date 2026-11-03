@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { ChartRequest } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  GridLayout,
+  TilingLayout,
+} from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
   isErr,
   isOk,
   MessageId,
+  VariantName,
 } from '@maelstrom-co/protocol';
 
 import {
@@ -16,11 +21,13 @@ import {
   brandTilingResponse,
   buildGridResponse,
   buildSkippedAction,
+  forwardOnlyWizardVessel,
   type GridResponseAuthor,
   makeGridRequest,
   makeTilingRequest,
   silentLogger,
   type TilingResponseAuthor,
+  threeViewCalendarVessel,
 } from '../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
@@ -3031,4 +3038,173 @@ describe('processResponse userMessage and skipReply', () => {
       expect(result.value.userMessage).toBe(userMessage);
     },
   );
+});
+
+describe('processResponse pre-action Layout Variant', () => {
+  function calendarResponse(
+    layoutVariant: string,
+    plan: readonly string[],
+  ): TilingResponseAuthor {
+    return {
+      userMessage: 'Done',
+      rationale: 'calendar view change',
+      executionPlan: plan.map((action) => ({
+        instanceId: 'calendar-main',
+        action,
+      })),
+      layout: {
+        tree: ['calendar-main'],
+        instances: [
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: layoutVariant,
+          },
+        ],
+      },
+    };
+  }
+
+  function calendarRequestIn(variant: string): ChartRequest {
+    return makeTilingRequest({
+      instances: [
+        { instanceId: 'calendar-main', vesselId: 'calendar', variant },
+      ],
+      vessels: [threeViewCalendarVessel],
+    });
+  }
+
+  function layoutVariantOf(
+    layout: GridLayout | TilingLayout,
+  ): VariantName | undefined {
+    return layout.type === 'tiling' ? layout.instances[0]?.variant : undefined;
+  }
+
+  function run(llmOutput: TilingResponseAuthor, request: ChartRequest) {
+    const result = processResponse({
+      llmOutput,
+      request,
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+    if (!isOk(result)) throw new Error('expected an accepted response');
+    return result.value;
+  }
+
+  test('a pre-action Layout Variant plus its transition Action is accepted unchanged', () => {
+    const response = run(
+      calendarResponse('day', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings).toEqual([]);
+  });
+
+  test('the post-action Layout Variant from the ticket is restored and its Action kept', () => {
+    const response = run(
+      calendarResponse('week', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+    expect(response.diagnostics.retryHint).toEqual({
+      severity: 'low',
+      recommend: false,
+    });
+  });
+
+  test('an existing Instance is simulated from its Layout Variant, not its request Variant', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'jump to review then finish',
+        executionPlan: [{ instanceId: 'wizard-main', action: 'finish' }],
+        layout: {
+          tree: ['wizard-main'],
+          instances: [
+            {
+              instanceId: 'wizard-main',
+              vesselId: 'wizard',
+              variant: 'review',
+            },
+          ],
+        },
+      },
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'start' },
+        ],
+        vessels: [forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('review'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('finish'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+  });
+
+  test('a transition the request Variant does not offer is skipped against the Layout Variant', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'finish the wizard',
+        executionPlan: [{ instanceId: 'wizard-main', action: 'finish' }],
+        layout: {
+          tree: ['wizard-main'],
+          instances: [
+            { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'done' },
+          ],
+        },
+      },
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'start' },
+        ],
+        vessels: [forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('done'));
+    expect(response.executionPlan).toEqual([]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      buildSkippedAction({
+        reason: 'self_transition_noop',
+        instanceId: 'wizard-main',
+        action: 'finish',
+        vesselId: 'wizard',
+        currentVariant: 'done',
+      }),
+    ]);
+  });
+
+  test('a Layout Variant that disagrees with the transition target is kept with a conflict warning and no retry', () => {
+    const response = run(
+      calendarResponse('month', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('month'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'layout_variant_and_action_transition_conflict',
+    ]);
+    expect(response.diagnostics.retryHint.recommend).toBe(false);
+  });
 });
