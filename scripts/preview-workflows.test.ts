@@ -74,22 +74,29 @@ describe('preview workflows', () => {
     expect(runner.env).not.toHaveProperty('GITHUB_RUN_ATTEMPT');
   });
 
-  test('voice benchmarking reconciles either label change without cancelling lifecycle mutations', () => {
+  test('voice benchmarking requests approval only for a live label request without cancelling lifecycle mutations', () => {
     const workflow = read('deploy-preview.yml');
+    const gate = workflow.slice(
+      workflow.indexOf('\n  benchmark-gate:'),
+      workflow.indexOf('\n  voice-benchmark:'),
+    );
     const job = workflow.slice(workflow.indexOf('\n  voice-benchmark:'));
-    expect(job).toContain('needs: deploy');
-    expect(job).toContain("needs.deploy.result == 'success'");
+    expect(gate).toContain('needs: deploy');
+    expect(job).toContain('needs: [deploy, benchmark-gate]');
     expect(workflow).toContain('types: [labeled, unlabeled]');
-    expect(job).toContain("github.event.action == 'labeled'");
-    expect(job).toContain("github.event.action == 'unlabeled'");
-    expect(job).toContain("github.event.label.name == 'bench-voice'");
-    expect(job).toContain("github.event.label.name == 'deploy-preview'");
-    expect(job).not.toContain(
-      'contains(github.event.pull_request.labels.*.name',
-    );
-    expect(job).toContain(
-      'github.event.pull_request.head.repo.full_name == github.repository',
-    );
+    for (const routed of [gate, job]) {
+      expect(routed).toContain("needs.deploy.result == 'success'");
+      expect(routed).toContain("github.event.action == 'labeled'");
+      expect(routed).toContain("github.event.action == 'unlabeled'");
+      expect(routed).toContain("github.event.label.name == 'bench-voice'");
+      expect(routed).toContain("github.event.label.name == 'deploy-preview'");
+      expect(routed).not.toContain(
+        'contains(github.event.pull_request.labels.*.name',
+      );
+      expect(routed).toContain(
+        'github.event.pull_request.head.repo.full_name == github.repository',
+      );
+    }
     expect(job).toContain(
       `group: deploy-preview-pr-${expression('github.event.pull_request.number || inputs.pr_number')}`,
     );
@@ -120,10 +127,55 @@ describe('preview workflows', () => {
     ).not.toContain('bench-voice');
   });
 
-  test('benchmark label routing admits removals without admitting unrelated or untrusted events', () => {
+  test('the benchmark gate reads live labels outside the approval environment and per-PR queue', () => {
+    const source = read('deploy-preview.yml');
+    const workflow = Bun.YAML.parse(source) as {
+      jobs: Record<
+        string,
+        {
+          if: string;
+          environment?: unknown;
+          concurrency?: unknown;
+          permissions?: Record<string, string>;
+          outputs?: Record<string, string>;
+          steps: {
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const gate = workflow.jobs['benchmark-gate']!;
+    expect(gate.environment).toBeUndefined();
+    expect(gate.concurrency).toBeUndefined();
+    expect(gate.permissions).toEqual({ 'pull-requests': 'read' });
+    expect(gate.steps.some((entry) => entry.uses !== undefined)).toBe(false);
+    const script = gate.steps.map((entry) => entry.run ?? '').join('\n');
+    expect(script).toContain(
+      'gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/labels"',
+    );
+    expect(script).toContain('grep -Fxq deploy-preview');
+    expect(script).toContain('grep -Fxq bench-voice');
+    expect(script).not.toContain(['$', '{{'].join(''));
+    expect(gate.steps[0]!.env!.PR_NUMBER).toBe(
+      expression('github.event.pull_request.number || inputs.pr_number'),
+    );
+    expect(gate.outputs!.requested).toBe(
+      expression('steps.labels.outputs.requested'),
+    );
+    expect(workflow.jobs['voice-benchmark']!.if).toContain(
+      "&& needs.benchmark-gate.outputs.requested == 'true'",
+    );
+  });
+
+  test.each([
+    'benchmark-gate',
+    'voice-benchmark',
+  ])('%s label routing admits removals without admitting unrelated or untrusted events', (name) => {
     const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
       on: { pull_request_target: { types: string[] } };
-      jobs: { 'voice-benchmark': { if: string } };
+      jobs: Record<string, { if: string }>;
     };
     expect(workflow.on.pull_request_target.types).toEqual([
       'labeled',
@@ -136,13 +188,18 @@ describe('preview workflows', () => {
       'always',
       'cancelled',
       'format',
-      `return (${workflow.jobs['voice-benchmark'].if});`,
+      `return (${workflow.jobs[name]!.if.replaceAll('needs.benchmark-gate.', "needs['benchmark-gate'].")});`,
     );
+    const needs = (requested: string) => ({
+      deploy: { result: 'skipped' },
+      'benchmark-gate': { outputs: { requested } },
+    });
     const permits = (
       action: string,
       label: string,
       overrides: Record<string, unknown> = {},
       cancelled = false,
+      requested = 'true',
     ) =>
       evaluate(
         {
@@ -159,7 +216,7 @@ describe('preview workflows', () => {
             ...overrides,
           },
         },
-        { deploy: { result: 'skipped' } },
+        needs(requested),
         {},
         () => true,
         () => cancelled,
@@ -168,6 +225,10 @@ describe('preview workflows', () => {
     for (const action of ['labeled', 'unlabeled']) {
       for (const label of ['deploy-preview', 'bench-voice']) {
         expect(permits(action, label)).toBe(true);
+        for (const requested of ['false', ''])
+          expect(permits(action, label, {}, false, requested)).toBe(
+            name === 'benchmark-gate',
+          );
         expect(permits(action, label, { sender: { type: 'Bot' } })).toBe(false);
         for (const [state, repository] of [
           ['closed', 'maelstrom-co/maelstrom'],
@@ -190,7 +251,10 @@ describe('preview workflows', () => {
     expect(
       evaluate(
         { event_name: 'workflow_run', event: {} },
-        { deploy: { result: 'success' } },
+        {
+          deploy: { result: 'success' },
+          'benchmark-gate': { outputs: { requested: 'true' } },
+        },
         {},
         () => true,
         () => false,

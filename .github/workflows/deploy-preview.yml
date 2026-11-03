@@ -103,7 +103,7 @@ jobs:
 
       # Label-triggered runs wait for a `preview` environment reviewer, and
       # GitHub surfaces that only on the run page. One sticky comment points
-      # reviewers at the run; the voice benchmark asks in the same run.
+      # reviewers at the run. A requested voice benchmark asks in the same run.
       - name: Link pending approval on the pull request
         if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''
         env:
@@ -114,7 +114,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           marker='<!-- preview-approval-request -->'
-          body="$(printf '%s\nPreview deployment for %s is waiting for a `preview` environment approval: [review the run](%s).\n\nWhen the deploy finishes, the Voice Benchmark job in the same run asks for its own approval.' "$marker" "$HEAD_SHA" "$RUN_URL")"
+          body="$(printf '%s\nPreview deployment for %s is waiting for a `preview` environment approval: [review the run](%s).\n\nIf a voice benchmark is requested, the Voice Benchmark job in the same run asks for its own approval after the deploy finishes.' "$marker" "$HEAD_SHA" "$RUN_URL")"
           comment_id="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)"
           if [ -n "$comment_id" ]; then
@@ -268,12 +268,55 @@ jobs:
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts finish-deployment
 
+  benchmark-gate:
+    name: Check Voice Benchmark Request
+    needs: deploy
+    # Payload labels are a stale snapshot, so the gate reads live labels. It
+    # stays outside the per-PR queue and the `preview` environment so that a
+    # run without a live benchmark request never asks for benchmark approval.
+    if: >-
+      always() && !cancelled()
+      && ((github.event_name == 'pull_request_target'
+           && github.event.sender.type == 'User'
+           && github.event.pull_request.state == 'open'
+           && github.event.pull_request.head.repo.full_name == github.repository
+           && (needs.deploy.result == 'success'
+               || ((github.event.action == 'labeled' || github.event.action == 'unlabeled')
+                   && (github.event.label.name == 'bench-voice'
+                       || github.event.label.name == 'deploy-preview'))))
+          || (github.event_name == 'workflow_dispatch'
+              && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+              && inputs.pr_number != ''))
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    permissions:
+      pull-requests: read
+    outputs:
+      requested: ${{ steps.labels.outputs.requested }}
+    steps:
+      - name: Read live benchmark labels
+        id: labels
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          case "$PR_NUMBER" in ''|*[!0-9]*) exit 1 ;; esac
+          labels="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/labels" --jq '.[].name')"
+          requested=false
+          if grep -Fxq deploy-preview <<< "$labels" && grep -Fxq bench-voice <<< "$labels"; then
+            requested=true
+          fi
+          printf 'requested=%s\n' "$requested" >> "$GITHUB_OUTPUT"
+
   voice-benchmark:
     name: Voice Benchmark
-    needs: deploy
+    needs: [deploy, benchmark-gate]
     environment: preview
     # A label added during deployment is absent from the original event payload.
-    # Label removals also reconcile live state after any earlier run has stopped.
+    # Approval is requested only when the gate saw both labels live. A label
+    # removal needs no run because the active benchmark revokes itself.
     # Both labels and the approved/deployed SHA are checked live under the lock.
     if: >-
       always() && !cancelled()
@@ -288,6 +331,7 @@ jobs:
           || (github.event_name == 'workflow_dispatch'
               && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
               && inputs.pr_number != ''))
+      && needs.benchmark-gate.outputs.requested == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
