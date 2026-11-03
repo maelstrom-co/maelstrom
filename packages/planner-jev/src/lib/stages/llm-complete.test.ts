@@ -403,7 +403,7 @@ describe('llmComplete', () => {
     ]);
   });
 
-  test('a new instance keeps its created variant and actions when its action leads to a variant that does not offer it', async () => {
+  test('a new map with a parameterized action keeps its created variant and the action', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a map.' });
     const { result } = await run(
       creating(

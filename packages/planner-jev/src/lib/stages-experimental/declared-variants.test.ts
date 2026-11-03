@@ -103,7 +103,7 @@ const SCENARIOS: readonly Scenario[] = [
     executionPlan: [step('calendar-new/showWeek'), WEEKLY],
   },
   {
-    name: 'a new map keeps its created variant and actions when its action leads to a variant that does not offer it',
+    name: 'a new map with a parameterized action keeps its created variant and every action',
     intent: 'add a map focused on the office and the weekly weather',
     created: { id: 'map-new', vesselId: 'map' },
     createdIn: 'overview',
