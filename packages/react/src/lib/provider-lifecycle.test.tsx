@@ -167,6 +167,40 @@ describe('Provider connection lifetime', () => {
     expect(next.connected).toBe(true);
   });
 
+  it('waits for a reused connector shutdown after X to Y to X while startup is pending', async () => {
+    const x = createConnector();
+    const y = createConnector();
+    const m = createMaelstrom({ vessels: [] });
+    function Status() {
+      return <output>{m.useMaelstrom().connectionStatus}</output>;
+    }
+    const tree = (connector: EngineConnector) => (
+      <StrictMode>
+        <m.Provider connector={connector}>
+          <Status />
+        </m.Provider>
+      </StrictMode>
+    );
+    const view = render(tree(x.connector));
+    await waitFor(() => expect(x.pendingDisconnects).toHaveLength(1));
+    view.rerender(tree(y.connector));
+    await waitFor(() => expect(x.pendingDisconnects).toHaveLength(2));
+    view.rerender(tree(x.connector));
+    await waitFor(() => expect(y.pendingDisconnects).toHaveLength(1));
+
+    await act(async () => x.pendingDisconnects[0]?.resolve());
+    expect(x.connect).not.toHaveBeenCalled();
+    await act(async () => x.pendingDisconnects[1]?.resolve());
+    await waitFor(() =>
+      expect(view.getByRole('status').textContent).toBe('connected'),
+    );
+    expect(x.connect).toHaveBeenCalledTimes(1);
+    expect(x.connected).toBe(true);
+    expect(y.connect).not.toHaveBeenCalled();
+    await act(async () => y.pendingDisconnects[0]?.resolve());
+    expect(x.connected).toBe(true);
+  });
+
   it('does not block an independent provider behind another provider teardown', async () => {
     const slow = createConnector();
     const independent = createConnector();
