@@ -1,18 +1,20 @@
 # Code checks
 
-The `check` target combines Oxlint linting with Oxfmt formatting and import
-sorting. Both checks leave source files unchanged. The `format` target writes.
+`bun run check` combines native Nx linting and formatting commands. Both checks
+leave source files unchanged. `bun run format` applies formatting and import
+sorting.
 
 | Target | Execution | Cache |
 | --- | --- | --- |
 | `lint` | The official Nx Oxlint executor batches projects into one process. | Each project has its own entry. |
-| `format-check` | Oxfmt checks files owned by the project. | Each project has its own entry. |
-| `check` | Runs both prerequisites. | The prerequisites hold the cached results. |
+| `nx format:check --all` | Nx invokes Oxfmt once across the workspace. | The formatter command does not use the Nx task cache. |
+| `bun run check` | Runs all lint targets and the native formatter check. | Lint targets hold the cached results. |
 
 Local jj and code-index metadata are ignored because they change independently
-of source files. Root checks cover scripts and other files outside project roots. They exclude
-nested projects to avoid checking the same files twice. Server and worker
-packages extend the root lint config and restrict browser imports. The
+of source files. An explicit root lint target covers scripts, `.github`, shared
+tools, and the root Vitest configuration. It excludes tool project roots to
+avoid checking their files twice. The official plugin infers other lint targets.
+Server and worker packages extend the root lint config and restrict browser imports. The
 layer-boundary tests check both the configuration and actual linter diagnostics.
 
 ## Rule differences from Biome
@@ -74,14 +76,14 @@ and browser behavior independently of the workspace.
 
 ## CI selection and artifacts
 
-CI runs affected task selection. SDK validation declares its package builds and
+CI checks formatting once, then selects affected tasks. SDK validation declares
+its package builds and
 reads their JavaScript outputs. Docs link validation declares the docs build and
 reads the complete output. These prerequisites restore or produce artifacts even
 when task selection skips unrelated projects.
 
 Tests and typechecks cache their source inputs and runtime versions. Structural
 suites declare files outside their import graph explicitly; root structural tests
-conservatively cover the whole workspace. Explicit
-uncached evaluation-tool targets retain their policy. The standalone starter
+conservatively cover the whole workspace. Explicit uncached evaluation-tool targets retain their policy. The standalone starter
 check remains uncached because it also checks current dependency advisories.
 Browser installation remains unconditional because that check runs browser tests.

@@ -99,7 +99,8 @@ and that dry-run/import do not dispatch. They never use a real environment key.
 
 ```sh
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/d02.test.ts
-bunx nx run-many -t typecheck,test,check -p @maelstrom-co/evals --skip-nx-cache --skipSync
+bunx nx run-many -t typecheck,test,lint -p @maelstrom-co/evals --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 `--skipSync` is the workspace's existing TypeScript reference-drift workaround,
@@ -173,10 +174,11 @@ Offline checks for both manual paths:
 
 ```sh
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/d02.test.ts packages/evals/src/manual/d14.test.ts
-bunx nx run-many -t typecheck,test,check -p @maelstrom-co/evals --skip-nx-cache --skipSync
+bunx nx run-many -t typecheck,test,lint -p @maelstrom-co/evals --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
-## Manual D17 ambiguous weekly-view sample
+## Manual D17: Ambiguous weekly-view sample
 
 `d17.ts` prepares the user-approved **one-turn** experiment: with Weather/current
 and Calendar/month visible, “Switch to the weekly view” should ask which one the
@@ -262,7 +264,8 @@ Offline verification (including the unchanged D02/D14 regression suites):
 
 ```sh
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/
-bunx nx run-many -t typecheck,test,check -p @maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx run-many -t typecheck,test,lint -p @maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 ## Manual D25 ordinary Weather conversation
@@ -538,7 +541,8 @@ Offline verification (synthetic transport only; no live call):
 ```sh
 bunx --no-install vitest run apps/demo/src/vessels/labs --config vitest.config.ts
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/d33.test.ts
-bunx nx run-many -t test,typecheck,check -p @maelstrom-co/demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx run-many -t test,typecheck,lint -p @maelstrom-co/demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 ## Manual D35 adjudicated three-Vessel addition
@@ -628,7 +632,8 @@ effects. No semantic-quality, reliability, source scorer/runtime or legacy
 
 ```sh
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/d35.test.ts tools/evals-offline/three-vessel-addition-fixture.test.ts
-bunx nx run-many -t test,typecheck,check -p demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx run-many -t test,typecheck,lint -p demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 ## Manual weather below the map, very small
