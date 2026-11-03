@@ -21,6 +21,7 @@ import type {
 } from './healed-layout.js';
 import { parseTree } from './tiling-layout/parse-tree.js';
 import { pruneAst } from './tiling-layout/prune-ast.js';
+import { restorePreActionVariants } from './tiling-layout/restore-pre-action-variants.js';
 
 /**
  * Recovery rules:
@@ -41,6 +42,13 @@ import { pruneAst } from './tiling-layout/prune-ast.js';
  * - Malformed split weights → warning, repaired in place. Nothing is dropped,
  *   because a split's arity is exactly what could not be read.
  * - missing rationale → warning, response accepted as-is.
+ * - Existing Instance declared in the Variant its own transition Actions lead
+ *   to → warning, the Variant is reset to the request Variant and every
+ *   Action is kept. The Layout holds each Instance's Variant before the
+ *   Execution Plan runs, because the client applies the Layout first.
+ * - Existing Instance whose Layout Variant changes directly while one of its
+ *   transition Actions targets another Variant → warning only, Layout and
+ *   Actions kept as declared.
  */
 export function healTilingLayout(
   response: TilingResponse,
@@ -55,7 +63,7 @@ export function healTilingLayout(
   for (const vessel of request.vessels) vesselById.set(vessel.id, vessel);
 
   const tracker = seenInstancesTracker(droppedEntries);
-  const healedInstances: HealedTilingInstance[] = [];
+  const declaredInstances: HealedTilingInstance[] = [];
   for (const instance of response.layout.instances) {
     const instanceId = instance.instanceId;
 
@@ -78,13 +86,21 @@ export function healTilingLayout(
       });
       continue;
     }
-    healedInstances.push({
+    declaredInstances.push({
       instanceId,
       vesselId: instance.vesselId,
       variant: instance.variant,
     });
     tracker.markSeen(instanceId);
   }
+
+  const restored = restorePreActionVariants(
+    declaredInstances,
+    response.executionPlan,
+    request,
+  );
+  const healedInstances = restored.instances;
+  warnings.push(...restored.warnings);
 
   const treeTokens = withDuplicateLeavesBlanked(
     response.layout.tree,
