@@ -60,7 +60,12 @@ export {
   createTilingSplitNode,
   parseTilingTree,
 } from './lib/chart-manager/tiling.js';
-export type { ActionProgress } from './lib/command-processor/action-manager.js';
+export type {
+  ActionProgress,
+  ActionVariantResolution,
+  ActionVariantTransition,
+  VariantTransitions,
+} from './lib/command-processor/action-manager.js';
 // Action Manager
 export { ActionManager } from './lib/command-processor/action-manager.js';
 export type { ActionResult } from './lib/command-processor/action-result.js';
