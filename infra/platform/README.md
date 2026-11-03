@@ -291,6 +291,8 @@ The core patch also carries [#2732](https://github.com/alchemy-run/alchemy/pull/
 Partial `observe` results prove ownership but cannot identify a physical resource
 for reconciliation, retry, or deletion. Unadmitted cycle stubs remain provisional.
 Full reads and admitted physical precreation retain their complete attributes.
+Apply checkpoints resolved replacement props and read attributes before
+reconciliation. Delete-first cleanup clears persisted attributes before precreation.
 This prevents new incomplete checkpoints; existing damaged state needs explicit repair.
 
 Live Worker checkpoints record the Cloudflare account before mutation. Planning,
@@ -313,7 +315,8 @@ instead of changing IDs used by child resources. Recovery needs collection GET
 access to `/restapis`; the lookup is not an atomic create-if-absent operation.
 
 Legacy state commands preserve the arguments and output required by deployment
-workflows and the operator runbook. Diagnostics use `stderr`. Successful reads
+workflows and the operator runbook. Diagnostics, including newer-version notices,
+use `stderr`. Successful reads
 write only the requested state output to `stdout`. Migrate callers before
 removing those compatibility commands.
 
@@ -354,6 +357,8 @@ The root catalog pins `effect`, `@effect/platform-node`,
 `@effect/platform-bun`, and `@effect/sql-d1` to `4.1.0`, satisfying Alchemy's
 stable `^4.1.0` peers. App and infra packages take those through `catalog:`. Do not add
 `@effect/language-service` until a `tsconfig` plugin actually loads it.
+The root override keeps `@effect/platform-node-shared` on the catalog version.
+The regression tests check the installed version and its Effect peer requirement.
 
 Review Alchemy upgrades monthly. Upgrade sooner for relevant security fixes or
 blocking correctness fixes. Keep the compatibility, uncached project verification,

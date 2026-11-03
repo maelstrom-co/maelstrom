@@ -1,8 +1,23 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
 const project = resolve(import.meta.dirname, '..');
+test('the installed platform shared package supports the catalog Effect version', () => {
+  const require = createRequire(resolve(project, 'package.json'));
+  const platform = require.resolve('@effect/platform-bun/package.json');
+  const shared = createRequire(platform).resolve(
+    '@effect/platform-node-shared/package.json',
+  );
+  const metadata = JSON.parse(readFileSync(shared, 'utf8'));
+  const root = JSON.parse(
+    readFileSync(resolve(project, '../../package.json'), 'utf8'),
+  );
+  expect(metadata.version).toBe(root.catalog.effect);
+  expect(metadata.peerDependencies.effect).toBe(`^${root.catalog.effect}`);
+});
 const node = Bun.which('node');
 if (!node)
   throw new Error('Node is required to verify the published Alchemy build');

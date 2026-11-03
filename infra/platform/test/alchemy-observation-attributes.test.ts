@@ -42,11 +42,16 @@ async function scenario(options: {
   fail?: boolean;
   read?: boolean;
   retry?: boolean;
+  absent?: boolean;
+  writeBeforeFailure?: boolean;
+  deleteFirst?: boolean;
+  resume?: boolean;
 }) {
   const owners = new Map([
     ['account/api', 'SomeoneElse'],
     ['tenant/api', 'Subject'],
   ]);
+  if (options.absent) owners.delete('tenant/api');
   const outputs: Array<Scoped['Attributes'] | undefined> = [];
   const bindings: string[] = [];
   let fail = options.fail ?? false;
@@ -67,9 +72,11 @@ async function scenario(options: {
     Provider.succeed(Scoped, {
       diff: ({ olds, news }) =>
         Effect.succeed(
-          !isResolved(news) || olds.scope !== news.scope
-            ? { action: 'replace' as const }
-            : undefined,
+          options.resume
+            ? { action: 'update' as const }
+            : !isResolved(news) || olds.scope !== news.scope
+              ? { action: 'replace' as const, deleteFirst: options.deleteFirst }
+              : undefined,
         ),
       observe: ({ id, news }) =>
         Effect.sync(() => {
@@ -104,12 +111,16 @@ async function scenario(options: {
         Effect.gen(function* () {
           outputs.push(output);
           for (const binding of resolved) bindings.push(binding.data.self);
-          if (fail)
+          if (fail && !options.writeBeforeFailure)
             return yield* Effect.fail(
               new Error('Simulated interruption before any write'),
             );
           const identity = output ?? news;
           owners.set(key(identity), id);
+          if (fail)
+            return yield* Effect.fail(
+              new Error('Simulated interruption after the physical write'),
+            );
           return attributes(identity);
         }),
       delete: ({ output }) =>
@@ -144,21 +155,32 @@ async function scenario(options: {
       const stateKey = { stack: stack.name, stage: 'probe', fqn: 'Subject' };
       if (options.replace) {
         owners.set('old/api', 'Subject');
+        const old = {
+          status: 'created' as const,
+          namespace: undefined,
+          fqn: 'Subject',
+          logicalId: 'Subject',
+          resourceType: Scoped.Type,
+          instanceId: 'old',
+          providerVersion: 0,
+          props: { name: 'api', scope: 'old' },
+          attr: attributes({ name: 'api', scope: 'old' }),
+          bindings: [],
+          downstream: [],
+        };
         yield* store.set({
           ...stateKey,
-          value: {
-            status: 'created',
-            namespace: undefined,
-            fqn: 'Subject',
-            logicalId: 'Subject',
-            resourceType: Scoped.Type,
-            instanceId: 'old',
-            providerVersion: 0,
-            props: { name: 'api', scope: 'old' },
-            attr: attributes({ name: 'api', scope: 'old' }),
-            bindings: [],
-            downstream: [],
-          },
+          value: options.resume
+            ? {
+                ...old,
+                status: 'replacing',
+                instanceId: 'replacement',
+                props: { name: 'api', scope: 'tenant' },
+                attr: attributes({ name: 'api', scope: 'tenant' }),
+                deleteFirst: true,
+                old,
+              }
+            : old,
         });
       }
       const first = yield* Plan.make(compiled).pipe(
@@ -216,19 +238,77 @@ describe('partial ownership evidence cannot select a foreign physical scope', ()
         });
       }
     }
-    test(`keeps complete read attributes usable for cleanup (cycle=${cycle})`, async () => {
+    for (const replace of [false, true])
+      for (const retry of [false, true]) {
+        test(`keeps complete read attributes usable for cleanup (cycle=${cycle}, replace=${replace}, retry=${retry})`, async () => {
+          const result = await scenario({
+            cycle,
+            replace,
+            read: true,
+            fail: true,
+            retry,
+          });
+          expect(Exit.isFailure(result.first)).toBe(true);
+          expect(result.firstOutputs[0]).toEqual(
+            attributes({ name: 'api', scope: 'tenant' }),
+          );
+          expect(result.checkpoint).toMatchObject({
+            props: { name: 'api', scope: 'tenant' },
+            attr: attributes({ name: 'api', scope: 'tenant' }),
+          });
+          if (replace)
+            expect(result.checkpoint).toMatchObject({
+              old: {
+                instanceId: 'old',
+                attr: attributes({ name: 'api', scope: 'old' }),
+              },
+            });
+          if (retry) expect(result.retry?._tag).toBe('Success');
+          expect(result.owners.has('tenant/api')).toBe(false);
+          expect(result.owners.get('account/api')).toBe('SomeoneElse');
+        });
+      }
+    test(`recovers a replacement written after a confirmed absence (cycle=${cycle})`, async () => {
       const result = await scenario({
         cycle,
-        replace: false,
+        replace: true,
         read: true,
+        absent: true,
         fail: true,
+        writeBeforeFailure: true,
       });
       expect(Exit.isFailure(result.first)).toBe(true);
-      expect(result.firstOutputs[0]).toEqual(
-        attributes({ name: 'api', scope: 'tenant' }),
-      );
+      expect(result.checkpoint).toMatchObject({
+        props: { name: 'api', scope: 'tenant' },
+      });
+      expect(
+        result.checkpoint && 'propsIncomplete' in result.checkpoint
+          ? result.checkpoint.propsIncomplete
+          : undefined,
+      ).toBeUndefined();
       expect(result.owners.has('tenant/api')).toBe(false);
       expect(result.owners.get('account/api')).toBe('SomeoneElse');
     });
   }
+  test('clears persisted precreate attributes before interrupted delete-first reconciliation', async () => {
+    const result = await scenario({
+      cycle: false,
+      replace: true,
+      read: true,
+      fail: true,
+      resume: true,
+    });
+    expect(Exit.isFailure(result.first)).toBe(true);
+    expect(result.firstOutputs[0]).toBeUndefined();
+    expect(
+      result.checkpoint && 'attr' in result.checkpoint
+        ? result.checkpoint.attr
+        : undefined,
+    ).toBeUndefined();
+    expect(result.checkpoint).toMatchObject({
+      props: { name: 'api', scope: 'tenant' },
+      old: { instanceId: 'old' },
+    });
+    expect(result.owners.get('account/api')).toBe('SomeoneElse');
+  });
 });
