@@ -67,9 +67,6 @@
       }
     },
     {
-      "plugin": "./tools/quality-plugin/src/index.ts"
-    },
-    {
       "plugin": "@maelstrom-co/astro-plugin",
       "options": {
         "buildTargetName": "build",

@@ -543,13 +543,6 @@
         "@opentelemetry/api": "catalog:",
       },
     },
-    "tools/quality-plugin": {
-      "name": "@maelstrom-co/quality-plugin",
-      "version": "0.0.1",
-      "dependencies": {
-        "tslib": "^2.3.0",
-      },
-    },
   },
   "patchedDependencies": {
     "nx@24.0.2": "patches/nx@24.0.2.patch",
@@ -1366,8 +1359,6 @@
     "@maelstrom-co/platform-infra": ["@maelstrom-co/platform-infra@workspace:infra/platform"],
 
     "@maelstrom-co/protocol": ["@maelstrom-co/protocol@workspace:packages/protocol"],
-
-    "@maelstrom-co/quality-plugin": ["@maelstrom-co/quality-plugin@workspace:tools/quality-plugin"],
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
 

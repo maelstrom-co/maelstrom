@@ -6,8 +6,9 @@
     "audit:public-api-docs": "bun tools/public-api-docs/audit.ts",
     "audit:strip-internal": "bun tools/public-api-docs/strip-internal-comparison.ts",
     "docs:lint": "bun scripts/lint-docs.ts",
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check ."
+    "format": "nx format:write --all",
+    "format:check": "nx format:check --all",
+    "check": "nx run-many -t lint && nx format:check --all"
   },
   "private": true,
   "engines": {
@@ -216,6 +217,39 @@
           },
           "toolchain",
           "{workspaceRoot}/scripts/lib/**/*.ts"
+        ]
+      },
+      "lint": {
+        "executor": "@nx/oxlint:lint",
+        "cache": true,
+        "options": {
+          "lintFilePatterns": [
+            "scripts",
+            ".github",
+            "tools",
+            "vitest.config.ts"
+          ],
+          "nestedProjectRoots": [
+            "tools/astro-plugin",
+            "tools/evals-langfuse",
+            "tools/evals-offline"
+          ]
+        },
+        "inputs": [
+          "{workspaceRoot}/scripts/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "{workspaceRoot}/.github/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "{workspaceRoot}/tools/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "!{workspaceRoot}/tools/astro-plugin/**/*",
+          "!{workspaceRoot}/tools/evals-langfuse/**/*",
+          "!{workspaceRoot}/tools/evals-offline/**/*",
+          "{workspaceRoot}/vitest.config.ts",
+          "{workspaceRoot}/.oxlintrc.json",
+          "{workspaceRoot}/.gitignore",
+          {
+            "externalDependencies": [
+              "oxlint"
+            ]
+          }
         ]
       }
     }

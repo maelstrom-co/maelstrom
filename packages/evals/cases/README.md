@@ -1194,7 +1194,8 @@ From the workspace root:
 
 ```sh
 bun test --conditions=@maelstrom-co/source tools/evals-offline
-bunx nx run @maelstrom-co/evals:check --skip-nx-cache --skipSync
+bunx nx run @maelstrom-co/evals:lint --skip-nx-cache --skipSync
+bunx nx format:check --all
 bunx nx run evals-offline:test --skip-nx-cache --skipSync
 ```
 

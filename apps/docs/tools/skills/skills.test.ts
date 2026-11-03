@@ -76,7 +76,7 @@ describe('portable agent skill bundle', () => {
     );
     expect(voice).toContain('TurnModeEvent');
     expect(voice).toContain('non-root entry point');
-    expect(voice).toContain('noRestrictedImports');
+    expect(voice).toContain('eslint/no-restricted-imports');
   });
 
   test('has one uniquely named lead per documented task, with valid frontmatter', async () => {
