@@ -15,6 +15,10 @@ import { useWeatherStore, weatherStore } from './weather.store';
 import type { weatherVessel } from './weather.vessel';
 
 export const weatherActionRunner = {
+  // The Chart owns view changes; these Actions have no separate data effect.
+  showCurrent: () => ok(undefined),
+  showHourly: () => ok(undefined),
+  showWeekly: () => ok(undefined),
   setLocation: async ({ location }: { location?: unknown }) => {
     if (typeof location !== 'string') {
       return err(new Error('Weather location must be a string.'));

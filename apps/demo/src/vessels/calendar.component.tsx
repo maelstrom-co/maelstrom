@@ -116,6 +116,10 @@ export default function CalendarComponent({
   );
 
   m.useActions('calendar', instanceId, {
+    // The Chart owns view changes; these Actions have no separate data effect.
+    showMonth: () => ok(undefined),
+    showWeek: () => ok(undefined),
+    showDay: () => ok(undefined),
     addEvent: async ({ title, time }) => {
       calendarActions.addEvent(title, time);
       const added = getCalendarSnapshot().events.at(-1);
