@@ -316,17 +316,55 @@ describe('buildSystemPrompt', () => {
         'do not execute any actions and keep the current state unchanged until the user clarifies the intended change',
       );
     });
+
+    // The client applies the layout before it runs the executionPlan in both
+    // modes. The negative half is load-bearing: the old rule claimed the
+    // reverse order, and a revert or merge resolution would bring it back.
+    test(`${mode} prompt states that the layout applies before the actions run`, () => {
+      const prompt = buildSystemPrompt(mode);
+      expect(prompt).toContain(
+        'The client applies the layout first, then runs the executionPlan actions in order. An action with a transition changes the instance variant when it runs.',
+      );
+      expect(prompt).toContain(
+        'Only invoke actions that are available in the variant the instance has when the action runs',
+      );
+      expect(prompt).not.toContain('Execute actions before layout');
+    });
   }
-  // Regression lock for the LLM "two ways to change a variant" footgun.
-  // The simulator validates each action against the instance's pre-action
-  // variant; an LLM that both mutates layout.instances directly AND adds a
-  // matching transition action causes the action to fail the no-op check
-  // and the heal layer wastes the retry budget. Pin: the prompt explicitly
-  // forbids mixing the two methods.
-  test('tiling system prompt forbids mixing transition action with direct variant mutation', () => {
+
+  // The layout declares each instance's variant before the executionPlan
+  // runs, and the transition action moves it. Declaring the target variant
+  // and also adding the transition makes the action find the instance
+  // already in its target, so it is skipped and the turn reports an
+  // unconfirmed change. The negative assertions are load-bearing: the old
+  // advice told the model to record the post-action variant, and a revert or
+  // merge resolution would teach that pattern again.
+  test('tiling system prompt keeps the current variant in the layout when a transition action drives the change', () => {
     const prompt = buildSystemPrompt('tiling');
-    expect(prompt).toContain('exactly ONE method');
-    expect(prompt).toContain('NEVER mix the two');
+    expect(prompt).toContain(
+      "PREFERRED: keep the instance's current variant in the instances array and add the transition action",
+    );
+    expect(prompt).toContain(
+      'DIRECT: only when no transition action exists for the change you want. Set the new variant in the instances array and add NO transition action.',
+    );
+    expect(prompt).toContain(
+      'NEVER declare the target variant in the instances array AND add a transition action to it.',
+    );
+    expect(prompt).toContain(
+      'each in the variant it has BEFORE the executionPlan runs',
+    );
+    expect(prompt).not.toContain('record the post-action variant');
+    expect(prompt).not.toContain('just confirms the resulting state');
+  });
+
+  test('tiling system prompt treats a new instance variant as its starting variant', () => {
+    const prompt = buildSystemPrompt('tiling');
+    expect(prompt).toContain(
+      'A transition action available on the starting variant may follow in executionPlan. It runs after the instance appears',
+    );
+    expect(prompt).toContain(
+      'DO NOT add a transition action whose target equals the variant you just declared.',
+    );
   });
 
   // Regression lock for the duplicate-instance-ID footgun. This prompt used
