@@ -1,10 +1,15 @@
 import { defineVessel } from '@maelstrom-co/protocol';
 
+const TASK_REFERENCE =
+  'Task reference from the published list (id, title and open or done status), for example "T-2 Prep design review notes (open)"';
+const SUBTASK_REFERENCE =
+  'Subtask reference from the published list (id, title and open or done status), for example "T-4.1 Check prototype (open)"';
+
 export const tasksVessel = defineVessel({
   id: 'tasks',
   name: 'Tasks',
   description:
-    'Task list with checkboxes, subtasks, and progress tracking. Supports adding, removing, checking, and nesting tasks.',
+    'Task list with subtasks and progress tracking. The user can check and uncheck tasks and subtasks directly, and the same changes can be made by request. Supports adding tasks with subtasks, removing, checking and nesting tasks.',
   defaultVariant: 'list',
   variants: {
     list: {
@@ -13,42 +18,38 @@ export const tasksVessel = defineVessel({
       actions: [
         {
           name: 'addTask',
-          description: 'Add a new task to the list',
+          description:
+            'Add a new task, optionally with subtasks created at the same time',
           parameters: [
             { name: 'title', type: 'string', description: 'Task title' },
+            {
+              name: 'subtasks',
+              type: 'string',
+              required: false,
+              description:
+                'Optional subtask titles separated by " | ", for example "Check prototype | Write questions"',
+            },
           ],
         },
         {
           name: 'removeTask',
-          description: 'Remove a task by title',
+          description: 'Remove a task',
           parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to remove',
-            },
+            { name: 'task', type: 'string', description: TASK_REFERENCE },
           ],
         },
         {
           name: 'checkTask',
-          description: 'Mark a task as complete',
+          description: 'Mark a task as done',
           parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to check',
-            },
+            { name: 'task', type: 'string', description: TASK_REFERENCE },
           ],
         },
         {
           name: 'uncheckTask',
-          description: 'Mark a task as incomplete',
+          description: 'Mark a task as open again',
           parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to uncheck',
-            },
+            { name: 'task', type: 'string', description: TASK_REFERENCE },
           ],
         },
         {
@@ -56,15 +57,29 @@ export const tasksVessel = defineVessel({
           description: 'Add a subtask under an existing task',
           parameters: [
             {
-              name: 'taskTitle',
+              name: 'task',
               type: 'string',
-              description: 'Title of the parent task',
+              description: `Parent task. ${TASK_REFERENCE}`,
             },
             {
               name: 'subtaskTitle',
               type: 'string',
               description: 'Title of the subtask to add',
             },
+          ],
+        },
+        {
+          name: 'checkSubtask',
+          description: 'Mark a subtask as done',
+          parameters: [
+            { name: 'subtask', type: 'string', description: SUBTASK_REFERENCE },
+          ],
+        },
+        {
+          name: 'uncheckSubtask',
+          description: 'Mark a subtask as open again',
+          parameters: [
+            { name: 'subtask', type: 'string', description: SUBTASK_REFERENCE },
           ],
         },
       ],

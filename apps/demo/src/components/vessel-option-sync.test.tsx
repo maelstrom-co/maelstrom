@@ -104,7 +104,21 @@ describe('VesselOptionSync', () => {
       variant: 'list',
       action: 'openEntry',
       parameter: 'title',
-      expectedTitle: 'Sprint kickoff',
+      expectedTitle: 'J-1 Sprint kickoff',
+    },
+    {
+      vesselId: 'journal',
+      variant: 'list',
+      action: 'editEntry',
+      parameter: 'entry',
+      expectedTitle: 'J-1 Sprint kickoff',
+    },
+    {
+      vesselId: 'journal',
+      variant: 'entry',
+      action: 'editEntry',
+      parameter: 'entry',
+      expectedTitle: 'J-2 Architecture review',
     },
     {
       vesselId: 'calendar',
@@ -124,29 +138,29 @@ describe('VesselOptionSync', () => {
       vesselId: 'tasks',
       variant: 'list',
       action: 'checkTask',
-      parameter: 'title',
-      expectedTitle: 'Ship this sprint',
+      parameter: 'task',
+      expectedTitle: 'T-3 Ship this sprint (open)',
     },
     {
       vesselId: 'tasks',
       variant: 'list',
       action: 'removeTask',
-      parameter: 'title',
-      expectedTitle: 'Ship this sprint',
+      parameter: 'task',
+      expectedTitle: 'T-3 Ship this sprint (open)',
     },
     {
       vesselId: 'tasks',
       variant: 'list',
       action: 'uncheckTask',
-      parameter: 'title',
-      expectedTitle: 'Ship this sprint',
+      parameter: 'task',
+      expectedTitle: 'T-1 Setup CI pipeline (done)',
     },
     {
       vesselId: 'tasks',
       variant: 'list',
       action: 'addSubtask',
-      parameter: 'taskTitle',
-      expectedTitle: 'Ship this sprint',
+      parameter: 'task',
+      expectedTitle: 'T-3 Ship this sprint (open)',
     },
   ];
 
@@ -182,7 +196,7 @@ describe('VesselOptionSync', () => {
     expect(published.length).toBeGreaterThan(before);
     expect(
       optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
-    ).toContain('Retro notes');
+    ).toContain('J-3 Retro notes');
   });
 
   // The calendar effect is the one the mount test can't distinguish: on
@@ -229,10 +243,12 @@ describe('VesselOptionSync', () => {
 
     expect(published.length).toBeGreaterThan(before);
     for (const [action, parameter] of [
-      ['checkTask', 'title'],
-      ['removeTask', 'title'],
-      ['uncheckTask', 'title'],
-      ['addSubtask', 'taskTitle'],
+      ['checkTask', 'task'],
+      ['removeTask', 'task'],
+      ['uncheckTask', 'task'],
+      ['addSubtask', 'task'],
+      ['checkSubtask', 'subtask'],
+      ['uncheckSubtask', 'subtask'],
     ]) {
       const found = parameterFor(published, 'tasks', 'list', action, parameter);
       expect(found, action).toBeDefined();
@@ -279,9 +295,9 @@ describe('VesselOptionSync', () => {
       tasksActions.removeTask('Ship this sprint');
       tasksActions.addTask('foo,bar');
     });
-    expect(
-      optionsFor(published, 'tasks', 'list', 'checkTask', 'title'),
-    ).toEqual(['foo,bar']);
+    expect(optionsFor(published, 'tasks', 'list', 'checkTask', 'task')).toEqual(
+      ['T-4 foo,bar (open)'],
+    );
     const afterCollisionTitle = published.length;
 
     await act(async () => {
@@ -291,32 +307,56 @@ describe('VesselOptionSync', () => {
     });
 
     expect(published.length).toBeGreaterThan(afterCollisionTitle);
-    expect(
-      optionsFor(published, 'tasks', 'list', 'checkTask', 'title'),
-    ).toEqual(['foo', 'bar']);
+    expect(optionsFor(published, 'tasks', 'list', 'checkTask', 'task')).toEqual(
+      ['T-5 foo (open)', 'T-6 bar (open)'],
+    );
   });
 
-  it('publishes a title shared by two tasks only once', async () => {
+  it('publishes two tasks sharing a title as distinct references', async () => {
     await act(async () => {
       render(<VesselOptionSync />);
     });
 
-    // Both adds land in the same batched render, so the derivation sees the
-    // raw duplicate ['Setup CI pipeline', ..., 'Ship it', 'Ship it'] before
-    // publishing — an undeduplicated `enum` would repeat 'Ship it' verbatim.
     await act(async () => {
       tasksActions.addTask('Ship it');
       tasksActions.addTask('Ship it');
     });
 
-    const titleEnum = optionsFor(
+    const references = optionsFor(
       published,
       'tasks',
       'list',
       'checkTask',
-      'title',
+      'task',
     );
-    expect(titleEnum?.filter((title) => title === 'Ship it')).toHaveLength(1);
+    expect(
+      references?.filter((reference) => String(reference).includes('Ship it')),
+    ).toEqual(['T-4 Ship it (open)', 'T-5 Ship it (open)']);
+  });
+
+  it('publishes subtask references and republishes done after a manual check', async () => {
+    await act(async () => {
+      render(<VesselOptionSync />);
+    });
+    await act(async () => {
+      tasksActions.addTask('Prepare design review', [
+        'Check prototype',
+        'Write questions',
+      ]);
+    });
+    expect(
+      optionsFor(published, 'tasks', 'list', 'checkSubtask', 'subtask'),
+    ).toEqual(['T-4.1 Check prototype (open)', 'T-4.2 Write questions (open)']);
+    const before = published.length;
+
+    await act(async () => {
+      tasksActions.setSubtaskDone('T-4.1', true);
+    });
+
+    expect(published.length).toBeGreaterThan(before);
+    expect(
+      optionsFor(published, 'tasks', 'list', 'uncheckSubtask', 'subtask'),
+    ).toContain('T-4.1 Check prototype (done)');
   });
 });
 
@@ -399,7 +439,7 @@ describe('VesselOptionSync republish conflicts', () => {
     expect(journalAttempts).toBe(2);
     expect(
       optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
-    ).toContain('Sprint kickoff');
+    ).toContain('J-1 Sprint kickoff');
   });
 
   // The ceiling is the only thing bounding this loop against the
@@ -534,7 +574,7 @@ describe('VesselOptionSync republish conflicts', () => {
     expect(journalAttempts).toBe(7);
     expect(
       optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
-    ).toContain('Sprint kickoff');
+    ).toContain('J-1 Sprint kickoff');
     warn.mockRestore();
   });
 

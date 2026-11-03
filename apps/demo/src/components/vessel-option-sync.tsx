@@ -8,9 +8,9 @@ import { m } from '../lib/maelstrom';
 import { withActionOptions } from '../lib/vessel-options';
 import { useCalendarStore } from '../vessels/calendar.store';
 import { calendarVessel } from '../vessels/calendar.vessel';
-import { useJournalStore } from '../vessels/journal.store';
+import { entryReferenceLabel, useJournalStore } from '../vessels/journal.store';
 import { journalVessel } from '../vessels/journal.vessel';
-import { useTasksStore } from '../vessels/tasks.store';
+import { taskReferenceLabel, useTasksStore } from '../vessels/tasks.store';
 import { tasksVessel } from '../vessels/tasks.vessel';
 
 // The two caps are imported rather than a local copy of the same numbers:
@@ -23,8 +23,8 @@ import { tasksVessel } from '../vessels/tasks.vessel';
 //
 // Generous for a demo: real usage tops out at a handful of seeded items per
 // list, so these are headroom, not a realistic ceiling. They exist to bound
-// prompt size (400 tasks would otherwise pay the full title list four times
-// per request — removeTask, checkTask, uncheckTask, addSubtask) rather than
+// prompt size (400 tasks would otherwise pay the full reference list once
+// per task Action on every request) rather than
 // to reflect any expected task count.
 
 // A blank or duplicate title would otherwise flow straight into `enum`
@@ -118,22 +118,22 @@ export function VesselOptionSync() {
   // batch that caused the refusal has drained.
   const isProcessing = m.useMaelstrom((s) => s.isProcessing);
 
-  const entryTitles = cleanTitles(
-    entries.map((entry) => entry.title),
-    'journal',
-  );
+  // The Planner sees no Instance data, so ids and done status travel in the
+  // option labels. A manual check changes the label, which republishes.
+  const entryTitles = cleanTitles(entries.map(entryReferenceLabel), 'journal');
   const eventTitles = cleanTitles(
     events.map((event) => event.title),
     'calendar',
   );
-  const taskTitles = cleanTitles(
-    tasks.map((task) => task.title),
-    'tasks',
+  const taskTitles = cleanTitles(tasks.map(taskReferenceLabel), 'tasks');
+  const subtaskTitles = cleanTitles(
+    tasks.flatMap((task) => task.subtasks.map(taskReferenceLabel)),
+    'subtasks',
   );
 
   const entryKey = optionKey(entryTitles);
   const eventKey = optionKey(eventTitles);
-  const taskKey = optionKey(taskTitles);
+  const taskKey = JSON.stringify([taskTitles, subtaskTitles]);
 
   useEffect(
     () =>
@@ -141,6 +141,7 @@ export function VesselOptionSync() {
         m.updateVessel(
           withActionOptions(journalVessel, {
             openEntry: { title: entryTitles },
+            editEntry: { entry: entryTitles },
           }),
         ),
       ),
@@ -165,10 +166,12 @@ export function VesselOptionSync() {
       republishWithRetry(() =>
         m.updateVessel(
           withActionOptions(tasksVessel, {
-            removeTask: { title: taskTitles },
-            checkTask: { title: taskTitles },
-            uncheckTask: { title: taskTitles },
-            addSubtask: { taskTitle: taskTitles },
+            removeTask: { task: taskTitles },
+            checkTask: { task: taskTitles },
+            uncheckTask: { task: taskTitles },
+            addSubtask: { task: taskTitles },
+            checkSubtask: { subtask: subtaskTitles },
+            uncheckSubtask: { subtask: subtaskTitles },
           }),
         ),
       ),

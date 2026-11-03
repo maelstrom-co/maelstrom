@@ -6,14 +6,27 @@ import {
   type Orchestrator,
   WireEngineError,
 } from '@maelstrom-co/client';
-import type {
-  ChartRequestMessage,
-  MaelstromResponse,
+import {
+  ActionName,
+  type ChartRequestMessage,
+  InstanceId,
+  type MaelstromResponse,
 } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from '@testing-library/react';
 import { StrictMode, useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
+import {
+  __resetActionActivityForTests,
+  recordChange,
+  recordFailure,
+} from '../lib/action-activity';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -38,6 +51,7 @@ const { IntentInput } = await import('./intent-input');
 
 afterEach(() => {
   cleanup();
+  __resetActionActivityForTests();
   voiceState = 'idle';
   clearPlaygroundKey();
   vi.useRealTimers();
@@ -114,15 +128,20 @@ async function setup(
     act(async () => {
       fireEvent.click(view.getByRole('button', { name: 'Send' }));
     });
-  const finish = (index: number) =>
+  const finish = (
+    index: number,
+    executionPlan: MaelstromResponse['executionPlan'] = [],
+  ) =>
     pending[index].resolve({
       type: 'maelstrom_response',
       requestId: sent[index].id,
       layout: { type: 'grid', positions: [] },
-      executionPlan: [],
+      executionPlan,
       rationale: '',
       userMessage: `Reply ${index}`,
     });
+  const receipt = () =>
+    view.getByTestId('action-receipt-line').textContent ?? '';
   return {
     view,
     input,
@@ -131,6 +150,7 @@ async function setup(
     sent,
     pending,
     finish,
+    receipt,
     client,
     onMintError,
     onBlockedSubmit,
@@ -517,4 +537,93 @@ it('resumes exactly once through StrictMode effect replay', async () => {
   expect(h.view.getByRole('status').textContent).toContain(
     '“resume me”: Applied',
   );
+});
+
+it('shows a factual receipt for an applied request that changed data', async () => {
+  const h = await setup();
+  h.type('add the design review task');
+  await h.send();
+  act(() => {
+    recordChange('Added "Prepare design review" with 2 subtasks', {
+      vesselId: 'tasks',
+      action: 'addTask',
+    });
+  });
+  expect(h.receipt()).toBe('');
+  await act(async () => {
+    h.finish(0);
+  });
+  expect(h.receipt()).toBe('✓ Added "Prepare design review" with 2 subtasks');
+  expect(h.view.getByRole('status').textContent).toContain(
+    '“add the design review task”: Applied — Reply 0',
+  );
+});
+
+it('shows the model message and no receipt for a layout-only request', async () => {
+  const h = await setup();
+  act(() => {
+    recordChange('Checked task "Ship this sprint"', {
+      vesselId: 'tasks',
+      action: 'checkTask',
+    });
+  });
+  expect(h.receipt()).toBe('✓ Checked task "Ship this sprint"');
+  h.type('make the calendar bigger');
+  await h.send();
+  await act(async () => {
+    h.finish(0);
+  });
+  expect(h.receipt()).toBe('');
+  expect(h.view.getByRole('status').textContent).toContain(
+    '“make the calendar bigger”: Applied — Reply 0',
+  );
+});
+
+it('replaces the model message with the failure when a handler fails', async () => {
+  const h = await setup();
+  h.type('check off the gym task');
+  await h.send();
+  act(() => {
+    recordFailure('Couldn\'t find task "gym"', {
+      vesselId: 'tasks',
+      action: 'checkTask',
+    });
+  });
+  await act(async () => {
+    h.finish(0);
+  });
+  const status = h.view.getByRole('status').textContent;
+  expect(status).toContain(
+    '“check off the gym task”: ✗ Couldn\'t find task "gym"',
+  );
+  expect(status).not.toContain('Reply 0');
+  expect(h.receipt()).toBe('✗ Couldn\'t find task "gym"');
+});
+
+it('never reports a planned data Action that did not run as a success', async () => {
+  // The skipped Action makes the framework settle the intent as unknown, so
+  // the dock says so and the receipt line claims nothing.
+  const h = await setup();
+  h.type('add a task');
+  await h.send();
+  await act(async () => {
+    h.finish(0, [
+      {
+        instanceId: InstanceId('tasks-main'),
+        action: ActionName('addTask'),
+        params: { title: 'Prepare design review' },
+      },
+    ]);
+  });
+  await waitFor(
+    () =>
+      expect(h.view.getByRole('status').textContent).not.toContain(
+        'Processing',
+      ),
+    { timeout: 3000 },
+  );
+  const status = h.view.getByRole('status').textContent;
+  expect(status).not.toContain('Applied');
+  expect(status).toContain('“add a task”: Outcome unknown');
+  expect(h.receipt()).not.toContain('✓');
 });

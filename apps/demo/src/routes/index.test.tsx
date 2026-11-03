@@ -1065,8 +1065,40 @@ describe('the seeded first screen', () => {
       tasksCall?.[0] as VesselDefinition,
       'list',
       'checkTask',
-      'title',
+      'task',
     );
-    expect(titleEnum).toContain('Ship this sprint');
+    expect(titleEnum).toContain('T-3 Ship this sprint (open)');
+
+    await act(async () => {
+      tasksActions.addTask('Prepare design review', ['Check prototype']);
+    });
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'Check prototype',
+    });
+    await act(async () => {
+      fireEvent.click(checkbox);
+    });
+
+    await waitFor(() =>
+      expect((checkbox as HTMLInputElement).checked).toBe(true),
+    );
+    await waitFor(
+      () => {
+        const published = updateVesselSpy.mock.calls.filter(
+          ([vessel], i) =>
+            vessel.id === 'tasks' &&
+            updateVesselSpy.mock.results[i]?.value.ok === true,
+        );
+        expect(
+          enumFor(
+            published.at(-1)?.[0] as VesselDefinition,
+            'list',
+            'uncheckSubtask',
+            'subtask',
+          ),
+        ).toContain('T-4.1 Check prototype (done)');
+      },
+      { timeout: 2000 },
+    );
   });
 });

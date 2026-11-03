@@ -1,10 +1,27 @@
 import { defineVessel } from '@maelstrom-co/protocol';
 
+const ENTRY_REFERENCE =
+  'Entry reference from the published list (id and title), for example "J-2 Architecture review"';
+
+const EDIT_ENTRY_ACTION = {
+  name: 'editEntry',
+  description:
+    'Replace the whole text of an existing journal entry. Use writeContent to append instead.',
+  parameters: [
+    { name: 'entry', type: 'string', description: ENTRY_REFERENCE },
+    {
+      name: 'content',
+      type: 'string',
+      description: 'The complete new text of the entry',
+    },
+  ],
+} as const;
+
 export const journalVessel = defineVessel({
   id: 'journal',
   name: 'Journal',
   description:
-    'Personal journal for writing entries. List view shows recent entries, entry view enables scribe mode where the AI can dictate content.',
+    'Personal journal for writing entries. List view shows recent entries, entry view enables scribe mode where the AI can dictate content. The user can open and edit entries directly, and the same edits can be made by request.',
   defaultVariant: 'list',
   variants: {
     list: {
@@ -27,17 +44,17 @@ export const journalVessel = defineVessel({
           name: 'openEntry',
           idempotent: true,
           description:
-            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
+            'Open an existing journal entry so it becomes visible in all entry-variant tiles.',
           parameters: [
             {
               name: 'title',
               type: 'string',
-              description:
-                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
+              description: `${ENTRY_REFERENCE}. A plain title also works and is matched case-insensitively, with substring fallback.`,
             },
           ],
           transitionsTo: 'entry',
         },
+        EDIT_ENTRY_ACTION,
       ],
     },
     entry: {
@@ -59,13 +76,12 @@ export const journalVessel = defineVessel({
           name: 'openEntry',
           idempotent: true,
           description:
-            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
+            'Open an existing journal entry so it becomes visible in all entry-variant tiles.',
           parameters: [
             {
               name: 'title',
               type: 'string',
-              description:
-                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
+              description: `${ENTRY_REFERENCE}. A plain title also works and is matched case-insensitively, with substring fallback.`,
             },
           ],
         },
@@ -87,6 +103,7 @@ export const journalVessel = defineVessel({
           description: 'Return to the journal entries list',
           transitionsTo: 'list',
         },
+        EDIT_ENTRY_ACTION,
       ],
     },
   },

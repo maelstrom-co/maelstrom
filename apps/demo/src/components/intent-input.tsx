@@ -1,12 +1,20 @@
 import type { IntentSnapshot, IntentSubmission } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type ActivityState,
+  problemSummaryForWindow,
+  trackSubmissionWindow,
+  useActionActivity,
+} from '../lib/action-activity';
 import { usesBrowserKey } from '../lib/hosted-mode';
 import { isInvalidKeyError } from '../lib/invalid-key-error';
 import { m } from '../lib/maelstrom';
 import { playgroundKeyStore } from '../lib/playground-key-store';
+import { ActionReceiptLine } from './action-receipt-line';
 import { AssistantResponse } from './assistant-response';
 import { Captions } from './captions';
+import { EngineActivityWindows } from './engine-activity-windows';
 import { FIRST_RUN_EXAMPLES } from './first-run-hint';
 import { VoiceControl } from './voice-control';
 import { VoiceErrorNote } from './voice-error-note';
@@ -35,6 +43,7 @@ export function IntentInput({
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = browserKeyMode && !apiKey;
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
+  const activity = useActionActivity();
   const draftRevision = useRef(0);
   const latestSubmission = useRef<IntentSubmission | null>(null);
   const current = useRef({ intent, onIntentChange, onMintError });
@@ -74,12 +83,18 @@ export function IntentInput({
     latestSubmission.current = ticket;
     if (ticket.accepted) changeDraft('');
     const revision = draftRevision.current;
+    const receiptWindow = trackSubmissionWindow(ticket);
     const update = () => {
       if (!owner.active) return;
       setEntries((previous) =>
         trimFeedback([
           ...previous.filter((entry) => entry.ticket !== ticket),
-          { ticket, text, snapshot: ticket.store.state },
+          {
+            ticket,
+            text,
+            snapshot: ticket.store.state,
+            receiptWindow: receiptWindow(),
+          },
         ]),
       );
     };
@@ -129,7 +144,10 @@ export function IntentInput({
 
   const feedback = entries
     .filter(({ snapshot }) => !voiceActive || snapshot.status !== 'applied')
-    .map(({ text, snapshot }) => `“${text}”: ${describeIntent(snapshot)}`)
+    .map(
+      ({ text, snapshot, receiptWindow }) =>
+        `“${text}”: ${describeIntent(snapshot, activity, receiptWindow)}`,
+    )
     .join(' · ');
 
   // VoiceOrb owns its own click handler internally (no onClick prop) — a
@@ -157,7 +175,7 @@ export function IntentInput({
           scrim covered vessel flash borders, and in-flow height changes here
           would fire engine chart_resize. Captions always reserves a fixed band. */}
       <Captions />
-      <div className="demo-voice-band mx-auto mb-2 flex h-24 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
+      <div className="demo-voice-band mx-auto mb-2 flex h-18 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
         <VoiceControl showOrb={false} />
         <span
           className="shrink-0 text-xs text-ink-3"
@@ -189,6 +207,8 @@ export function IntentInput({
             Send
           </button>
         </div>
+        <ActionReceiptLine />
+        <EngineActivityWindows />
 
         <datalist id="demo-intent-examples">
           {FIRST_RUN_EXAMPLES.map((suggestion) => (
@@ -204,6 +224,7 @@ interface FeedbackEntry {
   readonly ticket: IntentSubmission;
   readonly text: string;
   readonly snapshot: IntentSnapshot;
+  readonly receiptWindow: number | null;
 }
 
 function trimFeedback(entries: FeedbackEntry[]): FeedbackEntry[] {
@@ -218,7 +239,16 @@ function trimFeedback(entries: FeedbackEntry[]): FeedbackEntry[] {
   return [...terminal.slice(-6), ...pending];
 }
 
-function describeIntent(snapshot: IntentSnapshot): string {
+function describeIntent(
+  snapshot: IntentSnapshot,
+  activity: ActivityState,
+  receiptWindow: number | null,
+): string {
+  const problem =
+    snapshot.status === 'applied' && receiptWindow !== null
+      ? problemSummaryForWindow(activity, receiptWindow)
+      : null;
+  if (problem) return problem;
   switch (snapshot.status) {
     case 'queued':
       return `Queued (#${snapshot.queuePosition})`;
