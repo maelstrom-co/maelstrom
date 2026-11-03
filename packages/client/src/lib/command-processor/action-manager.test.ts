@@ -16,16 +16,22 @@ import {
   isErr,
   ok,
   VariantName,
+  type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
+import {
+  calendarMain,
+  calendarViewsVessel,
+} from '../../../test-utils/calendar-vessel.js';
 import { Logger } from '../utils/logger.js';
 import { ActionManager, type VariantTransitions } from './action-manager.js';
 import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
+import { resolveActionOnVariant } from './action-variant-resolution.js';
 
 const i1 = InstanceId('instance-1');
 const i2 = InstanceId('instance-2');
@@ -715,23 +721,16 @@ describe('ActionManager', () => {
   });
 });
 
-const calendarVessel = defineVessel({
-  id: 'calendar',
-  name: 'Calendar',
-  description: 'Calendar with day, week and month views',
-  defaultVariant: 'day',
+// The shared calendar plus a self-transition and a transition to an
+// undeclared Variant, for the edge cases.
+const calendarVessel: VesselDefinition = {
+  ...calendarViewsVessel,
   variants: {
+    ...calendarViewsVessel.variants,
     day: {
-      props: {},
-      minSize: { width: 1, height: 1 },
+      ...calendarViewsVessel.variants.day,
       actions: [
-        { name: 'addEvent', description: 'Add an event' },
-        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
-        {
-          name: 'showMonth',
-          description: 'Month view',
-          transitionsTo: 'month',
-        },
+        ...calendarViewsVessel.variants.day.actions,
         {
           name: 'refreshDay',
           description: 'Re-show the day',
@@ -744,34 +743,11 @@ const calendarVessel = defineVessel({
         },
       ],
     },
-    week: {
-      props: {},
-      minSize: { width: 1, height: 1 },
-      actions: [
-        { name: 'addEvent', description: 'Add an event' },
-        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
-        {
-          name: 'showMonth',
-          description: 'Month view',
-          transitionsTo: 'month',
-        },
-      ],
-    },
-    month: {
-      props: {},
-      minSize: { width: 1, height: 1 },
-      actions: [
-        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
-        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
-      ],
-    },
   },
-});
+};
 
-const calendarMain = InstanceId('calendar-main');
-
-// Mirrors the store-backed implementation over a plain map so these tests pin
-// the ActionManager rules without a CommandProcessor.
+// Keeps Variants in a plain map and resolves with the CommandProcessor's
+// resolver, so these tests pin the ActionManager rules without a store.
 function createFakeVariantTransitions(initial: Record<string, string>) {
   const variants = new Map<string, string>(Object.entries(initial));
   const applyCalls: [string, string, string][] = [];
@@ -779,31 +755,11 @@ function createFakeVariantTransitions(initial: Record<string, string>) {
     resolve(instanceId, action) {
       const variant = variants.get(instanceId);
       if (variant === undefined) return { status: 'instance_missing' };
-      const actionDefinition = Object.hasOwn(calendarVessel.variants, variant)
-        ? calendarVessel.variants[
-            variant as keyof typeof calendarVessel.variants
-          ].actions.find((candidate) => candidate.name === action)
-        : undefined;
-      if (!actionDefinition) {
-        return {
-          status: 'action_not_on_variant',
-          variant: VariantName(variant),
-        };
-      }
-      const target =
-        'transitionsTo' in actionDefinition
-          ? actionDefinition.transitionsTo
-          : undefined;
-      return {
-        status: 'available',
-        variant: VariantName(variant),
-        transition:
-          target === undefined
-            ? { kind: 'none' }
-            : Object.hasOwn(calendarVessel.variants, target)
-              ? { kind: 'to', variant: VariantName(target) }
-              : { kind: 'unknown_target', target },
-      };
+      return resolveActionOnVariant(
+        calendarVessel,
+        VariantName(variant),
+        action,
+      );
     },
     apply(instanceId, expected, next) {
       applyCalls.push([instanceId, expected, next]);
