@@ -23,7 +23,7 @@ When an action requires parameters, encode them as a JSON string in the paramsJs
 Example: {"entityId":"abc-123"} or {"selectedIds":["alpha","beta"]}
 If no parameters are needed, omit paramsJson entirely.`;
 
-export const SHARED_RULES = `- Only invoke actions that are available in the variant the instance has when the action runs: its current variant, or the target of an earlier transition action on the same instance
+export const SHARED_RULES = `- Only invoke actions that are available in the variant the instance has when the action runs: the variant it has before the executionPlan runs (in tiling mode, the variant declared for it in the layout instances array; in grid mode, its current variant), or the target of an earlier transition action on the same instance
 - The client applies the layout first, then runs the executionPlan actions in order. An action with a transition changes the instance variant when it runs.
 - Only show vessels that are relevant to the user's current intent
 - CRITICAL: Do NOT say a panel is showing specific data, entities, filters, comparisons, or selections unless the matching action is present in executionPlan
