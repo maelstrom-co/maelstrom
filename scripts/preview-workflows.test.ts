@@ -546,6 +546,50 @@ describe('preview workflows', () => {
     expect(workflow).toContain('PREVIEW_TRIGGER: schedule');
   });
 
+  test.each([
+    ['invalidate-preview-approval.yml', 'cancel-superseded', true],
+    ['teardown-preview.yml', 'cancel-waiting', false],
+  ])('%s %s cancels waiting deploy runs without checking out source', (file, name, keepsCurrentHead) => {
+    const workflow = Bun.YAML.parse(read(file)) as {
+      jobs: Record<
+        string,
+        {
+          if: string;
+          environment?: string;
+          permissions: Record<string, string>;
+          steps: { uses?: string; run?: string }[];
+        }
+      >;
+    };
+    const job = workflow.jobs[name]!;
+    expect(job.permissions).toEqual({ actions: 'write' });
+    expect(job.environment).toBeUndefined();
+    expect(job.if).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    );
+    expect(job.steps.some((step) => step.uses !== undefined)).toBe(false);
+    const script = job.steps.map((step) => step.run ?? '').join('\n');
+    expect(script).toContain('--workflow deploy-preview.yml');
+    expect(script).toContain('--event pull_request_target');
+    expect(script).toContain('--status waiting');
+    expect(script).toContain('--branch "$HEAD_REF"');
+    expect(script.includes('select(.headSha != $head)')).toBe(keepsCurrentHead);
+  });
+
+  test('label-triggered approval requests link the pending run on the pull request', () => {
+    const workflow = read('deploy-preview.yml');
+    const notice = step(workflow, 'Link pending approval on the pull request');
+    expect(workflow.indexOf(notice)).toBeLessThan(
+      workflow.indexOf('  deploy:'),
+    );
+    expect(notice).toContain(
+      "if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''",
+    );
+    expect(notice).toContain('<!-- preview-approval-request -->');
+    expect(notice).toContain(expression('github.run_id'));
+    expect(notice).toContain('github-actions[bot]');
+  });
+
   test('trusted workflows invoke lifecycle commands through captured absolute Bun paths', () => {
     for (const [file, command] of [
       ['invalidate-preview-approval.yml', 'invalidate'],

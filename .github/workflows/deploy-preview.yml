@@ -101,6 +101,28 @@ jobs:
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts approve-ci
 
+      # Label-triggered runs wait for a `preview` environment reviewer, and
+      # GitHub surfaces that only on the run page. One sticky comment points
+      # reviewers at the run; the voice benchmark asks in the same run.
+      - name: Link pending approval on the pull request
+        if: github.event_name == 'pull_request_target' && steps.manual.outputs.pr-number != ''
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.manual.outputs.head-sha }}
+          PR_NUMBER: ${{ steps.manual.outputs.pr-number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- preview-approval-request -->'
+          body="$(printf '%s\nPreview deployment for %s is waiting for a `preview` environment approval: [review the run](%s).\n\nWhen the deploy finishes, the Voice Benchmark job in the same run asks for its own approval.' "$marker" "$HEAD_SHA" "$RUN_URL")"
+          comment_id="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$comment_id" -f body="$body" > /dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
+          fi
+
   deploy:
     name: Deploy Preview
     needs: approve
