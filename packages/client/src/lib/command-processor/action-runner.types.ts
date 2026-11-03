@@ -183,9 +183,12 @@ export interface ActionRecord {
   /** Producer-known cause of skipped or failed work; omitted when unavailable. */
   errorCategory?: TelemetryErrorCategory;
   /**
-   * Why a skipped Action did not run, naming the Action, the Instance and,
-   * when known, its Variant. Set only on skips decided against the
-   * Instance's Variant.
+   * Human-readable diagnostic for why a skipped Action did not run, naming the
+   * Action, the Instance and, when known, its Variant. Set on skips recorded
+   * while Actions resolve against their Instance's Variant: `application`
+   * skips, and `readiness` skips for a runner that went away mid-sequence.
+   * The readiness skip before any Action runs, and execution without Variant
+   * resolution, leave it unset. Branch on `errorCategory`, not on this text.
    */
   reason?: string;
 }

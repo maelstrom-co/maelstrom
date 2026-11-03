@@ -143,8 +143,9 @@ export interface VariantTransitions {
  *
  * Given {@link VariantTransitions}, each Action resolves against the
  * Instance's Variant at its turn and applies its `transitionsTo` after the
- * handler succeeds. A transition with no handler applies on its own. Without
- * them, handlers are looked up by name alone and no Variant changes.
+ * handler succeeds. A transition with no handler applies on its own, but only
+ * once the Instance has a registered runner. Without them, handlers are looked
+ * up by name alone and no Variant changes.
  *
  * @example
  * ```typescript
@@ -325,7 +326,8 @@ export class ActionManager {
    * - Sequentially within the same instance (respects executionPlan order)
    *
    * Waits for runners to be ready before executing. Actions are skipped if
-   * no runner is registered within the timeout.
+   * no runner is registered within the timeout, including Actions that only
+   * transition: an Instance whose runner never registers changes no Variant.
    *
    * With `transitions`, each Action in turn:
    * 1. Reads the Instance's runner, waiting for readiness again if it went
@@ -339,6 +341,11 @@ export class ActionManager {
    *    from step 2. A transition with no handler counts as applied. A target
    *    equal to the current Variant, or one the Vessel does not define,
    *    applies nothing. A lost compare-and-set is not an error.
+   *
+   * With no handler, an Action that declares no transition or transitions to
+   * a Variant the Vessel does not define is skipped as `application`, with a
+   * `reason`. One whose target equals the current Variant succeeds without a
+   * change.
    *
    * Without `transitions`, handlers are looked up by name alone and no
    * Variant changes.
@@ -579,9 +586,9 @@ export class ActionManager {
     const records: ActionRecord[] = [];
 
     for (const execution of executions) {
-      // React registers runners in an effect keyed by Instance, so a Vessel
-      // that renders a different component per Variant swaps its runner after
-      // a transition. Reading it per Action picks up the replacement.
+      // A runner can be replaced after a transition, for example when a
+      // Vessel renders a different component per Variant, so read it per
+      // Action.
       const runner = await this.#currentRunner(instanceId);
       if (!runner) {
         const reason = `No runner registered for Instance "${instanceId}" when Action "${execution.action}" was due`;
