@@ -276,9 +276,12 @@ test('forks use hosted CI without shared caching and cannot run owner operations
         event: { pull_request: { head: { repo: { fork } } } },
       };
       const external = repository !== 'maelstrom-co/maelstrom' || fork;
-      expect(evaluate(ci.jobs.main!['runs-on']!, github)).toBe(
-        external ? 'ubuntu-latest' : 'blacksmith-4vcpu-ubuntu-2404',
-      );
+      for (const jobName of ['verify', 'e2e']) {
+        expect(evaluate(ci.jobs[jobName]!['runs-on']!, github)).toBe(
+          external ? 'ubuntu-latest' : 'blacksmith-4vcpu-ubuntu-2404',
+        );
+      }
+      expect(ci.jobs.main!['runs-on']).toBe('ubuntu-latest');
       expect(evaluate(ci.env!.NX_NO_CLOUD!, github)).toBe(external);
       expect(
         evaluate(ci.env!.NX_NO_CLOUD!, github, { NX_NO_CLOUD: 'true' }),
