@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { err, InstanceId, ok, tilingLeafToken } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  err,
+  InstanceId,
+  ok,
+  tilingLeafToken,
+  VariantName,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
+import {
+  calendarMain,
+  calendarVessel,
+  createCalendarLayout,
+} from '../../../test-utils/calendar-vessel.js';
 import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
@@ -104,5 +116,61 @@ describe('CommandProcessor.dispatchSettled', () => {
       (await processor.dispatchSettled(createSetLayoutCommand('late'))).status,
     ).toBe('unknown');
     expect(clock.countTimers()).toBe(0);
+  });
+});
+
+describe('CommandProcessor.dispatchSettled with Vessel resolution', () => {
+  let processor: CommandProcessor;
+  beforeEach(() => {
+    processor = new CommandProcessor({
+      defaultActionWaitTimeoutMs: 10,
+      resolveVessel: (vesselId) =>
+        vesselId === calendarVessel.id ? calendarVessel : undefined,
+    });
+  });
+  afterEach(() => {
+    processor.dispose();
+  });
+
+  it('applies a pure transition Action after the layout and settles as applied', async () => {
+    processor.registerRunner(calendarMain, {});
+
+    const settled = await processor.dispatchSettled(
+      { kind: 'set_layout', layout: createCalendarLayout('day') },
+      {
+        kind: 'execute_actions',
+        executionPlan: [
+          { instanceId: calendarMain, action: ActionName('showWeek') },
+        ],
+      },
+    );
+
+    expect(settled).toEqual({ status: 'applied' });
+    expect(processor.store.state.instances.get(calendarMain)?.variant).toBe(
+      VariantName('week'),
+    );
+  });
+
+  it('settles as unknown with a reason when the Action is not on the current Variant', async () => {
+    processor.registerRunner(calendarMain, {});
+
+    const settled = await processor.dispatchSettled(
+      { kind: 'set_layout', layout: createCalendarLayout('week') },
+      {
+        kind: 'execute_actions',
+        executionPlan: [
+          { instanceId: calendarMain, action: ActionName('showWeek') },
+        ],
+      },
+    );
+
+    expect(settled.status).toBe('unknown');
+    if (settled.status !== 'unknown') throw new Error('expected unknown');
+    expect(settled.error?.message).toBe(
+      'Action "showWeek" is not defined on Variant "week" of Instance "calendar-main"',
+    );
+    expect(processor.store.state.instances.get(calendarMain)?.variant).toBe(
+      VariantName('week'),
+    );
   });
 });
