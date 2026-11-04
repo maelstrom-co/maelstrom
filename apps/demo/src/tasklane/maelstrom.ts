@@ -17,6 +17,7 @@ import { projectTasksEntry } from './vessels/project-tasks.vessel';
 import { sourceFeedbackEntry } from './vessels/source-feedback.vessel';
 import { taskDetailEntry } from './vessels/task-detail.vessel';
 import { teamLoadEntry } from './vessels/team-load.vessel';
+import { triageInboxEntry } from './vessels/triage-inbox.vessel';
 import {
   TASKLANE_VOICE_PROVIDERS,
   type TasklaneVoiceProvider,
@@ -52,6 +53,7 @@ export const tasklaneM = createMaelstrom({
     myPrioritiesEntry,
     taskDetailEntry,
     teamLoadEntry,
+    triageInboxEntry,
   ] as const,
   cellSizePx: TASKLANE_CELL_SIZE_PX,
 })

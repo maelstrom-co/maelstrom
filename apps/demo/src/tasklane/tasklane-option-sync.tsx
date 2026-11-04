@@ -25,6 +25,7 @@ import { myPrioritiesVessel } from './vessels/my-priorities.vessel.def';
 import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
 import { taskDetailVessel } from './vessels/task-detail.vessel.def';
+import { triageInboxVessel } from './vessels/triage-inbox.vessel.def';
 
 export const TASK_SUMMARY_CHARACTER_LIMIT = 1500;
 export const TASK_SUMMARY_HEADING =
@@ -104,6 +105,15 @@ export function taskDetailDefinition(
   });
 }
 
+/** The Triage inbox definition with the live task references on assignTask. */
+export function triageInboxDefinition(
+  state: ProjectTasksState,
+): typeof triageInboxVessel {
+  return withActionOptions(triageInboxVessel, {
+    assignTask: { task: taskReferences(state, 'triage-inbox') },
+  });
+}
+
 /** The Feedback definition with the current snapshot, which the Planner cannot read from the page. */
 export function sourceFeedbackDefinition(
   state: FeedbackState,
@@ -124,6 +134,7 @@ export function TasklaneOptionSync() {
   const tasksDefinition = projectTasksDefinition(tasksState, filterState);
   const prioritiesDefinition = myPrioritiesDefinition(tasksState);
   const detailDefinition = taskDetailDefinition(tasksState);
+  const triageDefinition = triageInboxDefinition(tasksState);
   const feedbackDefinition = sourceFeedbackDefinition(feedbackState);
   const tasksKey = optionKey([
     tasksDefinition.description,
@@ -140,6 +151,9 @@ export function TasklaneOptionSync() {
   const detailKey = optionKey([
     JSON.stringify(taskEnum(detailDefinition, 'showTask')),
   ]);
+  const triageKey = optionKey([
+    JSON.stringify(taskEnum(triageDefinition, 'assignTask')),
+  ]);
   const feedbackKey = optionKey([feedbackDefinition.description]);
 
   useEffect(
@@ -154,6 +168,10 @@ export function TasklaneOptionSync() {
   useEffect(
     () => republishWithRetry(() => tasklaneM.updateVessel(detailDefinition)),
     [detailKey, isProcessing],
+  );
+  useEffect(
+    () => republishWithRetry(() => tasklaneM.updateVessel(triageDefinition)),
+    [triageKey, isProcessing],
   );
   useEffect(
     () => republishWithRetry(() => tasklaneM.updateVessel(feedbackDefinition)),

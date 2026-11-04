@@ -16,6 +16,7 @@ import { projectTasksVessel } from './project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './source-feedback.vessel.def';
 import { taskDetailVessel } from './task-detail.vessel.def';
 import { teamLoadVessel } from './team-load.vessel.def';
+import { triageInboxVessel } from './triage-inbox.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
@@ -30,6 +31,7 @@ const TASKLANE_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   'my-priorities': myPrioritiesVessel,
   'task-detail': taskDetailVessel,
   'team-load': teamLoadVessel,
+  'triage-inbox': triageInboxVessel,
 };
 
 vi.mock('../maelstrom', () => ({
@@ -62,6 +64,10 @@ const MyPrioritiesComponent = (await import('./my-priorities.component'))
   .default;
 const TaskDetailComponent = (await import('./task-detail.component')).default;
 const TeamLoadComponent = (await import('./team-load.component')).default;
+const TriageInboxComponent = (await import('./triage-inbox.component')).default;
+const { __resetTasklaneActivityForTests, getLatestReceipt } = await import(
+  '../tasklane-activity'
+);
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -76,6 +82,7 @@ beforeEach(() => {
   __resetFeedbackStoreForTests();
   __resetTaskDetailStoreForTests();
   __resetBoardFilterStoreForTests();
+  __resetTasklaneActivityForTests();
 });
 
 afterEach(cleanup);
@@ -710,6 +717,79 @@ describe('Team load Vessel', () => {
   });
 });
 
+describe('Triage inbox Vessel', () => {
+  it('declares a small list variant that shares the board assignTask Action', () => {
+    expect(Object.keys(triageInboxVessel.variants)).toEqual(['list']);
+    expect(triageInboxVessel.variants.list.minSize).toEqual({
+      width: 4,
+      height: 3,
+    });
+    expect(triageInboxVessel.variants.list.actions).toEqual(
+      projectTasksVessel.variants.board.actions.filter(
+        (action) => action.name === 'assignTask',
+      ),
+    );
+  });
+
+  it('lists open tasks with no owner or no parent, each with its reasons', () => {
+    projectTaskActions.createTask({ title: 'Grouping task', assignee: 'alex' });
+    projectTaskActions.createTask({ title: 'Owned child', parent: 'TL-3' });
+    projectTaskActions.assignTask('TL-4', 'sam');
+    projectTaskActions.createTask({ title: 'Unowned child', parent: 'TL-3' });
+    projectTaskActions.createTask({ title: 'Loose and unowned' });
+    projectTaskActions.createTask({ title: 'Finished loose' });
+    projectTaskActions.setStatus('TL-7', 'done');
+    render(<TriageInboxComponent {...props('triage-inbox')} />);
+
+    expect(triageRows()).toEqual([
+      { id: 'TL-1', reasons: ['no parent'] },
+      { id: 'TL-2', reasons: ['no parent'] },
+      { id: 'TL-5', reasons: ['no owner'] },
+      { id: 'TL-6', reasons: ['no owner', 'no parent'] },
+    ]);
+  });
+
+  it('assigns a task inline through assignTask and records a receipt', async () => {
+    projectTaskActions.createTask({ title: 'Unowned child', parent: 'TL-1' });
+    const vesselProps = props('triage-inbox');
+    render(<TriageInboxComponent {...vesselProps} />);
+
+    const select = screen.getByRole('combobox', {
+      name: 'Assign Unowned child',
+    }) as unknown as HTMLSelectElement;
+    expect(select.value).toBe('unassigned');
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'sam' } });
+    });
+
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('assignTask', {
+      task: 'TL-3',
+      assignee: 'sam',
+    });
+    expect(getProjectTasksSnapshot().tasks.at(-1)?.assigneeId).toBe('sam');
+    expect(getLatestReceipt()?.text).toBe('✓ Assigned "Unowned child" to Sam');
+    expect(triageRows().map((row) => row.id)).toEqual(['TL-2']);
+  });
+
+  it('says the inbox is clear when every open task has an owner and a place', () => {
+    projectTaskActions.setParent('TL-2', 'TL-1');
+    render(<TriageInboxComponent {...props('triage-inbox')} />);
+    expect(screen.queryByRole('list', { name: 'Triage inbox' })).toBeNull();
+    expect(screen.getByText('Inbox clear ✓')).toBeTruthy();
+  });
+
+  it('returns the board error for an unknown task', async () => {
+    render(<TriageInboxComponent {...props('triage-inbox')} />);
+    const result = await invoke('triage-inbox', 'assignTask', {
+      task: 'Ghost',
+      assignee: 'alex',
+    });
+    expect(result?.error?.message).toContain(
+      'TL-1 Update demo README, TL-2 Record launch video',
+    );
+  });
+});
+
 describe('Task detail Vessel', () => {
   it('asks for a task until showTask runs', () => {
     render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
@@ -874,6 +954,7 @@ describe('Tasks Vessel through Actions', () => {
     render(<MyPrioritiesComponent {...props('my-priorities')} />);
     render(<TaskDetailComponent {...props('task-detail')} />);
     render(<TeamLoadComponent {...props('team-load')} />);
+    render(<TriageInboxComponent {...props('triage-inbox')} />);
 
     const registered = Object.fromEntries(
       Object.keys(TASKLANE_VESSELS).map((vesselId) => [
@@ -995,6 +1076,18 @@ function priorityBadge(title: string): string | null {
     taskRow(title).querySelector('.tasklane-priority-badge')?.textContent ??
     null
   );
+}
+
+function triageRows(): { id: string; reasons: string[] }[] {
+  return within(screen.getByRole('list', { name: 'Triage inbox' }))
+    .getAllByRole('listitem')
+    .map((item) => ({
+      id: item.getAttribute('data-task-id') ?? '',
+      reasons: Array.from(
+        item.querySelectorAll('[data-reason]'),
+        (tag) => tag.textContent ?? '',
+      ),
+    }));
 }
 
 function shareOf(row: HTMLElement): string | null {

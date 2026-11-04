@@ -38,6 +38,7 @@ const {
   myPrioritiesDefinition,
   projectTasksDefinition,
   taskDetailDefinition,
+  triageInboxDefinition,
   sourceFeedbackDefinition,
   TASK_SUMMARY_CHARACTER_LIMIT,
   TASK_SUMMARY_HEADING,
@@ -65,6 +66,7 @@ const { myPrioritiesVessel } = await import(
   './vessels/my-priorities.vessel.def'
 );
 const { taskDetailVessel } = await import('./vessels/task-detail.vessel.def');
+const { triageInboxVessel } = await import('./vessels/triage-inbox.vessel.def');
 const { sourceFeedbackVessel } = await import(
   './vessels/source-feedback.vessel.def'
 );
@@ -268,6 +270,17 @@ describe('taskDetailDefinition', () => {
   });
 });
 
+describe('triageInboxDefinition', () => {
+  it('publishes the task references on assignTask and keeps the description', () => {
+    const definition = triageInboxDefinition(getProjectTasksSnapshot());
+    expect(taskEnum(definition, 'assignTask')).toEqual([
+      'TL-1 Update demo README (Alex, normal, not in priorities)',
+      'TL-2 Record launch video (Sam, normal, not in priorities)',
+    ]);
+    expect(definition.description).toBe(triageInboxVessel.description);
+  });
+});
+
 describe('sourceFeedbackDefinition', () => {
   it('appends the current feedback snapshot to the description', () => {
     feedbackActions.replaceFeedback('Users want dark mode.\nAnd faster loads.');
@@ -296,6 +309,7 @@ describe('TasklaneOptionSync', () => {
       'project-tasks',
       'source-feedback',
       'task-detail',
+      'triage-inbox',
     ]);
 
     sync.published = [];
@@ -306,6 +320,7 @@ describe('TasklaneOptionSync', () => {
       'my-priorities',
       'project-tasks',
       'task-detail',
+      'triage-inbox',
     ]);
     const latest = sync.published.find(
       (vessel) => vessel.id === 'project-tasks',

@@ -69,6 +69,7 @@ describe('Tasklane instance', () => {
       'my-priorities',
       'task-detail',
       'team-load',
+      'triage-inbox',
     ]);
   });
 

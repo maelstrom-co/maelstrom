@@ -10,6 +10,7 @@ import {
 import { ASSIGNEE_CHOICES } from '../stores/team';
 import {
   ADD_TO_MY_PRIORITIES_ACTION,
+  ASSIGN_TASK_ACTION,
   FILTER_BY_ASSIGNEE_ACTION,
   REMOVE_FROM_MY_PRIORITIES_ACTION,
   TASK_REFERENCE,
@@ -99,20 +100,7 @@ const PROJECT_TASK_ACTIONS = defineActions([
       },
     ],
   },
-  {
-    name: 'assignTask',
-    idempotent: true,
-    description: 'Assign a task to a team member, or unassign it.',
-    parameters: [
-      { name: 'task', type: 'string', description: TASK_REFERENCE },
-      {
-        name: 'assignee',
-        type: 'string',
-        enum: [...ASSIGNEE_CHOICES],
-        description: 'Team id of the new assignee. chris is me.',
-      },
-    ],
-  },
+  ASSIGN_TASK_ACTION,
   {
     name: 'setUrgency',
     idempotent: true,

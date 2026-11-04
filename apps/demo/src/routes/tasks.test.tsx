@@ -79,6 +79,7 @@ const TASKLANE_VESSEL_IDS = [
   'source-feedback',
   'task-detail',
   'team-load',
+  'triage-inbox',
 ];
 const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');

@@ -1,6 +1,6 @@
 import type { VesselActionDefinition } from '@maelstrom-co/protocol';
 import { EVERYONE } from '../stores/board-filter.store';
-import { TEAM_MEMBER_IDS } from '../stores/team';
+import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS } from '../stores/team';
 
 export const TASK_REFERENCE =
   'The task to change: a reference from the published list (id, title and status), or the task id such as TL-3.';
@@ -29,6 +29,22 @@ export const REMOVE_FROM_MY_PRIORITIES_ACTION = {
   description:
     "Take a task out of Chris's personal priorities list. The task itself stays.",
   parameters: [{ name: 'task', type: 'string', description: TASK_REFERENCE }],
+} as const satisfies VesselActionDefinition;
+
+/** Declared by every Vessel that can assign tasks, so the Planner can use whichever is on screen. */
+export const ASSIGN_TASK_ACTION = {
+  name: 'assignTask',
+  idempotent: true,
+  description: 'Assign a task to a team member, or unassign it.',
+  parameters: [
+    { name: 'task', type: 'string', description: TASK_REFERENCE },
+    {
+      name: 'assignee',
+      type: 'string',
+      enum: [...ASSIGNEE_CHOICES],
+      description: 'Team id of the new assignee. chris is me.',
+    },
+  ],
 } as const satisfies VesselActionDefinition;
 
 /** Declared by every Vessel that can narrow the Tasks board to one team member. */
