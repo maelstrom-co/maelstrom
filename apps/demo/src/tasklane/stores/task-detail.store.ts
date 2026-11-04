@@ -49,11 +49,25 @@ export const taskDetailActions = {
     return true;
   },
 
-  /** Forgets the task one Instance shows, for when the Instance leaves. */
+  /** Forgets the task one Instance shows. */
   clearTask(instanceId: string): boolean {
     if (!state.has(instanceId)) return false;
     const next = new Map(state);
     next.delete(instanceId);
+    setState(next);
+    return true;
+  },
+
+  /**
+   * Forgets the selection of every Instance not in `liveInstanceIds`, so a
+   * later Instance that reuses an id starts empty. Returns whether anything
+   * was forgotten.
+   */
+  keepInstances(liveInstanceIds: ReadonlySet<string>): boolean {
+    const next = new Map(
+      [...state].filter(([instanceId]) => liveInstanceIds.has(instanceId)),
+    );
+    if (next.size === state.size) return false;
     setState(next);
     return true;
   },

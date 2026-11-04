@@ -1025,7 +1025,7 @@ describe('Task detail Vessel', () => {
     ).toEqual(['TL-1 Update demo README', 'TL-2 Record launch video']);
   });
 
-  it('forgets its task when the Instance leaves, so a reused id opens empty', async () => {
+  it('keeps its task across a remount, as the Instance still exists', async () => {
     const first = render(
       <TaskDetailComponent {...props('task-detail', 'detail-1')} />,
     );
@@ -1033,10 +1033,11 @@ describe('Task detail Vessel', () => {
     expect(selectedTaskId('detail-1')).toBe('TL-2');
 
     first.unmount();
-    expect(selectedTaskId('detail-1')).toBeNull();
+    expect(selectedTaskId('detail-1')).toBe('TL-2');
     render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
-    expect(screen.queryByRole('article')).toBeNull();
-    expect(screen.getByText(/No task open yet/)).toBeTruthy();
+    expect(
+      screen.getByRole('article', { name: /Record launch video/ }),
+    ).toBeTruthy();
   });
 
   it('says when the open task was deleted', async () => {

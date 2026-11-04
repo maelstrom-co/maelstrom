@@ -47,6 +47,22 @@ describe('task detail selection', () => {
     expect(selectedTaskId('task-detail-1')).toBeNull();
     expect(selectedTaskId('task-detail-2')).toBe('TL-2');
   });
+
+  it('forgets only the Instances that left the layout', () => {
+    taskDetailActions.showTask('task-detail-1', 'TL-1');
+    taskDetailActions.showTask('task-detail-2', 'TL-2');
+    expect(taskDetailActions.keepInstances(new Set(['task-detail-2']))).toBe(
+      true,
+    );
+    expect(selectedTaskId('task-detail-1')).toBeNull();
+    expect(selectedTaskId('task-detail-2')).toBe('TL-2');
+
+    const before = getTaskDetailSnapshot();
+    expect(taskDetailActions.keepInstances(new Set(['task-detail-2']))).toBe(
+      false,
+    );
+    expect(getTaskDetailSnapshot()).toBe(before);
+  });
 });
 
 describe('openTaskDetail', () => {

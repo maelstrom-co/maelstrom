@@ -1,5 +1,4 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { useEffect } from 'react';
 import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
 import {
@@ -8,11 +7,7 @@ import {
   TASK_STATUS_NAMES,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
-import {
-  openTaskDetail,
-  taskDetailActions,
-  useSelectedTaskId,
-} from '../stores/task-detail.store';
+import { openTaskDetail, useSelectedTaskId } from '../stores/task-detail.store';
 import { reportShowTask } from '../task-action-receipts';
 import { TasklaneCard } from '../tasklane-card';
 import type { taskDetailVessel } from './task-detail.vessel';
@@ -30,15 +25,6 @@ export default function TaskDetailComponent({
     showTask: async ({ task }) =>
       reportShowTask(openTaskDetail(instanceId, task)),
   });
-
-  // The Planner may reuse an Instance id later, and a new Instance must start
-  // empty rather than on the task its namesake showed.
-  useEffect(
-    () => () => {
-      taskDetailActions.clearTask(instanceId);
-    },
-    [instanceId],
-  );
 
   const task = selectedId
     ? tasks.find((candidate) => candidate.id === selectedId)
