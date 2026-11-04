@@ -1,8 +1,18 @@
-import { describe, expect, it } from 'vitest';
-import { feedbackCoverage, normalizeFeedbackQuote } from './feedback-coverage';
-import type { ProjectTask } from './project-tasks.store';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { feedbackCoverage } from './feedback-coverage';
+import {
+  __resetProjectTasksStoreForTests,
+  getProjectTasksSnapshot,
+  normalizeFeedbackQuote,
+  type ProjectTask,
+  projectTaskActions,
+} from './project-tasks.store';
 
 const QUOTE = '"I like that I can shape the screen around how I work."';
+
+beforeEach(() => {
+  __resetProjectTasksStoreForTests();
+});
 
 describe('normalizeFeedbackQuote', () => {
   it('ignores surrounding quote marks, spacing and case', () => {
@@ -48,18 +58,67 @@ describe('feedbackCoverage', () => {
   });
 
   it('says dropped when every task from the quote was removed', () => {
-    expect(feedbackCoverage(QUOTE, [], [QUOTE.toUpperCase()])).toEqual({
-      kind: 'dropped',
-    });
+    expect(
+      feedbackCoverage(
+        QUOTE,
+        [],
+        [normalizeFeedbackQuote(QUOTE.toUpperCase())],
+      ),
+    ).toEqual({ kind: 'dropped' });
   });
 
   it('prefers live tasks over removed ones', () => {
-    expect(feedbackCoverage(QUOTE, [task('TL-4', QUOTE)], [QUOTE])).toEqual({
-      kind: 'covered',
-      taskCount: 1,
-    });
+    expect(
+      feedbackCoverage(
+        QUOTE,
+        [task('TL-4', QUOTE)],
+        [normalizeFeedbackQuote(QUOTE)],
+      ),
+    ).toEqual({ kind: 'covered', taskCount: 1 });
   });
 });
+
+describe('feedback coverage of tasks created from a quote', () => {
+  const LONG_QUOTE = `"${'The weather panel takes up far too much room on a small screen. '.repeat(8).trim()}"`;
+  const PIPE_QUOTE = '"Show it as Tasks | Notes | Weather, side by side."';
+
+  it('covers a quote longer than the old stored limit', () => {
+    expect(LONG_QUOTE.length).toBeGreaterThan(400);
+    projectTaskActions.createTask({
+      title: 'Shrink weather',
+      source: LONG_QUOTE,
+    });
+    expect(coverage(LONG_QUOTE)).toEqual({ kind: 'covered', taskCount: 1 });
+  });
+
+  it('covers a quote containing a pipe', () => {
+    projectTaskActions.createTask({
+      title: 'Side by side',
+      source: PIPE_QUOTE,
+    });
+    expect(coverage(PIPE_QUOTE)).toEqual({ kind: 'covered', taskCount: 1 });
+  });
+
+  it('says dropped once the task from a long or piped quote is removed', () => {
+    projectTaskActions.createTask({
+      title: 'Shrink weather',
+      source: LONG_QUOTE,
+    });
+    projectTaskActions.createTask({
+      title: 'Side by side',
+      source: PIPE_QUOTE,
+    });
+    projectTaskActions.removeTask('TL-3');
+    projectTaskActions.removeTask('TL-4');
+    expect(coverage(LONG_QUOTE)).toEqual({ kind: 'dropped' });
+    expect(coverage(PIPE_QUOTE)).toEqual({ kind: 'dropped' });
+  });
+});
+
+function coverage(quote: string) {
+  const { tasks, removedSourceFeedback } = getProjectTasksSnapshot();
+  return feedbackCoverage(quote, tasks, removedSourceFeedback);
+}
 
 function task(id: string, sourceFeedback: string | null): ProjectTask {
   return {

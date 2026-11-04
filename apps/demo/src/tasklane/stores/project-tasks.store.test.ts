@@ -113,7 +113,7 @@ describe('source feedback on tasks', () => {
   it('shortens a very long quote', () => {
     const result = projectTaskActions.createTask({
       title: 'Long source',
-      source: 'word '.repeat(400),
+      source: 'word '.repeat(SOURCE_FEEDBACK_LIMIT),
     });
     if (!result.ok) throw new Error('expected a task');
     expect(result.task.sourceFeedback?.length).toBeLessThanOrEqual(
@@ -124,17 +124,17 @@ describe('source feedback on tasks', () => {
 });
 
 describe('removed source feedback', () => {
-  it('starts empty and keeps the quote of each removed task once', () => {
+  it('starts empty and keeps the normalized quote of each removed task once', () => {
     expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([]);
     projectTaskActions.createTask({ title: 'First', source: '"Quote A"' });
-    projectTaskActions.createTask({ title: 'Second', source: '"Quote A"' });
+    projectTaskActions.createTask({ title: 'Second', source: 'quote  a' });
     projectTaskActions.createTask({ title: 'Third' });
     projectTaskActions.removeTask('TL-3');
     projectTaskActions.removeTask('TL-4');
     projectTaskActions.removeTask('TL-5');
     projectTaskActions.removeTask('TL-1');
     expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([
-      '"Quote A"',
+      'quote a',
     ]);
   });
 });

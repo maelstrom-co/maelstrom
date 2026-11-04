@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { FEEDBACK_CHARACTER_LIMIT } from './feedback.store';
 import {
   describeTeamChoices,
   resolveAssignee,
@@ -21,8 +22,12 @@ export const TASK_STATUS_NAMES: Readonly<Record<TaskStatus, string>> = {
   done: 'Done',
 };
 
-/** Longest feedback quote a task keeps, in characters. */
-export const SOURCE_FEEDBACK_LIMIT = 400;
+/**
+ * Longest feedback quote a task keeps, in characters. It matches the feedback
+ * limit, so any quote copied from the feedback is kept whole and still matches
+ * its paragraph.
+ */
+export const SOURCE_FEEDBACK_LIMIT = FEEDBACK_CHARACTER_LIMIT;
 
 export const NO_PARENT = 'none';
 
@@ -43,7 +48,10 @@ export interface ProjectTasksState {
   readonly tasks: readonly ProjectTask[];
   /** Chris's own ordered list of task ids, separate from each task's urgency. */
   readonly myPriorities: readonly string[];
-  /** The feedback quotes of removed tasks, each kept once, so a quote can tell dropped from never covered. */
+  /**
+   * The feedback quotes of removed tasks as `normalizeFeedbackQuote` keys,
+   * each kept once, so a quote can tell dropped from never covered.
+   */
   readonly removedSourceFeedback: readonly string[];
   readonly nextNumber: number;
 }
@@ -181,6 +189,7 @@ const PUBLISHED_TITLE_LIMIT = 60;
 // the Planner sees, and a label must come back exactly as it was published.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what must be replaced.
 const UNSAFE_LABEL_CHARACTERS = /[|\x00-\x1f\x7f\x85]+/g;
+const SURROUNDING_QUOTE_MARKS = /^["'“”‘’]+|["'“”‘’]+$/g;
 
 let state: ProjectTasksState = INITIAL_STATE;
 let requestReferences: ReadonlySet<string> = new Set();
@@ -283,6 +292,22 @@ export function priorityLabel(
 ): string {
   const index = priorities.indexOf(taskId);
   return index === -1 ? 'not in priorities' : `priority #${index + 1}`;
+}
+
+/**
+ * The one form feedback quotes are compared and stored in: cleaned of the
+ * characters a stored quote has replaced, without surrounding quote marks,
+ * with whitespace collapsed and lower case. The Planner may copy a quote with
+ * or without its quote marks.
+ */
+export function normalizeFeedbackQuote(text: string): string {
+  return text
+    .replace(UNSAFE_LABEL_CHARACTERS, ' ')
+    .trim()
+    .replace(SURROUNDING_QUOTE_MARKS, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 /** Parents before their children, depth-first, in creation order. */
@@ -498,7 +523,10 @@ export const projectTaskActions = {
       reparentedChildren++;
       return [{ ...candidate, parentId: null }];
     });
-    const source = task.sourceFeedback;
+    const source =
+      task.sourceFeedback === null
+        ? null
+        : normalizeFeedbackQuote(task.sourceFeedback);
     setState({
       ...state,
       tasks,
