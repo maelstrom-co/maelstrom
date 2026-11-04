@@ -5,7 +5,11 @@ import {
   type ChartRequestMessage,
   InstanceId,
   type MaelstromResponse,
+  type TilingLayout,
+  tilingLeafToken,
+  VariantName,
   type VesselDefinition,
+  VesselId,
 } from '@maelstrom-co/protocol';
 import {
   act,
@@ -25,6 +29,7 @@ import {
 } from '../lib/playground-key-store';
 import { selectVoiceProvider } from '../lib/voice-provider';
 import { tasklaneM } from './maelstrom';
+import { __resetBoardFilterStoreForTests } from './stores/board-filter.store';
 import { __resetFeedbackStoreForTests } from './stores/feedback.store';
 import {
   __resetProjectTasksStoreForTests,
@@ -33,6 +38,10 @@ import {
   projectTaskActions,
   taskReferenceLabel,
 } from './stores/project-tasks.store';
+import {
+  __resetTaskDetailStoreForTests,
+  getTaskDetailSnapshot,
+} from './stores/task-detail.store';
 import { __resetTasklaneActivityForTests } from './tasklane-activity';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
@@ -65,6 +74,7 @@ vi.mock('../lib/hosted-vad', () => ({
 const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   plans: new Map<string, () => ExecutionPlan>(),
+  layouts: new Map<string, TilingLayout>(),
 }));
 
 vi.mock('../lib/connector', () => ({
@@ -79,7 +89,11 @@ vi.mock('../lib/connector', () => ({
 
 type ExecutionPlan = MaelstromResponse['executionPlan'];
 
+const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');
+const DETAIL = InstanceId('task-detail-main');
+const PRIORITIES = InstanceId('my-priorities-main');
+const TEAM_LOAD = InstanceId('team-load-main');
 const NEW_TASKS = [
   'Explain the host app on the home page',
   'Make task and journal controls interactive',
@@ -114,6 +128,7 @@ beforeEach(() => {
   FakeRealtimeSession.instances = [];
   engine.requests = [];
   engine.plans = new Map();
+  engine.layouts = new Map();
   clearPlaygroundKey();
   resetTasklane();
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
@@ -245,23 +260,31 @@ describe('Tasklane journey from feedback to my priorities', () => {
       mine.map((title) => task(title).id),
     );
     expect(
-      within(screen.getByRole('list', { name: 'My priorities' }))
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual(
-      mine.map((title, i) => expect.stringContaining(`${i + 1}${title}`)),
-    );
+      mine.map(
+        (title) =>
+          taskRow(title).querySelector('.tasklane-priority-badge')?.textContent,
+      ),
+    ).toEqual(mine.map((_, i) => `★${i + 1}`));
 
-    // 5. Reassign one task to Alex by hand, then ask about "my tasks".
+    // 5. Ask about "my tasks", and reassign one of them to Alex by hand
+    // while the Planner is still working on the request.
     const reassigned = 'Make task and journal controls interactive';
-    const labelBeforeReassignment = label(reassigned);
-    await act(async () => {
-      fireEvent.change(
-        screen.getByRole('combobox', { name: `Assignee for ${reassigned}` }),
-        { target: { value: 'alex' } },
+    const stillMine = mine.filter((title) => title !== reassigned);
+    engine.plans.set('Add a description to each of my tasks', () => {
+      const steps = mine.map(
+        (title) =>
+          [
+            'updateTask',
+            { task: label(title), description: `Why: ${title}` },
+          ] as const,
       );
+      projectTaskActions.assignTask(task(reassigned).id, 'alex');
+      return plan(...steps);
     });
-    await expectReceipt(`✓ Reassigned "${reassigned}" to Alex`);
+    await ask('Add a description to each of my tasks');
+    await expectReceipt(
+      `✗ Couldn't update "${reassigned}" because it changed: now Alex, normal, priority #3 · ✓ Updated 3 descriptions`,
+    );
     await waitFor(() =>
       expect(
         acceptedEnum(updateVesselSpy, 'project-tasks', 'assignTask', 'task'),
@@ -271,27 +294,6 @@ describe('Tasklane journey from feedback to my priorities', () => {
     );
     expect(acceptedDescription(updateVesselSpy, 'project-tasks')).toContain(
       `${task(reassigned).id} "${reassigned}": parent ${parent.id}, assignee Alex`,
-    );
-
-    const stillMine = mine.filter((title) => title !== reassigned);
-    engine.plans.set('Add a description to each of my tasks', () =>
-      plan(
-        ...stillMine.map(
-          (title) =>
-            [
-              'updateTask',
-              { task: label(title), description: `Why: ${title}` },
-            ] as const,
-        ),
-        [
-          'updateTask',
-          { task: labelBeforeReassignment, description: 'Stale plan' },
-        ],
-      ),
-    );
-    await ask('Add a description to each of my tasks');
-    await expectReceipt(
-      `✗ Couldn't update "${reassigned}" because it changed: now Alex, normal, priority #3 · ✓ Updated 3 descriptions`,
     );
     for (const title of stillMine) {
       expect(task(title).description).toBe(`Why: ${title}`);
@@ -362,7 +364,7 @@ describe('Tasklane journey from feedback to my priorities', () => {
       {
         instanceId: InstanceId('project-tasks-missing'),
         action: ActionName('assignTask'),
-        params: { task: 'TL-1', assignee: 'sam' },
+        params: { task: label('Update demo README'), assignee: 'sam' },
       },
     ]);
     await ask('Assign the README to Sam');
@@ -371,21 +373,186 @@ describe('Tasklane journey from feedback to my priorities', () => {
   }, 20_000);
 });
 
+describe('Tasklane summons Vessels the start screen leaves out', () => {
+  it('opens a task in a Task detail Instance the same response adds', async () => {
+    setPlaygroundKey('sk-tasklane-open-task-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('article')).toBeNull();
+
+    engine.layouts.set(
+      'Open TL-2',
+      layoutBesideBoard('V', DETAIL, 'task-detail', 'card'),
+    );
+    engine.plans.set('Open TL-2', () => [
+      {
+        instanceId: DETAIL,
+        action: ActionName('showTask'),
+        params: { task: label('Record launch video') },
+      },
+    ]);
+    await ask('Open TL-2');
+
+    const detail = await screen.findByRole(
+      'article',
+      { name: 'TL-2 Record launch video' },
+      { timeout: 3000 },
+    );
+    expect(
+      within(detail).getByRole('heading', { name: 'Record launch video' }),
+    ).toBeTruthy();
+    expect(getTaskDetailSnapshot().get(DETAIL)).toBe('TL-2');
+  });
+
+  it('narrows the board to the member clicked in a Team load beside it', async () => {
+    setPlaygroundKey('sk-tasklane-team-load-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('list', { name: 'Team load' })).toBeNull();
+
+    engine.layouts.set(
+      'Show the team load beside the board',
+      layoutBesideBoard('V', TEAM_LOAD, 'team-load', 'bars'),
+    );
+    await ask('Show the team load beside the board');
+    const teamLoad = await screen.findByRole(
+      'list',
+      { name: 'Team load' },
+      { timeout: 3000 },
+    );
+    expect(boardTitles()).toEqual([
+      'Update demo README',
+      'Record launch video',
+    ]);
+
+    await act(async () => {
+      fireEvent.click(within(teamLoad).getByRole('button', { name: /^Sam,/ }));
+    });
+
+    await waitFor(() => expect(boardTitles()).toEqual(['Record launch video']));
+    expect(
+      screen.getByRole('status', { name: 'Board filter' }).textContent,
+    ).toContain("Showing Sam's tasks");
+    expect(
+      within(teamLoad)
+        .getByRole('button', { name: /^Sam,/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('shows my priorities as a one-line strip under the board', async () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.addToMyPriorities('TL-1');
+    setPlaygroundKey('sk-tasklane-priority-strip-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('list', { name: 'My priorities' })).toBeNull();
+
+    engine.layouts.set(
+      'Show my priorities under the board',
+      layoutBesideBoard('H', PRIORITIES, 'my-priorities', 'strip'),
+    );
+    await ask('Show my priorities under the board');
+
+    const strip = await screen.findByRole(
+      'list',
+      { name: 'My priorities' },
+      { timeout: 3000 },
+    );
+    expect(strip.closest('.tasklane-priority-strip')).not.toBeNull();
+    expect(
+      within(strip)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['1Record launch video', '2Update demo README']);
+  });
+});
+
 function cannedResponse(message: ChartRequestMessage): MaelstromResponse {
   const intent = message.request.context.updateReasons.find(
     (reason) => reason.type === 'user_intent',
   );
-  const planFor =
-    intent?.type === 'user_intent'
-      ? engine.plans.get(intent.intent)
-      : undefined;
+  const typed = intent?.type === 'user_intent' ? intent.intent : undefined;
+  const planFor = typed ? engine.plans.get(typed) : undefined;
+  const executionPlan = planFor?.() ?? [];
+  expectPublishedTaskReferences(message, executionPlan);
   return {
     type: 'maelstrom_response',
     requestId: message.id,
     userMessage: 'Done.',
     rationale: '',
-    executionPlan: planFor?.() ?? [],
-    layout: message.request.layout,
+    executionPlan,
+    layout: (typed && engine.layouts.get(typed)) || message.request.layout,
+  };
+}
+
+// The real engine drops a task value outside the published enum, so a canned
+// plan may only name references the request carried for that Action.
+function expectPublishedTaskReferences(
+  message: ChartRequestMessage,
+  executionPlan: ExecutionPlan,
+): void {
+  for (const step of executionPlan) {
+    const task = step.params?.task;
+    if (typeof task !== 'string') continue;
+    const published = message.request.vessels.flatMap((vessel) =>
+      Object.values(vessel.variants).flatMap((variant) =>
+        variant.actions
+          .filter((action) => action.name === step.action)
+          .flatMap(
+            (action) =>
+              action.parameters?.find((parameter) => parameter.name === 'task')
+                ?.enum ?? [],
+          ),
+      ),
+    );
+    expect(published).toContain(task);
+  }
+}
+
+// The start screen with one more Instance sharing the board's column, beside
+// the board ('V') or under it ('H').
+function layoutBesideBoard(
+  split: 'V' | 'H',
+  instanceId: InstanceId,
+  vesselId: string,
+  variant: string,
+): TilingLayout {
+  return {
+    type: 'tiling',
+    tree: [
+      'V:2,3',
+      tilingLeafToken(FEEDBACK),
+      split,
+      tilingLeafToken(TASKS),
+      tilingLeafToken(instanceId),
+    ],
+    instances: [
+      {
+        instanceId: FEEDBACK,
+        vesselId: VesselId('source-feedback'),
+        variant: VariantName('snapshot'),
+      },
+      {
+        instanceId: TASKS,
+        vesselId: VesselId('project-tasks'),
+        variant: VariantName('board'),
+      },
+      {
+        instanceId,
+        vesselId: VesselId(vesselId),
+        variant: VariantName(variant),
+      },
+    ],
   };
 }
 
@@ -427,6 +594,14 @@ function task(title: string): ProjectTask {
 
 function label(title: string): string {
   return taskReferenceLabel(task(title));
+}
+
+function boardTitles(): string[] {
+  return within(screen.getByRole('list', { name: 'Project tasks' }))
+    .getAllByRole('listitem')
+    .map(
+      (item) => item.querySelector('.tasklane-task-title')?.textContent ?? '',
+    );
 }
 
 function titles(): string[] {
@@ -482,7 +657,9 @@ function acceptedEnum(
 }
 
 function resetTasklane(): void {
+  __resetBoardFilterStoreForTests();
   __resetFeedbackStoreForTests();
   __resetProjectTasksStoreForTests();
+  __resetTaskDetailStoreForTests();
   __resetTasklaneActivityForTests();
 }

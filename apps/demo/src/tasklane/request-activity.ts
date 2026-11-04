@@ -8,7 +8,7 @@ import {
   closeRequestWindow,
   failRequestWindow,
   openRequestWindow,
-  planRequestWindow,
+  settleRequestActions,
 } from './tasklane-activity';
 
 export interface TasklaneRequestActivity {
@@ -18,13 +18,13 @@ export interface TasklaneRequestActivity {
 
 /**
  * The receipt line needs to know which entries belong to which user request
- * and what that request planned, which only the orchestrator's request events
- * and admission state carry. An extension closure is the supported seam for
- * reading them.
+ * and which of its planned Actions were skipped or failed, which only the orchestrator's
+ * request events, command results and admission state carry. An extension
+ * closure is the supported seam for reading them.
  *
- * A window opens when a request with a user intent starts, learns its plan
- * when the response arrives, and closes when admission goes idle, after the
- * response's Actions have settled.
+ * A window opens when a request with a user intent starts, learns which
+ * planned Actions were skipped or failed when the request's Action batch completes, and
+ * closes when admission goes idle, after the response's Actions have settled.
  */
 export const tasklaneRequestActivity: MaelstromExtension<
   TasklaneRequestActivity
@@ -46,13 +46,24 @@ export const tasklaneRequestActivity: MaelstromExtension<
       // Labels are remembered when the response arrives, before its Actions
       // run, so a hand edit made while the Planner worked still makes the
       // label it saw stale.
-      const stopCompleted = requests.on(
-        'processing_completed',
-        ({ requestId, response }) => {
-          rememberRequestReferences();
-          planRequestWindow(
-            String(requestId),
-            response.executionPlan.map((step) => String(step.action)),
+      const stopCompleted = requests.on('processing_completed', () =>
+        rememberRequestReferences(),
+      );
+      const stopActions = orchestrator.commandProcessor.events.on(
+        'actions_completed',
+        ({ command, result }) => {
+          if (command.kind !== 'execute_actions') return;
+          if (command.requestId === undefined) return;
+          settleRequestActions(
+            String(command.requestId),
+            result.actions.flatMap((record) =>
+              record.skipped ? [String(record.action)] : [],
+            ),
+            result.actions.flatMap((record) =>
+              !record.skipped && !record.result.ok
+                ? [String(record.action)]
+                : [],
+            ),
           );
         },
       );
@@ -66,6 +77,7 @@ export const tasklaneRequestActivity: MaelstromExtension<
       return () => {
         stopStarted();
         stopCompleted();
+        stopActions();
         stopError();
         subscription.unsubscribe();
         closeRequestWindow();

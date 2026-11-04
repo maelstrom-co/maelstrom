@@ -6,7 +6,9 @@ import {
   projectTaskActions,
   rememberRequestReferences,
   resolveTaskReference,
+  SOURCE_FEEDBACK_LIMIT,
   taskReferenceLabel,
+  taskSummary,
 } from './project-tasks.store';
 
 beforeEach(() => {
@@ -24,6 +26,8 @@ describe('project tasks seed', () => {
         assigneeId: 'alex',
         parentId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       }),
       expect.objectContaining({
         id: 'TL-2',
@@ -31,9 +35,129 @@ describe('project tasks seed', () => {
         assigneeId: 'sam',
         parentId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       }),
     ]);
     expect(myPriorities).toEqual([]);
+  });
+});
+
+describe('setStatus', () => {
+  it('moves a task through todo, doing and done and reports the previous status', () => {
+    expect(projectTaskActions.setStatus('TL-1', 'doing')).toMatchObject({
+      ok: true,
+      changed: true,
+      previous: { status: 'todo' },
+      task: { id: 'TL-1', status: 'doing' },
+    });
+    expect(projectTaskActions.setStatus('TL-1', ' Done ')).toMatchObject({
+      ok: true,
+      task: { status: 'done' },
+    });
+    expect(projectTaskActions.setStatus('TL-1', 'done')).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+    expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('done');
+  });
+
+  it('refuses an unknown status and names the choices', () => {
+    const result = projectTaskActions.setStatus('TL-1', 'blocked');
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'unknown_status',
+      query: 'blocked',
+    });
+    if (result.ok) throw new Error('expected a failure');
+    expect(describeTaskFailure(result)).toBe(
+      'Status must be one of todo, doing, done, got "blocked".',
+    );
+    expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('todo');
+  });
+
+  it('refuses an unknown task and leaves every status alone', () => {
+    expect(projectTaskActions.setStatus('Ghost', 'done')).toEqual({
+      ok: false,
+      reason: 'task_not_found',
+      query: 'Ghost',
+    });
+    expect(getProjectTasksSnapshot().tasks.map((task) => task.status)).toEqual([
+      'todo',
+      'todo',
+    ]);
+  });
+
+  it('keeps a published label current when only the status changes', () => {
+    const before = taskReferenceLabel(firstTask());
+    projectTaskActions.setStatus('TL-1', 'done');
+    expect(taskReferenceLabel(firstTask())).toBe(before);
+    expect(resolveTaskReference(before)).toMatchObject({
+      kind: 'found',
+      task: { id: 'TL-1', status: 'done' },
+    });
+  });
+});
+
+describe('source feedback on tasks', () => {
+  it('keeps the quote a task was created from, cleaned of control characters', () => {
+    const result = projectTaskActions.createTask({
+      title: 'Add a compact weather view',
+      source: '  "The weather panel\n takes up\u0085far too much space."  ',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      task: {
+        sourceFeedback: '"The weather panel takes up far too much space."',
+      },
+    });
+  });
+
+  it('stores no quote when the source is missing or blank', () => {
+    expect(projectTaskActions.createTask({ title: 'No source' })).toMatchObject(
+      { ok: true, task: { sourceFeedback: null } },
+    );
+    expect(
+      projectTaskActions.createTask({ title: 'Blank source', source: ' \n ' }),
+    ).toMatchObject({ ok: true, task: { sourceFeedback: null } });
+  });
+
+  it('shortens a very long quote', () => {
+    const result = projectTaskActions.createTask({
+      title: 'Long source',
+      source: 'word '.repeat(SOURCE_FEEDBACK_LIMIT),
+    });
+    if (!result.ok) throw new Error('expected a task');
+    expect(result.task.sourceFeedback?.length).toBeLessThanOrEqual(
+      SOURCE_FEEDBACK_LIMIT + 3,
+    );
+    expect(result.task.sourceFeedback?.endsWith('...')).toBe(true);
+  });
+});
+
+describe('removed source feedback', () => {
+  it('starts empty and keeps the normalized quote of each removed task once', () => {
+    expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([]);
+    projectTaskActions.createTask({ title: 'First', source: '"Quote A"' });
+    projectTaskActions.createTask({ title: 'Second', source: 'quote  a' });
+    projectTaskActions.createTask({ title: 'Third' });
+    projectTaskActions.removeTask('TL-3');
+    projectTaskActions.removeTask('TL-4');
+    projectTaskActions.removeTask('TL-5');
+    projectTaskActions.removeTask('TL-1');
+    expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([
+      'quote a',
+    ]);
+  });
+});
+
+describe('taskSummary', () => {
+  it('summarises assignee, urgency and priority place without the status', () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.setStatus('TL-2', 'doing');
+    const [readme, video] = getProjectTasksSnapshot().tasks;
+    expect(taskSummary(readme!)).toBe('Alex, normal, not in priorities');
+    expect(taskSummary(video!)).toBe('Sam, normal, priority #1');
   });
 });
 
@@ -49,6 +173,8 @@ describe('createTask', () => {
         parentId: null,
         assigneeId: null,
         urgency: 'normal',
+        status: 'todo',
+        sourceFeedback: null,
       },
     });
     expect(projectTaskActions.createTask({ title: 'Second' })).toMatchObject({
@@ -137,6 +263,18 @@ describe('task references', () => {
   it('does not resolve an unknown id or a blank reference', () => {
     expect(resolveTaskReference('TL-99')).toEqual({ kind: 'not_found' });
     expect(resolveTaskReference('  ')).toEqual({ kind: 'not_found' });
+  });
+
+  it('never fuzzy-matches a task whose title is only punctuation', () => {
+    projectTaskActions.createTask({ title: '!!!' });
+    const before = getProjectTasksSnapshot();
+
+    expect(resolveTaskReference('Ghost')).toEqual({ kind: 'not_found' });
+    expect(projectTaskActions.removeTask('Ghost')).toMatchObject({
+      ok: false,
+      reason: 'task_not_found',
+    });
+    expect(getProjectTasksSnapshot()).toBe(before);
   });
 
   it('labels a task with its id, title, assignee, urgency and priority place', () => {
@@ -339,7 +477,7 @@ describe('describeTaskFailure', () => {
     const result = projectTaskActions.removeTask('demo copy');
     if (result.ok) throw new Error('expected a failure');
     expect(describeTaskFailure(result)).toBe(
-      '"demo copy" matches more than one task: TL-3, TL-4. Pass the task id.',
+      '"demo copy" matches more than one task: TL-3, TL-4. Pass its reference from the published list.',
     );
   });
 });

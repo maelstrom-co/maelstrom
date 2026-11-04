@@ -12,7 +12,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sync = vi.hoisted(() => ({
-  isProcessing: false,
+  settle: (() => {}) as () => void,
   results: {} as Record<
     string,
     { ok: boolean; conflict?: Record<string, string> }[]
@@ -22,8 +22,9 @@ const sync = vi.hoisted(() => ({
 
 vi.mock('./maelstrom', () => ({
   tasklaneM: {
-    useMaelstrom: (selector: (state: { isProcessing: boolean }) => unknown) =>
-      selector({ isProcessing: sync.isProcessing }),
+    useOnSettled: (onSettled: () => void) => {
+      sync.settle = onSettled;
+    },
     updateVessel: (vessel: VesselDefinition) => {
       sync.published.push(vessel);
       return sync.results[vessel.id]?.shift() ?? { ok: true };
@@ -32,8 +33,13 @@ vi.mock('./maelstrom', () => ({
 }));
 
 const {
+  BOARD_FILTER_HEADING,
   FEEDBACK_DESCRIPTION_HEADING,
+  MY_PRIORITIES_HEADING,
+  myPrioritiesDefinition,
   projectTasksDefinition,
+  taskDetailDefinition,
+  triageInboxDefinition,
   sourceFeedbackDefinition,
   TASK_SUMMARY_CHARACTER_LIMIT,
   TASK_SUMMARY_HEADING,
@@ -51,9 +57,17 @@ const {
   feedbackActions,
   getFeedbackSnapshot,
 } = await import('./stores/feedback.store');
+const { __resetBoardFilterStoreForTests, boardFilterActions } = await import(
+  './stores/board-filter.store'
+);
 const { projectTasksVessel } = await import(
   './vessels/project-tasks.vessel.def'
 );
+const { myPrioritiesVessel } = await import(
+  './vessels/my-priorities.vessel.def'
+);
+const { taskDetailVessel } = await import('./vessels/task-detail.vessel.def');
+const { triageInboxVessel } = await import('./vessels/triage-inbox.vessel.def');
 const { sourceFeedbackVessel } = await import(
   './vessels/source-feedback.vessel.def'
 );
@@ -63,17 +77,19 @@ const TASK_PARAMETER_ACTIONS = [
   'setParent',
   'assignTask',
   'setUrgency',
+  'setStatus',
   'addToMyPriorities',
   'removeFromMyPriorities',
   'removeTask',
 ];
 
 beforeEach(() => {
-  sync.isProcessing = false;
+  sync.settle = () => {};
   sync.results = {};
   sync.published = [];
   __resetProjectTasksStoreForTests();
   __resetFeedbackStoreForTests();
+  __resetBoardFilterStoreForTests();
 });
 
 afterEach(() => {
@@ -82,7 +98,7 @@ afterEach(() => {
 });
 
 describe('projectTasksDefinition', () => {
-  it('publishes every task as an id, title and status label on each task parameter', () => {
+  it('publishes every task as an id, title and summary label on each task parameter', () => {
     projectTaskActions.addToMyPriorities('TL-2');
     const definition = projectTasksDefinition(getProjectTasksSnapshot());
     for (const action of TASK_PARAMETER_ACTIONS) {
@@ -95,17 +111,19 @@ describe('projectTasksDefinition', () => {
     expect(parameter(definition, 'setParent', 'parent')?.enum).toBeUndefined();
   });
 
-  it('cleans pipes, newlines and control characters out of user titles', () => {
-    projectTaskActions.createTask({ title: 'Fix a | b\nnext line\tend' });
+  it('cleans pipes, newlines, line separators and control characters out of user titles', () => {
+    projectTaskActions.createTask({
+      title: 'Fix a | b\nnext line\tend\u2028more\u2029done',
+    });
     const labels = taskEnum(
       projectTasksDefinition(getProjectTasksSnapshot()),
       'assignTask',
     );
     expect(labels).toContain(
-      'TL-3 Fix a b next line end (unassigned, normal, not in priorities)',
+      'TL-3 Fix a b next line end more done (unassigned, normal, not in priorities)',
     );
     for (const label of labels ?? []) {
-      expect(label).not.toMatch(/[|\r\n\t]/);
+      expect(label).not.toMatch(/[|\r\n\t\u2028\u2029]/);
     }
   });
 
@@ -153,7 +171,9 @@ describe('projectTasksDefinition', () => {
       assignee: 'chris',
       urgency: 'high',
       description: 'Explain the host app',
+      source: 'Make the panels editable by hand.',
     });
+    projectTaskActions.setStatus('TL-3', 'doing');
     projectTaskActions.addToMyPriorities('TL-3');
     const { description } = projectTasksDefinition(getProjectTasksSnapshot());
 
@@ -161,10 +181,25 @@ describe('projectTasksDefinition', () => {
     const summary = description.slice(projectTasksVessel.description.length);
     expect(summary).toContain(TASK_SUMMARY_HEADING);
     expect(summary).toContain(
-      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, not in priorities, description "Refresh the setup steps for the demo app."',
+      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, status todo, not in priorities, description "Refresh the setup steps for the demo app."',
     );
     expect(summary).toContain(
-      'TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, priority #1, description "Explain the host app"',
+      'TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, status doing, priority #1, description "Explain the host app", from feedback "Make the panels editable by hand."',
+    );
+  });
+
+  it('tells the Planner whose tasks the board shows', () => {
+    expect(
+      projectTasksDefinition(getProjectTasksSnapshot(), {
+        assigneeFilter: null,
+      }).description,
+    ).toContain(`${BOARD_FILTER_HEADING}The board shows everyone's tasks.`);
+    expect(
+      projectTasksDefinition(getProjectTasksSnapshot(), {
+        assigneeFilter: 'alex',
+      }).description,
+    ).toContain(
+      `${BOARD_FILTER_HEADING}The board shows only Alex's tasks. Run filterByAssignee with everyone to show all tasks again.`,
     );
   });
 
@@ -175,9 +210,94 @@ describe('projectTasksDefinition', () => {
       });
     }
     const { description } = projectTasksDefinition(getProjectTasksSnapshot());
-    const summary = description.slice(projectTasksVessel.description.length);
+    const summary = description.slice(
+      description.indexOf(TASK_SUMMARY_HEADING),
+    );
     expect(summary.length).toBeLessThanOrEqual(TASK_SUMMARY_CHARACTER_LIMIT);
     expect(summary).toMatch(/and \d+ more tasks\.$/);
+  });
+});
+
+describe('myPrioritiesDefinition', () => {
+  it('publishes the task references on both priority Actions', () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    const definition = myPrioritiesDefinition(getProjectTasksSnapshot());
+    for (const action of ['addToMyPriorities', 'removeFromMyPriorities']) {
+      expect(taskEnum(definition, action), action).toEqual([
+        'TL-1 Update demo README (Alex, normal, not in priorities)',
+        'TL-2 Record launch video (Sam, normal, priority #1)',
+      ]);
+    }
+    expect(Object.keys(definition.variants)).toEqual(['list', 'strip']);
+  });
+
+  it('appends the ordered priorities to the description', () => {
+    expect(myPrioritiesDefinition(getProjectTasksSnapshot()).description).toBe(
+      `${myPrioritiesVessel.description}${MY_PRIORITIES_HEADING}None yet.`,
+    );
+
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.addToMyPriorities('TL-1');
+    expect(myPrioritiesDefinition(getProjectTasksSnapshot()).description).toBe(
+      `${myPrioritiesVessel.description}${MY_PRIORITIES_HEADING}#1 TL-2 "Record launch video"\n#2 TL-1 "Update demo README"`,
+    );
+  });
+
+  it('bounds a long priorities list and says how many it left out', () => {
+    for (let i = 0; i < 60; i++) {
+      const created = projectTaskActions.createTask({
+        title: `A fairly long generated task title number ${i}`,
+      });
+      if (created.ok) projectTaskActions.addToMyPriorities(created.task.id);
+    }
+    const { description } = myPrioritiesDefinition(getProjectTasksSnapshot());
+    const summary = description.slice(
+      myPrioritiesVessel.description.length + MY_PRIORITIES_HEADING.length,
+    );
+    expect(summary.length).toBeLessThanOrEqual(TASK_SUMMARY_CHARACTER_LIMIT);
+    expect(summary).toMatch(/^#1 TL-3 /);
+    expect(summary).toMatch(/and \d+ more\.$/);
+  });
+
+  it('keeps the priorities summary within its limit wherever the cut lands', () => {
+    for (let padding = 0; padding < 20; padding++) {
+      __resetProjectTasksStoreForTests();
+      for (let i = 0; i < 60; i++) {
+        const created = projectTaskActions.createTask({
+          title: `Generated priority ${i} ${'x'.repeat(padding)}`,
+        });
+        if (created.ok) projectTaskActions.addToMyPriorities(created.task.id);
+      }
+      const { description } = myPrioritiesDefinition(getProjectTasksSnapshot());
+      const summary = description.slice(
+        myPrioritiesVessel.description.length + MY_PRIORITIES_HEADING.length,
+      );
+      expect(summary.length, `padding ${padding}`).toBeLessThanOrEqual(
+        TASK_SUMMARY_CHARACTER_LIMIT,
+      );
+    }
+  });
+});
+
+describe('taskDetailDefinition', () => {
+  it('publishes the task references on showTask and keeps the description', () => {
+    const definition = taskDetailDefinition(getProjectTasksSnapshot());
+    expect(taskEnum(definition, 'showTask')).toEqual([
+      'TL-1 Update demo README (Alex, normal, not in priorities)',
+      'TL-2 Record launch video (Sam, normal, not in priorities)',
+    ]);
+    expect(definition.description).toBe(taskDetailVessel.description);
+  });
+});
+
+describe('triageInboxDefinition', () => {
+  it('publishes the task references on assignTask and keeps the description', () => {
+    const definition = triageInboxDefinition(getProjectTasksSnapshot());
+    expect(taskEnum(definition, 'assignTask')).toEqual([
+      'TL-1 Update demo README (Alex, normal, not in priorities)',
+      'TL-2 Record launch video (Sam, normal, not in priorities)',
+    ]);
+    expect(definition.description).toBe(triageInboxVessel.description);
   });
 });
 
@@ -204,43 +324,70 @@ describe('sourceFeedbackDefinition', () => {
 describe('TasklaneOptionSync', () => {
   it('republishes both definitions on mount and after a store change', () => {
     render(<TasklaneOptionSync />);
-    expect(publishedIds()).toEqual(['project-tasks', 'source-feedback']);
+    expect(publishedIds()).toEqual([
+      'my-priorities',
+      'project-tasks',
+      'source-feedback',
+      'task-detail',
+      'triage-inbox',
+    ]);
 
+    sync.published = [];
     act(() => {
       projectTaskActions.assignTask('TL-1', 'sam');
     });
-    const latest = sync.published.at(-1) as VesselDefinition;
-    expect(latest.id).toBe('project-tasks');
+    expect(publishedIds()).toEqual([
+      'my-priorities',
+      'project-tasks',
+      'task-detail',
+      'triage-inbox',
+    ]);
+    const latest = sync.published.find(
+      (vessel) => vessel.id === 'project-tasks',
+    ) as VesselDefinition;
     expect(taskEnum(latest, 'assignTask')?.[0]).toBe(
       'TL-1 Update demo README (Sam, normal, not in priorities)',
     );
   });
 
-  it('retries while a command batch is in flight', () => {
-    vi.useFakeTimers();
+  it('republishes the Tasks definition when the board filter changes', () => {
+    render(<TasklaneOptionSync />);
+    sync.published = [];
+    act(() => {
+      boardFilterActions.filterByAssignee('alex');
+    });
+    expect(publishedIds()).toEqual(['project-tasks']);
+    expect(sync.published.at(-1)?.description).toContain(
+      "The board shows only Alex's tasks.",
+    );
+  });
+
+  it('retries a republish refused mid-batch when the orchestrator settles', () => {
     sync.results = {
-      'project-tasks': [
-        batchInFlight('project-tasks'),
-        batchInFlight('project-tasks'),
-      ],
+      'project-tasks': [batchInFlight('project-tasks')],
     };
     render(<TasklaneOptionSync />);
     const tasksPublishes = () =>
       sync.published.filter((vessel) => vessel.id === 'project-tasks').length;
     expect(tasksPublishes()).toBe(1);
 
-    act(() => {
-      vi.advanceTimersByTime(100);
-    });
+    act(() => sync.settle());
     expect(tasksPublishes()).toBe(2);
-    act(() => {
-      vi.advanceTimersByTime(200);
-    });
-    expect(tasksPublishes()).toBe(3);
-    act(() => {
-      vi.advanceTimersByTime(10_000);
-    });
-    expect(tasksPublishes()).toBe(3);
+    act(() => sync.settle());
+    expect(tasksPublishes()).toBe(2);
+  });
+
+  it('publishes store changes made during a batch when it settles, before any re-render', () => {
+    render(<TasklaneOptionSync />);
+    sync.published = [];
+    projectTaskActions.assignTask('TL-1', 'sam');
+    sync.settle();
+    const latest = sync.published.find(
+      (vessel) => vessel.id === 'project-tasks',
+    ) as VesselDefinition;
+    expect(taskEnum(latest, 'assignTask')?.[0]).toBe(
+      'TL-1 Update demo README (Sam, normal, not in priorities)',
+    );
   });
 });
 

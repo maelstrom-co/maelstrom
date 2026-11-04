@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { TASKLANE_GREETING } from '../lib/demo-greeting-tts';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';
@@ -58,18 +59,30 @@ vi.mock('../shop/maelstrom', () => {
 
 const { TASKLANE_OPENING_INSTRUCTIONS } = await import('./maelstrom');
 const { tasklaneRequestActivity } = await import('./request-activity');
+const { tasklaneSettleSignal } = await import('./settle-signal');
+const { tasklaneInstanceLifetime } = await import('./instance-lifetime');
 
 type Opening = (context: { provider: string }) => unknown;
 
 describe('Tasklane instance', () => {
-  it('registers exactly the Feedback and Tasks Vessels', () => {
-    expect(state.vesselIds).toEqual(['source-feedback', 'project-tasks']);
+  it('registers exactly the Tasklane Vessels', () => {
+    expect(state.vesselIds).toEqual([
+      'source-feedback',
+      'project-tasks',
+      'my-priorities',
+      'task-detail',
+      'team-load',
+      'triage-inbox',
+      'project-pulse',
+    ]);
   });
 
-  it('installs realtime, request activity, its own telemetry, then devtools', () => {
+  it('installs realtime, request activity, the settle signal, Instance lifetime, its own telemetry, then devtools', () => {
     expect(state.installedExtensions).toEqual([
       state.realtimeExtension,
       tasklaneRequestActivity,
+      tasklaneSettleSignal,
+      tasklaneInstanceLifetime,
       state.telemetryOwner.extension,
       state.devtoolsExtension,
     ]);
@@ -88,12 +101,14 @@ describe('Tasklane instance', () => {
     expect(options).not.toHaveProperty('generatedOpening');
   });
 
-  it('generates a Tasklane opening for live and none for realtime', () => {
+  it('generates a Tasklane opening for live and the fixed greeting for realtime', () => {
     const opening = state.realtimeOptions[0]?.opening as Opening;
     expect(opening({ provider: 'live' })).toEqual({
       generatedOpening: { instructions: TASKLANE_OPENING_INSTRUCTIONS },
     });
-    expect(opening({ provider: 'realtime' })).toBeUndefined();
+    expect(opening({ provider: 'realtime' })).toEqual({
+      greeting: { text: TASKLANE_GREETING },
+    });
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Tasklane');
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Maelstrom');
   });

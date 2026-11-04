@@ -1,4 +1,6 @@
+import { sanitizeControlChars } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
+import { FEEDBACK_CHARACTER_LIMIT } from './feedback.store';
 import {
   describeTeamChoices,
   resolveAssignee,
@@ -10,6 +12,24 @@ export type TaskUrgency = 'low' | 'normal' | 'high';
 
 export const TASK_URGENCIES: readonly TaskUrgency[] = ['low', 'normal', 'high'];
 
+export const TASK_STATUSES = ['todo', 'doing', 'done'] as const;
+
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** How each status reads to a person: "To do", "In progress", "Done". */
+export const TASK_STATUS_NAMES: Readonly<Record<TaskStatus, string>> = {
+  todo: 'To do',
+  doing: 'In progress',
+  done: 'Done',
+};
+
+/**
+ * Longest feedback quote a task keeps, in characters. It matches the feedback
+ * limit, so any quote copied from the feedback is kept whole and still matches
+ * its paragraph.
+ */
+export const SOURCE_FEEDBACK_LIMIT = FEEDBACK_CHARACTER_LIMIT;
+
 export const NO_PARENT = 'none';
 
 export interface ProjectTask {
@@ -19,6 +39,9 @@ export interface ProjectTask {
   readonly parentId: string | null;
   readonly assigneeId: TeamMemberId | null;
   readonly urgency: TaskUrgency;
+  readonly status: TaskStatus;
+  /** The feedback quote the task was created from, or null. */
+  readonly sourceFeedback: string | null;
 }
 
 export interface ProjectTasksState {
@@ -26,6 +49,11 @@ export interface ProjectTasksState {
   readonly tasks: readonly ProjectTask[];
   /** Chris's own ordered list of task ids, separate from each task's urgency. */
   readonly myPriorities: readonly string[];
+  /**
+   * The feedback quotes of removed tasks as `normalizeFeedbackQuote` keys,
+   * each kept once, so a quote can tell dropped from never covered.
+   */
+  readonly removedSourceFeedback: readonly string[];
   readonly nextNumber: number;
 }
 
@@ -37,7 +65,8 @@ export type TaskFailure =
         | 'task_not_found'
         | 'parent_not_found'
         | 'unknown_assignee'
-        | 'unknown_urgency';
+        | 'unknown_urgency'
+        | 'unknown_status';
       readonly query: string;
     }
   | {
@@ -69,6 +98,20 @@ export type TaskFailure =
       readonly role: 'task' | 'parent';
       readonly query: string;
       readonly task: ProjectTask;
+    };
+
+/** The failures resolving a task reference alone can produce. */
+export type TaskLookupFailure =
+  | {
+      readonly ok: false;
+      readonly reason: 'task_not_found';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'ambiguous_task';
+      readonly query: string;
+      readonly candidates: readonly string[];
     };
 
 export type TaskChange =
@@ -114,6 +157,8 @@ export interface CreateTaskInput {
   readonly parent?: string;
   readonly assignee?: string;
   readonly urgency?: string;
+  /** The feedback quote the task comes from. */
+  readonly source?: string;
 }
 
 export interface TaskRow {
@@ -131,6 +176,8 @@ const INITIAL_STATE: ProjectTasksState = {
       parentId: null,
       assigneeId: 'alex',
       urgency: 'normal',
+      status: 'todo',
+      sourceFeedback: null,
     },
     {
       id: 'TL-2',
@@ -139,9 +186,12 @@ const INITIAL_STATE: ProjectTasksState = {
       parentId: null,
       assigneeId: 'sam',
       urgency: 'normal',
+      status: 'todo',
+      sourceFeedback: null,
     },
   ],
   myPriorities: [],
+  removedSourceFeedback: [],
   nextNumber: 3,
 };
 
@@ -150,10 +200,10 @@ const PUBLISHED_LABEL = /^TL-\d+ .+ \([^()]+\)$/i;
 const NO_PARENT_WORDS = new Set([NO_PARENT, '', 'no parent', 'top level']);
 const MAX_LISTED_TASKS = 30;
 const PUBLISHED_TITLE_LIMIT = 60;
-// U+0085 is included because the client turns it into a space in the options
-// the Planner sees, and a label must come back exactly as it was published.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what must be replaced.
-const UNSAFE_LABEL_CHARACTERS = /[|\x00-\x1f\x7f\x85]+/g;
+// The engine replaces the same characters sanitizeControlChars does, and the
+// pipe is the option delimiter, so a label comes back exactly as published.
+const OPTION_DELIMITER = /\|/g;
+const SURROUNDING_QUOTE_MARKS = /^["'“”‘’]+|["'“”‘’]+$/g;
 
 let state: ProjectTasksState = INITIAL_STATE;
 let requestReferences: ReadonlySet<string> = new Set();
@@ -232,11 +282,14 @@ export function taskReferenceLabel(
   task: ProjectTask,
   priorities: readonly string[] = state.myPriorities,
 ): string {
-  return `${task.id} ${publishedTitle(task.title)} (${taskStatus(task, priorities)})`;
+  return `${task.id} ${publishedTitle(task.title)} (${taskSummary(task, priorities)})`;
 }
 
-/** `Alex, normal, not in priorities` */
-export function taskStatus(
+/**
+ * `Alex, normal, not in priorities`. Leaves out the status, so a label stays
+ * current when a task only moves between columns.
+ */
+export function taskSummary(
   task: ProjectTask,
   priorities: readonly string[] = state.myPriorities,
 ): string {
@@ -253,6 +306,21 @@ export function priorityLabel(
 ): string {
   const index = priorities.indexOf(taskId);
   return index === -1 ? 'not in priorities' : `priority #${index + 1}`;
+}
+
+/**
+ * The one form feedback quotes are compared and stored in: cleaned of the
+ * characters a stored quote has replaced, without surrounding quote marks,
+ * with whitespace collapsed and lower case. The Planner may copy a quote with
+ * or without its quote marks.
+ */
+export function normalizeFeedbackQuote(text: string): string {
+  return cleanLabelCharacters(text)
+    .trim()
+    .replace(SURROUNDING_QUOTE_MARKS, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 /** Parents before their children, depth-first, in creation order. */
@@ -272,6 +340,34 @@ export function orderedTaskRows(
   };
   visit(null, 0);
   return rows;
+}
+
+export function isTaskStatus(value: unknown): value is TaskStatus {
+  return TASK_STATUSES.some((status) => status === value);
+}
+
+/** Open means not done. */
+export function isOpenTask(task: ProjectTask): boolean {
+  return task.status !== 'done';
+}
+
+/** Urgent means high urgency. */
+export function isUrgentTask(task: ProjectTask): boolean {
+  return task.urgency === 'high';
+}
+
+/** The tasks in Chris's priorities, top first. */
+export function prioritisedTasks(
+  state: Pick<
+    ProjectTasksState,
+    'tasks' | 'myPriorities'
+  > = getProjectTasksSnapshot(),
+): ProjectTask[] {
+  const byId = new Map(state.tasks.map((task) => [task.id, task]));
+  return state.myPriorities.flatMap((id) => {
+    const task = byId.get(id);
+    return task ? [task] : [];
+  });
 }
 
 /** Ids of the task's children, grandchildren and so on. */
@@ -327,6 +423,8 @@ export const projectTaskActions = {
       parentId,
       assigneeId,
       urgency,
+      status: 'todo',
+      sourceFeedback: cleanSourceFeedback(input.source),
     };
     setState({
       ...state,
@@ -390,6 +488,15 @@ export const projectTaskActions = {
     if (!resolved)
       return { ok: false, reason: 'unknown_urgency', query: urgency };
     return replaceTask(found.task, { urgency: resolved });
+  },
+
+  setStatus(reference: string, status: string): TaskChange {
+    const found = lookup(reference, 'task');
+    if (!found.ok) return found;
+    const resolved = resolveStatus(status);
+    if (!resolved)
+      return { ok: false, reason: 'unknown_status', query: status };
+    return replaceTask(found.task, { status: resolved });
   },
 
   /**
@@ -457,10 +564,18 @@ export const projectTaskActions = {
       reparentedChildren++;
       return [{ ...candidate, parentId: null }];
     });
+    const source =
+      task.sourceFeedback === null
+        ? null
+        : normalizeFeedbackQuote(task.sourceFeedback);
     setState({
       ...state,
       tasks,
       myPriorities: state.myPriorities.filter((id) => id !== task.id),
+      removedSourceFeedback:
+        source === null || state.removedSourceFeedback.includes(source)
+          ? state.removedSourceFeedback
+          : [...state.removedSourceFeedback, source],
     });
     return { ok: true, task, reparentedChildren };
   },
@@ -477,7 +592,7 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `No parent task matches "${failure.query}". Current tasks: ${listTasks()}, or ${NO_PARENT} for the top level`;
     case 'ambiguous_task':
     case 'ambiguous_parent':
-      return `"${failure.query}" matches more than one task: ${failure.candidates.join(', ')}. Pass the task id.`;
+      return `"${failure.query}" matches more than one task: ${failure.candidates.join(', ')}. Pass its reference from the published list.`;
     case 'cycle':
       return failure.task.id === failure.parent.id
         ? `${failure.task.id} cannot be its own parent.`
@@ -486,6 +601,8 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `No team member matches "${failure.query}". Team ids: ${describeTeamChoices()}`;
     case 'unknown_urgency':
       return `Urgency must be one of ${TASK_URGENCIES.join(', ')}, got "${failure.query}".`;
+    case 'unknown_status':
+      return `Status must be one of ${TASK_STATUSES.join(', ')}, got "${failure.query}".`;
     case 'bad_position':
       return `Priority position must be a whole number of at least 1, got ${failure.position}.`;
     case 'not_in_priorities':
@@ -542,13 +659,23 @@ function replaceTask(
   return { ok: true, changed: true, task: next, previous: task };
 }
 
+function cleanLabelCharacters(text: string): string {
+  return sanitizeControlChars(text).replace(OPTION_DELIMITER, ' ');
+}
+
 function publishedTitle(title: string): string {
-  const clean = title
-    .replace(UNSAFE_LABEL_CHARACTERS, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const clean = cleanLabelCharacters(title).replace(/\s+/g, ' ').trim();
   return clean.length > PUBLISHED_TITLE_LIMIT
     ? `${clean.slice(0, PUBLISHED_TITLE_LIMIT).trimEnd()}...`
+    : clean;
+}
+
+function cleanSourceFeedback(source: string | undefined): string | null {
+  if (source === undefined) return null;
+  const clean = cleanLabelCharacters(source).replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  return clean.length > SOURCE_FEEDBACK_LIMIT
+    ? `${clean.slice(0, SOURCE_FEEDBACK_LIMIT).trimEnd()}...`
     : clean;
 }
 
@@ -566,6 +693,7 @@ function findByFuzzyTitle(
   if (!wanted) return [];
   return tasks.filter((task) => {
     const title = normalizeTitle(task.title);
+    if (!title) return false;
     return title.includes(wanted) || wanted.includes(title);
   });
 }
@@ -585,6 +713,11 @@ function isNoParent(reference: string): boolean {
 function resolveUrgency(urgency: string): TaskUrgency | undefined {
   const wanted = urgency.trim().toLowerCase();
   return TASK_URGENCIES.find((candidate) => candidate === wanted);
+}
+
+function resolveStatus(status: string): TaskStatus | undefined {
+  const wanted = status.trim().toLowerCase();
+  return isTaskStatus(wanted) ? wanted : undefined;
 }
 
 function listTasks(): string {

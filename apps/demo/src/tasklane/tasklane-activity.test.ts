@@ -5,10 +5,10 @@ import {
   failRequestWindow,
   getLatestReceipt,
   openRequestWindow,
-  planRequestWindow,
   recordChange,
   recordFailure,
   recordUnchanged,
+  settleRequestActions,
 } from './tasklane-activity';
 
 beforeEach(() => {
@@ -63,12 +63,7 @@ describe('request windows', () => {
         subjectId: subject,
       });
     }
-    planRequestWindow('r1', [
-      'createTask',
-      'createTask',
-      'createTask',
-      'createTask',
-    ]);
+    settleRequestActions('r1', []);
     closeRequestWindow();
     expect(getLatestReceipt()).toEqual({
       text: '✓ Created 4 tasks',
@@ -178,6 +173,42 @@ describe('request windows', () => {
     );
   });
 
+  it('groups status changes by the status they reached', () => {
+    openRequestWindow('r1');
+    for (const subjectId of ['TL-1', 'TL-2', 'TL-3']) {
+      recordChange('setStatus', {
+        kind: 'status',
+        subject: subjectId,
+        subjectId,
+        detail: 'done',
+      });
+    }
+    recordChange('setStatus', {
+      kind: 'status',
+      subject: 'Write demo copy',
+      subjectId: 'TL-4',
+      detail: 'doing',
+    });
+    settleRequestActions('r1', []);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: '✓ Marked 3 tasks as done · ✓ Marked "Write demo copy" as in progress',
+      tone: 'success',
+    });
+  });
+
+  it('names a status it does not know as it was recorded', () => {
+    recordChange('setStatus', {
+      kind: 'status',
+      subject: 'Write demo copy',
+      subjectId: 'TL-4',
+      detail: 'blocked',
+    });
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Marked "Write demo copy" as blocked',
+    );
+  });
+
   it('pluralises descriptions', () => {
     openRequestWindow('r1');
     recordChange('updateTask', {
@@ -240,7 +271,7 @@ describe('request windows', () => {
       'updateTask',
       'Couldn\'t update "Write demo copy" because it changed: now assigned to Alex',
     );
-    planRequestWindow('r1', ['updateTask', 'updateTask', 'updateTask']);
+    settleRequestActions('r1', []);
     closeRequestWindow();
     expect(getLatestReceipt()).toEqual({
       text: '✗ Couldn\'t update "Write demo copy" because it changed: now assigned to Alex · ✓ Updated 2 descriptions',
@@ -248,9 +279,8 @@ describe('request windows', () => {
     });
   });
 
-  it('shows planned data Actions that never reported as not confirmed once the request settles', () => {
+  it('shows planned data Actions the orchestrator skipped as not confirmed', () => {
     openRequestWindow('r1');
-    planRequestWindow('r1', ['assignTask', 'assignTask', 'addToMyPriorities']);
     recordChange('assignTask', {
       kind: 'assigned',
       subject: 'A',
@@ -259,6 +289,11 @@ describe('request windows', () => {
     });
     expect(getLatestReceipt()?.text).toBe('✓ Assigned "A" to Chris');
 
+    settleRequestActions('r1', [
+      'assignTask',
+      'assignTask',
+      'addToMyPriorities',
+    ]);
     closeRequestWindow();
     expect(getLatestReceipt()).toEqual({
       text: '? Not confirmed: assign a task, add to your priorities · ✓ Assigned "A" to Chris',
@@ -266,10 +301,47 @@ describe('request windows', () => {
     });
   });
 
+  it('keeps a skipped planned Action unconfirmed beside a same-kind manual edit in the request', () => {
+    openRequestWindow('r1');
+    recordChange('assignTask', {
+      kind: 'assigned',
+      subject: 'Manual',
+      subjectId: 'TL-1',
+      detail: 'Sam',
+    });
+    settleRequestActions('r1', ['assignTask']);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: '? Not confirmed: assign a task · ✓ Assigned "Manual" to Sam',
+      tone: 'problem',
+    });
+  });
+
+  it('reports a failed batch Action that recorded nothing as a failure', () => {
+    openRequestWindow('r1');
+    settleRequestActions('r1', [], ['assignTask', 'showSomething']);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: "✗ Couldn't assign a task",
+      tone: 'problem',
+    });
+  });
+
+  it('does not repeat a failure the Action already recorded', () => {
+    openRequestWindow('r1');
+    recordFailure('updateTask', 'Couldn\'t update "A" because it changed');
+    settleRequestActions('r1', [], ['updateTask', 'updateTask']);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: '✗ Couldn\'t update "A" because it changed · ✗ Couldn\'t update a task',
+      tone: 'problem',
+    });
+  });
+
   it('counts an unchanged Action as confirmed without a receipt part', () => {
     openRequestWindow('r1');
-    planRequestWindow('r1', ['addToMyPriorities']);
     recordUnchanged('addToMyPriorities');
+    settleRequestActions('r1', []);
     closeRequestWindow();
     expect(getLatestReceipt()).toBeNull();
   });
@@ -281,14 +353,14 @@ describe('request windows', () => {
       subjectId: 'Earlier',
     });
     openRequestWindow('r1');
-    planRequestWindow('r1', []);
+    settleRequestActions('r1', []);
     closeRequestWindow();
     expect(getLatestReceipt()).toBeNull();
   });
 
-  it('ignores planned Actions outside the Tasklane data Actions', () => {
+  it('ignores skipped Actions outside the Tasklane data Actions', () => {
     openRequestWindow('r1');
-    planRequestWindow('r1', ['showSomething']);
+    settleRequestActions('r1', ['showSomething']);
     closeRequestWindow();
     expect(getLatestReceipt()).toBeNull();
   });

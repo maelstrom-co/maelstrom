@@ -3,6 +3,7 @@ import { makeValidWavBytes } from '../../lib/__tests__/wav-fixtures';
 import {
   DEMO_GREETING_TTS_PAYLOAD,
   DEMO_GREETING_TTS_URL,
+  TASKLANE_GREETING_TTS_PAYLOAD,
 } from '../../lib/demo-greeting-tts';
 import { createDemoGreetingTtsHandler } from './demo-greeting-tts';
 
@@ -26,6 +27,7 @@ function validRequest(init?: {
   body?: BodyInit | null;
   signal?: AbortSignal;
   contentLength?: string;
+  search?: string;
 }): Request {
   const headers = new Headers();
   if (init?.origin !== null) {
@@ -37,7 +39,7 @@ function validRequest(init?: {
   if (init?.contentLength !== undefined) {
     headers.set('Content-Length', init.contentLength);
   }
-  return new Request(`${ORIGIN}/api/demo-greeting-tts`, {
+  return new Request(`${ORIGIN}/api/demo-greeting-tts${init?.search ?? ''}`, {
     method: init?.method ?? 'POST',
     headers,
     body: init?.body === undefined ? null : init.body,
@@ -324,5 +326,54 @@ describe('createDemoGreetingTtsHandler', () => {
     const second = await handle(validRequest());
     expect(second.status).toBe(200);
     expect(calls).toBe(2);
+  });
+
+  it('serves the Tasklane greeting only for the allowlisted selector', async () => {
+    const bodies: unknown[] = [];
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return wavUpstream();
+    });
+    const handle = createDemoGreetingTtsHandler({
+      getApiKey: () => SECRET,
+      fetch: fetchSpy as unknown as typeof fetch,
+    });
+
+    const tasklane = await handle(
+      validRequest({ search: '?greeting=tasklane' }),
+    );
+    expect(tasklane.status).toBe(200);
+    expect(bodies).toEqual([TASKLANE_GREETING_TTS_PAYLOAD]);
+
+    const home = await handle(validRequest());
+    expect(home.status).toBe(200);
+    expect(bodies).toEqual([
+      TASKLANE_GREETING_TTS_PAYLOAD,
+      DEMO_GREETING_TTS_PAYLOAD,
+    ]);
+
+    await handle(validRequest({ search: '?greeting=tasklane' }));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects arbitrary selectors and text params before upstream', async () => {
+    const fetchSpy = vi.fn(async () => wavUpstream());
+    const handle = createDemoGreetingTtsHandler({
+      getApiKey: () => SECRET,
+      fetch: fetchSpy as unknown as typeof fetch,
+    });
+
+    for (const search of [
+      '?greeting=evil',
+      '?greeting=home',
+      '?greeting=',
+      '?text=say%20anything',
+      '?greeting=tasklane&text=x',
+      '?greeting=tasklane&greeting=home',
+    ]) {
+      const res = await handle(validRequest({ search }));
+      expect(res.status).toBe(400);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

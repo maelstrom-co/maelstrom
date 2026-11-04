@@ -36,6 +36,7 @@ import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { selectTasklaneLayout } from './default-layout';
 import { tasklaneM } from './maelstrom';
+import { taskDetailActions } from './stores/task-detail.store';
 import { TasklaneHeader } from './tasklane-header';
 import { TasklaneIntentForm } from './tasklane-intent-form';
 import { TasklaneKeylessPreview } from './tasklane-keyless-preview';
@@ -123,6 +124,7 @@ export function TasklanePage() {
           debug={debug}
         >
           <TasklaneOptionSync />
+          <TaskDetailSelectionLifetime />
           <TasklaneWorkspace
             onRequireKey={requireKey}
             onBlockedSubmit={handleBlockedSubmit}
@@ -347,7 +349,7 @@ function TasklaneWorkspace({
         </div>
       </main>
 
-      <footer className="tasklane-dock border-t bg-bg-1">
+      <footer className="tasklane-dock tasklane-band border-t">
         <TasklaneVoiceCorner
           needsKey={needsKey}
           onRequireKey={onBlockedSubmit}
@@ -362,6 +364,13 @@ function TasklaneWorkspace({
       </footer>
     </div>
   );
+}
+
+// Renders nothing. Forgets the task a Task detail Instance showed once the
+// Instance leaves the layout, so a later Instance with its id starts empty.
+function TaskDetailSelectionLifetime() {
+  tasklaneM.useLiveInstances(taskDetailActions.keepInstances);
+  return null;
 }
 
 function ConnectionStatus() {

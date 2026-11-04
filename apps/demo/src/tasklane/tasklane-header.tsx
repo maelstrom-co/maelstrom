@@ -4,10 +4,7 @@ export function TasklaneHeader({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <header
-      className="demo-header border-b px-6 py-4 bg-bg-1"
-      style={{ borderColor: 'var(--line)' }}
-    >
+    <header className="demo-header tasklane-band border-b px-6 py-4">
       <div className="demo-header-row flex items-center justify-between gap-4">
         <div className="demo-brand">
           <h1 className="tasklane-title">Tasklane</h1>
