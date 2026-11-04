@@ -1,0 +1,405 @@
+/* Every size in the dock is fixed: a dock that grows with a caption or a
+   status word would resize the Chart host and start a chart_resize request.
+   The devtools launcher is fixed over the viewport's bottom-right corner, so
+   the dock keeps that corner empty instead of placing controls under it. */
+.tasklane-app {
+  --tasklane-devtools-clearance: 184px;
+}
+
+.tasklane-app .tasklane-dock {
+  display: flex;
+  height: 96px;
+  align-items: center;
+  gap: 24px;
+  padding: 12px var(--tasklane-devtools-clearance) 12px 24px;
+  border-color: var(--line);
+}
+
+.tasklane-app .tasklane-intent-form {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 520px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tasklane-app .keyless-input {
+  padding-right: var(--tasklane-devtools-clearance);
+}
+
+.tasklane-app .keyless-input .tasklane-intent-form {
+  width: 100%;
+}
+
+.tasklane-app .tasklane-voice-corner {
+  display: grid;
+  width: 300px;
+  height: 72px;
+  flex: 0 0 auto;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: 36px 28px;
+  column-gap: 12px;
+  row-gap: 8px;
+  align-items: center;
+}
+
+.tasklane-app .tasklane-caption {
+  display: flex;
+  height: 36px;
+  overflow: hidden;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.tasklane-app .tasklane-caption-line {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  opacity: 1;
+  transition: opacity 0.4s ease-out;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tasklane-app .tasklane-caption-line[data-faded='true'] {
+  opacity: 0;
+}
+
+.tasklane-app .tasklane-voice-status {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  grid-row: 2;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.tasklane-app .tasklane-voice-pill {
+  display: inline-flex;
+  width: 104px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tasklane-app .tasklane-voice-playback {
+  width: auto;
+  min-width: 104px;
+  padding: 0 12px;
+  color: var(--color-brand-2);
+  cursor: pointer;
+}
+
+.tasklane-app .tasklane-voice-playback:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tasklane-app .tasklane-voice-pill[data-state='connected'],
+.tasklane-app .tasklane-voice-pill[data-state='listening'] {
+  color: var(--color-brand-2);
+}
+
+.tasklane-app .tasklane-voice-pill[data-state='error'] {
+  color: var(--color-pink);
+}
+
+.tasklane-app .tasklane-voice-disclosure {
+  color: var(--color-ink-3);
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.tasklane-app .tasklane-voice-orb-wrap {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Stacked, the input row sits above the launcher and the orb row stays at
+   the left of the band the launcher covers. */
+@media (max-width: 819px) {
+  .tasklane-app .tasklane-dock {
+    height: 168px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .tasklane-app .tasklane-intent-form {
+    width: 100%;
+    max-width: 560px;
+    flex: 0 0 auto;
+    order: -1;
+  }
+
+  .tasklane-app .tasklane-voice-corner {
+    width: 100%;
+    height: 88px;
+    grid-template-rows: 36px 44px;
+  }
+
+  .tasklane-app .tasklane-caption {
+    grid-column: 1 / -1;
+  }
+
+  .tasklane-app .tasklane-voice-orb-wrap {
+    grid-row: 2;
+  }
+
+  .tasklane-app .tasklane-voice-status {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 639px) {
+  .tasklane-app .keyless-shell {
+    padding-bottom: 136px;
+  }
+
+  .tasklane-app .keyless-input {
+    padding: 12px 12px 16px;
+  }
+
+  .tasklane-app .keyless-input .tasklane-intent-form {
+    flex-wrap: wrap;
+  }
+
+  .tasklane-app .keyless-input .tasklane-intent-form input {
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasklane-app .tasklane-caption-line {
+    transition: none;
+  }
+}
+
+/* Tasklane identity */
+.tasklane-app .tasklane-title {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.tasklane-app .tasklane-capability-note {
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13px !important;
+}
+
+/* Feedback Vessel */
+.tasklane-app .tasklane-feedback {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.tasklane-app .tasklane-feedback-quote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-brand-2);
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tasklane-app .tasklane-feedback-note {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tasklane-app .tasklane-feedback-footer {
+  display: flex;
+  margin-top: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Shared controls */
+.tasklane-app .tasklane-button,
+.tasklane-app .tasklane-icon-button,
+.tasklane-app .tasklane-select,
+.tasklane-app .tasklane-input,
+.tasklane-app .tasklane-textarea {
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.tasklane-app .tasklane-button {
+  min-height: 28px;
+  padding: 0 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tasklane-app .tasklane-icon-button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.tasklane-app .tasklane-button:hover:not(:disabled),
+.tasklane-app .tasklane-icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tasklane-app .tasklane-button:disabled,
+.tasklane-app .tasklane-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.tasklane-app .tasklane-button-primary {
+  border-color: var(--color-brand-2);
+  color: var(--color-brand-2);
+}
+
+.tasklane-app .tasklane-button-danger {
+  border-color: var(--color-pink);
+  color: var(--color-pink);
+}
+
+.tasklane-app .tasklane-select {
+  min-height: 28px;
+  max-width: 160px;
+  padding: 0 6px;
+}
+
+.tasklane-app .tasklane-input,
+.tasklane-app .tasklane-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  resize: none;
+}
+
+.tasklane-app .tasklane-button:focus-visible,
+.tasklane-app .tasklane-icon-button:focus-visible,
+.tasklane-app .tasklane-select:focus-visible,
+.tasklane-app .tasklane-input:focus-visible,
+.tasklane-app .tasklane-textarea:focus-visible {
+  outline: 2px solid var(--color-brand-2);
+  outline-offset: 1px;
+}
+
+.tasklane-app .tasklane-field-label {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+/* Tasks Vessel */
+.tasklane-app .tasklane-board {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.tasklane-app .tasklane-section-title {
+  margin: 0 0 8px;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tasklane-app .tasklane-priority-list,
+.tasklane-app .tasklane-task-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+}
+
+.tasklane-app .tasklane-priority {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.tasklane-app .tasklane-priority-rank {
+  width: 20px;
+  flex: 0 0 auto;
+  color: var(--color-amber);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-align: right;
+}
+
+.tasklane-app .tasklane-task {
+  display: grid;
+  min-width: 0;
+  margin-left: calc(var(--tasklane-depth, 0) * 20px);
+  padding: 8px 10px;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-left: 2px solid
+    color-mix(in srgb, var(--color-amber) calc(40% + var(--tasklane-depth, 0) * 20%), transparent);
+  border-radius: 6px;
+}
+
+.tasklane-app .tasklane-task-body {
+  min-width: 0;
+}
+
+.tasklane-app .tasklane-task-title {
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.tasklane-app .tasklane-task-description {
+  margin: 2px 0 0;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.tasklane-app .tasklane-task-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tasklane-app .tasklane-task-editor {
+  display: grid;
+  gap: 4px;
+}
