@@ -29,6 +29,7 @@ import {
 } from '../lib/playground-key-store';
 import { selectVoiceProvider } from '../lib/voice-provider';
 import { tasklaneM } from './maelstrom';
+import { __resetBoardFilterStoreForTests } from './stores/board-filter.store';
 import { __resetFeedbackStoreForTests } from './stores/feedback.store';
 import {
   __resetProjectTasksStoreForTests,
@@ -92,6 +93,7 @@ const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');
 const DETAIL = InstanceId('task-detail-main');
 const PRIORITIES = InstanceId('my-priorities-main');
+const TEAM_LOAD = InstanceId('team-load-main');
 const NEW_TASKS = [
   'Explain the host app on the home page',
   'Make task and journal controls interactive',
@@ -417,6 +419,45 @@ describe('Tasklane summons Vessels the start screen leaves out', () => {
     expect(getTaskDetailSnapshot().get(DETAIL)).toBe('TL-2');
   });
 
+  it('narrows the board to the member clicked in a Team load beside it', async () => {
+    setPlaygroundKey('sk-tasklane-team-load-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('list', { name: 'Team load' })).toBeNull();
+
+    engine.layouts.set(
+      'Show the team load beside the board',
+      layoutBesideBoard('V', TEAM_LOAD, 'team-load', 'bars'),
+    );
+    await ask('Show the team load beside the board');
+    const teamLoad = await screen.findByRole(
+      'list',
+      { name: 'Team load' },
+      { timeout: 3000 },
+    );
+    expect(boardTitles()).toEqual([
+      'Update demo README',
+      'Record launch video',
+    ]);
+
+    await act(async () => {
+      fireEvent.click(within(teamLoad).getByRole('button', { name: /^Sam,/ }));
+    });
+
+    await waitFor(() => expect(boardTitles()).toEqual(['Record launch video']));
+    expect(
+      screen.getByRole('status', { name: 'Board filter' }).textContent,
+    ).toContain("Showing Sam's tasks");
+    expect(
+      within(teamLoad)
+        .getByRole('button', { name: /^Sam,/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
   it('shows my priorities as a one-line strip under the board', async () => {
     projectTaskActions.addToMyPriorities('TL-2');
     projectTaskActions.addToMyPriorities('TL-1');
@@ -541,6 +582,14 @@ function label(title: string): string {
   return taskReferenceLabel(task(title));
 }
 
+function boardTitles(): string[] {
+  return within(screen.getByRole('list', { name: 'Project tasks' }))
+    .getAllByRole('listitem')
+    .map(
+      (item) => item.querySelector('.tasklane-task-title')?.textContent ?? '',
+    );
+}
+
 function titles(): string[] {
   return getProjectTasksSnapshot().tasks.map((candidate) => candidate.title);
 }
@@ -594,6 +643,7 @@ function acceptedEnum(
 }
 
 function resetTasklane(): void {
+  __resetBoardFilterStoreForTests();
   __resetFeedbackStoreForTests();
   __resetProjectTasksStoreForTests();
   __resetTaskDetailStoreForTests();

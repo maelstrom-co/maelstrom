@@ -7,6 +7,7 @@ import {
   useBoardFilterStore,
 } from '../stores/board-filter.store';
 import {
+  assigneeLabel,
   type ProjectTask,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
@@ -76,6 +77,11 @@ export default function TeamLoadComponent({
           );
         })}
       </ul>
+      {assigneeFilter ? (
+        <p role="status" className="mt-1 shrink-0 text-xs text-ink-3">
+          Board filtered to {assigneeLabel(assigneeFilter)}
+        </p>
+      ) : null}
     </TasklaneCard>
   );
 }

@@ -151,11 +151,12 @@ export default function ProjectTasksComponent({
   const emptyText = assigneeFilter
     ? `No tasks for ${assigneeLabel(assigneeFilter)}.`
     : 'No tasks yet.';
+  const allTasks = `${tasks.length} task${tasks.length === 1 ? '' : 's'}`;
 
   return (
     <TasklaneCard
       title="Tasks"
-      meta={`${project} · ${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+      meta={`${project} · ${assigneeFilter ? `${visible.length} of ${allTasks}` : allTasks}`}
     >
       {assigneeFilter ? (
         <FilterChip

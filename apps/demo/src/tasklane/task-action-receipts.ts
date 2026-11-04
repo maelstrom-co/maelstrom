@@ -107,15 +107,25 @@ export function reportRemoveTask(result: RemoveTaskResult) {
   return ok(undefined);
 }
 
-/** Opening a task changes no data, so only a failure reaches the receipt line. */
+/**
+ * Opening a task changes no data, so only a failure reaches the receipt line.
+ * Reopening the task already open still confirms the command.
+ */
 export function reportShowTask(result: OpenTaskDetailResult) {
   if (!result.ok) return fail('showTask', result);
+  if (!result.changed) recordUnchanged('showTask');
   return ok(undefined);
 }
 
-/** Filtering changes no data, so only a failure reaches the receipt line. */
+/**
+ * Filtering changes no data, so only a failure reaches the receipt line.
+ * Repeating the active filter still confirms the command.
+ */
 export function reportBoardFilter(result: BoardFilterResult) {
-  if (result.ok) return ok(undefined);
+  if (result.ok) {
+    if (!result.changed) recordUnchanged('filterByAssignee');
+    return ok(undefined);
+  }
   recordFailure(
     'filterByAssignee',
     `Couldn't find a team member called "${result.query}"`,

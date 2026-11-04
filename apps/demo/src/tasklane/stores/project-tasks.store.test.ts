@@ -76,6 +76,18 @@ describe('setStatus', () => {
     expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('todo');
   });
 
+  it('refuses an unknown task and leaves every status alone', () => {
+    expect(projectTaskActions.setStatus('Ghost', 'done')).toEqual({
+      ok: false,
+      reason: 'task_not_found',
+      query: 'Ghost',
+    });
+    expect(getProjectTasksSnapshot().tasks.map((task) => task.status)).toEqual([
+      'todo',
+      'todo',
+    ]);
+  });
+
   it('keeps a published label current when only the status changes', () => {
     const before = taskReferenceLabel(firstTask());
     projectTaskActions.setStatus('TL-1', 'done');

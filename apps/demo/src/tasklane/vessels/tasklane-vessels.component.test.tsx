@@ -498,6 +498,13 @@ describe('Tasks board assignee filter', () => {
     ]);
   });
 
+  it('counts the shown tasks out of all tasks while a filter is active', async () => {
+    render(<ProjectTasksComponent {...props('project-tasks')} />);
+    expect(screen.getByText('Maelstrom demo · 2 tasks')).toBeTruthy();
+    await invoke('project-tasks', 'filterByAssignee', { assignee: 'sam' });
+    expect(screen.getByText('Maelstrom demo · 1 of 2 tasks')).toBeTruthy();
+  });
+
   it('says so when the filtered member has no tasks, and calls Chris "my"', () => {
     act(() => {
       boardFilterActions.filterByAssignee('me');
@@ -751,6 +758,21 @@ describe('Team load Vessel', () => {
     );
     expect(getBoardFilterSnapshot().assigneeFilter).toBeNull();
     expect(alex().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('says which member the board is filtered to, even with no board on screen', async () => {
+    render(<TeamLoadComponent {...props('team-load')} />);
+    expect(screen.queryByText(/Board filtered to/)).toBeNull();
+
+    expect(
+      await invoke('team-load', 'filterByAssignee', { assignee: 'alex' }),
+    ).toMatchObject({ ok: true });
+    expect(screen.getByRole('status').textContent).toBe(
+      'Board filtered to Alex',
+    );
+
+    await invoke('team-load', 'filterByAssignee', { assignee: 'everyone' });
+    expect(screen.queryByText(/Board filtered to/)).toBeNull();
   });
 
   it('marks the member a filter set elsewhere selected', () => {
