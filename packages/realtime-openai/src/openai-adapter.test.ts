@@ -229,6 +229,10 @@ class FakeAudio {
     if (value && this.autoplay) this.paused = false;
   }
 
+  async play(): Promise<void> {
+    this.paused = false;
+  }
+
   pause(): void {
     this.paused = true;
   }

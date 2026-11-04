@@ -172,6 +172,66 @@ export const m = createMaelstrom({ vessels }).with(
 
 Calling `connect()` mints a fresh credential and begins microphone capture. Once WebRTC connects, the browser sends that microphone track directly to OpenAI until `disconnect()` stops the track and closes the peer connection. Make this media lifecycle clear in consent and connection UI. A second session-level `connect()` while the session is already live is a no-op; the adapter itself rejects a direct duplicate connection.
 
+## Recover blocked remote audio
+
+A WebRTC connection can succeed while the browser refuses audio playback. Keep
+an application's concrete `OpenAIAdapter` reference for each voice session when
+its UI needs remote playback controls. These controls live on the concrete
+adapter; the shared session and React voice binding do not expose them.
+
+`getAudioPlaybackStatus()` reports the last attempt for the current remote stream:
+
+| Status | Evidence | Recovery |
+| --- | --- | --- |
+| `unavailable` | No remote stream is attached. | Retry is a no-op. |
+| `ready` | A stream is attached; playback is unconfirmed, including a non-policy failure. | The UI may offer a retry. |
+| `blocked` | The current attempt returned `NotAllowedError`. | Retry from an explicit user gesture. |
+| `playing` | The browser accepted `play()` for the current stream. | Retry remains available if the user needs it. |
+
+Browser acceptance does not prove audible output, received speech, or continuous
+playback. Other pauses or device conditions can follow the accepted attempt.
+The [media play contract](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play)
+explains the Promise and policy failure.
+
+Call `resumeAudioPlayback()` directly inside the click handler, before awaiting
+other work. It retries the existing audio element and activates the retained
+greeting audio context. It does not mint another Grant, reconnect, acquire a
+microphone, or request another provider response. A current failure rejects with
+its original reason as `cause`; an attempt retired by a newer retry, stream
+replacement, or disconnect settles
+without changing the current state. Read the observed status rather than treating
+Promise completion as playback evidence.
+
+`subscribeAudioPlayback()` notifies subsequent status changes. Read the initial
+value explicitly, then release the subscription with the UI or adapter reference.
+A retry control can keep working after a reported acceptance:
+
+```ts title="src/voice/playback-controls.ts"
+import type { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
+
+export function bindPlaybackRecovery(
+  adapter: OpenAIAdapter,
+  button: HTMLButtonElement,
+  reportError: (error: unknown) => void,
+): () => void {
+  const render = () => {
+    const status = adapter.getAudioPlaybackStatus();
+    button.disabled = status === 'unavailable';
+    button.textContent = status === 'blocked' ? 'Enable audio' : 'Retry audio';
+  };
+  const retry = () => {
+    void adapter.resumeAudioPlayback().catch(reportError);
+  };
+  const release = adapter.subscribeAudioPlayback(render);
+  button.addEventListener('click', retry);
+  render();
+  return () => {
+    release();
+    button.removeEventListener('click', retry);
+  };
+}
+```
+
 ## Configure server VAD
 
 `OpenAIAdapter` uses OpenAI's server voice activity detection (VAD). Configure its activation threshold and choose whether provider speech detection or input transcription confirms an interruption:
