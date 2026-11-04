@@ -399,6 +399,74 @@
   font-size: 11px;
 }
 
+/* Tasks Vessel, assignee filter and columns variant */
+.tasklane-app .tasklane-filter-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 2px 4px 2px 10px;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--color-ink-2);
+  font-size: 12px;
+}
+
+.tasklane-app .tasklane-filter-clear {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--color-amber);
+  font-size: 12px;
+}
+
+.tasklane-app .tasklane-filter-clear:focus-visible {
+  outline: 2px solid var(--color-brand-2);
+  outline-offset: 1px;
+}
+
+.tasklane-app .tasklane-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tasklane-app .tasklane-column {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.tasklane-app .tasklane-column-list {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.tasklane-app .tasklane-card {
+  display: grid;
+  min-width: 0;
+  padding: 8px 10px;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.tasklane-app .tasklane-card-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 /* Task detail Vessel */
 .tasklane-app .tasklane-detail {
   display: grid;

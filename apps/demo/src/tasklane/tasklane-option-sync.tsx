@@ -7,6 +7,11 @@ import {
   optionKey,
   republishWithRetry,
 } from './option-publishing';
+import {
+  type BoardFilterState,
+  getBoardFilterSnapshot,
+  useBoardFilterStore,
+} from './stores/board-filter.store';
 import { type FeedbackState, useFeedbackStore } from './stores/feedback.store';
 import {
   assigneeLabel,
@@ -24,6 +29,7 @@ import { taskDetailVessel } from './vessels/task-detail.vessel.def';
 export const TASK_SUMMARY_CHARACTER_LIMIT = 1500;
 export const TASK_SUMMARY_HEADING =
   '\n\nCurrent task records, kept up to date after every change:\n';
+export const BOARD_FILTER_HEADING = '\n\nBoard filter: ';
 export const MY_PRIORITIES_HEADING =
   '\n\nCurrent priorities, top first, kept up to date after every change:\n';
 export const FEEDBACK_DESCRIPTION_HEADING =
@@ -49,10 +55,12 @@ const SUMMARY_DESCRIPTION_LIMIT = 60;
  * The Tasks definition as the Planner should see it now. The Planner sees no
  * Instance data, so the current records travel in the definition: each task
  * parameter offers the live references, and the description carries a
- * bounded summary of hierarchy, assignees, urgency, status and priorities.
+ * bounded summary of hierarchy, assignees, urgency, status and priorities,
+ * after a note of whose tasks the board shows.
  */
 export function projectTasksDefinition(
   state: ProjectTasksState,
+  filter: BoardFilterState = getBoardFilterSnapshot(),
 ): typeof projectTasksVessel {
   const references = taskReferences(state, 'project-tasks');
   const withReferences = withActionOptions(
@@ -63,7 +71,7 @@ export function projectTasksDefinition(
   );
   return {
     ...withReferences,
-    description: `${projectTasksVessel.description}${taskSummary(state)}`,
+    description: `${projectTasksVessel.description}${BOARD_FILTER_HEADING}${filterNote(filter)}${taskSummary(state)}`,
   };
 }
 
@@ -110,9 +118,10 @@ export function sourceFeedbackDefinition(
 export function TasklaneOptionSync() {
   const tasksState = useProjectTasksStore();
   const feedbackState = useFeedbackStore();
+  const filterState = useBoardFilterStore();
   const isProcessing = tasklaneM.useMaelstrom((state) => state.isProcessing);
 
-  const tasksDefinition = projectTasksDefinition(tasksState);
+  const tasksDefinition = projectTasksDefinition(tasksState, filterState);
   const prioritiesDefinition = myPrioritiesDefinition(tasksState);
   const detailDefinition = taskDetailDefinition(tasksState);
   const feedbackDefinition = sourceFeedbackDefinition(feedbackState);
@@ -152,6 +161,12 @@ export function TasklaneOptionSync() {
   );
 
   return null;
+}
+
+function filterNote(filter: BoardFilterState): string {
+  if (filter.assigneeFilter === null)
+    return "The board shows everyone's tasks.";
+  return `The board shows only ${assigneeLabel(filter.assigneeFilter)}'s tasks. Run filterByAssignee with everyone to show all tasks again.`;
 }
 
 function taskReferences(state: ProjectTasksState, label: string): string[] {

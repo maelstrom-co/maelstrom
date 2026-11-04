@@ -1,4 +1,5 @@
 import { err, ok } from '@maelstrom-co/protocol';
+import { type BoardFilterResult, EVERYONE } from './stores/board-filter.store';
 import type { FeedbackMutationResult } from './stores/feedback.store';
 import {
   assigneeLabel,
@@ -13,6 +14,7 @@ import {
   taskSummary,
 } from './stores/project-tasks.store';
 import type { OpenTaskDetailResult } from './stores/task-detail.store';
+import { describeTeamMembers } from './stores/team';
 import {
   type ChangeDescription,
   recordChange,
@@ -109,6 +111,20 @@ export function reportRemoveTask(result: RemoveTaskResult) {
 export function reportShowTask(result: OpenTaskDetailResult) {
   if (!result.ok) return fail('showTask', result);
   return ok(undefined);
+}
+
+/** Filtering changes no data, so only a failure reaches the receipt line. */
+export function reportBoardFilter(result: BoardFilterResult) {
+  if (result.ok) return ok(undefined);
+  recordFailure(
+    'filterByAssignee',
+    `Couldn't find a team member called "${result.query}"`,
+  );
+  return err(
+    new Error(
+      `No team member matches "${result.query}". Use ${describeTeamMembers()}, or ${EVERYONE} to clear the filter.`,
+    ),
+  );
 }
 
 export function reportReplaceFeedback(result: FeedbackMutationResult) {

@@ -59,6 +59,11 @@ const ProjectTasksComponent = (await import('./project-tasks.component'))
 const MyPrioritiesComponent = (await import('./my-priorities.component'))
   .default;
 const TaskDetailComponent = (await import('./task-detail.component')).default;
+const {
+  __resetBoardFilterStoreForTests,
+  boardFilterActions,
+  getBoardFilterSnapshot,
+} = await import('../stores/board-filter.store');
 const { __resetTaskDetailStoreForTests, selectedTaskId, taskDetailActions } =
   await import('../stores/task-detail.store');
 
@@ -67,6 +72,7 @@ beforeEach(() => {
   __resetProjectTasksStoreForTests();
   __resetFeedbackStoreForTests();
   __resetTaskDetailStoreForTests();
+  __resetBoardFilterStoreForTests();
 });
 
 afterEach(cleanup);
@@ -398,6 +404,131 @@ describe('Tasks Vessel by hand', () => {
       control.focus();
       expect(document.activeElement).toBe(control);
     }
+  });
+});
+
+describe('Tasks board assignee filter', () => {
+  it("shows only the filtered member's tasks with a chip that clears the filter", async () => {
+    projectTaskActions.createTask({
+      title: 'Alex child',
+      parent: 'TL-2',
+      assignee: 'alex',
+    });
+    const vesselProps = props('project-tasks');
+    render(<ProjectTasksComponent {...vesselProps} />);
+
+    expect(
+      await invoke('project-tasks', 'filterByAssignee', { assignee: 'alex' }),
+    ).toMatchObject({ ok: true });
+    expect(listedTitles()).toEqual(['Update demo README', 'Alex child']);
+    expect(taskRow('Alex child').getAttribute('data-depth')).toBe('0');
+    const chip = screen.getByRole('status', { name: 'Board filter' });
+    expect(chip.textContent).toContain("Showing Alex's tasks");
+
+    await act(async () => {
+      fireEvent.click(within(chip).getByRole('button', { name: 'Clear' }));
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('filterByAssignee', {
+      assignee: 'everyone',
+    });
+    expect(getBoardFilterSnapshot().assigneeFilter).toBeNull();
+    expect(screen.queryByRole('status', { name: 'Board filter' })).toBeNull();
+    expect(listedTitles()).toEqual([
+      'Update demo README',
+      'Record launch video',
+      'Alex child',
+    ]);
+  });
+
+  it('says so when the filtered member has no tasks, and calls Chris "my"', () => {
+    act(() => {
+      boardFilterActions.filterByAssignee('me');
+    });
+    render(<ProjectTasksComponent {...props('project-tasks')} />);
+    expect(
+      screen.getByRole('status', { name: 'Board filter' }).textContent,
+    ).toContain('Showing my tasks');
+    expect(screen.getByText('No tasks for Chris.')).toBeTruthy();
+  });
+
+  it('refuses an unknown team member and names the choices', async () => {
+    render(<ProjectTasksComponent {...props('project-tasks')} />);
+    const result = await invoke('project-tasks', 'filterByAssignee', {
+      assignee: 'robin',
+    });
+    expect(result?.ok).toBe(false);
+    expect(result?.error?.message).toBe(
+      'No team member matches "robin". Use chris (Chris, me), alex (Alex), sam (Sam), or everyone to clear the filter.',
+    );
+  });
+});
+
+describe('Tasks board columns variant', () => {
+  it('declares a wide columns variant next to the board', () => {
+    expect(Object.keys(projectTasksVessel.variants)).toEqual([
+      'board',
+      'columns',
+    ]);
+    expect(projectTasksVessel.variants.columns.minSize).toEqual({
+      width: 9,
+      height: 4,
+    });
+    expect(
+      projectTasksVessel.variants.columns.actions.map((action) => action.name),
+    ).toEqual(
+      projectTasksVessel.variants.board.actions.map((action) => action.name),
+    );
+  });
+
+  it('places each task in the column for its status and moves it on a status change', async () => {
+    projectTaskActions.setStatus('TL-2', 'doing');
+    projectTaskActions.addToMyPriorities('TL-2');
+    const vesselProps = props('project-tasks', 'tasks-columns', 'columns');
+    render(<ProjectTasksComponent {...vesselProps} />);
+
+    expect(columnTaskIds()).toEqual({
+      'To do': ['TL-1'],
+      'In progress': ['TL-2'],
+      Done: [],
+    });
+    expect(within(columnCard('TL-2')).getByText('★1')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(
+        within(columnCard('TL-1')).getByRole('combobox', {
+          name: 'Status for Update demo README',
+        }),
+        { target: { value: 'done' } },
+      );
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('setStatus', {
+      task: 'TL-1',
+      status: 'done',
+    });
+    expect(columnTaskIds()).toEqual({
+      'To do': [],
+      'In progress': ['TL-2'],
+      Done: ['TL-1'],
+    });
+  });
+
+  it('respects the assignee filter', () => {
+    act(() => {
+      boardFilterActions.filterByAssignee('sam');
+    });
+    render(
+      <ProjectTasksComponent
+        {...props('project-tasks', 'tasks-columns', 'columns')}
+      />,
+    );
+    expect(columnTaskIds()).toEqual({
+      'To do': ['TL-2'],
+      'In progress': [],
+      Done: [],
+    });
+    expect(
+      screen.getByRole('status', { name: 'Board filter' }).textContent,
+    ).toContain("Showing Sam's tasks");
   });
 });
 
@@ -741,6 +872,34 @@ function taskRow(title: string): HTMLElement {
     );
   if (!row) throw new Error(`no task row titled ${title}`);
   return row;
+}
+
+function listedTitles(): string[] {
+  return screen
+    .getAllByRole('listitem')
+    .filter((item) => item.hasAttribute('data-depth'))
+    .map(
+      (item) => item.querySelector('.tasklane-task-title')?.textContent ?? '',
+    );
+}
+
+function columnTaskIds(): Record<string, string[]> {
+  return Object.fromEntries(
+    ['To do', 'In progress', 'Done'].map((name) => [
+      name,
+      within(screen.getByRole('list', { name }))
+        .queryAllByRole('listitem')
+        .map((item) => item.getAttribute('data-task-id') ?? ''),
+    ]),
+  );
+}
+
+function columnCard(taskId: string): HTMLElement {
+  const card = document.querySelector<HTMLElement>(
+    `.tasklane-card[data-task-id="${taskId}"]`,
+  );
+  if (!card) throw new Error(`no column card for ${taskId}`);
+  return card;
 }
 
 function priorityBadge(title: string): string | null {

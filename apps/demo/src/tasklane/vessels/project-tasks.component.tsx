@@ -9,6 +9,12 @@ import {
 import { VesselCard } from '../../components/vessel-card';
 import { tasklaneM } from '../maelstrom';
 import {
+  boardFilterActions,
+  EVERYONE,
+  useBoardFilterStore,
+} from '../stores/board-filter.store';
+import {
+  assigneeLabel,
   descendantIds,
   NO_PARENT,
   orderedTaskRows,
@@ -17,10 +23,17 @@ import {
   TASK_STATUS_NAMES,
   TASK_STATUSES,
   TASK_URGENCIES,
+  type TaskStatus,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
-import { TEAM, UNASSIGNED } from '../stores/team';
 import {
+  CURRENT_USER_ID,
+  TEAM,
+  type TeamMemberId,
+  UNASSIGNED,
+} from '../stores/team';
+import {
+  reportBoardFilter,
   reportCreateTask,
   reportPriorityChange,
   reportRemoveTask,
@@ -40,9 +53,11 @@ interface TaskDraft {
 
 export default function ProjectTasksComponent({
   instanceId,
+  variantProps,
   executeAction,
 }: TypedVesselProps<typeof projectTasksVessel>) {
   const { project, tasks, myPriorities } = useProjectTasksStore();
+  const { assigneeFilter } = useBoardFilterStore();
   const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const focusAfterEdit = useRef<string | null>(null);
@@ -98,6 +113,8 @@ export default function ProjectTasksComponent({
       ),
     removeTask: async ({ task }) =>
       reportRemoveTask(projectTaskActions.removeTask(task)),
+    filterByAssignee: async ({ assignee }) =>
+      reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
   });
 
   useEffect(() => {
@@ -126,7 +143,13 @@ export default function ProjectTasksComponent({
     closeEditor();
   };
 
-  const rows = orderedTaskRows(tasks);
+  const visible = assigneeFilter
+    ? tasks.filter((task) => task.assigneeId === assigneeFilter)
+    : tasks;
+  const rows = orderedTaskRows(visible);
+  const emptyText = assigneeFilter
+    ? `No tasks for ${assigneeLabel(assigneeFilter)}.`
+    : 'No tasks yet.';
 
   return (
     <VesselCard
@@ -134,48 +157,65 @@ export default function ProjectTasksComponent({
       label="Tasks"
       meta={`${project} · ${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
     >
-      <div
-        ref={board}
-        className="tasklane-board flex-1 min-h-0 overflow-y-auto"
-      >
-        <section aria-labelledby={`${instanceId}-tasks`}>
-          <h3 id={`${instanceId}-tasks`} className="tasklane-section-title">
-            Project tasks
-          </h3>
-          {rows.length === 0 ? (
-            <p className="text-xs text-ink-3">No tasks yet.</p>
-          ) : (
-            <ul aria-label="Project tasks" className="tasklane-task-list">
-              {rows.map(({ task, depth }) => (
-                <TaskRow
-                  key={task.id}
-                  instanceId={instanceId}
-                  task={task}
-                  depth={depth}
-                  tasks={tasks}
-                  priorityPosition={positionIn(myPriorities, task.id)}
-                  draft={draft?.taskId === task.id ? draft : null}
-                  confirmingDelete={confirmingDelete === task.id}
-                  executeAction={executeAction}
-                  onEdit={() =>
-                    setDraft({
-                      taskId: task.id,
-                      title: task.title,
-                      description: task.description,
-                    })
-                  }
-                  onDraftChange={setDraft}
-                  onSave={saveEditor}
-                  onCancel={closeEditor}
-                  onConfirmDelete={(confirming) =>
-                    setConfirmingDelete(confirming ? task.id : null)
-                  }
-                />
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+      {assigneeFilter ? (
+        <FilterChip
+          assigneeFilter={assigneeFilter}
+          onClear={() =>
+            executeAction('filterByAssignee', { assignee: EVERYONE })
+          }
+        />
+      ) : null}
+      {variantProps.variant === 'columns' ? (
+        <StatusColumns
+          tasks={visible}
+          myPriorities={myPriorities}
+          emptyText={emptyText}
+          executeAction={executeAction}
+        />
+      ) : (
+        <div
+          ref={board}
+          className="tasklane-board flex-1 min-h-0 overflow-y-auto"
+        >
+          <section aria-labelledby={`${instanceId}-tasks`}>
+            <h3 id={`${instanceId}-tasks`} className="tasklane-section-title">
+              Project tasks
+            </h3>
+            {rows.length === 0 ? (
+              <p className="text-xs text-ink-3">{emptyText}</p>
+            ) : (
+              <ul aria-label="Project tasks" className="tasklane-task-list">
+                {rows.map(({ task, depth }) => (
+                  <TaskRow
+                    key={task.id}
+                    instanceId={instanceId}
+                    task={task}
+                    depth={depth}
+                    tasks={tasks}
+                    priorityPosition={positionIn(myPriorities, task.id)}
+                    draft={draft?.taskId === task.id ? draft : null}
+                    confirmingDelete={confirmingDelete === task.id}
+                    executeAction={executeAction}
+                    onEdit={() =>
+                      setDraft({
+                        taskId: task.id,
+                        title: task.title,
+                        description: task.description,
+                      })
+                    }
+                    onDraftChange={setDraft}
+                    onSave={saveEditor}
+                    onCancel={closeEditor}
+                    onConfirmDelete={(confirming) =>
+                      setConfirmingDelete(confirming ? task.id : null)
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
     </VesselCard>
   );
 }
@@ -293,14 +333,7 @@ function TaskRow({
               {task.id}
             </span>
             <span className="tasklane-task-title">{task.title}</span>
-            {inPriorities ? (
-              <span
-                className="tasklane-priority-badge"
-                title={`Priority #${priorityPosition} in my priorities`}
-              >
-                ★{priorityPosition}
-              </span>
-            ) : null}
+            <PriorityBadge position={priorityPosition} />
           </div>
           {task.description ? (
             <p className="tasklane-task-description">{task.description}</p>
@@ -309,23 +342,7 @@ function TaskRow({
       )}
 
       <div className="tasklane-task-controls">
-        <select
-          className="tasklane-select"
-          aria-label={`Status for ${task.title}`}
-          value={task.status}
-          onChange={(event) =>
-            executeAction('setStatus', {
-              task: task.id,
-              status: event.target.value,
-            })
-          }
-        >
-          {TASK_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {TASK_STATUS_NAMES[status]}
-            </option>
-          ))}
-        </select>
+        <StatusSelect task={task} executeAction={executeAction} />
         <select
           className="tasklane-select"
           aria-label={`Assignee for ${task.title}`}
@@ -448,4 +465,140 @@ function positionIn(
 ): number | null {
   const index = priorities.indexOf(taskId);
   return index === -1 ? null : index + 1;
+}
+
+function FilterChip({
+  assigneeFilter,
+  onClear,
+}: {
+  readonly assigneeFilter: TeamMemberId;
+  readonly onClear: () => void;
+}) {
+  const whose =
+    assigneeFilter === CURRENT_USER_ID
+      ? 'my'
+      : `${assigneeLabel(assigneeFilter)}'s`;
+  return (
+    <div
+      role="status"
+      aria-label="Board filter"
+      className="tasklane-filter-chip"
+    >
+      <span>Showing {whose} tasks</span>
+      <span aria-hidden="true">·</span>
+      <button type="button" className="tasklane-filter-clear" onClick={onClear}>
+        Clear
+      </button>
+    </div>
+  );
+}
+
+interface StatusColumnsProps {
+  readonly tasks: readonly ProjectTask[];
+  readonly myPriorities: readonly string[];
+  readonly emptyText: string;
+  readonly executeAction: ExecuteAction;
+}
+
+function StatusColumns({
+  tasks,
+  myPriorities,
+  emptyText,
+  executeAction,
+}: StatusColumnsProps) {
+  if (tasks.length === 0)
+    return <p className="text-xs text-ink-3">{emptyText}</p>;
+  return (
+    <div className="tasklane-columns flex-1 min-h-0">
+      {TASK_STATUSES.map((status) => (
+        <StatusColumn
+          key={status}
+          status={status}
+          tasks={tasks.filter((task) => task.status === status)}
+          myPriorities={myPriorities}
+          executeAction={executeAction}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatusColumn({
+  status,
+  tasks,
+  myPriorities,
+  executeAction,
+}: {
+  readonly status: TaskStatus;
+  readonly tasks: readonly ProjectTask[];
+  readonly myPriorities: readonly string[];
+  readonly executeAction: ExecuteAction;
+}) {
+  const name = TASK_STATUS_NAMES[status];
+  return (
+    <section className="tasklane-column" data-status={status}>
+      <h3 className="tasklane-section-title">
+        {name} <span className="text-ink-3">{tasks.length}</span>
+      </h3>
+      <ul aria-label={name} className="tasklane-column-list">
+        {tasks.map((task) => (
+          <li key={task.id} data-task-id={task.id} className="tasklane-card">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="font-mono text-xs text-ink-3 shrink-0">
+                {task.id}
+              </span>
+              <span className="tasklane-task-title">{task.title}</span>
+              <PriorityBadge position={positionIn(myPriorities, task.id)} />
+            </div>
+            <div className="tasklane-card-footer">
+              <span className="text-xs text-ink-2 truncate">
+                {assigneeLabel(task.assigneeId)}
+              </span>
+              <StatusSelect task={task} executeAction={executeAction} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function StatusSelect({
+  task,
+  executeAction,
+}: {
+  readonly task: ProjectTask;
+  readonly executeAction: ExecuteAction;
+}) {
+  return (
+    <select
+      className="tasklane-select"
+      aria-label={`Status for ${task.title}`}
+      value={task.status}
+      onChange={(event) =>
+        executeAction('setStatus', {
+          task: task.id,
+          status: event.target.value,
+        })
+      }
+    >
+      {TASK_STATUSES.map((status) => (
+        <option key={status} value={status}>
+          {TASK_STATUS_NAMES[status]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function PriorityBadge({ position }: { readonly position: number | null }) {
+  if (position === null) return null;
+  return (
+    <span
+      className="tasklane-priority-badge"
+      title={`Priority #${position} in my priorities`}
+    >
+      ★{position}
+    </span>
+  );
 }

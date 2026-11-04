@@ -32,6 +32,7 @@ vi.mock('./maelstrom', () => ({
 }));
 
 const {
+  BOARD_FILTER_HEADING,
   FEEDBACK_DESCRIPTION_HEADING,
   MY_PRIORITIES_HEADING,
   myPrioritiesDefinition,
@@ -54,6 +55,9 @@ const {
   feedbackActions,
   getFeedbackSnapshot,
 } = await import('./stores/feedback.store');
+const { __resetBoardFilterStoreForTests, boardFilterActions } = await import(
+  './stores/board-filter.store'
+);
 const { projectTasksVessel } = await import(
   './vessels/project-tasks.vessel.def'
 );
@@ -82,6 +86,7 @@ beforeEach(() => {
   sync.published = [];
   __resetProjectTasksStoreForTests();
   __resetFeedbackStoreForTests();
+  __resetBoardFilterStoreForTests();
 });
 
 afterEach(() => {
@@ -178,6 +183,21 @@ describe('projectTasksDefinition', () => {
     );
   });
 
+  it('tells the Planner whose tasks the board shows', () => {
+    expect(
+      projectTasksDefinition(getProjectTasksSnapshot(), {
+        assigneeFilter: null,
+      }).description,
+    ).toContain(`${BOARD_FILTER_HEADING}The board shows everyone's tasks.`);
+    expect(
+      projectTasksDefinition(getProjectTasksSnapshot(), {
+        assigneeFilter: 'alex',
+      }).description,
+    ).toContain(
+      `${BOARD_FILTER_HEADING}The board shows only Alex's tasks. Run filterByAssignee with everyone to show all tasks again.`,
+    );
+  });
+
   it('truncates the summary at its character limit and says how many tasks it left out', () => {
     for (let i = 0; i < 60; i++) {
       projectTaskActions.createTask({
@@ -185,7 +205,9 @@ describe('projectTasksDefinition', () => {
       });
     }
     const { description } = projectTasksDefinition(getProjectTasksSnapshot());
-    const summary = description.slice(projectTasksVessel.description.length);
+    const summary = description.slice(
+      description.indexOf(TASK_SUMMARY_HEADING),
+    );
     expect(summary.length).toBeLessThanOrEqual(TASK_SUMMARY_CHARACTER_LIMIT);
     expect(summary).toMatch(/and \d+ more tasks\.$/);
   });
@@ -290,6 +312,18 @@ describe('TasklaneOptionSync', () => {
     ) as VesselDefinition;
     expect(taskEnum(latest, 'assignTask')?.[0]).toBe(
       'TL-1 Update demo README (Sam, normal, not in priorities)',
+    );
+  });
+
+  it('republishes the Tasks definition when the board filter changes', () => {
+    render(<TasklaneOptionSync />);
+    sync.published = [];
+    act(() => {
+      boardFilterActions.filterByAssignee('alex');
+    });
+    expect(publishedIds()).toEqual(['project-tasks']);
+    expect(sync.published.at(-1)?.description).toContain(
+      "The board shows only Alex's tasks.",
     );
   });
 

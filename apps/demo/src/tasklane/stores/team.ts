@@ -50,10 +50,14 @@ export function resolveAssignee(
 }
 
 export function describeTeamChoices(): string {
-  const members = TEAM.map((member) =>
+  return `${describeTeamMembers()}, or ${UNASSIGNED}`;
+}
+
+/** `chris (Chris, me), alex (Alex), sam (Sam)` */
+export function describeTeamMembers(): string {
+  return TEAM.map((member) =>
     member.id === CURRENT_USER_ID
       ? `${member.id} (${member.name}, me)`
       : `${member.id} (${member.name})`,
-  );
-  return `${members.join(', ')}, or ${UNASSIGNED}`;
+  ).join(', ');
 }
