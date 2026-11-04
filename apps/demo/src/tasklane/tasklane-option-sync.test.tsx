@@ -12,7 +12,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sync = vi.hoisted(() => ({
-  isProcessing: false,
+  settle: (() => {}) as () => void,
   results: {} as Record<
     string,
     { ok: boolean; conflict?: Record<string, string> }[]
@@ -22,8 +22,9 @@ const sync = vi.hoisted(() => ({
 
 vi.mock('./maelstrom', () => ({
   tasklaneM: {
-    useMaelstrom: (selector: (state: { isProcessing: boolean }) => unknown) =>
-      selector({ isProcessing: sync.isProcessing }),
+    useOnSettled: (onSettled: () => void) => {
+      sync.settle = onSettled;
+    },
     updateVessel: (vessel: VesselDefinition) => {
       sync.published.push(vessel);
       return sync.results[vessel.id]?.shift() ?? { ok: true };
@@ -83,7 +84,7 @@ const TASK_PARAMETER_ACTIONS = [
 ];
 
 beforeEach(() => {
-  sync.isProcessing = false;
+  sync.settle = () => {};
   sync.results = {};
   sync.published = [];
   __resetProjectTasksStoreForTests();
@@ -359,31 +360,32 @@ describe('TasklaneOptionSync', () => {
     );
   });
 
-  it('retries while a command batch is in flight', () => {
-    vi.useFakeTimers();
+  it('retries a republish refused mid-batch when the orchestrator settles', () => {
     sync.results = {
-      'project-tasks': [
-        batchInFlight('project-tasks'),
-        batchInFlight('project-tasks'),
-      ],
+      'project-tasks': [batchInFlight('project-tasks')],
     };
     render(<TasklaneOptionSync />);
     const tasksPublishes = () =>
       sync.published.filter((vessel) => vessel.id === 'project-tasks').length;
     expect(tasksPublishes()).toBe(1);
 
-    act(() => {
-      vi.advanceTimersByTime(100);
-    });
+    act(() => sync.settle());
     expect(tasksPublishes()).toBe(2);
-    act(() => {
-      vi.advanceTimersByTime(200);
-    });
-    expect(tasksPublishes()).toBe(3);
-    act(() => {
-      vi.advanceTimersByTime(10_000);
-    });
-    expect(tasksPublishes()).toBe(3);
+    act(() => sync.settle());
+    expect(tasksPublishes()).toBe(2);
+  });
+
+  it('publishes store changes made during a batch when it settles, before any re-render', () => {
+    render(<TasklaneOptionSync />);
+    sync.published = [];
+    projectTaskActions.assignTask('TL-1', 'sam');
+    sync.settle();
+    const latest = sync.published.find(
+      (vessel) => vessel.id === 'project-tasks',
+    ) as VesselDefinition;
+    expect(taskEnum(latest, 'assignTask')?.[0]).toBe(
+      'TL-1 Update demo README (Sam, normal, not in priorities)',
+    );
   });
 });
 

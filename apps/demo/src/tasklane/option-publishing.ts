@@ -6,7 +6,6 @@ import {
   MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
 } from '@maelstrom-co/client';
 import { MAX_ACTION_PARAMETER_ENUM_CANDIDATES } from '@maelstrom-co/protocol';
-import type { UpdateVesselResult } from '@maelstrom-co/react';
 
 const MAX_OPTION_COUNT = Math.min(
   MAX_CAPABILITY_OPTION_COUNT,
@@ -68,58 +67,8 @@ export function optionKey(values: readonly string[]): string {
   return JSON.stringify(values);
 }
 
-/**
- * Publishes once and retries on a bounded backoff while the refusal is
- * `batch_in_flight`. Returns a cleanup that cancels any pending retry.
- */
-export function republishWithRetry(
-  publish: () => UpdateVesselResult,
-): () => void {
-  let cancelled = false;
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  const attempt = (retryCount: number) => {
-    if (cancelled) return;
-    const result = publish();
-    if (result.ok) return;
-
-    const { conflict } = result;
-    if (conflict.code !== 'batch_in_flight') {
-      console.warn(
-        `[tasklane-option-publishing] ${conflict.vesselId}: republish refused (${conflict.code}), not retrying: ${conflict.message}`,
-      );
-      return;
-    }
-
-    if (retryCount >= MAX_BATCH_IN_FLIGHT_RETRIES) {
-      console.warn(
-        `[tasklane-option-publishing] ${conflict.vesselId}: gave up republishing after ${MAX_BATCH_IN_FLIGHT_RETRIES} retries while a command batch stayed in flight`,
-      );
-      return;
-    }
-
-    timeoutId = setTimeout(
-      () => attempt(retryCount + 1),
-      RETRY_BASE_DELAY_MS * 2 ** retryCount,
-    );
-  };
-
-  attempt(0);
-
-  return () => {
-    cancelled = true;
-    clearTimeout(timeoutId);
-  };
-}
-
 // The engine serializer escapes these itself. Rejecting them here keeps a
 // value with the prompt's option delimiter or a control character out of the
 // enum regardless of how the engine renders it.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point, a value containing one must be rejected.
 const UNSAFE_VALUE_CHARS = /[|\r\n\x00-\x1f\x7f]/;
-
-// A refusal with `batch_in_flight` is transient: the command batch that
-// mutated the store is still settling. The sync also re-runs when
-// `isProcessing` flips, which covers a batch that outlasts this backoff.
-const MAX_BATCH_IN_FLIGHT_RETRIES = 5;
-const RETRY_BASE_DELAY_MS = 100;

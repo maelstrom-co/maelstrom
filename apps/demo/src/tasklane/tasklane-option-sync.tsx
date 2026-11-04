@@ -1,21 +1,22 @@
 import type { VesselDefinition } from '@maelstrom-co/protocol';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { withActionOptions } from '../lib/vessel-options';
 import { tasklaneM } from './maelstrom';
-import {
-  cleanOptionValues,
-  optionKey,
-  republishWithRetry,
-} from './option-publishing';
+import { cleanOptionValues, optionKey } from './option-publishing';
 import {
   type BoardFilterState,
   getBoardFilterSnapshot,
   useBoardFilterStore,
 } from './stores/board-filter.store';
-import { type FeedbackState, useFeedbackStore } from './stores/feedback.store';
+import {
+  type FeedbackState,
+  getFeedbackSnapshot,
+  useFeedbackStore,
+} from './stores/feedback.store';
 import {
   assigneeLabel,
+  getProjectTasksSnapshot,
   type ProjectTask,
   type ProjectTasksState,
   prioritisedTasks,
@@ -126,41 +127,20 @@ export function sourceFeedbackDefinition(
   };
 }
 
-/** Renders nothing. Republishes every Tasklane definition whenever the records change. */
+/**
+ * Renders nothing. Republishes every Tasklane definition whose Planner-facing
+ * parts changed, after each store change and again whenever the orchestrator
+ * settles, which retries a republish refused while a batch was in flight.
+ */
 export function TasklaneOptionSync() {
-  const tasksState = useProjectTasksStore();
-  const feedbackState = useFeedbackStore();
-  const filterState = useBoardFilterStore();
-  const isProcessing = tasklaneM.useMaelstrom((state) => state.isProcessing);
+  useProjectTasksStore();
+  useFeedbackStore();
+  useBoardFilterStore();
+  const published = useRef(new Map<string, string>());
+  const publishChanged = () => publishChangedDefinitions(published.current);
 
-  const tasks = projectTasksDefinition(tasksState, filterState);
-  const priorities = myPrioritiesDefinition(tasksState);
-  const detail = taskDetailDefinition(tasksState);
-  const triage = triageInboxDefinition(tasksState);
-  const feedback = sourceFeedbackDefinition(feedbackState);
-
-  useRepublish(tasks, () => tasklaneM.updateVessel(tasks), isProcessing, {
-    description: true,
-    taskActions: TASK_PARAMETER_ACTIONS,
-  });
-  useRepublish(
-    priorities,
-    () => tasklaneM.updateVessel(priorities),
-    isProcessing,
-    { description: true, taskActions: PRIORITY_PARAMETER_ACTIONS },
-  );
-  useRepublish(detail, () => tasklaneM.updateVessel(detail), isProcessing, {
-    description: false,
-    taskActions: ['showTask'],
-  });
-  useRepublish(triage, () => tasklaneM.updateVessel(triage), isProcessing, {
-    description: false,
-    taskActions: ['assignTask'],
-  });
-  useRepublish(feedback, () => tasklaneM.updateVessel(feedback), isProcessing, {
-    description: true,
-    taskActions: [],
-  });
+  useEffect(publishChanged);
+  tasklaneM.useOnSettled(publishChanged);
 
   return null;
 }
@@ -172,14 +152,51 @@ interface RepublishKey {
   readonly taskActions: readonly string[];
 }
 
-// Republishes only when the parts the Planner reads change, or when a batch
-// settles, so an unrelated store update never resends an identical definition.
-// The caller passes the publish call because updateVessel needs each
-// definition's own literal type.
-function useRepublish(
+// Reads the store snapshots rather than rendered state, because the settle
+// signal fires before React re-renders with the batch's changes.
+function publishChangedDefinitions(published: Map<string, string>): void {
+  const tasksState = getProjectTasksSnapshot();
+  const tasks = projectTasksDefinition(tasksState, getBoardFilterSnapshot());
+  const priorities = myPrioritiesDefinition(tasksState);
+  const detail = taskDetailDefinition(tasksState);
+  const triage = triageInboxDefinition(tasksState);
+  const feedback = sourceFeedbackDefinition(getFeedbackSnapshot());
+
+  publishIfChanged(published, tasks, () => tasklaneM.updateVessel(tasks), {
+    description: true,
+    taskActions: TASK_PARAMETER_ACTIONS,
+  });
+  publishIfChanged(
+    published,
+    priorities,
+    () => tasklaneM.updateVessel(priorities),
+    { description: true, taskActions: PRIORITY_PARAMETER_ACTIONS },
+  );
+  publishIfChanged(published, detail, () => tasklaneM.updateVessel(detail), {
+    description: false,
+    taskActions: ['showTask'],
+  });
+  publishIfChanged(published, triage, () => tasklaneM.updateVessel(triage), {
+    description: false,
+    taskActions: ['assignTask'],
+  });
+  publishIfChanged(
+    published,
+    feedback,
+    () => tasklaneM.updateVessel(feedback),
+    { description: true, taskActions: [] },
+  );
+}
+
+// Publishes only when the parts the Planner reads changed since the last
+// accepted publish, so an unrelated store update never resends an identical
+// definition. A `batch_in_flight` refusal leaves the key unrecorded for the
+// next settle to retry. The caller passes the publish call because
+// updateVessel needs each definition's own literal type.
+function publishIfChanged(
+  published: Map<string, string>,
   definition: VesselDefinition,
   publish: () => UpdateVesselResult,
-  isProcessing: boolean,
   key: RepublishKey,
 ): void {
   const republishKey = optionKey([
@@ -188,7 +205,17 @@ function useRepublish(
       JSON.stringify(taskEnum(definition, action)),
     ),
   ]);
-  useEffect(() => republishWithRetry(publish), [republishKey, isProcessing]);
+  if (published.get(definition.id) === republishKey) return;
+  const result = publish();
+  if (result.ok) {
+    published.set(definition.id, republishKey);
+    return;
+  }
+  if (result.conflict.code === 'batch_in_flight') return;
+  console.warn(
+    `[tasklane-option-publishing] ${result.conflict.vesselId}: republish refused (${result.conflict.code}), not retrying: ${result.conflict.message}`,
+  );
+  published.set(definition.id, republishKey);
 }
 
 function filterNote(filter: BoardFilterState): string {
