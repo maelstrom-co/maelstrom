@@ -3,7 +3,7 @@ import { EVERYONE } from '../stores/board-filter.store';
 import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS, UNASSIGNED } from '../stores/team';
 
 export const TASK_REFERENCE =
-  'The task to change: a reference from the published list (id, title, owner, urgency and priority), or the task id such as TL-3.';
+  'The task to change: a reference from the published list (id, title, owner, urgency and priority).';
 
 // Shared so every Vessel that exposes one of these gives the Planner an
 // identical Action definition.

@@ -592,7 +592,7 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `No parent task matches "${failure.query}". Current tasks: ${listTasks()}, or ${NO_PARENT} for the top level`;
     case 'ambiguous_task':
     case 'ambiguous_parent':
-      return `"${failure.query}" matches more than one task: ${failure.candidates.join(', ')}. Pass the task id.`;
+      return `"${failure.query}" matches more than one task: ${failure.candidates.join(', ')}. Pass its reference from the published list.`;
     case 'cycle':
       return failure.task.id === failure.parent.id
         ? `${failure.task.id} cannot be its own parent.`

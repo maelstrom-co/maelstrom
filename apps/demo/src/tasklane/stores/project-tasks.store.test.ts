@@ -477,7 +477,7 @@ describe('describeTaskFailure', () => {
     const result = projectTaskActions.removeTask('demo copy');
     if (result.ok) throw new Error('expected a failure');
     expect(describeTaskFailure(result)).toBe(
-      '"demo copy" matches more than one task: TL-3, TL-4. Pass the task id.',
+      '"demo copy" matches more than one task: TL-3, TL-4. Pass its reference from the published list.',
     );
   });
 });

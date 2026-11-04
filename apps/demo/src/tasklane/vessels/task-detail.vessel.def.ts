@@ -23,7 +23,7 @@ export const taskDetailVessel = defineVessel({
               name: 'task',
               type: 'string',
               description:
-                'The task to show: a reference from the published list, or the task id such as TL-3.',
+                'The task to show: a reference from the published list.',
             },
           ],
         },

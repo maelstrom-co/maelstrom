@@ -24,7 +24,7 @@ const PROJECT_TASK_ACTIONS = [
   {
     name: 'createTask',
     description:
-      'Create a task. Actions run in plan order, so a parent created earlier in the same plan can be named by its title in parent.',
+      'Create a task. Actions on this Instance run in plan order, so a parent created earlier in the same plan can be named by its title in parent.',
     parameters: [
       {
         name: 'title',
