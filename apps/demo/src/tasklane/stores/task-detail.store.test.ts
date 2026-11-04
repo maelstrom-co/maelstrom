@@ -9,7 +9,6 @@ import {
   __resetTaskDetailStoreForTests,
   getTaskDetailSnapshot,
   openTaskDetail,
-  selectedTaskId,
   taskDetailActions,
 } from './task-detail.store';
 
@@ -95,6 +94,10 @@ describe('openTaskDetail', () => {
     expect(selectedTaskId('task-detail-1')).toBe('TL-1');
   });
 });
+
+function selectedTaskId(instanceId: string): string | null {
+  return getTaskDetailSnapshot().get(instanceId) ?? null;
+}
 
 function firstSeedTask() {
   const task = getProjectTasksSnapshot().tasks[0];

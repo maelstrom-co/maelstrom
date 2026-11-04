@@ -77,8 +77,11 @@ const {
   boardFilterActions,
   getBoardFilterSnapshot,
 } = await import('../stores/board-filter.store');
-const { __resetTaskDetailStoreForTests, selectedTaskId, taskDetailActions } =
-  await import('../stores/task-detail.store');
+const {
+  __resetTaskDetailStoreForTests,
+  getTaskDetailSnapshot,
+  taskDetailActions,
+} = await import('../stores/task-detail.store');
 
 beforeEach(() => {
   handlers.clear();
@@ -973,6 +976,20 @@ describe('Task detail Vessel', () => {
     ).toEqual(['TL-1 Update demo README', 'TL-2 Record launch video']);
   });
 
+  it('forgets its task when the Instance leaves, so a reused id opens empty', async () => {
+    const first = render(
+      <TaskDetailComponent {...props('task-detail', 'detail-1')} />,
+    );
+    await invoke('task-detail', 'showTask', { task: 'TL-2' });
+    expect(selectedTaskId('detail-1')).toBe('TL-2');
+
+    first.unmount();
+    expect(selectedTaskId('detail-1')).toBeNull();
+    render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(screen.getByText(/No task open yet/)).toBeTruthy();
+  });
+
   it('says when the open task was deleted', async () => {
     render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
     await invoke('task-detail', 'showTask', { task: 'TL-2' });
@@ -1132,6 +1149,10 @@ async function invoke(
     result = await handler(params);
   });
   return result;
+}
+
+function selectedTaskId(instanceId: string): string | null {
+  return getTaskDetailSnapshot().get(instanceId) ?? null;
 }
 
 function taskRow(title: string): HTMLElement {

@@ -2,12 +2,13 @@ import { useSyncExternalStore } from 'react';
 import {
   type ProjectTask,
   resolveTaskReference,
-  type TaskFailure,
+  type TaskLookupFailure,
 } from './project-tasks.store';
 
 /**
  * Which task each Task detail Instance shows, keyed by instanceId. The
- * protocol carries no per-Instance props, so an Action sets this instead.
+ * protocol carries no per-Instance props, so an Action sets this instead. A
+ * selected id can outlive its task, which the Vessel shows as deleted.
  */
 export type TaskDetailSelection = ReadonlyMap<string, string>;
 
@@ -17,21 +18,13 @@ export type OpenTaskDetailResult =
       readonly changed: boolean;
       readonly task: ProjectTask;
     }
-  | TaskFailure;
+  | TaskLookupFailure;
 
 const INITIAL_STATE: TaskDetailSelection = new Map();
 
 let state: TaskDetailSelection = INITIAL_STATE;
 
 const listeners = new Set<() => void>();
-
-export function useTaskDetailStore(): TaskDetailSelection {
-  return useSyncExternalStore(
-    subscribe,
-    getTaskDetailSnapshot,
-    getTaskDetailSnapshot,
-  );
-}
 
 /** The task id one Instance shows, or null. */
 export function useSelectedTaskId(instanceId: string): string | null {
@@ -40,10 +33,6 @@ export function useSelectedTaskId(instanceId: string): string | null {
 
 export function getTaskDetailSnapshot(): TaskDetailSelection {
   return state;
-}
-
-export function selectedTaskId(instanceId: string): string | null {
-  return state.get(instanceId) ?? null;
 }
 
 export function __resetTaskDetailStoreForTests(): void {
@@ -60,6 +49,7 @@ export const taskDetailActions = {
     return true;
   },
 
+  /** Forgets the task one Instance shows, for when the Instance leaves. */
   clearTask(instanceId: string): boolean {
     if (!state.has(instanceId)) return false;
     const next = new Map(state);
@@ -90,6 +80,14 @@ export function openTaskDetail(
     };
   const changed = taskDetailActions.showTask(instanceId, match.task.id);
   return { ok: true, changed, task: match.task };
+}
+
+function useTaskDetailStore(): TaskDetailSelection {
+  return useSyncExternalStore(
+    subscribe,
+    getTaskDetailSnapshot,
+    getTaskDetailSnapshot,
+  );
 }
 
 function subscribe(listener: () => void): () => void {

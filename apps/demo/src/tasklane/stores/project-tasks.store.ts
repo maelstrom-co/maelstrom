@@ -99,6 +99,20 @@ export type TaskFailure =
       readonly task: ProjectTask;
     };
 
+/** The failures resolving a task reference alone can produce. */
+export type TaskLookupFailure =
+  | {
+      readonly ok: false;
+      readonly reason: 'task_not_found';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'ambiguous_task';
+      readonly query: string;
+      readonly candidates: readonly string[];
+    };
+
 export type TaskChange =
   | {
       readonly ok: true;
