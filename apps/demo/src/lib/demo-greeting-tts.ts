@@ -6,6 +6,10 @@ import { withFetchTimeout } from './fetch-timeout';
 export const DEMO_GREETING =
   "Hi, I'm Dayline, your daily planner, powered by Maelstrom. What would you like to get done today?";
 
+/** Tasklane's one-time spoken greeting, spoken by the same fixed-text route. */
+export const TASKLANE_GREETING =
+  "Hi, I'm Tasklane, powered by Maelstrom. Paste some feedback or ask me to turn it into tasks.";
+
 /** Shared Realtime + TTS recommended built-in voice for the demo. */
 export const DEMO_OPENAI_VOICE = 'cedar' as const satisfies OpenAIBuiltInVoice;
 
@@ -16,6 +20,8 @@ export const DEMO_GREETING_TTS_INSTRUCTIONS =
   'Sound like a helpful product guide greeting one person. Use a warm, natural conversational tone, relaxed pacing, and subtle enthusiasm. Do not sound like an announcer.';
 export const DEMO_GREETING_TTS_MAX_BYTES = 1_048_576;
 export const DEMO_GREETING_TTS_ROUTE = '/api/demo-greeting-tts';
+export const TASKLANE_GREETING_SELECTOR = 'tasklane';
+export const TASKLANE_GREETING_TTS_ROUTE = `${DEMO_GREETING_TTS_ROUTE}?greeting=${TASKLANE_GREETING_SELECTOR}`;
 
 /** Exact fixed OpenAI speech request body — five fields only. */
 export const DEMO_GREETING_TTS_PAYLOAD = {
@@ -25,6 +31,32 @@ export const DEMO_GREETING_TTS_PAYLOAD = {
   response_format: DEMO_GREETING_TTS_FORMAT,
   instructions: DEMO_GREETING_TTS_INSTRUCTIONS,
 } as const;
+
+/** Tasklane's fixed speech request body, identical except for the input text. */
+export const TASKLANE_GREETING_TTS_PAYLOAD = {
+  ...DEMO_GREETING_TTS_PAYLOAD,
+  input: TASKLANE_GREETING,
+} as const;
+
+/**
+ * Maps the route's `greeting` query to an allowlisted payload. The query value
+ * only selects a constant, so request data never reaches the speech body.
+ * Absent means the home greeting and any other value is unknown.
+ */
+export function selectGreetingTtsPayload(
+  searchParams: URLSearchParams,
+):
+  | typeof DEMO_GREETING_TTS_PAYLOAD
+  | typeof TASKLANE_GREETING_TTS_PAYLOAD
+  | undefined {
+  const keys = [...searchParams.keys()];
+  if (keys.length === 0) return DEMO_GREETING_TTS_PAYLOAD;
+  const values = searchParams.getAll('greeting');
+  if (keys.length !== 1 || values.length !== 1) return undefined;
+  return values[0] === TASKLANE_GREETING_SELECTOR
+    ? TASKLANE_GREETING_TTS_PAYLOAD
+    : undefined;
+}
 
 const ACCEPTED_WAV_TYPES = new Set([
   'audio/wav',
@@ -39,13 +71,30 @@ const MIN_WAV_BYTES = 44;
 const GENERIC_TTS_ERROR = 'Greeting audio is temporarily unavailable.';
 const INVALID_KEY_ERROR = 'Invalid API key.';
 
-function assertExactGreetingArgs(args: {
+function greetingTtsTarget(args: {
   readonly text: string;
   readonly voice: OpenAIBuiltInVoice;
-}): void {
-  if (args.text !== DEMO_GREETING || args.voice !== DEMO_OPENAI_VOICE) {
-    throw new Error(GENERIC_TTS_ERROR);
+}): {
+  readonly route: string;
+  readonly payload:
+    | typeof DEMO_GREETING_TTS_PAYLOAD
+    | typeof TASKLANE_GREETING_TTS_PAYLOAD;
+} {
+  if (args.voice === DEMO_OPENAI_VOICE) {
+    if (args.text === DEMO_GREETING) {
+      return {
+        route: DEMO_GREETING_TTS_ROUTE,
+        payload: DEMO_GREETING_TTS_PAYLOAD,
+      };
+    }
+    if (args.text === TASKLANE_GREETING) {
+      return {
+        route: TASKLANE_GREETING_TTS_ROUTE,
+        payload: TASKLANE_GREETING_TTS_PAYLOAD,
+      };
+    }
   }
+  throw new Error(GENERIC_TTS_ERROR);
 }
 
 function mediaTypeBase(contentType: string | null): string {
@@ -265,10 +314,10 @@ export async function readBoundedWavResponse(
 /** Local mode: bodyless same-origin POST to the demo TTS route. */
 export function createLocalDemoGreetingSynthesizer(): SynthesizeGreeting {
   return async (args) => {
-    assertExactGreetingArgs(args);
+    const { route } = greetingTtsTarget(args);
     let response: Response;
     try {
-      response = await fetch(DEMO_GREETING_TTS_ROUTE, {
+      response = await fetch(route, {
         method: 'POST',
         signal: withFetchTimeout(args.signal),
         redirect: 'error',
@@ -292,7 +341,7 @@ export function createHostedDemoGreetingSynthesizer(
     if (!apiKey) {
       throw new Error('No API key set — open the key drawer to add one.');
     }
-    assertExactGreetingArgs(args);
+    const { payload } = greetingTtsTarget(args);
 
     let response: Response;
     try {
@@ -302,7 +351,7 @@ export function createHostedDemoGreetingSynthesizer(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(DEMO_GREETING_TTS_PAYLOAD),
+        body: JSON.stringify(payload),
         signal: withFetchTimeout(args.signal),
         redirect: 'error',
       });

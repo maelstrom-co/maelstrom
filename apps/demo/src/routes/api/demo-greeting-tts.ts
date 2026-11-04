@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import {
   DEMO_GREETING_TTS_MAX_BYTES,
-  DEMO_GREETING_TTS_PAYLOAD,
   DEMO_GREETING_TTS_URL,
   readBoundedWavResponse,
+  selectGreetingTtsPayload,
 } from '../../lib/demo-greeting-tts';
 
 const NO_STORE_HEADERS = {
@@ -98,7 +98,7 @@ async function hasDisallowedBody(request: Request): Promise<boolean> {
 }
 
 /**
- * Factory for the fixed local greeting TTS route. Each instance owns isolated
+ * Factory for the fixed local greeting TTS route, limited to allowlisted greetings. Each instance owns isolated
  * attempt/cache state so tests never mutate production module state.
  */
 export function createDemoGreetingTtsHandler(
@@ -107,14 +107,26 @@ export function createDemoGreetingTtsHandler(
   const doFetch = options.fetch ?? fetch;
   const timeoutMs = options.upstreamTimeoutMs ?? ROUTE_UPSTREAM_TIMEOUT_MS;
   const now = options.now ?? Date.now;
-  const state: HandlerState = {
-    attempts: 0,
-    windowStartedAt: now(),
-    inFlight: undefined,
-    cachedWav: undefined,
-  };
+  const states = new Map<object, HandlerState>();
 
-  async function runUpstream(): Promise<ArrayBuffer> {
+  function stateFor(payload: object): HandlerState {
+    let state = states.get(payload);
+    if (!state) {
+      state = {
+        attempts: 0,
+        windowStartedAt: now(),
+        inFlight: undefined,
+        cachedWav: undefined,
+      };
+      states.set(payload, state);
+    }
+    return state;
+  }
+
+  async function runUpstream(
+    state: HandlerState,
+    payload: object,
+  ): Promise<ArrayBuffer> {
     const apiKey = options.getApiKey();
     if (!apiKey) {
       throw new Error('missing-key');
@@ -134,7 +146,7 @@ export function createDemoGreetingTtsHandler(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(DEMO_GREETING_TTS_PAYLOAD),
+        body: JSON.stringify(payload),
         signal: upstreamSignal,
         // Fail closed: never follow redirects with the server key.
         redirect: 'error',
@@ -177,6 +189,12 @@ export function createDemoGreetingTtsHandler(
       return jsonResponse(GENERIC_JSON, 400);
     }
 
+    const payload = selectGreetingTtsPayload(new URL(request.url).searchParams);
+    if (!payload) {
+      return jsonResponse(GENERIC_JSON, 400);
+    }
+    const state = stateFor(payload);
+
     if (!options.getApiKey()) {
       return jsonResponse(MISSING_KEY_JSON, 500);
     }
@@ -192,7 +210,7 @@ export function createDemoGreetingTtsHandler(
 
     let shared = state.inFlight;
     if (!shared) {
-      shared = runUpstream()
+      shared = runUpstream(state, payload)
         .then((bytes) => {
           // Only cache validated exact-size WAV under the byte budget.
           if (

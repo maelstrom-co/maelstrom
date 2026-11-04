@@ -5,6 +5,7 @@ import {
   type RealtimeOpening,
   type RealtimeSessionInit,
 } from '@maelstrom-co/react-realtime';
+import { TASKLANE_GREETING } from '../lib/demo-greeting-tts';
 import { createDemoTelemetry } from '../lib/demo-telemetry';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
@@ -32,16 +33,15 @@ const tasklaneTelemetry = createDemoTelemetry();
 if (import.meta.hot) import.meta.hot.dispose(() => tasklaneTelemetry.dispose());
 
 /**
- * Only the live provider gets an opening. The greeting TTS route speaks the
- * home greeting text alone, so a fixed Tasklane greeting has no route to
- * play through and the other providers start silently.
+ * Live generates its own Tasklane introduction. Other providers speak the
+ * fixed Tasklane greeting through the allowlisted greeting TTS route.
  */
 export function tasklaneVoiceOpening({
   provider,
-}: RealtimeSessionInit<TasklaneVoiceProvider>): RealtimeOpening | undefined {
+}: RealtimeSessionInit<TasklaneVoiceProvider>): RealtimeOpening {
   return provider === 'live'
     ? { generatedOpening: { instructions: TASKLANE_OPENING_INSTRUCTIONS } }
-    : undefined;
+    : { greeting: { text: TASKLANE_GREETING } };
 }
 
 // A separate instance rather than a filter on the home `m`: the Provider sends

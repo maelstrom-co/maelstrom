@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { TASKLANE_GREETING } from '../lib/demo-greeting-tts';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';
@@ -96,12 +97,14 @@ describe('Tasklane instance', () => {
     expect(options).not.toHaveProperty('generatedOpening');
   });
 
-  it('generates a Tasklane opening for live and none for realtime', () => {
+  it('generates a Tasklane opening for live and the fixed greeting for realtime', () => {
     const opening = state.realtimeOptions[0]?.opening as Opening;
     expect(opening({ provider: 'live' })).toEqual({
       generatedOpening: { instructions: TASKLANE_OPENING_INSTRUCTIONS },
     });
-    expect(opening({ provider: 'realtime' })).toBeUndefined();
+    expect(opening({ provider: 'realtime' })).toEqual({
+      greeting: { text: TASKLANE_GREETING },
+    });
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Tasklane');
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Maelstrom');
   });

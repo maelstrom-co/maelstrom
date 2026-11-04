@@ -12,6 +12,9 @@ import {
   DEMO_GREETING_TTS_URL,
   DEMO_OPENAI_VOICE,
   readBoundedWavResponse,
+  TASKLANE_GREETING,
+  TASKLANE_GREETING_TTS_PAYLOAD,
+  TASKLANE_GREETING_TTS_ROUTE,
 } from './demo-greeting-tts';
 
 /** RIFF/WAVE magic only — no fmt/data chunks. */
@@ -106,6 +109,18 @@ describe('DEMO_GREETING_TTS_PAYLOAD', () => {
         instructions: DEMO_GREETING_TTS_INSTRUCTIONS,
       }),
     );
+  });
+});
+
+describe('TASKLANE_GREETING_TTS_PAYLOAD', () => {
+  it('differs from the home payload only by its exact input text', () => {
+    expect(TASKLANE_GREETING).toBe(
+      "Hi, I'm Tasklane, powered by Maelstrom. Paste some feedback or ask me to turn it into tasks.",
+    );
+    expect(TASKLANE_GREETING_TTS_PAYLOAD).toEqual({
+      ...DEMO_GREETING_TTS_PAYLOAD,
+      input: TASKLANE_GREETING,
+    });
   });
 });
 
@@ -495,6 +510,23 @@ describe('createLocalDemoGreetingSynthesizer', () => {
     expect(capturedInit?.redirect).toBe('error');
   });
 
+  it('selects the Tasklane greeting through the allowlisted query', async () => {
+    let capturedUrl: string | undefined;
+    globalThis.fetch = vi.fn(async (url: string) => {
+      capturedUrl = String(url);
+      return wavResponse(makeValidWavBytes());
+    }) as unknown as typeof fetch;
+
+    const synth = createLocalDemoGreetingSynthesizer();
+    await synth({
+      text: TASKLANE_GREETING,
+      voice: DEMO_OPENAI_VOICE,
+      signal: new AbortController().signal,
+    });
+
+    expect(capturedUrl).toBe(TASKLANE_GREETING_TTS_ROUTE);
+  });
+
   it('rejects text/voice mismatch before fetch', async () => {
     const fetchSpy = vi.fn() as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
@@ -518,6 +550,32 @@ describe('createLocalDemoGreetingSynthesizer', () => {
 });
 
 describe('createHostedDemoGreetingSynthesizer', () => {
+  it('sends the exact Tasklane payload and rejects near-miss text', async () => {
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return wavResponse(makeValidWavBytes());
+    }) as unknown as typeof fetch;
+    const synth = createHostedDemoGreetingSynthesizer(() => 'sk-visitor');
+    const signal = new AbortController().signal;
+
+    await synth({ text: TASKLANE_GREETING, voice: DEMO_OPENAI_VOICE, signal });
+    expect(capturedInit?.body).toBe(
+      JSON.stringify(TASKLANE_GREETING_TTS_PAYLOAD),
+    );
+
+    await expect(
+      synth({
+        text: `${TASKLANE_GREETING} `,
+        voice: DEMO_OPENAI_VOICE,
+        signal,
+      }),
+    ).rejects.toThrow(/temporarily unavailable/i);
+    await expect(
+      synth({ text: TASKLANE_GREETING, voice: 'marin', signal }),
+    ).rejects.toThrow(/temporarily unavailable/i);
+  });
+
   it('sends exact payload and visitor key only in Authorization, lazily', async () => {
     let keyReads = 0;
     let capturedUrl: string | undefined;
