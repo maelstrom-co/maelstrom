@@ -145,6 +145,24 @@ describe('Feedback Vessel', () => {
     expect(quotes.querySelectorAll('.tasklane-feedback-note')).toHaveLength(2);
   });
 
+  it('shows a paragraph opening with a curly quote as a quote with coverage', async () => {
+    render(<SourceFeedbackComponent {...props('source-feedback')} />);
+    await invoke('source-feedback', 'replaceFeedback', {
+      text: '“This should be editable.”\n\nA team note.',
+    });
+
+    expect(screen.getAllByRole('figure')).toHaveLength(1);
+    expect(screen.getByRole('figure').textContent).toContain('○ no task');
+
+    act(() => {
+      projectTaskActions.createTask({
+        title: 'Make it editable',
+        source: '“This should be editable.”',
+      });
+    });
+    expect(screen.getByRole('figure').textContent).toContain('✓ 1 task');
+  });
+
   it('edits and saves the feedback through the replaceFeedback Action', async () => {
     const vesselProps = props('source-feedback');
     render(<SourceFeedbackComponent {...vesselProps} />);

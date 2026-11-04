@@ -2,6 +2,7 @@ import { KeylessVoiceProviderSelect } from '../components/voice-provider-select'
 import { PersonChip } from './person-chip';
 import { plural } from './plural';
 import { useFeedbackStore } from './stores/feedback.store';
+import { isFeedbackQuote } from './stores/feedback-coverage';
 import {
   orderedTaskRows,
   useProjectTasksStore,
@@ -28,7 +29,7 @@ export function TasklaneKeylessPreview({
   const { tasks } = useProjectTasksStore();
   const quotes = text
     .split('\n')
-    .filter((line) => line.startsWith('"'))
+    .filter(isFeedbackQuote)
     .slice(0, PREVIEW_QUOTE_COUNT);
 
   return (

@@ -11,6 +11,7 @@ import {
 import {
   type FeedbackCoverage,
   feedbackCoverage,
+  isFeedbackQuote,
 } from '../stores/feedback-coverage';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
@@ -65,7 +66,7 @@ export default function SourceFeedbackComponent({
             className="tasklane-feedback flex-1 min-h-0 overflow-y-auto"
           >
             {paragraphs(text).map((paragraph, index) =>
-              paragraph.startsWith('"') ? (
+              isFeedbackQuote(paragraph) ? (
                 <FeedbackQuote
                   key={index}
                   quote={paragraph}

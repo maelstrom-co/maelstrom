@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { feedbackCoverage } from './feedback-coverage';
+import { feedbackCoverage, isFeedbackQuote } from './feedback-coverage';
 import {
   __resetProjectTasksStoreForTests,
   getProjectTasksSnapshot,
@@ -12,6 +12,19 @@ const QUOTE = '"I like that I can shape the screen around how I work."';
 
 beforeEach(() => {
   __resetProjectTasksStoreForTests();
+});
+
+describe('isFeedbackQuote', () => {
+  it('accepts paragraphs opening with a straight or curly quote', () => {
+    expect(isFeedbackQuote('"Straight."')).toBe(true);
+    expect(isFeedbackQuote('“Curly.”')).toBe(true);
+    expect(isFeedbackQuote('  “Indented.”')).toBe(true);
+  });
+
+  it('rejects notes that do not open with a quote', () => {
+    expect(isFeedbackQuote('Team note: “quoted” later.')).toBe(false);
+    expect(isFeedbackQuote('')).toBe(false);
+  });
 });
 
 describe('normalizeFeedbackQuote', () => {

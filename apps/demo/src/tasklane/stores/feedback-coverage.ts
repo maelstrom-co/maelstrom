@@ -8,6 +8,11 @@ export type FeedbackCoverage =
   | { readonly kind: 'uncovered' }
   | { readonly kind: 'dropped' };
 
+/** Whether a feedback paragraph opens with a straight or curly quote mark. */
+export function isFeedbackQuote(paragraph: string): boolean {
+  return OPENING_QUOTE_MARK.test(paragraph);
+}
+
 /**
  * Whether tasks come from a feedback quote: covered by live tasks, dropped
  * when only removed tasks came from it, or uncovered when none ever did.
@@ -29,3 +34,5 @@ export function feedbackCoverage(
     ? { kind: 'dropped' }
     : { kind: 'uncovered' };
 }
+
+const OPENING_QUOTE_MARK = /^\s*["“]/;
