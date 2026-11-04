@@ -696,6 +696,7 @@ function findByFuzzyTitle(
   if (!wanted) return [];
   return tasks.filter((task) => {
     const title = normalizeTitle(task.title);
+    if (!title) return false;
     return title.includes(wanted) || wanted.includes(title);
   });
 }

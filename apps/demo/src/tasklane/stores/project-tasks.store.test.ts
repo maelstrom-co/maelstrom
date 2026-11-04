@@ -265,6 +265,18 @@ describe('task references', () => {
     expect(resolveTaskReference('  ')).toEqual({ kind: 'not_found' });
   });
 
+  it('never fuzzy-matches a task whose title is only punctuation', () => {
+    projectTaskActions.createTask({ title: '!!!' });
+    const before = getProjectTasksSnapshot();
+
+    expect(resolveTaskReference('Ghost')).toEqual({ kind: 'not_found' });
+    expect(projectTaskActions.removeTask('Ghost')).toMatchObject({
+      ok: false,
+      reason: 'task_not_found',
+    });
+    expect(getProjectTasksSnapshot()).toBe(before);
+  });
+
   it('labels a task with its id, title, assignee, urgency and priority place', () => {
     projectTaskActions.addToMyPriorities('TL-2');
     const [readme, video] = getProjectTasksSnapshot().tasks;
