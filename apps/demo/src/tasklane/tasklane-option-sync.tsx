@@ -1,4 +1,5 @@
 import type { VesselDefinition } from '@maelstrom-co/protocol';
+import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { useEffect } from 'react';
 import { withActionOptions } from '../lib/vessel-options';
 import { tasklaneM } from './maelstrom';
@@ -17,6 +18,7 @@ import {
   assigneeLabel,
   type ProjectTask,
   type ProjectTasksState,
+  prioritisedTasks,
   priorityLabel,
   taskReferenceLabel,
   useProjectTasksStore,
@@ -131,54 +133,62 @@ export function TasklaneOptionSync() {
   const filterState = useBoardFilterStore();
   const isProcessing = tasklaneM.useMaelstrom((state) => state.isProcessing);
 
-  const tasksDefinition = projectTasksDefinition(tasksState, filterState);
-  const prioritiesDefinition = myPrioritiesDefinition(tasksState);
-  const detailDefinition = taskDetailDefinition(tasksState);
-  const triageDefinition = triageInboxDefinition(tasksState);
-  const feedbackDefinition = sourceFeedbackDefinition(feedbackState);
-  const tasksKey = optionKey([
-    tasksDefinition.description,
-    ...TASK_PARAMETER_ACTIONS.map((action) =>
-      JSON.stringify(taskEnum(tasksDefinition, action)),
-    ),
-  ]);
-  const prioritiesKey = optionKey([
-    prioritiesDefinition.description,
-    ...PRIORITY_PARAMETER_ACTIONS.map((action) =>
-      JSON.stringify(taskEnum(prioritiesDefinition, action)),
-    ),
-  ]);
-  const detailKey = optionKey([
-    JSON.stringify(taskEnum(detailDefinition, 'showTask')),
-  ]);
-  const triageKey = optionKey([
-    JSON.stringify(taskEnum(triageDefinition, 'assignTask')),
-  ]);
-  const feedbackKey = optionKey([feedbackDefinition.description]);
+  const tasks = projectTasksDefinition(tasksState, filterState);
+  const priorities = myPrioritiesDefinition(tasksState);
+  const detail = taskDetailDefinition(tasksState);
+  const triage = triageInboxDefinition(tasksState);
+  const feedback = sourceFeedbackDefinition(feedbackState);
 
-  useEffect(
-    () => republishWithRetry(() => tasklaneM.updateVessel(tasksDefinition)),
-    [tasksKey, isProcessing],
+  useRepublish(tasks, () => tasklaneM.updateVessel(tasks), isProcessing, {
+    description: true,
+    taskActions: TASK_PARAMETER_ACTIONS,
+  });
+  useRepublish(
+    priorities,
+    () => tasklaneM.updateVessel(priorities),
+    isProcessing,
+    { description: true, taskActions: PRIORITY_PARAMETER_ACTIONS },
   );
-  useEffect(
-    () =>
-      republishWithRetry(() => tasklaneM.updateVessel(prioritiesDefinition)),
-    [prioritiesKey, isProcessing],
-  );
-  useEffect(
-    () => republishWithRetry(() => tasklaneM.updateVessel(detailDefinition)),
-    [detailKey, isProcessing],
-  );
-  useEffect(
-    () => republishWithRetry(() => tasklaneM.updateVessel(triageDefinition)),
-    [triageKey, isProcessing],
-  );
-  useEffect(
-    () => republishWithRetry(() => tasklaneM.updateVessel(feedbackDefinition)),
-    [feedbackKey, isProcessing],
-  );
+  useRepublish(detail, () => tasklaneM.updateVessel(detail), isProcessing, {
+    description: false,
+    taskActions: ['showTask'],
+  });
+  useRepublish(triage, () => tasklaneM.updateVessel(triage), isProcessing, {
+    description: false,
+    taskActions: ['assignTask'],
+  });
+  useRepublish(feedback, () => tasklaneM.updateVessel(feedback), isProcessing, {
+    description: true,
+    taskActions: [],
+  });
 
   return null;
+}
+
+interface RepublishKey {
+  /** Whether a change to the description alone republishes the definition. */
+  readonly description: boolean;
+  /** The Actions whose task references republish the definition when they change. */
+  readonly taskActions: readonly string[];
+}
+
+// Republishes only when the parts the Planner reads change, or when a batch
+// settles, so an unrelated store update never resends an identical definition.
+// The caller passes the publish call because updateVessel needs each
+// definition's own literal type.
+function useRepublish(
+  definition: VesselDefinition,
+  publish: () => UpdateVesselResult,
+  isProcessing: boolean,
+  key: RepublishKey,
+): void {
+  const republishKey = optionKey([
+    ...(key.description ? [definition.description] : []),
+    ...key.taskActions.map((action) =>
+      JSON.stringify(taskEnum(definition, action)),
+    ),
+  ]);
+  useEffect(() => republishWithRetry(publish), [republishKey, isProcessing]);
 }
 
 function filterNote(filter: BoardFilterState): string {
@@ -195,11 +205,9 @@ function taskReferences(state: ProjectTasksState, label: string): string[] {
 }
 
 function prioritySummary(state: ProjectTasksState): string {
-  const byId = new Map(state.tasks.map((task) => [task.id, task]));
-  const lines = state.myPriorities.flatMap((id, index) => {
-    const task = byId.get(id);
-    return task ? [`#${index + 1} ${task.id} "${shorten(task.title)}"`] : [];
-  });
+  const lines = prioritisedTasks(state).map(
+    (task, index) => `#${index + 1} ${task.id} "${shorten(task.title)}"`,
+  );
   if (lines.length === 0) return 'None yet.';
   return boundedLines('', lines, (remaining) => `and ${remaining} more.`);
 }

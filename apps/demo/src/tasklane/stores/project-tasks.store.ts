@@ -343,6 +343,20 @@ export function orderedTaskRows(
   return rows;
 }
 
+/** The tasks in Chris's priorities, top first. */
+export function prioritisedTasks(
+  state: Pick<
+    ProjectTasksState,
+    'tasks' | 'myPriorities'
+  > = getProjectTasksSnapshot(),
+): ProjectTask[] {
+  const byId = new Map(state.tasks.map((task) => [task.id, task]));
+  return state.myPriorities.flatMap((id) => {
+    const task = byId.get(id);
+    return task ? [task] : [];
+  });
+}
+
 /** Ids of the task's children, grandchildren and so on. */
 export function descendantIds(
   taskId: string,

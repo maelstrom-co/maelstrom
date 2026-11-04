@@ -3,6 +3,7 @@ import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
 import {
   type ProjectTask,
+  prioritisedTasks,
   projectTaskActions,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
@@ -19,7 +20,7 @@ export default function MyPrioritiesComponent({
   variantProps,
   executeAction,
 }: TypedVesselProps<typeof myPrioritiesVessel>) {
-  const { tasks, myPriorities } = useProjectTasksStore();
+  const prioritised = prioritisedTasks(useProjectTasksStore());
 
   tasklaneM.useActions('my-priorities', instanceId, {
     addToMyPriorities: async ({ task, position }) =>
@@ -32,12 +33,6 @@ export default function MyPrioritiesComponent({
         'removeFromMyPriorities',
         projectTaskActions.removeFromMyPriorities(task),
       ),
-  });
-
-  const byId = new Map(tasks.map((task) => [task.id, task]));
-  const prioritised = myPriorities.flatMap((id) => {
-    const task = byId.get(id);
-    return task ? [task] : [];
   });
 
   if (variantProps.variant === 'strip')
