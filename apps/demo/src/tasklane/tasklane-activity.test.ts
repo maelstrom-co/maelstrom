@@ -301,7 +301,7 @@ describe('request windows', () => {
     });
   });
 
-  it('does not let a manual edit during a request confirm a skipped planned Action', () => {
+  it('keeps a skipped planned Action unconfirmed beside a same-kind manual edit in the request', () => {
     openRequestWindow('r1');
     recordChange('assignTask', {
       kind: 'assigned',
