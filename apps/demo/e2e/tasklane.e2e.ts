@@ -72,9 +72,13 @@ test('runs the feedback-to-priorities journey with factual receipts and a steady
   await expect(receipt).toHaveText(
     '✓ Assigned 3 tasks to Chris · ✓ Added 3 tasks to your priorities',
   );
-  await expect(
-    page.getByRole('list', { name: 'My priorities' }).getByRole('listitem'),
-  ).toHaveCount(3);
+  for (const [index, title] of CREATED.entries()) {
+    await expect(
+      page
+        .locator('.tasklane-task-body', { hasText: title })
+        .locator('.tasklane-priority-badge'),
+    ).toHaveText(`★${index + 1}`);
+  }
 
   const assignee = page.getByRole('combobox', {
     name: `Assignee for ${REASSIGNED}`,
