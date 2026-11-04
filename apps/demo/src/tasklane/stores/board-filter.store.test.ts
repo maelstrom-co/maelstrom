@@ -32,16 +32,22 @@ describe('board assignee filter', () => {
     expect(getBoardFilterSnapshot().assigneeFilter).toBe('chris');
   });
 
-  it('clears the filter for everyone', () => {
-    boardFilterActions.filterByAssignee('sam');
-    expect(boardFilterActions.filterByAssignee('everyone')).toEqual({
-      ok: true,
-      changed: true,
-      assigneeFilter: null,
-    });
-    boardFilterActions.filterByAssignee('sam');
-    boardFilterActions.clearAssigneeFilter();
-    expect(getBoardFilterSnapshot().assigneeFilter).toBeNull();
+  it('clears the filter for everyone, in any of its words, case and spacing', () => {
+    for (const everyone of [
+      'everyone',
+      'Everyone',
+      'all',
+      'Anyone',
+      ' CLEAR ',
+    ]) {
+      boardFilterActions.filterByAssignee('sam');
+      expect(boardFilterActions.filterByAssignee(everyone), everyone).toEqual({
+        ok: true,
+        changed: true,
+        assigneeFilter: null,
+      });
+      expect(getBoardFilterSnapshot().assigneeFilter).toBeNull();
+    }
   });
 
   it('refuses an unknown team member and leaves the filter alone', () => {

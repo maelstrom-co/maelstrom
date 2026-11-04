@@ -47,18 +47,14 @@ export function __resetBoardFilterStoreForTests(): void {
 export const boardFilterActions = {
   /**
    * Shows only one team member's tasks, by team id, name or "me", or
-   * everyone's again for `everyone`. Unassigned is not a filter.
+   * everyone's again for `everyone`, `all`, `anyone` or `clear` (any case).
+   * A team member always wins over those words. Unassigned is not a filter.
    */
   filterByAssignee(assignee: string): BoardFilterResult {
-    if (EVERYONE_WORDS.has(assignee.trim().toLowerCase())) return apply(null);
     const resolved = resolveAssignee(assignee);
-    if (!resolved)
-      return { ok: false, reason: 'unknown_assignee', query: assignee };
-    return apply(resolved);
-  },
-
-  clearAssigneeFilter(): BoardFilterResult {
-    return apply(null);
+    if (resolved) return apply(resolved);
+    if (EVERYONE_WORDS.has(assignee.trim().toLowerCase())) return apply(null);
+    return { ok: false, reason: 'unknown_assignee', query: assignee };
   },
 };
 
