@@ -328,6 +328,11 @@ describe('Tasks Vessel by hand', () => {
     );
     expect(priorityBadge('Record launch video')).toBe('★1');
     expect(priorityBadge('Update demo README')).toBe('★2');
+    expect(
+      within(taskRow('Update demo README')).getByRole('img', {
+        name: 'Priority 2 in my priorities',
+      }).textContent,
+    ).toBe('★2');
 
     await act(async () => {
       fireEvent.click(
@@ -556,7 +561,11 @@ describe('Tasks board columns variant', () => {
       'In progress': ['TL-2'],
       Done: [],
     });
-    expect(within(columnCard('TL-2')).getByText('★1')).toBeTruthy();
+    expect(
+      within(columnCard('TL-2')).getByRole('img', {
+        name: 'Priority 1 in my priorities',
+      }).textContent,
+    ).toBe('★1');
 
     await act(async () => {
       fireEvent.change(

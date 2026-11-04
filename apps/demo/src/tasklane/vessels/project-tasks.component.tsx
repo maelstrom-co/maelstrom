@@ -580,10 +580,13 @@ function PriorityBadge({ position }: { readonly position: number | null }) {
   if (position === null) return null;
   return (
     <span
+      role="img"
+      aria-label={`Priority ${position} in my priorities`}
       className="tasklane-priority-badge"
       title={`Priority #${position} in my priorities`}
     >
-      ★{position}
+      <span aria-hidden="true">★</span>
+      {position}
     </span>
   );
 }
