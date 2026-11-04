@@ -4,6 +4,7 @@ import {
   describeTaskFailure,
   getProjectTasksSnapshot,
   projectTaskActions,
+  rememberRequestReferences,
   resolveTaskReference,
   taskReferenceLabel,
 } from './project-tasks.store';
@@ -342,3 +343,99 @@ describe('describeTaskFailure', () => {
     );
   });
 });
+
+describe('published references', () => {
+  it('cleans and shortens titles in the label so it can travel as an enum value', () => {
+    const created = projectTaskActions.createTask({
+      title: `Pipe | and\nnewline ${'x'.repeat(80)}`,
+    });
+    if (!created.ok) throw new Error('expected a task');
+    const label = taskReferenceLabel(created.task);
+    expect(label).not.toMatch(/[|\r\n]/);
+    expect(label.startsWith('TL-3 Pipe and newline x')).toBe(true);
+    expect(label).toContain('... (unassigned, normal, not in priorities)');
+    expect(resolveTaskReference(label)).toMatchObject({
+      kind: 'found',
+      task: { id: 'TL-3' },
+    });
+  });
+
+  it('publishes next-line characters as spaces, the way the Planner sees them', () => {
+    projectTaskActions.createTask({ title: 'Split\u0085title' });
+    const created = getProjectTasksSnapshot().tasks[2];
+    if (!created) throw new Error('missing created task');
+    const label = taskReferenceLabel(created);
+    expect(label).toBe(
+      'TL-3 Split title (unassigned, normal, not in priorities)',
+    );
+    expect(resolveTaskReference(label)).toMatchObject({
+      kind: 'found',
+      task: { id: 'TL-3' },
+    });
+  });
+
+  it('marks a stale parent reference as the parent', () => {
+    const staleParent = taskReferenceLabel(firstTask());
+    projectTaskActions.assignTask('TL-1', 'sam');
+    expect(projectTaskActions.setParent('TL-2', staleParent)).toMatchObject({
+      ok: false,
+      reason: 'stale_reference',
+      role: 'parent',
+      task: { id: 'TL-1' },
+    });
+    expect(
+      projectTaskActions.updateTask(staleParent, { description: 'x' }),
+    ).toMatchObject({ reason: 'stale_reference', role: 'task' });
+  });
+
+  it('refuses a label whose status no longer matches the task', () => {
+    const before = taskReferenceLabel(firstTask());
+    projectTaskActions.assignTask('TL-1', 'sam');
+    expect(resolveTaskReference(before)).toMatchObject({
+      kind: 'stale',
+      task: { id: 'TL-1', assigneeId: 'sam' },
+    });
+    const result = projectTaskActions.updateTask(before, {
+      description: 'Stale',
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'stale_reference' });
+    if (result.ok) throw new Error('expected a failure');
+    expect(describeTaskFailure(result)).toBe(
+      `"${before}" is out of date. TL-1 is now "TL-1 Update demo README (Sam, normal, not in priorities)". Use the current reference.`,
+    );
+  });
+
+  it('accepts labels remembered for a response even after its own Actions change them', () => {
+    const remembered = taskReferenceLabel(firstTask());
+    rememberRequestReferences();
+    expect(projectTaskActions.assignTask(remembered, 'chris')).toMatchObject({
+      ok: true,
+    });
+    expect(projectTaskActions.addToMyPriorities(remembered)).toMatchObject({
+      ok: true,
+      previousPosition: null,
+    });
+  });
+
+  it('reports the previous values of a change', () => {
+    expect(projectTaskActions.assignTask('TL-1', 'chris')).toMatchObject({
+      ok: true,
+      previous: { assigneeId: 'alex' },
+      task: { assigneeId: 'chris' },
+    });
+    projectTaskActions.addToMyPriorities('TL-1');
+    expect(projectTaskActions.addToMyPriorities('TL-2', 1)).toMatchObject({
+      previousPosition: null,
+    });
+    expect(projectTaskActions.addToMyPriorities('TL-1', 1)).toMatchObject({
+      previousPosition: 2,
+      position: 1,
+    });
+  });
+});
+
+function firstTask() {
+  const task = getProjectTasksSnapshot().tasks[0];
+  if (!task) throw new Error('expected a seeded task');
+  return task;
+}

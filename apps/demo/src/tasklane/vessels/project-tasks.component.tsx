@@ -1,4 +1,3 @@
-import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import {
   type CSSProperties,
@@ -11,16 +10,20 @@ import { VesselCard } from '../../components/vessel-card';
 import { tasklaneM } from '../maelstrom';
 import {
   descendantIds,
-  describeTaskFailure,
   NO_PARENT,
   orderedTaskRows,
   type ProjectTask,
   projectTaskActions,
   TASK_URGENCIES,
-  type TaskFailure,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
 import { TEAM, UNASSIGNED } from '../stores/team';
+import {
+  reportCreateTask,
+  reportPriorityChange,
+  reportRemoveTask,
+  reportTaskChange,
+} from '../task-action-receipts';
 import type { projectTasksVessel } from './project-tasks.vessel';
 
 type ExecuteAction = TypedVesselProps<
@@ -45,7 +48,7 @@ export default function ProjectTasksComponent({
 
   tasklaneM.useActions('project-tasks', instanceId, {
     createTask: async ({ title, description, parent, assignee, urgency }) =>
-      toActionResult(
+      reportCreateTask(
         projectTaskActions.createTask({
           title,
           description,
@@ -55,21 +58,34 @@ export default function ProjectTasksComponent({
         }),
       ),
     updateTask: async ({ task, title, description }) =>
-      toActionResult(
+      reportTaskChange(
+        'updateTask',
         projectTaskActions.updateTask(task, { title, description }),
       ),
     setParent: async ({ task, parent }) =>
-      toActionResult(projectTaskActions.setParent(task, parent)),
+      reportTaskChange('setParent', projectTaskActions.setParent(task, parent)),
     assignTask: async ({ task, assignee }) =>
-      toActionResult(projectTaskActions.assignTask(task, assignee)),
+      reportTaskChange(
+        'assignTask',
+        projectTaskActions.assignTask(task, assignee),
+      ),
     setUrgency: async ({ task, urgency }) =>
-      toActionResult(projectTaskActions.setUrgency(task, urgency)),
+      reportTaskChange(
+        'setUrgency',
+        projectTaskActions.setUrgency(task, urgency),
+      ),
     addToMyPriorities: async ({ task, position }) =>
-      toActionResult(projectTaskActions.addToMyPriorities(task, position)),
+      reportPriorityChange(
+        'addToMyPriorities',
+        projectTaskActions.addToMyPriorities(task, position),
+      ),
     removeFromMyPriorities: async ({ task }) =>
-      toActionResult(projectTaskActions.removeFromMyPriorities(task)),
+      reportPriorityChange(
+        'removeFromMyPriorities',
+        projectTaskActions.removeFromMyPriorities(task),
+      ),
     removeTask: async ({ task }) =>
-      toActionResult(projectTaskActions.removeTask(task)),
+      reportRemoveTask(projectTaskActions.removeTask(task)),
   });
 
   useEffect(() => {
@@ -450,10 +466,4 @@ function TaskRow({
       </div>
     </li>
   );
-}
-
-function toActionResult(result: { readonly ok: true } | TaskFailure) {
-  return result.ok
-    ? ok(undefined)
-    : err(new Error(describeTaskFailure(result)));
 }

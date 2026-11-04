@@ -57,6 +57,7 @@ vi.mock('../shop/maelstrom', () => {
 });
 
 const { TASKLANE_OPENING_INSTRUCTIONS } = await import('./maelstrom');
+const { tasklaneRequestActivity } = await import('./request-activity');
 
 type Opening = (context: { provider: string }) => unknown;
 
@@ -65,9 +66,10 @@ describe('Tasklane instance', () => {
     expect(state.vesselIds).toEqual(['source-feedback', 'project-tasks']);
   });
 
-  it('installs realtime, then its own telemetry, then devtools', () => {
+  it('installs realtime, request activity, its own telemetry, then devtools', () => {
     expect(state.installedExtensions).toEqual([
       state.realtimeExtension,
+      tasklaneRequestActivity,
       state.telemetryOwner.extension,
       state.devtoolsExtension,
     ]);

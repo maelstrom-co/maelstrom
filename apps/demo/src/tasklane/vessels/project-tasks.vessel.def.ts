@@ -5,11 +5,14 @@ import { ASSIGNEE_CHOICES } from '../stores/team';
 const TASK_REFERENCE =
   'The task to change: a reference from the published list (id, title and status), or the task id such as TL-3.';
 
+// Typed as string so a republish can append live records to it.
+const PROJECT_TASKS_DESCRIPTION: string =
+  'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam) and an urgency (low, normal or high). It also shows "My priorities", the current user Chris\'s own ordered list of tasks. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.';
+
 export const projectTasksVessel = defineVessel({
   id: 'project-tasks',
   name: 'Tasks',
-  description:
-    'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam) and an urgency (low, normal or high). It also shows "My priorities", the current user Chris\'s own ordered list of tasks. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. The user edits every field by hand too, so always act on the current values.',
+  description: PROJECT_TASKS_DESCRIPTION,
   defaultVariant: 'board',
   variants: {
     board: {

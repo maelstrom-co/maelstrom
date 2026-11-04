@@ -11,6 +11,7 @@ import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { TASKLANE_CELL_SIZE_PX } from './default-layout';
+import { tasklaneRequestActivity } from './request-activity';
 import { projectTasksEntry } from './vessels/project-tasks.vessel';
 import { sourceFeedbackEntry } from './vessels/source-feedback.vessel';
 import {
@@ -56,6 +57,7 @@ export const tasklaneM = createMaelstrom({
       onSession: registerDemoVoice,
     }),
   )
+  .with(tasklaneRequestActivity)
   .with(tasklaneTelemetry.extension)
   .with(
     devtools({
