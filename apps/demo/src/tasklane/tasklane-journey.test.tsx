@@ -266,16 +266,25 @@ describe('Tasklane journey from feedback to my priorities', () => {
       ),
     ).toEqual(mine.map((_, i) => `★${i + 1}`));
 
-    // 5. Reassign one task to Alex by hand, then ask about "my tasks".
+    // 5. Ask about "my tasks", and reassign one of them to Alex by hand
+    // while the Planner is still working on the request.
     const reassigned = 'Make task and journal controls interactive';
-    const labelBeforeReassignment = label(reassigned);
-    await act(async () => {
-      fireEvent.change(
-        screen.getByRole('combobox', { name: `Assignee for ${reassigned}` }),
-        { target: { value: 'alex' } },
+    const stillMine = mine.filter((title) => title !== reassigned);
+    engine.plans.set('Add a description to each of my tasks', () => {
+      const steps = mine.map(
+        (title) =>
+          [
+            'updateTask',
+            { task: label(title), description: `Why: ${title}` },
+          ] as const,
       );
+      projectTaskActions.assignTask(task(reassigned).id, 'alex');
+      return plan(...steps);
     });
-    await expectReceipt(`✓ Reassigned "${reassigned}" to Alex`);
+    await ask('Add a description to each of my tasks');
+    await expectReceipt(
+      `✗ Couldn't update "${reassigned}" because it changed: now Alex, normal, priority #3 · ✓ Updated 3 descriptions`,
+    );
     await waitFor(() =>
       expect(
         acceptedEnum(updateVesselSpy, 'project-tasks', 'assignTask', 'task'),
@@ -285,27 +294,6 @@ describe('Tasklane journey from feedback to my priorities', () => {
     );
     expect(acceptedDescription(updateVesselSpy, 'project-tasks')).toContain(
       `${task(reassigned).id} "${reassigned}": parent ${parent.id}, assignee Alex`,
-    );
-
-    const stillMine = mine.filter((title) => title !== reassigned);
-    engine.plans.set('Add a description to each of my tasks', () =>
-      plan(
-        ...stillMine.map(
-          (title) =>
-            [
-              'updateTask',
-              { task: label(title), description: `Why: ${title}` },
-            ] as const,
-        ),
-        [
-          'updateTask',
-          { task: labelBeforeReassignment, description: 'Stale plan' },
-        ],
-      ),
-    );
-    await ask('Add a description to each of my tasks');
-    await expectReceipt(
-      `✗ Couldn't update "${reassigned}" because it changed: now Alex, normal, priority #3 · ✓ Updated 3 descriptions`,
     );
     for (const title of stillMine) {
       expect(task(title).description).toBe(`Why: ${title}`);
@@ -376,7 +364,7 @@ describe('Tasklane journey from feedback to my priorities', () => {
       {
         instanceId: InstanceId('project-tasks-missing'),
         action: ActionName('assignTask'),
-        params: { task: 'TL-1', assignee: 'sam' },
+        params: { task: label('Update demo README'), assignee: 'sam' },
       },
     ]);
     await ask('Assign the README to Sam');
@@ -403,7 +391,7 @@ describe('Tasklane summons Vessels the start screen leaves out', () => {
       {
         instanceId: DETAIL,
         action: ActionName('showTask'),
-        params: { task: 'TL-2' },
+        params: { task: label('Record launch video') },
       },
     ]);
     await ask('Open TL-2');
@@ -495,14 +483,40 @@ function cannedResponse(message: ChartRequestMessage): MaelstromResponse {
   );
   const typed = intent?.type === 'user_intent' ? intent.intent : undefined;
   const planFor = typed ? engine.plans.get(typed) : undefined;
+  const executionPlan = planFor?.() ?? [];
+  expectPublishedTaskReferences(message, executionPlan);
   return {
     type: 'maelstrom_response',
     requestId: message.id,
     userMessage: 'Done.',
     rationale: '',
-    executionPlan: planFor?.() ?? [],
+    executionPlan,
     layout: (typed && engine.layouts.get(typed)) || message.request.layout,
   };
+}
+
+// The real engine drops a task value outside the published enum, so a canned
+// plan may only name references the request carried for that Action.
+function expectPublishedTaskReferences(
+  message: ChartRequestMessage,
+  executionPlan: ExecutionPlan,
+): void {
+  for (const step of executionPlan) {
+    const task = step.params?.task;
+    if (typeof task !== 'string') continue;
+    const published = message.request.vessels.flatMap((vessel) =>
+      Object.values(vessel.variants).flatMap((variant) =>
+        variant.actions
+          .filter((action) => action.name === step.action)
+          .flatMap(
+            (action) =>
+              action.parameters?.find((parameter) => parameter.name === 'task')
+                ?.enum ?? [],
+          ),
+      ),
+    );
+    expect(published).toContain(task);
+  }
 }
 
 // The start screen with one more Instance sharing the board's column, beside
