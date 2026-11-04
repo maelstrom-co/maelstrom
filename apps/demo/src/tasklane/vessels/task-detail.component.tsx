@@ -1,8 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { VesselCard } from '../../components/vessel-card';
 import { tasklaneM } from '../maelstrom';
+import { PersonChip } from '../person-chip';
 import {
-  assigneeLabel,
   type ProjectTask,
   priorityLabel,
   TASK_STATUS_NAMES,
@@ -10,6 +9,7 @@ import {
 } from '../stores/project-tasks.store';
 import { openTaskDetail, useSelectedTaskId } from '../stores/task-detail.store';
 import { reportShowTask } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { taskDetailVessel } from './task-detail.vessel';
 
 type ExecuteAction = TypedVesselProps<typeof taskDetailVessel>['executeAction'];
@@ -32,13 +32,13 @@ export default function TaskDetailComponent({
 
   if (!task) {
     return (
-      <VesselCard accent="brand-3" label="Task">
+      <TasklaneCard title="Task">
         <p className="text-sm text-ink-3">
           {selectedId
             ? `${selectedId} was deleted. Ask Tasklane to open another task.`
             : 'No task open yet. Ask Tasklane to open one, for example "open TL-2".'}
         </p>
-      </VesselCard>
+      </TasklaneCard>
     );
   }
 
@@ -48,9 +48,8 @@ export default function TaskDetailComponent({
   const subtasks = tasks.filter((candidate) => candidate.parentId === task.id);
 
   return (
-    <VesselCard
-      accent="brand-3"
-      label="Task"
+    <TasklaneCard
+      title="Task"
       meta={`${task.id} · ${priorityLabel(task.id, myPriorities)}`}
     >
       <article
@@ -60,7 +59,9 @@ export default function TaskDetailComponent({
         <h3 className="tasklane-detail-title">{task.title}</h3>
         <dl className="tasklane-detail-fields">
           <dt>Owner</dt>
-          <dd>{assigneeLabel(task.assigneeId)}</dd>
+          <dd>
+            <PersonChip memberId={task.assigneeId} />
+          </dd>
           <dt>Urgency</dt>
           <dd>{task.urgency}</dd>
           <dt>Status</dt>
@@ -103,7 +104,7 @@ export default function TaskDetailComponent({
           )}
         </section>
       </article>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 

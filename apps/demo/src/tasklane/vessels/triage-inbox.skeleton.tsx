@@ -1,13 +1,13 @@
-import { VesselCard } from '../../components/vessel-card';
+import { TasklaneCard } from '../tasklane-card';
 
 export function TriageInboxSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent="amber" label="Triage inbox" meta="Loading...">
+    <TasklaneCard title="Triage inbox" meta="Loading...">
       <div className="flex-1 space-y-2 animate-pulse">
         {Array.from({ length: 3 }, (_, i) => (
-          <div key={i} className="h-6 bg-white/5 rounded" />
+          <div key={i} className="tasklane-skeleton-bar h-6" />
         ))}
       </div>
-    </VesselCard>
+    </TasklaneCard>
   );
 }

@@ -1,6 +1,5 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
-import { VesselCard } from '../../components/vessel-card';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import {
@@ -14,6 +13,7 @@ import {
 } from '../stores/feedback-coverage';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
 export default function SourceFeedbackComponent({
@@ -56,11 +56,7 @@ export default function SourceFeedbackComponent({
   };
 
   return (
-    <VesselCard
-      accent="brand-2"
-      label="Feedback"
-      meta={`${text.length} characters`}
-    >
+    <TasklaneCard title="Feedback" meta={`${text.length} characters`}>
       {draft === null ? (
         <>
           <section
@@ -136,7 +132,7 @@ export default function SourceFeedbackComponent({
           </div>
         </div>
       )}
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 
@@ -148,11 +144,11 @@ function FeedbackQuote({
   readonly coverage: FeedbackCoverage;
 }) {
   return (
-    <figure data-coverage={coverage.kind} className="m-0 grid gap-1">
+    <figure data-coverage={coverage.kind} className="tasklane-feedback-card">
       <blockquote className="tasklane-feedback-quote">{quote}</blockquote>
       <figcaption
         className={cn(
-          'pl-3.5 text-xs font-mono',
+          'tasklane-feedback-coverage text-xs font-mono',
           coverage.kind === 'covered' && 'text-green',
           coverage.kind === 'uncovered' && 'text-ink-3',
           coverage.kind === 'dropped' && 'text-amber',

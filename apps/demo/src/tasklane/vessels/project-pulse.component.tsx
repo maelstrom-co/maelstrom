@@ -1,9 +1,9 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { VesselCard } from '../../components/vessel-card';
 import {
   type ProjectTask,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
+import { TasklaneCard } from '../tasklane-card';
 import type { projectPulseVessel } from './project-pulse.vessel';
 
 export default function ProjectPulseComponent(
@@ -13,22 +13,22 @@ export default function ProjectPulseComponent(
   const stats = pulseStats(tasks);
 
   return (
-    <VesselCard accent="green" label="Pulse">
+    <TasklaneCard title="Pulse">
       <section aria-label="Project pulse" className="flex-1 min-h-0">
         <dl className="grid h-full grid-cols-2 gap-2">
           {stats.map(({ id, label, value }) => (
             <div
               key={id}
               data-stat={id}
-              className="flex flex-col justify-center rounded bg-white/5 px-2"
+              className="tasklane-pulse-tile flex flex-col justify-center px-2"
             >
               <dt className="text-xs font-mono text-ink-3 truncate">{label}</dt>
-              <dd className="text-lg font-mono leading-tight">{value}</dd>
+              <dd className="tasklane-pulse-value leading-tight">{value}</dd>
             </div>
           ))}
         </dl>
       </section>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 

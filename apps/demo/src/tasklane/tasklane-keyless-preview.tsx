@@ -1,10 +1,11 @@
 import { KeylessVoiceProviderSelect } from '../components/voice-provider-select';
+import { PersonChip } from './person-chip';
 import { useFeedbackStore } from './stores/feedback.store';
 import {
-  assigneeLabel,
   orderedTaskRows,
   useProjectTasksStore,
 } from './stores/project-tasks.store';
+import { TasklaneCard } from './tasklane-card';
 import { TasklaneHeader } from './tasklane-header';
 import { TasklaneIntentForm } from './tasklane-intent-form';
 import { TASKLANE_VOICE_PROVIDERS } from './voice-providers';
@@ -86,46 +87,33 @@ export function TasklaneKeylessPreview({
           className="keyless-chart"
           aria-label="Example Tasklane project"
         >
-          <section className="preview-card">
-            <div className="preview-card-heading">
-              <span>
-                <i className="bg-brand-2" />
-                Feedback
-              </span>
-            </div>
-            <ul className="grid gap-3 text-sm">
+          <TasklaneCard title="Feedback" className="preview-card">
+            <ul className="tasklane-feedback grid text-sm">
               {quotes.map((quote) => (
-                <li key={quote} className="tasklane-feedback-quote">
-                  {quote}
+                <li key={quote} className="tasklane-feedback-card">
+                  <p className="tasklane-feedback-quote">{quote}</p>
                 </li>
               ))}
             </ul>
-          </section>
-          <section className="preview-card">
-            <div className="preview-card-heading">
-              <span>
-                <i className="bg-amber" />
-                Tasks
-              </span>
-              <span>
-                {tasks.length} task{tasks.length === 1 ? '' : 's'}
-              </span>
-            </div>
+          </TasklaneCard>
+          <TasklaneCard
+            title="Tasks"
+            meta={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+            className="preview-card"
+          >
             <ul className="grid gap-3 text-sm">
               {orderedTaskRows(tasks).map(({ task }) => (
                 <li key={task.id} className="flex justify-between gap-2">
                   <span className="min-w-0 break-words">{task.title}</span>
-                  <span className="font-mono text-xs text-ink-3 shrink-0">
-                    {assigneeLabel(task.assigneeId)}
-                  </span>
+                  <PersonChip memberId={task.assigneeId} className="shrink-0" />
                 </li>
               ))}
             </ul>
-          </section>
+          </TasklaneCard>
         </section>
       </main>
 
-      <div className="keyless-input border-t p-3 bg-bg-1">
+      <div className="keyless-input tasklane-band border-t p-3">
         <div className="max-w-4xl mx-auto">
           <TasklaneIntentForm
             intent={intent}

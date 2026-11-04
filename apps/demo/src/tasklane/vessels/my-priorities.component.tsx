@@ -1,14 +1,13 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import type { CSSProperties } from 'react';
-import { VesselCard } from '../../components/vessel-card';
-import { ACCENT_HEX, accentAlpha } from '../../lib/design-tokens';
 import { tasklaneM } from '../maelstrom';
+import { PersonChip } from '../person-chip';
 import {
   type ProjectTask,
   projectTaskActions,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
 import { reportPriorityChange } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { myPrioritiesVessel } from './my-priorities.vessel';
 
 type ExecuteAction = TypedVesselProps<
@@ -45,9 +44,8 @@ export default function MyPrioritiesComponent({
     return <PriorityStrip prioritised={prioritised} />;
 
   return (
-    <VesselCard
-      accent="green"
-      label="My priorities"
+    <TasklaneCard
+      title="My priorities"
       meta={`${prioritised.length} task${prioritised.length === 1 ? '' : 's'}`}
     >
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -67,7 +65,7 @@ export default function MyPrioritiesComponent({
           </ol>
         )}
       </div>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 
@@ -84,6 +82,7 @@ function PriorityRow({ task, index, last, executeAction }: PriorityRowProps) {
       <span className="tasklane-priority-rank">{index + 1}</span>
       <span className="font-mono text-xs text-ink-3 shrink-0">{task.id}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{task.title}</span>
+      <PersonChip memberId={task.assigneeId} />
       <button
         type="button"
         className="tasklane-icon-button"
@@ -127,20 +126,14 @@ function PriorityRow({ task, index, last, executeAction }: PriorityRowProps) {
 }
 
 // The strip has no room for the card header and padding, so it draws its own
-// one-line frame with the same accent.
+// one-line frame on the same surface.
 function PriorityStrip({
   prioritised,
 }: {
   readonly prioritised: readonly ProjectTask[];
 }) {
-  const hex = ACCENT_HEX.green;
-  const style = {
-    '--accent': hex,
-    '--edge': accentAlpha(hex, 0.35),
-    '--glow': accentAlpha(hex, 0.22),
-  } as CSSProperties;
   return (
-    <div className="vessel-card tasklane-priority-strip" style={style}>
+    <div className="tasklane-surface tasklane-priority-strip">
       <span className="tasklane-priority-strip-label">My priorities</span>
       {prioritised.length === 0 ? (
         <span className="text-xs text-ink-3">None yet</span>

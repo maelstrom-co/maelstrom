@@ -1,5 +1,4 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { VesselCard } from '../../components/vessel-card';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import {
@@ -13,6 +12,7 @@ import {
 } from '../stores/project-tasks.store';
 import { TEAM, type TeamMember } from '../stores/team';
 import { reportBoardFilter } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { teamLoadVessel } from './team-load.vessel';
 
 export default function TeamLoadComponent({
@@ -31,7 +31,7 @@ export default function TeamLoadComponent({
   const rows = TEAM.map((member) => memberLoad(member, open));
 
   return (
-    <VesselCard accent="brand" label="Team load" meta={`${open.length} open`}>
+    <TasklaneCard title="Team load" meta={`${open.length} open`}>
       <ul aria-label="Team load" className="flex-1 min-h-0 overflow-y-auto">
         {rows.map(({ member, count, urgent, share }) => {
           const active = assigneeFilter === member.id;
@@ -42,22 +42,21 @@ export default function TeamLoadComponent({
                 aria-pressed={active}
                 aria-label={`${member.name}, ${plural(count, 'open task')}, ${urgent} urgent`}
                 data-active={active}
-                className={cn(
-                  'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
-                  'hover:bg-white/5 focus-visible:outline focus-visible:outline-1',
-                  active && 'bg-white/10 ring-1 ring-brand',
-                )}
+                data-person={member.id}
+                className="tasklane-load-row w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm"
                 onClick={() =>
                   executeAction('filterByAssignee', {
                     assignee: active ? EVERYONE : member.id,
                   })
                 }
               >
-                <span className="w-12 shrink-0 truncate">{member.name}</span>
-                <span className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden">
+                <span className="tasklane-person w-12 shrink-0 truncate">
+                  {member.name}
+                </span>
+                <span className="tasklane-load-track h-1.5 flex-1 rounded-full overflow-hidden">
                   <span
                     data-share={`${share}%`}
-                    className="block h-full rounded-full bg-brand"
+                    className="tasklane-load-fill block h-full rounded-full"
                     style={{ width: `${share}%` }}
                   />
                 </span>
@@ -77,7 +76,7 @@ export default function TeamLoadComponent({
           );
         })}
       </ul>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 

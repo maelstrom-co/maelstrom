@@ -6,8 +6,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { VesselCard } from '../../components/vessel-card';
 import { tasklaneM } from '../maelstrom';
+import { PersonChip } from '../person-chip';
 import {
   boardFilterActions,
   EVERYONE,
@@ -39,6 +39,7 @@ import {
   reportRemoveTask,
   reportTaskChange,
 } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { projectTasksVessel } from './project-tasks.vessel';
 
 type ExecuteAction = TypedVesselProps<
@@ -152,9 +153,8 @@ export default function ProjectTasksComponent({
     : 'No tasks yet.';
 
   return (
-    <VesselCard
-      accent="amber"
-      label="Tasks"
+    <TasklaneCard
+      title="Tasks"
       meta={`${project} · ${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
     >
       {assigneeFilter ? (
@@ -216,7 +216,7 @@ export default function ProjectTasksComponent({
           </section>
         </div>
       )}
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 
@@ -334,6 +334,7 @@ function TaskRow({
             </span>
             <span className="tasklane-task-title">{task.title}</span>
             <PriorityBadge position={priorityPosition} />
+            <PersonChip memberId={task.assigneeId} className="ml-auto" />
           </div>
           {task.description ? (
             <p className="tasklane-task-description">{task.description}</p>
@@ -346,6 +347,7 @@ function TaskRow({
         <select
           className="tasklane-select"
           aria-label={`Assignee for ${task.title}`}
+          data-person={task.assigneeId ?? UNASSIGNED}
           value={task.assigneeId ?? UNASSIGNED}
           onChange={(event) =>
             executeAction('assignTask', {
@@ -551,9 +553,7 @@ function StatusColumn({
               <PriorityBadge position={positionIn(myPriorities, task.id)} />
             </div>
             <div className="tasklane-card-footer">
-              <span className="text-xs text-ink-2 truncate">
-                {assigneeLabel(task.assigneeId)}
-              </span>
+              <PersonChip memberId={task.assigneeId} className="truncate" />
               <StatusSelect task={task} executeAction={executeAction} />
             </div>
           </li>

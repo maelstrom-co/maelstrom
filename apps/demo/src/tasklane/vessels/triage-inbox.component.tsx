@@ -1,5 +1,4 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { VesselCard } from '../../components/vessel-card';
 import { tasklaneM } from '../maelstrom';
 import {
   type ProjectTask,
@@ -8,6 +7,7 @@ import {
 } from '../stores/project-tasks.store';
 import { TEAM, UNASSIGNED } from '../stores/team';
 import { reportTaskChange } from '../task-action-receipts';
+import { TasklaneCard } from '../tasklane-card';
 import type { triageInboxVessel } from './triage-inbox.vessel';
 
 type ExecuteAction = TypedVesselProps<
@@ -38,11 +38,7 @@ export default function TriageInboxComponent({
   const items = triageItems(tasks);
 
   return (
-    <VesselCard
-      accent="amber"
-      label="Triage inbox"
-      meta={`${items.length} to sort`}
-    >
+    <TasklaneCard title="Triage inbox" meta={`${items.length} to sort`}>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {items.length === 0 ? (
           <p className="text-sm text-ink-3">Inbox clear ✓</p>
@@ -58,7 +54,7 @@ export default function TriageInboxComponent({
           </ul>
         )}
       </div>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
 
@@ -79,7 +75,7 @@ function TriageRow({
         <span
           key={reason}
           data-reason={reason}
-          className="shrink-0 rounded px-1.5 font-mono text-xs text-amber bg-white/5"
+          className="tasklane-reason shrink-0 rounded px-1.5 font-mono text-xs"
         >
           {reason}
         </span>
@@ -87,6 +83,7 @@ function TriageRow({
       <select
         className="tasklane-select shrink-0"
         aria-label={`Assign ${task.title}`}
+        data-person={task.assigneeId ?? UNASSIGNED}
         value={task.assigneeId ?? UNASSIGNED}
         onChange={(event) =>
           executeAction('assignTask', {

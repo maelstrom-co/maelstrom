@@ -347,7 +347,7 @@ function TasklaneWorkspace({
         </div>
       </main>
 
-      <footer className="tasklane-dock border-t bg-bg-1">
+      <footer className="tasklane-dock tasklane-band border-t">
         <TasklaneVoiceCorner
           needsKey={needsKey}
           onRequireKey={onBlockedSubmit}

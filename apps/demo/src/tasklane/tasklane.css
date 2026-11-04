@@ -1,18 +1,158 @@
+/* Paper theme. The shared demo tokens are redefined inside this scope so the
+   Tailwind utilities and shell chrome Tasklane reuses pick up the paper
+   palette without touching the global stylesheet. */
+.tasklane-app {
+  --tasklane-paper: #f6f1e7;
+  --tasklane-card: #fcf9f2;
+  --tasklane-index-card: #fffefa;
+  --tasklane-accent: #c73d12;
+  --tasklane-accent-hover: #ad320e;
+  --tasklane-accent-soft: rgba(199, 61, 18, 0.1);
+  --tasklane-teal: #0f6e66;
+  --tasklane-plum: #7a3b7e;
+  --tasklane-ochre: #8a5a00;
+  --tasklane-rule: rgba(31, 27, 22, 0.07);
+  --tasklane-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --tasklane-devtools-clearance: 184px;
+
+  --color-bg: var(--tasklane-paper);
+  --color-bg-1: #f1ebdf;
+  --color-bg-2: #ebe4d6;
+  --color-ink: #1f1b16;
+  --color-ink-2: #5a524a;
+  --color-ink-3: #6f6559;
+  --color-brand: var(--tasklane-accent);
+  --color-brand-2: var(--tasklane-teal);
+  --color-brand-3: var(--tasklane-plum);
+  --color-green: #2a7047;
+  --color-amber: var(--tasklane-ochre);
+  --color-pink: #b4261a;
+  --line: rgba(31, 27, 22, 0.1);
+  --line-2: rgba(31, 27, 22, 0.16);
+  --line-strong: rgba(31, 27, 22, 0.28);
+
+  min-height: 100dvh;
+  background: var(--tasklane-paper);
+  color: var(--color-ink);
+}
+
+.tasklane-app * {
+  scrollbar-color: rgba(31, 27, 22, 0.28) transparent;
+}
+
+.tasklane-app *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tasklane-app *::-webkit-scrollbar-thumb {
+  background-color: rgba(31, 27, 22, 0.22);
+}
+
+.tasklane-app *::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(31, 27, 22, 0.34);
+}
+
+.tasklane-app [data-person='chris'] {
+  --tasklane-person-color: var(--tasklane-ochre);
+}
+
+.tasklane-app [data-person='alex'] {
+  --tasklane-person-color: var(--tasklane-teal);
+}
+
+.tasklane-app [data-person='sam'] {
+  --tasklane-person-color: var(--tasklane-plum);
+}
+
+.tasklane-app [data-person='unassigned'] {
+  --tasklane-person-color: var(--color-ink-3);
+}
+
+/* Shared shell chrome, repainted for paper */
+.tasklane-app .tasklane-band {
+  border-color: var(--line);
+  background: var(--color-bg-1);
+}
+
+.tasklane-app .status-pill,
+.tasklane-app .intent-pill,
+.tasklane-app .btn-ghost,
+.tasklane-app .surface {
+  border-color: var(--line-2);
+  background: var(--tasklane-card);
+  backdrop-filter: none;
+}
+
+.tasklane-app .surface {
+  box-shadow: 0 24px 60px -28px rgba(31, 27, 22, 0.35);
+}
+
+.tasklane-app .btn-ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--color-bg-1);
+}
+
+.tasklane-app .btn-primary {
+  background: var(--tasklane-accent);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(31, 27, 22, 0.16);
+}
+
+.tasklane-app .btn-primary:hover:not(:disabled) {
+  background: var(--tasklane-accent-hover);
+  box-shadow: 0 2px 6px rgba(31, 27, 22, 0.2);
+}
+
+.tasklane-app .btn:focus-visible,
+.tasklane-app .status-pill:focus-visible,
+.tasklane-app .demo-nav a:focus-visible {
+  outline: 2px solid var(--tasklane-accent);
+  outline-offset: 2px;
+}
+
+.tasklane-app .intent-pill:focus {
+  outline-color: var(--tasklane-accent);
+}
+
+.tasklane-app .eyebrow::before {
+  box-shadow: none;
+}
+
+.tasklane-app .demo-nav a:hover,
+.tasklane-app .demo-nav a:focus-visible {
+  color: var(--tasklane-accent);
+}
+
+.tasklane-app .keyless-intro h2 {
+  font-family: var(--tasklane-serif);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.tasklane-app .chart-wrapper[data-thinking='true']::after {
+  background: linear-gradient(
+    120deg,
+    var(--tasklane-accent),
+    color-mix(in srgb, var(--tasklane-accent) 45%, var(--tasklane-paper)),
+    var(--tasklane-accent)
+  );
+  background-size: 300% 300%;
+}
+
+.tasklane-app [data-flash='true'] {
+  border-radius: 10px;
+}
+
 /* Every size in the dock is fixed: a dock that grows with a caption or a
    status word would resize the Chart host and start a chart_resize request.
    The devtools launcher is fixed over the viewport's bottom-right corner, so
    the dock keeps that corner empty instead of placing controls under it. */
-.tasklane-app {
-  --tasklane-devtools-clearance: 184px;
-}
-
 .tasklane-app .tasklane-dock {
   display: flex;
   height: 96px;
   align-items: center;
   gap: 24px;
   padding: 12px var(--tasklane-devtools-clearance) 12px 24px;
-  border-color: var(--line);
 }
 
 .tasklane-app .tasklane-intent-column {
@@ -130,7 +270,7 @@
   width: auto;
   min-width: 104px;
   padding: 0 12px;
-  color: var(--color-brand-2);
+  color: var(--tasklane-accent);
   cursor: pointer;
 }
 
@@ -231,10 +371,11 @@
 .tasklane-app .tasklane-title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 18px;
+  font-family: var(--tasklane-serif);
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.01em;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 
 .tasklane-app .tasklane-capability-note {
@@ -243,20 +384,126 @@
   font-size: 13px !important;
 }
 
+/* Vessel card */
+.tasklane-app .tasklane-surface {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--tasklane-card);
+  box-shadow:
+    0 1px 2px rgba(31, 27, 22, 0.04),
+    0 8px 20px -14px rgba(31, 27, 22, 0.2);
+}
+
+.tasklane-app .tasklane-vessel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 14px 18px 16px;
+  overflow: hidden;
+}
+
+.tasklane-app .tasklane-vessel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tasklane-app .tasklane-vessel-title {
+  color: var(--color-ink);
+  font-family: var(--tasklane-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.tasklane-app .tasklane-vessel-meta {
+  color: var(--color-ink-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tasklane-app .tasklane-skeleton-bar {
+  border-radius: 6px;
+  background: rgba(31, 27, 22, 0.07);
+}
+
+/* Person chips */
+.tasklane-app .tasklane-person {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--tasklane-person-color, var(--color-ink-3));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tasklane-app .tasklane-person::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tasklane-app .tasklane-person[data-person='unassigned']::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
 /* Feedback Vessel */
 .tasklane-app .tasklane-feedback {
   display: grid;
   align-content: start;
   gap: 10px;
+  padding: 2px 4px 6px;
+}
+
+.tasklane-app .tasklane-feedback-card {
+  display: grid;
+  margin: 0;
+  padding: 10px 12px 8px 14px;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 6px;
+  background-color: var(--tasklane-index-card);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 21px,
+    var(--tasklane-rule) 21px,
+    var(--tasklane-rule) 22px
+  );
+  background-position: 0 4px;
+  box-shadow: 0 1px 2px rgba(31, 27, 22, 0.06);
+}
+
+.tasklane-app .tasklane-feedback-card:nth-child(odd) {
+  transform: rotate(-0.3deg);
+}
+
+.tasklane-app .tasklane-feedback-card:nth-child(even) {
+  transform: rotate(0.3deg);
 }
 
 .tasklane-app .tasklane-feedback-quote {
   margin: 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--color-brand-2);
   color: var(--color-ink);
-  font-size: 13px;
-  line-height: 1.5;
+  font-family: var(--tasklane-serif);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.tasklane-app .tasklane-feedback-coverage {
+  line-height: 18px;
 }
 
 .tasklane-app .tasklane-feedback-note {
@@ -282,7 +529,7 @@
 .tasklane-app .tasklane-textarea {
   border: 1px solid var(--line-2);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tasklane-index-card);
   color: var(--color-ink);
   font-size: 12px;
 }
@@ -303,7 +550,8 @@
 
 .tasklane-app .tasklane-button:hover:not(:disabled),
 .tasklane-app .tasklane-icon-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--line-strong);
+  background: var(--color-bg-1);
 }
 
 .tasklane-app .tasklane-button:disabled,
@@ -313,8 +561,14 @@
 }
 
 .tasklane-app .tasklane-button-primary {
-  border-color: var(--color-brand-2);
-  color: var(--color-brand-2);
+  border-color: var(--tasklane-accent);
+  background: var(--tasklane-accent);
+  color: #fff;
+}
+
+.tasklane-app .tasklane-button-primary:hover:not(:disabled) {
+  border-color: var(--tasklane-accent-hover);
+  background: var(--tasklane-accent-hover);
 }
 
 .tasklane-app .tasklane-button-danger {
@@ -326,6 +580,11 @@
   min-height: 28px;
   max-width: 160px;
   padding: 0 6px;
+}
+
+.tasklane-app .tasklane-select[data-person] {
+  color: var(--tasklane-person-color);
+  font-weight: 500;
 }
 
 .tasklane-app .tasklane-input,
@@ -341,7 +600,7 @@
 .tasklane-app .tasklane-select:focus-visible,
 .tasklane-app .tasklane-input:focus-visible,
 .tasklane-app .tasklane-textarea:focus-visible {
-  outline: 2px solid var(--color-brand-2);
+  outline: 2px solid var(--tasklane-accent);
   outline-offset: 1px;
 }
 
@@ -361,10 +620,12 @@
 .tasklane-app .tasklane-section-title {
   margin: 0 0 8px;
   color: var(--color-ink-2);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--tasklane-serif);
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .tasklane-app .tasklane-priority-list,
@@ -386,7 +647,7 @@
 .tasklane-app .tasklane-priority-rank {
   width: 20px;
   flex: 0 0 auto;
-  color: var(--color-amber);
+  color: var(--tasklane-accent);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   text-align: right;
@@ -394,9 +655,10 @@
 
 .tasklane-app .tasklane-priority-badge {
   flex: 0 0 auto;
-  color: var(--color-amber);
+  color: var(--tasklane-accent);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
+  font-weight: 500;
 }
 
 /* Tasks Vessel, assignee filter and columns variant */
@@ -407,8 +669,9 @@
   margin-bottom: 10px;
   padding: 2px 4px 2px 10px;
   gap: 6px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-2);
   border-radius: 999px;
+  background: var(--tasklane-index-card);
   color: var(--color-ink-2);
   font-size: 12px;
 }
@@ -416,12 +679,13 @@
 .tasklane-app .tasklane-filter-clear {
   padding: 2px 8px;
   border-radius: 999px;
-  color: var(--color-amber);
+  color: var(--tasklane-accent);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .tasklane-app .tasklane-filter-clear:focus-visible {
-  outline: 2px solid var(--color-brand-2);
+  outline: 2px solid var(--tasklane-accent);
   outline-offset: 1px;
 }
 
@@ -456,7 +720,8 @@
   padding: 8px 10px;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
+  background: var(--tasklane-index-card);
 }
 
 .tasklane-app .tasklane-card-footer {
@@ -465,6 +730,53 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* Team load Vessel */
+.tasklane-app .tasklane-load-row {
+  border-radius: 6px;
+}
+
+.tasklane-app .tasklane-load-row:hover {
+  background: var(--color-bg-1);
+}
+
+.tasklane-app .tasklane-load-row[data-active='true'] {
+  background: var(--tasklane-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--tasklane-accent);
+}
+
+.tasklane-app .tasklane-load-row:focus-visible {
+  outline: 2px solid var(--tasklane-accent);
+  outline-offset: 1px;
+}
+
+.tasklane-app .tasklane-load-track {
+  background: rgba(31, 27, 22, 0.09);
+}
+
+.tasklane-app .tasklane-load-fill {
+  background: var(--tasklane-person-color, var(--color-ink-3));
+}
+
+/* Triage inbox Vessel */
+.tasklane-app .tasklane-reason {
+  color: var(--tasklane-ochre);
+  background: rgba(138, 90, 0, 0.1);
+}
+
+/* Pulse Vessel */
+.tasklane-app .tasklane-pulse-tile {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--tasklane-index-card);
+}
+
+.tasklane-app .tasklane-pulse-value {
+  color: var(--color-ink);
+  font-family: var(--tasklane-serif);
+  font-size: 22px;
+  font-weight: 600;
 }
 
 /* Task detail Vessel */
@@ -477,7 +789,10 @@
 .tasklane-app .tasklane-detail-title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 15px;
+  font-family: var(--tasklane-serif);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
@@ -504,9 +819,10 @@
 .tasklane-app .tasklane-detail-quote {
   margin: 0;
   padding-left: 10px;
-  border-left: 2px solid var(--color-brand-3);
+  border-left: 2px solid var(--line-strong);
   color: var(--color-ink-2);
-  font-size: 13px;
+  font-family: var(--tasklane-serif);
+  font-size: 14px;
   font-style: italic;
   overflow-wrap: anywhere;
 }
@@ -517,12 +833,16 @@
   font-size: 13px;
   text-align: left;
   text-decoration: underline;
-  text-decoration-color: var(--line);
+  text-decoration-color: var(--line-strong);
   text-underline-offset: 3px;
 }
 
+.tasklane-app .tasklane-detail-link:hover {
+  text-decoration-color: var(--tasklane-accent);
+}
+
 .tasklane-app .tasklane-detail-link:focus-visible {
-  outline: 2px solid var(--color-brand-2);
+  outline: 2px solid var(--tasklane-accent);
   outline-offset: 1px;
 }
 
@@ -539,11 +859,10 @@
 
 .tasklane-app .tasklane-priority-strip-label {
   flex: 0 0 auto;
-  color: var(--color-ink-2);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--color-ink);
+  font-family: var(--tasklane-serif);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .tasklane-app .tasklane-priority-strip-list {
@@ -580,9 +899,10 @@
   padding: 8px 10px;
   gap: 6px;
   border: 1px solid var(--line);
-  border-left: 2px solid
-    color-mix(in srgb, var(--color-amber) calc(40% + var(--tasklane-depth, 0) * 20%), transparent);
-  border-radius: 6px;
+  border-left: 3px solid
+    color-mix(in srgb, var(--color-ink) calc(14% + var(--tasklane-depth, 0) * 16%), transparent);
+  border-radius: 8px;
+  background: var(--tasklane-index-card);
 }
 
 .tasklane-app .tasklane-task-body {

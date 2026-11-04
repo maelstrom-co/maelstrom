@@ -1,13 +1,13 @@
-import { VesselCard } from '../../components/vessel-card';
+import { TasklaneCard } from '../tasklane-card';
 
 export function ProjectPulseSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent="green" label="Pulse">
+    <TasklaneCard title="Pulse">
       <div className="flex-1 grid grid-cols-2 gap-2 animate-pulse">
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="bg-white/5 rounded" />
+          <div key={i} className="tasklane-skeleton-bar" />
         ))}
       </div>
-    </VesselCard>
+    </TasklaneCard>
   );
 }
