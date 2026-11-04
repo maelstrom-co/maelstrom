@@ -1,0 +1,94 @@
+name: PR Agent
+
+# Read PRs through the API only. Never check out or execute PR-supplied code.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    if: >-
+      github.repository == 'maelstrom-co/maelstrom' &&
+      github.event.sender.type != 'Bot' &&
+      (
+        (
+          github.event_name == 'pull_request_target' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          !github.event.pull_request.draft
+        ) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/')
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    steps:
+      - name: Authorize review request
+        id: authorize
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const comment = context.payload.comment;
+            if (comment && !/^\/(review|improve|ask)(?:\s|$)/.test(comment.body)) {
+              core.info('Ignored unsupported command.');
+              return;
+            }
+            for (const username of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              if (!username) throw new Error('Missing workflow actor.');
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner, repo, username,
+              });
+              if (!['write', 'maintain', 'admin'].includes(data.permission)) {
+                core.info('Review requests require repository write access.');
+                return;
+              }
+            }
+            const pull_number = context.payload.pull_request?.number ?? context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+            if (pr.state !== 'open' || pr.draft) return;
+            // A queued automatic run must not review a superseded commit.
+            if (!comment && pr.head.sha !== context.payload.pull_request.head.sha) return;
+            core.setOutput('allowed', 'true');
+
+      - name: Check review credential
+        if: steps.authorize.outputs.allowed == 'true'
+        env:
+          PR_AGENT_OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
+        run: |
+          if [ -z "$PR_AGENT_OPENAI_KEY" ]; then
+            echo "::error::Configure the PR_AGENT_OPENAI_KEY repository secret. See CONTRIBUTING.md."
+            exit 1
+          fi
+
+      - name: Run PR Agent
+        if: steps.authorize.outputs.allowed == 'true'
+        # 0.49.0-github_action; pin the runtime, since the action wrapper uses a rolling image.
+        uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
+          CONFIG__MODEL: ${{ vars.PR_AGENT_MODEL || 'gpt-6.1-sol' }}
+          CONFIG__FALLBACK_MODELS: '[]'
+          CONFIG__ENABLE_AUTO_APPROVAL: 'false'
+          CONFIG__REPO_CONTEXT_FROM_DEFAULT_BRANCH: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'false'
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'false'
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review"]'
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: 'true'
+          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: '["/review"]'

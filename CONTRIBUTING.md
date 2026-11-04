@@ -274,6 +274,37 @@ See the [README](./README.md) for the package architecture and core concepts.
   requires no token. Fork PRs cannot publish packages through this workflow.
   Publishing stays disabled while the repository is private.
 
+### Request an automated review
+
+[PR-Agent](https://github.com/The-PR-Agent/pr-agent) reviews open, non-draft
+PRs from this repository when a writer opens, reopens, updates, or marks them
+ready for review. Findings appear inline when possible. Findings that cannot be
+published inline remain in the persistent summary. Check both locations.
+It does not automatically rewrite PR titles or descriptions, suggest patches,
+or approve merges.
+
+Once the workflow is on `main`, contributors with repository write access can
+post these commands on an open, non-draft PR, including a fork PR:
+
+- `/review` requests a fresh review.
+- `/improve` requests code suggestions.
+- `/ask "What could break in this change?"` asks a question about the diff.
+
+The workflow checks the current permissions of the requester and any rerun
+actor. It reads PR data through GitHub's API without checking out PR code.
+Reviews send the diff and selected repository context to OpenAI.
+
+Repository administrators must add a dedicated OpenAI API key as the
+`PR_AGENT_OPENAI_KEY` repository Actions secret before enabling reviews.
+The default model is `gpt-6.1-sol`. Set the `PR_AGENT_MODEL` repository variable
+to use another OpenAI model available to that key. No fallback model is used.
+Review instructions live in [`.pr_agent.toml`](.pr_agent.toml), which PR-Agent
+reads from the default branch.
+
+To verify setup after merge, post `/review` on an eligible PR. Check the
+**PR Agent** workflow run and its review comment. A missing key fails the
+credential check with setup instructions.
+
 ### Preview the applications
 
 Add `deploy-preview` to an open PR whose branch is in this repository. The

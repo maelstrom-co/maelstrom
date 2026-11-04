@@ -33,6 +33,8 @@ Rationale for these lives in `docs/architecture.md`.
 - Grid calculations use the Chart container, not the browser viewport.
 - Process engine responses atomically: apply `set_layout`, then run `execute_actions`. The order is not type-enforced, and reversing it silently breaks actions targeting an instance introduced by the same response.
 - Do not add an inline overflow or size-reconciliation step. The Chart `ResizeObserver` starts a new `chart_resize` request when whole grid dimensions change.
+- Voice providers submit natural-language intent. The Engine plans against snapshots from client-owned stores; provider grounding is not planning input.
+- Turn mode is runtime state. When browser VAD fails and the adapter reports manual mode, `RealtimeSession` must expose manual controls.
 - Browser realtime packages never hold provider secrets. Server packages mint ephemeral tokens or provider grants.
 - Realtime code sits in four layers: CONTRACT, BROWSER, SERVER, WORKER. No server or worker package may depend on a browser package. `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the rule and documents the regression that prompted it.
 
