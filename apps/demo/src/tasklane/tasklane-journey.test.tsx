@@ -5,7 +5,11 @@ import {
   type ChartRequestMessage,
   InstanceId,
   type MaelstromResponse,
+  type TilingLayout,
+  tilingLeafToken,
+  VariantName,
   type VesselDefinition,
+  VesselId,
 } from '@maelstrom-co/protocol';
 import {
   act,
@@ -14,6 +18,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
@@ -32,6 +37,10 @@ import {
   projectTaskActions,
   taskReferenceLabel,
 } from './stores/project-tasks.store';
+import {
+  __resetTaskDetailStoreForTests,
+  getTaskDetailSnapshot,
+} from './stores/task-detail.store';
 import { __resetTasklaneActivityForTests } from './tasklane-activity';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
@@ -64,6 +73,7 @@ vi.mock('../lib/hosted-vad', () => ({
 const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   plans: new Map<string, () => ExecutionPlan>(),
+  layouts: new Map<string, TilingLayout>(),
 }));
 
 vi.mock('../lib/connector', () => ({
@@ -78,7 +88,10 @@ vi.mock('../lib/connector', () => ({
 
 type ExecutionPlan = MaelstromResponse['executionPlan'];
 
+const FEEDBACK = InstanceId('source-feedback-main');
 const TASKS = InstanceId('project-tasks-main');
+const DETAIL = InstanceId('task-detail-main');
+const PRIORITIES = InstanceId('my-priorities-main');
 const NEW_TASKS = [
   'Explain the host app on the home page',
   'Make task and journal controls interactive',
@@ -113,6 +126,7 @@ beforeEach(() => {
   FakeRealtimeSession.instances = [];
   engine.requests = [];
   engine.plans = new Map();
+  engine.layouts = new Map();
   clearPlaygroundKey();
   resetTasklane();
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
@@ -369,21 +383,121 @@ describe('Tasklane journey from feedback to my priorities', () => {
   }, 20_000);
 });
 
+describe('Tasklane summons Vessels the start screen leaves out', () => {
+  it('opens a task in a Task detail Instance the same response adds', async () => {
+    setPlaygroundKey('sk-tasklane-open-task-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('article')).toBeNull();
+
+    engine.layouts.set(
+      'Open TL-2',
+      layoutBesideBoard('V', DETAIL, 'task-detail', 'card'),
+    );
+    engine.plans.set('Open TL-2', () => [
+      {
+        instanceId: DETAIL,
+        action: ActionName('showTask'),
+        params: { task: 'TL-2' },
+      },
+    ]);
+    await ask('Open TL-2');
+
+    const detail = await screen.findByRole(
+      'article',
+      { name: 'TL-2 Record launch video' },
+      { timeout: 3000 },
+    );
+    expect(
+      within(detail).getByRole('heading', { name: 'Record launch video' }),
+    ).toBeTruthy();
+    expect(getTaskDetailSnapshot().get(DETAIL)).toBe('TL-2');
+  });
+
+  it('shows my priorities as a one-line strip under the board', async () => {
+    projectTaskActions.addToMyPriorities('TL-2');
+    projectTaskActions.addToMyPriorities('TL-1');
+    setPlaygroundKey('sk-tasklane-priority-strip-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+    expect(screen.queryByRole('list', { name: 'My priorities' })).toBeNull();
+
+    engine.layouts.set(
+      'Show my priorities under the board',
+      layoutBesideBoard('H', PRIORITIES, 'my-priorities', 'strip'),
+    );
+    await ask('Show my priorities under the board');
+
+    const strip = await screen.findByRole(
+      'list',
+      { name: 'My priorities' },
+      { timeout: 3000 },
+    );
+    expect(strip.closest('.tasklane-priority-strip')).not.toBeNull();
+    expect(
+      within(strip)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['1Record launch video', '2Update demo README']);
+  });
+});
+
 function cannedResponse(message: ChartRequestMessage): MaelstromResponse {
   const intent = message.request.context.updateReasons.find(
     (reason) => reason.type === 'user_intent',
   );
-  const planFor =
-    intent?.type === 'user_intent'
-      ? engine.plans.get(intent.intent)
-      : undefined;
+  const typed = intent?.type === 'user_intent' ? intent.intent : undefined;
+  const planFor = typed ? engine.plans.get(typed) : undefined;
   return {
     type: 'maelstrom_response',
     requestId: message.id,
     userMessage: 'Done.',
     rationale: '',
     executionPlan: planFor?.() ?? [],
-    layout: message.request.layout,
+    layout: (typed && engine.layouts.get(typed)) || message.request.layout,
+  };
+}
+
+// The start screen with one more Instance sharing the board's column, beside
+// the board ('V') or under it ('H').
+function layoutBesideBoard(
+  split: 'V' | 'H',
+  instanceId: InstanceId,
+  vesselId: string,
+  variant: string,
+): TilingLayout {
+  return {
+    type: 'tiling',
+    tree: [
+      'V:2,3',
+      tilingLeafToken(FEEDBACK),
+      split,
+      tilingLeafToken(TASKS),
+      tilingLeafToken(instanceId),
+    ],
+    instances: [
+      {
+        instanceId: FEEDBACK,
+        vesselId: VesselId('source-feedback'),
+        variant: VariantName('snapshot'),
+      },
+      {
+        instanceId: TASKS,
+        vesselId: VesselId('project-tasks'),
+        variant: VariantName('board'),
+      },
+      {
+        instanceId,
+        vesselId: VesselId(vesselId),
+        variant: VariantName(variant),
+      },
+    ],
   };
 }
 
@@ -482,5 +596,6 @@ function acceptedEnum(
 function resetTasklane(): void {
   __resetFeedbackStoreForTests();
   __resetProjectTasksStoreForTests();
+  __resetTaskDetailStoreForTests();
   __resetTasklaneActivityForTests();
 }
