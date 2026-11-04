@@ -13,6 +13,7 @@ import { voiceProviderStore } from '../lib/voice-provider';
 import { TASKLANE_CELL_SIZE_PX } from './default-layout';
 import { tasklaneRequestActivity } from './request-activity';
 import { myPrioritiesEntry } from './vessels/my-priorities.vessel';
+import { projectPulseEntry } from './vessels/project-pulse.vessel';
 import { projectTasksEntry } from './vessels/project-tasks.vessel';
 import { sourceFeedbackEntry } from './vessels/source-feedback.vessel';
 import { taskDetailEntry } from './vessels/task-detail.vessel';
@@ -54,6 +55,7 @@ export const tasklaneM = createMaelstrom({
     taskDetailEntry,
     teamLoadEntry,
     triageInboxEntry,
+    projectPulseEntry,
   ] as const,
   cellSizePx: TASKLANE_CELL_SIZE_PX,
 })

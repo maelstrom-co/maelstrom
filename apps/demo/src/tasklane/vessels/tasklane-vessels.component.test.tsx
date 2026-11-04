@@ -12,6 +12,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { myPrioritiesVessel } from './my-priorities.vessel.def';
+import { projectPulseVessel } from './project-pulse.vessel.def';
 import { projectTasksVessel } from './project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './source-feedback.vessel.def';
 import { taskDetailVessel } from './task-detail.vessel.def';
@@ -32,6 +33,7 @@ const TASKLANE_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   'task-detail': taskDetailVessel,
   'team-load': teamLoadVessel,
   'triage-inbox': triageInboxVessel,
+  'project-pulse': projectPulseVessel,
 };
 
 vi.mock('../maelstrom', () => ({
@@ -65,6 +67,8 @@ const MyPrioritiesComponent = (await import('./my-priorities.component'))
 const TaskDetailComponent = (await import('./task-detail.component')).default;
 const TeamLoadComponent = (await import('./team-load.component')).default;
 const TriageInboxComponent = (await import('./triage-inbox.component')).default;
+const ProjectPulseComponent = (await import('./project-pulse.component'))
+  .default;
 const { __resetTasklaneActivityForTests, getLatestReceipt } = await import(
   '../tasklane-activity'
 );
@@ -790,6 +794,63 @@ describe('Triage inbox Vessel', () => {
   });
 });
 
+describe('Project pulse Vessel', () => {
+  it('declares a read-only 2x2 tile variant', () => {
+    expect(Object.keys(projectPulseVessel.variants)).toEqual(['tile']);
+    expect(projectPulseVessel.variants.tile.minSize).toEqual({
+      width: 2,
+      height: 2,
+    });
+    expect(projectPulseVessel.variants.tile.actions).toEqual([]);
+  });
+
+  it('shows the seeded project as two tasks, none urgent or unowned, 0% done', () => {
+    render(<ProjectPulseComponent {...props('project-pulse')} />);
+    expect(pulseStats()).toEqual({
+      total: '2',
+      urgent: '0',
+      unowned: '0',
+      done: '0%',
+    });
+  });
+
+  it('counts open urgent and unowned tasks and rounds the share done', () => {
+    projectTaskActions.createTask({ title: 'Hot fix', urgency: 'high' });
+    projectTaskActions.createTask({ title: 'Shipped orphan', urgency: 'high' });
+    projectTaskActions.setStatus('TL-4', 'done');
+    render(<ProjectPulseComponent {...props('project-pulse')} />);
+    expect(pulseStats()).toEqual({
+      total: '4',
+      urgent: '1',
+      unowned: '1',
+      done: '25%',
+    });
+
+    act(() => {
+      projectTaskActions.removeTask('TL-3');
+    });
+    expect(pulseStats().done).toBe('33%');
+    act(() => {
+      projectTaskActions.setStatus('TL-1', 'done');
+    });
+    expect(pulseStats().done).toBe('67%');
+  });
+
+  it('shows 0% done when there are no tasks', () => {
+    act(() => {
+      projectTaskActions.removeTask('TL-1');
+      projectTaskActions.removeTask('TL-2');
+    });
+    render(<ProjectPulseComponent {...props('project-pulse')} />);
+    expect(pulseStats()).toEqual({
+      total: '0',
+      urgent: '0',
+      unowned: '0',
+      done: '0%',
+    });
+  });
+});
+
 describe('Task detail Vessel', () => {
   it('asks for a task until showTask runs', () => {
     render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
@@ -955,6 +1016,7 @@ describe('Tasks Vessel through Actions', () => {
     render(<TaskDetailComponent {...props('task-detail')} />);
     render(<TeamLoadComponent {...props('team-load')} />);
     render(<TriageInboxComponent {...props('triage-inbox')} />);
+    render(<ProjectPulseComponent {...props('project-pulse')} />);
 
     const registered = Object.fromEntries(
       Object.keys(TASKLANE_VESSELS).map((vesselId) => [
@@ -1075,6 +1137,16 @@ function priorityBadge(title: string): string | null {
   return (
     taskRow(title).querySelector('.tasklane-priority-badge')?.textContent ??
     null
+  );
+}
+
+function pulseStats(): Record<string, string> {
+  const pulse = screen.getByRole('region', { name: 'Project pulse' });
+  return Object.fromEntries(
+    Array.from(pulse.querySelectorAll('[data-stat]'), (stat) => [
+      stat.getAttribute('data-stat') ?? '',
+      stat.querySelector('dd')?.textContent ?? '',
+    ]),
   );
 }
 

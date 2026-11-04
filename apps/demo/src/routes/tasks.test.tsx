@@ -75,6 +75,7 @@ vi.mock('../lib/connector', () => ({
 
 const TASKLANE_VESSEL_IDS = [
   'my-priorities',
+  'project-pulse',
   'project-tasks',
   'source-feedback',
   'task-detail',

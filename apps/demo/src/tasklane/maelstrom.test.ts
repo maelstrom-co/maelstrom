@@ -70,6 +70,7 @@ describe('Tasklane instance', () => {
       'task-detail',
       'team-load',
       'triage-inbox',
+      'project-pulse',
     ]);
   });
 
