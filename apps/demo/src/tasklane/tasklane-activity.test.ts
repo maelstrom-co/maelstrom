@@ -317,6 +317,27 @@ describe('request windows', () => {
     });
   });
 
+  it('reports a failed batch Action that recorded nothing as a failure', () => {
+    openRequestWindow('r1');
+    settleRequestActions('r1', [], ['assignTask', 'showSomething']);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: "✗ Couldn't assign a task",
+      tone: 'problem',
+    });
+  });
+
+  it('does not repeat a failure the Action already recorded', () => {
+    openRequestWindow('r1');
+    recordFailure('updateTask', 'Couldn\'t update "A" because it changed');
+    settleRequestActions('r1', [], ['updateTask', 'updateTask']);
+    closeRequestWindow();
+    expect(getLatestReceipt()).toEqual({
+      text: '✗ Couldn\'t update "A" because it changed · ✗ Couldn\'t update a task',
+      tone: 'problem',
+    });
+  });
+
   it('counts an unchanged Action as confirmed without a receipt part', () => {
     openRequestWindow('r1');
     recordUnchanged('addToMyPriorities');

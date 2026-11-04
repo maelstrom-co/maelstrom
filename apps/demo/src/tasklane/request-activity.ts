@@ -18,12 +18,12 @@ export interface TasklaneRequestActivity {
 
 /**
  * The receipt line needs to know which entries belong to which user request
- * and which of its planned Actions were skipped, which only the orchestrator's
+ * and which of its planned Actions were skipped or failed, which only the orchestrator's
  * request events, command results and admission state carry. An extension
  * closure is the supported seam for reading them.
  *
  * A window opens when a request with a user intent starts, learns which
- * planned Actions were skipped when the request's Action batch completes, and
+ * planned Actions were skipped or failed when the request's Action batch completes, and
  * closes when admission goes idle, after the response's Actions have settled.
  */
 export const tasklaneRequestActivity: MaelstromExtension<
@@ -58,6 +58,11 @@ export const tasklaneRequestActivity: MaelstromExtension<
             String(command.requestId),
             result.actions.flatMap((record) =>
               record.skipped ? [String(record.action)] : [],
+            ),
+            result.actions.flatMap((record) =>
+              !record.skipped && !record.result.ok
+                ? [String(record.action)]
+                : [],
             ),
           );
         },

@@ -119,16 +119,20 @@ export function openRequestWindow(requestId: string): void {
 }
 
 /**
- * Records the planned Actions the orchestrator skipped for this request, for
- * example because their Instance was missing. Manual edits never appear here,
- * because they run outside the request's Action batch.
+ * Records the outcome of this request's Action batch: the planned Actions the
+ * orchestrator skipped, for example because their Instance was missing, and
+ * those that failed. A failed Action that recorded no failure of its own, as
+ * when its handler threw or timed out, is reported as a failure. Manual edits
+ * never appear here, because they run outside the request's Action batch.
  */
 export function settleRequestActions(
   requestId: string,
   skippedActions: readonly string[],
+  failedActions: readonly string[] = [],
 ): void {
   updateRequestWindow(requestId, (window) => ({
     ...window,
+    entries: [...window.entries, ...unrecordedFailures(window, failedActions)],
     skippedActions: [...window.skippedActions, ...skippedActions],
   }));
 }
@@ -233,6 +237,28 @@ function updateRequestWindow(
       window.requestId === requestId ? update(window) : window,
     ),
   });
+}
+
+function unrecordedFailures(
+  window: ActivityWindow,
+  failedActions: readonly string[],
+): ActivityEntry[] {
+  const recorded = new Map<string, number>();
+  for (const entry of window.entries)
+    if (entry.outcome === 'failed')
+      recorded.set(entry.action, (recorded.get(entry.action) ?? 0) + 1);
+  const failures: ActivityEntry[] = [];
+  for (const action of failedActions) {
+    const phrase = TASKLANE_DATA_ACTIONS[action];
+    if (!phrase) continue;
+    const remaining = recorded.get(action) ?? 0;
+    if (remaining > 0) {
+      recorded.set(action, remaining - 1);
+      continue;
+    }
+    failures.push({ outcome: 'failed', action, text: `Couldn't ${phrase}` });
+  }
+  return failures;
 }
 
 function closeOpenWindow(
