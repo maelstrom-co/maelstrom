@@ -8,6 +8,8 @@ import {
 } from '../stores/board-filter.store';
 import {
   assigneeLabel,
+  isOpenTask,
+  isUrgentTask,
   type ProjectTask,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
@@ -28,7 +30,7 @@ export default function TeamLoadComponent({
       reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
   });
 
-  const open = tasks.filter((task) => task.status !== 'done');
+  const open = tasks.filter(isOpenTask);
   const rows = TEAM.map((member) => memberLoad(member, open));
 
   return (
@@ -102,7 +104,7 @@ function memberLoad(
   return {
     member,
     count: mine.length,
-    urgent: mine.filter((task) => task.urgency === 'high').length,
+    urgent: mine.filter(isUrgentTask).length,
     share:
       open.length === 0 ? 0 : Math.round((mine.length / open.length) * 100),
   };

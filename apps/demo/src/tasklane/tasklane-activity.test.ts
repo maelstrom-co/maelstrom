@@ -207,6 +207,18 @@ describe('request windows', () => {
     });
   });
 
+  it('names a status it does not know as it was recorded', () => {
+    recordChange('setStatus', {
+      kind: 'status',
+      subject: 'Write demo copy',
+      subjectId: 'TL-4',
+      detail: 'blocked',
+    });
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Marked "Write demo copy" as blocked',
+    );
+  });
+
   it('pluralises descriptions', () => {
     openRequestWindow('r1');
     recordChange('updateTask', {

@@ -11,9 +11,9 @@ export type TaskUrgency = 'low' | 'normal' | 'high';
 
 export const TASK_URGENCIES: readonly TaskUrgency[] = ['low', 'normal', 'high'];
 
-export type TaskStatus = 'todo' | 'doing' | 'done';
+export const TASK_STATUSES = ['todo', 'doing', 'done'] as const;
 
-export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'doing', 'done'];
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** How each status reads to a person: "To do", "In progress", "Done". */
 export const TASK_STATUS_NAMES: Readonly<Record<TaskStatus, string>> = {
@@ -341,6 +341,20 @@ export function orderedTaskRows(
   };
   visit(null, 0);
   return rows;
+}
+
+export function isTaskStatus(value: unknown): value is TaskStatus {
+  return TASK_STATUSES.some((status) => status === value);
+}
+
+/** Open means not done. */
+export function isOpenTask(task: ProjectTask): boolean {
+  return task.status !== 'done';
+}
+
+/** Urgent means high urgency. */
+export function isUrgentTask(task: ProjectTask): boolean {
+  return task.urgency === 'high';
 }
 
 /** The tasks in Chris's priorities, top first. */
@@ -705,7 +719,7 @@ function resolveUrgency(urgency: string): TaskUrgency | undefined {
 
 function resolveStatus(status: string): TaskStatus | undefined {
   const wanted = status.trim().toLowerCase();
-  return TASK_STATUSES.find((candidate) => candidate === wanted);
+  return isTaskStatus(wanted) ? wanted : undefined;
 }
 
 function listTasks(): string {

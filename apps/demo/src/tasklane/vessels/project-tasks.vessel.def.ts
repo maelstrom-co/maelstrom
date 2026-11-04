@@ -20,7 +20,7 @@ import {
 const PROJECT_TASKS_DESCRIPTION: string =
   'The task list of the "Maelstrom demo" project in Tasklane. Real task records with a parent and child hierarchy, a title, a description, an assignee from the team (Chris, Alex, Sam), an urgency (low, normal or high), a status (todo, doing or done) and, when it came from the feedback, the feedback quote it came from. A star badge with a number marks each task in "My priorities", the current user Chris\'s own ordered list, and the separate My priorities Vessel shows that list in full. "Me", "my" and "I" mean Chris. Personal priorities are separate from urgency: adding a task to my priorities never changes its urgency. Use setParent to group tasks under a parent task. Two views: the board variant lists tasks as a hierarchy, the columns variant groups them into To do, In progress and Done columns and needs a wide space. Both can show only one team member\'s tasks through filterByAssignee, for example "show Alex\'s tasks". The user edits every field by hand too, so always act on the current values.';
 
-const PROJECT_TASK_ACTIONS = defineActions([
+const PROJECT_TASK_ACTIONS = [
   {
     name: 'createTask',
     description:
@@ -139,7 +139,7 @@ const PROJECT_TASK_ACTIONS = defineActions([
     parameters: [{ name: 'task', type: 'string', description: TASK_REFERENCE }],
   },
   FILTER_BY_ASSIGNEE_ACTION,
-]);
+] as const satisfies readonly VesselActionDefinition[];
 
 export const projectTasksVessel = defineVessel({
   id: 'project-tasks',
@@ -162,11 +162,3 @@ export const projectTasksVessel = defineVessel({
     },
   },
 });
-
-// Infers literal Action types the way defineVessel does, so both Variants can
-// share one list.
-function defineActions<const A extends readonly VesselActionDefinition[]>(
-  actions: A,
-): A {
-  return actions;
-}

@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { FEEDBACK_CHARACTER_LIMIT } from './stores/feedback.store';
-import {
-  TASK_STATUS_NAMES,
-  type TaskStatus,
-} from './stores/project-tasks.store';
+import { isTaskStatus, TASK_STATUS_NAMES } from './stores/project-tasks.store';
 
 export type ChangeKind =
   | 'created'
@@ -351,8 +348,9 @@ function describeGroup(group: readonly ChangeDescription[]): string {
 }
 
 function statusPhrase(status: string | null | undefined): string {
-  const name = TASK_STATUS_NAMES[status as TaskStatus];
-  return name ? name.toLowerCase() : String(status);
+  return isTaskStatus(status)
+    ? TASK_STATUS_NAMES[status].toLowerCase()
+    : String(status);
 }
 
 function subscribe(listener: () => void): () => void {

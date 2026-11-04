@@ -1,5 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import {
+  isOpenTask,
+  isUrgentTask,
   type ProjectTask,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
@@ -39,7 +41,7 @@ interface PulseStat {
 }
 
 function pulseStats(tasks: readonly ProjectTask[]): PulseStat[] {
-  const open = tasks.filter((task) => task.status !== 'done');
+  const open = tasks.filter(isOpenTask);
   const done = tasks.length - open.length;
   const percentDone =
     tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100);
@@ -48,7 +50,7 @@ function pulseStats(tasks: readonly ProjectTask[]): PulseStat[] {
     {
       id: 'urgent',
       label: 'Urgent',
-      value: String(open.filter((task) => task.urgency === 'high').length),
+      value: String(open.filter(isUrgentTask).length),
     },
     {
       id: 'unowned',

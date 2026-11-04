@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { tasklaneM } from '../maelstrom';
 import {
+  isOpenTask,
   type ProjectTask,
   projectTaskActions,
   useProjectTasksStore,
@@ -108,7 +109,7 @@ function TriageRow({
 function triageItems(tasks: readonly ProjectTask[]): TriageItem[] {
   const parentIds = new Set(tasks.map((task) => task.parentId));
   return tasks.flatMap((task) => {
-    if (task.status === 'done') return [];
+    if (!isOpenTask(task)) return [];
     const reasons: TriageReason[] = [];
     if (task.assigneeId === null) reasons.push('no owner');
     if (task.parentId === null && !parentIds.has(task.id))
