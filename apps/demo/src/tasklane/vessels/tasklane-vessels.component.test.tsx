@@ -101,6 +101,47 @@ describe('Feedback Vessel', () => {
     );
   });
 
+  it('tells the Planner to pass the quote as the task source', () => {
+    expect(sourceFeedbackVessel.description).toContain(
+      'pass that quote as source',
+    );
+  });
+
+  it('shows each quote as an item with the tasks that cover it', () => {
+    projectTaskActions.createTask({
+      title: 'Compact weather',
+      source:
+        '"The weather panel under the map takes up far too much space. I wanted a small one-line version and could not get one."',
+    });
+    projectTaskActions.createTask({
+      title: 'Shape the screen',
+      source: 'i like that I can shape   the screen around how I work.',
+    });
+    projectTaskActions.createTask({
+      title: 'Shape it more',
+      source: '“I like that I can shape the screen around how I work.”',
+    });
+    projectTaskActions.createTask({
+      title: 'Tracker sync',
+      source:
+        '"Could a task panel sync with the tracker my team already uses?"',
+    });
+    render(<SourceFeedbackComponent {...props('source-feedback')} />);
+    act(() => {
+      projectTaskActions.removeTask('TL-6');
+    });
+
+    expect(feedbackItems()).toEqual([
+      ['real layout tool', '○ no task'],
+      ['shape the screen', '✓ 2 tasks'],
+      ['click and edit things', '○ no task'],
+      ['sync with the tracker', '✕ dropped'],
+      ['weather panel', '✓ 1 task'],
+    ]);
+    const quotes = screen.getByRole('region', { name: 'Feedback snapshot' });
+    expect(quotes.querySelectorAll('.tasklane-feedback-note')).toHaveLength(2);
+  });
+
   it('edits and saves the feedback through the replaceFeedback Action', async () => {
     const vesselProps = props('source-feedback');
     render(<SourceFeedbackComponent {...vesselProps} />);
@@ -1138,6 +1179,24 @@ function priorityBadge(title: string): string | null {
     taskRow(title).querySelector('.tasklane-priority-badge')?.textContent ??
     null
   );
+}
+
+const FEEDBACK_ITEM_KEYS = [
+  'real layout tool',
+  'shape the screen',
+  'click and edit things',
+  'sync with the tracker',
+  'weather panel',
+];
+
+function feedbackItems(): [string, string][] {
+  return screen.getAllByRole('figure').map((item) => {
+    const quote = item.querySelector('blockquote')?.textContent ?? '';
+    const key =
+      FEEDBACK_ITEM_KEYS.find((candidate) => quote.includes(candidate)) ??
+      quote;
+    return [key, item.querySelector('figcaption')?.textContent ?? ''];
+  });
 }
 
 function pulseStats(): Record<string, string> {

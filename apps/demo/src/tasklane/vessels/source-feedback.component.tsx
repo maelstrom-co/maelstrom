@@ -1,12 +1,18 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { VesselCard } from '../../components/vessel-card';
+import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import {
   FEEDBACK_CHARACTER_LIMIT,
   feedbackActions,
   useFeedbackStore,
 } from '../stores/feedback.store';
+import {
+  type FeedbackCoverage,
+  feedbackCoverage,
+} from '../stores/feedback-coverage';
+import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
 import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
@@ -15,6 +21,7 @@ export default function SourceFeedbackComponent({
   executeAction,
 }: TypedVesselProps<typeof sourceFeedbackVessel>) {
   const { text, truncated } = useFeedbackStore();
+  const { tasks, removedSourceFeedback } = useProjectTasksStore();
   const [draft, setDraft] = useState<string | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
@@ -60,18 +67,23 @@ export default function SourceFeedbackComponent({
             aria-label="Feedback snapshot"
             className="tasklane-feedback flex-1 min-h-0 overflow-y-auto"
           >
-            {paragraphs(text).map((paragraph, index) => (
-              <p
-                key={index}
-                className={
-                  paragraph.startsWith('"')
-                    ? 'tasklane-feedback-quote'
-                    : 'tasklane-feedback-note'
-                }
-              >
-                {paragraph}
-              </p>
-            ))}
+            {paragraphs(text).map((paragraph, index) =>
+              paragraph.startsWith('"') ? (
+                <FeedbackQuote
+                  key={index}
+                  quote={paragraph}
+                  coverage={feedbackCoverage(
+                    paragraph,
+                    tasks,
+                    removedSourceFeedback,
+                  )}
+                />
+              ) : (
+                <p key={index} className="tasklane-feedback-note">
+                  {paragraph}
+                </p>
+              ),
+            )}
           </section>
           <div className="tasklane-feedback-footer">
             {truncated ? (
@@ -126,6 +138,41 @@ export default function SourceFeedbackComponent({
       )}
     </VesselCard>
   );
+}
+
+function FeedbackQuote({
+  quote,
+  coverage,
+}: {
+  readonly quote: string;
+  readonly coverage: FeedbackCoverage;
+}) {
+  return (
+    <figure data-coverage={coverage.kind} className="m-0 grid gap-1">
+      <blockquote className="tasklane-feedback-quote">{quote}</blockquote>
+      <figcaption
+        className={cn(
+          'pl-3.5 text-xs font-mono',
+          coverage.kind === 'covered' && 'text-green',
+          coverage.kind === 'uncovered' && 'text-ink-3',
+          coverage.kind === 'dropped' && 'text-amber',
+        )}
+      >
+        {coverageText(coverage)}
+      </figcaption>
+    </figure>
+  );
+}
+
+function coverageText(coverage: FeedbackCoverage): string {
+  switch (coverage.kind) {
+    case 'covered':
+      return `✓ ${coverage.taskCount} task${coverage.taskCount === 1 ? '' : 's'}`;
+    case 'uncovered':
+      return '○ no task';
+    case 'dropped':
+      return '✕ dropped';
+  }
 }
 
 function paragraphs(text: string): string[] {

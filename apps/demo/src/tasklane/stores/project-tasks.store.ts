@@ -43,6 +43,8 @@ export interface ProjectTasksState {
   readonly tasks: readonly ProjectTask[];
   /** Chris's own ordered list of task ids, separate from each task's urgency. */
   readonly myPriorities: readonly string[];
+  /** The feedback quotes of removed tasks, each kept once, so a quote can tell dropped from never covered. */
+  readonly removedSourceFeedback: readonly string[];
   readonly nextNumber: number;
 }
 
@@ -166,6 +168,7 @@ const INITIAL_STATE: ProjectTasksState = {
     },
   ],
   myPriorities: [],
+  removedSourceFeedback: [],
   nextNumber: 3,
 };
 
@@ -495,10 +498,15 @@ export const projectTaskActions = {
       reparentedChildren++;
       return [{ ...candidate, parentId: null }];
     });
+    const source = task.sourceFeedback;
     setState({
       ...state,
       tasks,
       myPriorities: state.myPriorities.filter((id) => id !== task.id),
+      removedSourceFeedback:
+        source === null || state.removedSourceFeedback.includes(source)
+          ? state.removedSourceFeedback
+          : [...state.removedSourceFeedback, source],
     });
     return { ok: true, task, reparentedChildren };
   },

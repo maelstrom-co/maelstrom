@@ -123,6 +123,22 @@ describe('source feedback on tasks', () => {
   });
 });
 
+describe('removed source feedback', () => {
+  it('starts empty and keeps the quote of each removed task once', () => {
+    expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([]);
+    projectTaskActions.createTask({ title: 'First', source: '"Quote A"' });
+    projectTaskActions.createTask({ title: 'Second', source: '"Quote A"' });
+    projectTaskActions.createTask({ title: 'Third' });
+    projectTaskActions.removeTask('TL-3');
+    projectTaskActions.removeTask('TL-4');
+    projectTaskActions.removeTask('TL-5');
+    projectTaskActions.removeTask('TL-1');
+    expect(getProjectTasksSnapshot().removedSourceFeedback).toEqual([
+      '"Quote A"',
+    ]);
+  });
+});
+
 describe('taskSummary', () => {
   it('summarises assignee, urgency and priority place without the status', () => {
     projectTaskActions.addToMyPriorities('TL-2');
