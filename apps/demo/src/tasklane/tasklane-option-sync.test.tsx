@@ -97,7 +97,7 @@ afterEach(() => {
 });
 
 describe('projectTasksDefinition', () => {
-  it('publishes every task as an id, title and status label on each task parameter', () => {
+  it('publishes every task as an id, title and summary label on each task parameter', () => {
     projectTaskActions.addToMyPriorities('TL-2');
     const definition = projectTasksDefinition(getProjectTasksSnapshot());
     for (const action of TASK_PARAMETER_ACTIONS) {

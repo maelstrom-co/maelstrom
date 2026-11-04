@@ -1,11 +1,12 @@
 import type { VesselActionDefinition } from '@maelstrom-co/protocol';
 import { EVERYONE } from '../stores/board-filter.store';
-import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS } from '../stores/team';
+import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS, UNASSIGNED } from '../stores/team';
 
 export const TASK_REFERENCE =
-  'The task to change: a reference from the published list (id, title and status), or the task id such as TL-3.';
+  'The task to change: a reference from the published list (id, title, owner, urgency and priority), or the task id such as TL-3.';
 
-/** Declared by every Vessel that can change Chris's priorities, so the Planner can use whichever is on screen. */
+// Shared so every Vessel that exposes one of these gives the Planner an
+// identical Action definition.
 export const ADD_TO_MY_PRIORITIES_ACTION = {
   name: 'addToMyPriorities',
   idempotent: true,
@@ -31,7 +32,6 @@ export const REMOVE_FROM_MY_PRIORITIES_ACTION = {
   parameters: [{ name: 'task', type: 'string', description: TASK_REFERENCE }],
 } as const satisfies VesselActionDefinition;
 
-/** Declared by every Vessel that can assign tasks, so the Planner can use whichever is on screen. */
 export const ASSIGN_TASK_ACTION = {
   name: 'assignTask',
   idempotent: true,
@@ -42,12 +42,11 @@ export const ASSIGN_TASK_ACTION = {
       name: 'assignee',
       type: 'string',
       enum: [...ASSIGNEE_CHOICES],
-      description: 'Team id of the new assignee. chris is me.',
+      description: `Team id of the new assignee, or ${UNASSIGNED} to clear the owner. chris is me.`,
     },
   ],
 } as const satisfies VesselActionDefinition;
 
-/** Declared by every Vessel that can narrow the Tasks board to one team member. */
 export const FILTER_BY_ASSIGNEE_ACTION = {
   name: 'filterByAssignee',
   idempotent: true,

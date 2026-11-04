@@ -7,7 +7,7 @@ import {
   TASK_STATUSES,
   TASK_URGENCIES,
 } from '../stores/project-tasks.store';
-import { ASSIGNEE_CHOICES } from '../stores/team';
+import { ASSIGNEE_CHOICES, UNASSIGNED } from '../stores/team';
 import {
   ADD_TO_MY_PRIORITIES_ACTION,
   ASSIGN_TASK_ACTION,
@@ -48,7 +48,7 @@ const PROJECT_TASK_ACTIONS = [
         type: 'string',
         required: false,
         enum: [...ASSIGNEE_CHOICES],
-        description: 'Team id of the assignee. chris is me.',
+        description: `Team id of the assignee, or ${UNASSIGNED} for no owner. chris is me.`,
       },
       {
         name: 'urgency',
