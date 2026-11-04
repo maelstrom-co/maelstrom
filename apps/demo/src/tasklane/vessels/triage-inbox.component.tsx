@@ -1,12 +1,12 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { tasklaneM } from '../maelstrom';
+import { AssigneeSelect } from '../person-chip';
 import {
   isOpenTask,
   type ProjectTask,
   projectTaskActions,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
-import { TEAM, UNASSIGNED } from '../stores/team';
 import { reportTaskChange } from '../task-action-receipts';
 import { TasklaneCard } from '../tasklane-card';
 import type { triageInboxVessel } from './triage-inbox.vessel';
@@ -81,25 +81,14 @@ function TriageRow({
           {reason}
         </span>
       ))}
-      <select
-        className="tasklane-select shrink-0"
-        aria-label={`Assign ${task.title}`}
-        data-person={task.assigneeId ?? UNASSIGNED}
-        value={task.assigneeId ?? UNASSIGNED}
-        onChange={(event) =>
-          executeAction('assignTask', {
-            task: task.id,
-            assignee: event.target.value,
-          })
+      <AssigneeSelect
+        task={task}
+        label={`Assign ${task.title}`}
+        className="shrink-0"
+        onAssign={(assignee) =>
+          executeAction('assignTask', { task: task.id, assignee })
         }
-      >
-        {TEAM.map((member) => (
-          <option key={member.id} value={member.id}>
-            {member.name}
-          </option>
-        ))}
-        <option value={UNASSIGNED}>Unassigned</option>
-      </select>
+      />
     </li>
   );
 }

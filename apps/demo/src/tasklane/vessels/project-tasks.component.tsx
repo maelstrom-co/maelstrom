@@ -7,7 +7,8 @@ import {
   useState,
 } from 'react';
 import { tasklaneM } from '../maelstrom';
-import { PersonChip } from '../person-chip';
+import { AssigneeSelect, PersonChip } from '../person-chip';
+import { plural } from '../plural';
 import {
   boardFilterActions,
   EVERYONE,
@@ -26,12 +27,7 @@ import {
   type TaskStatus,
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
-import {
-  CURRENT_USER_ID,
-  TEAM,
-  type TeamMemberId,
-  UNASSIGNED,
-} from '../stores/team';
+import { CURRENT_USER_ID, type TeamMemberId } from '../stores/team';
 import {
   reportBoardFilter,
   reportCreateTask,
@@ -151,7 +147,7 @@ export default function ProjectTasksComponent({
   const emptyText = assigneeFilter
     ? `No tasks for ${assigneeLabel(assigneeFilter)}.`
     : 'No tasks yet.';
-  const allTasks = `${tasks.length} task${tasks.length === 1 ? '' : 's'}`;
+  const allTasks = plural(tasks.length, 'task');
 
   return (
     <TasklaneCard
@@ -345,25 +341,13 @@ function TaskRow({
 
       <div className="tasklane-task-controls">
         <StatusSelect task={task} executeAction={executeAction} />
-        <select
-          className="tasklane-select"
-          aria-label={`Assignee for ${task.title}`}
-          data-person={task.assigneeId ?? UNASSIGNED}
-          value={task.assigneeId ?? UNASSIGNED}
-          onChange={(event) =>
-            executeAction('assignTask', {
-              task: task.id,
-              assignee: event.target.value,
-            })
+        <AssigneeSelect
+          task={task}
+          label={`Assignee for ${task.title}`}
+          onAssign={(assignee) =>
+            executeAction('assignTask', { task: task.id, assignee })
           }
-        >
-          {TEAM.map((member) => (
-            <option key={member.id} value={member.id}>
-              {member.name}
-            </option>
-          ))}
-          <option value={UNASSIGNED}>Unassigned</option>
-        </select>
+        />
         <select
           className="tasklane-select"
           aria-label={`Urgency for ${task.title}`}

@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
+import { plural } from '../plural';
 import {
   boardFilterActions,
   EVERYONE,
@@ -108,8 +109,4 @@ function memberLoad(
     share:
       open.length === 0 ? 0 : Math.round((mine.length / open.length) * 100),
   };
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }

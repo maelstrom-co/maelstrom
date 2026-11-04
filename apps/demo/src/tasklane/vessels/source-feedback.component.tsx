@@ -2,6 +2,7 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
+import { plural } from '../plural';
 import {
   FEEDBACK_CHARACTER_LIMIT,
   feedbackActions,
@@ -163,7 +164,7 @@ function FeedbackQuote({
 function coverageText(coverage: FeedbackCoverage): string {
   switch (coverage.kind) {
     case 'covered':
-      return `✓ ${coverage.taskCount} task${coverage.taskCount === 1 ? '' : 's'}`;
+      return `✓ ${plural(coverage.taskCount, 'task')}`;
     case 'uncovered':
       return '○ no task';
     case 'dropped':

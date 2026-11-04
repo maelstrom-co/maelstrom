@@ -1,5 +1,6 @@
 import { KeylessVoiceProviderSelect } from '../components/voice-provider-select';
 import { PersonChip } from './person-chip';
+import { plural } from './plural';
 import { useFeedbackStore } from './stores/feedback.store';
 import {
   orderedTaskRows,
@@ -98,7 +99,7 @@ export function TasklaneKeylessPreview({
           </TasklaneCard>
           <TasklaneCard
             title="Tasks"
-            meta={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+            meta={plural(tasks.length, 'task')}
             className="preview-card"
           >
             <ul className="grid gap-3 text-sm">

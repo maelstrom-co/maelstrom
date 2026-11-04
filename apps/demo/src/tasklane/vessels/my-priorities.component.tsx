@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
+import { plural } from '../plural';
 import {
   type ProjectTask,
   prioritisedTasks,
@@ -41,7 +42,7 @@ export default function MyPrioritiesComponent({
   return (
     <TasklaneCard
       title="My priorities"
-      meta={`${prioritised.length} task${prioritised.length === 1 ? '' : 's'}`}
+      meta={plural(prioritised.length, 'task')}
     >
       <div className="flex-1 min-h-0 overflow-y-auto">
         {prioritised.length === 0 ? (
