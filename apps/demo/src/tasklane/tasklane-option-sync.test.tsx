@@ -111,17 +111,19 @@ describe('projectTasksDefinition', () => {
     expect(parameter(definition, 'setParent', 'parent')?.enum).toBeUndefined();
   });
 
-  it('cleans pipes, newlines and control characters out of user titles', () => {
-    projectTaskActions.createTask({ title: 'Fix a | b\nnext line\tend' });
+  it('cleans pipes, newlines, line separators and control characters out of user titles', () => {
+    projectTaskActions.createTask({
+      title: 'Fix a | b\nnext line\tend\u2028more\u2029done',
+    });
     const labels = taskEnum(
       projectTasksDefinition(getProjectTasksSnapshot()),
       'assignTask',
     );
     expect(labels).toContain(
-      'TL-3 Fix a b next line end (unassigned, normal, not in priorities)',
+      'TL-3 Fix a b next line end more done (unassigned, normal, not in priorities)',
     );
     for (const label of labels ?? []) {
-      expect(label).not.toMatch(/[|\r\n\t]/);
+      expect(label).not.toMatch(/[|\r\n\t\u2028\u2029]/);
     }
   });
 
