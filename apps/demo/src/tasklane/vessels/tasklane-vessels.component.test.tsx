@@ -15,6 +15,7 @@ import { myPrioritiesVessel } from './my-priorities.vessel.def';
 import { projectTasksVessel } from './project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './source-feedback.vessel.def';
 import { taskDetailVessel } from './task-detail.vessel.def';
+import { teamLoadVessel } from './team-load.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
@@ -28,6 +29,7 @@ const TASKLANE_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   'project-tasks': projectTasksVessel,
   'my-priorities': myPrioritiesVessel,
   'task-detail': taskDetailVessel,
+  'team-load': teamLoadVessel,
 };
 
 vi.mock('../maelstrom', () => ({
@@ -59,6 +61,7 @@ const ProjectTasksComponent = (await import('./project-tasks.component'))
 const MyPrioritiesComponent = (await import('./my-priorities.component'))
   .default;
 const TaskDetailComponent = (await import('./task-detail.component')).default;
+const TeamLoadComponent = (await import('./team-load.component')).default;
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -623,6 +626,90 @@ describe('My priorities Vessel', () => {
   });
 });
 
+describe('Team load Vessel', () => {
+  it('declares a small bars variant that shares the board filter Action', () => {
+    expect(Object.keys(teamLoadVessel.variants)).toEqual(['bars']);
+    expect(teamLoadVessel.variants.bars.minSize).toEqual({
+      width: 4,
+      height: 3,
+    });
+    expect(teamLoadVessel.variants.bars.actions).toEqual(
+      projectTasksVessel.variants.board.actions.filter(
+        (action) => action.name === 'filterByAssignee',
+      ),
+    );
+  });
+
+  it('shows each team member with open tasks, their share and the urgent count', () => {
+    projectTaskActions.createTask({
+      title: 'Urgent fix',
+      assignee: 'alex',
+      urgency: 'high',
+    });
+    projectTaskActions.createTask({ title: 'Loose end' });
+    projectTaskActions.createTask({ title: 'Shipped', assignee: 'sam' });
+    projectTaskActions.setStatus('TL-5', 'done');
+    render(<TeamLoadComponent {...props('team-load')} />);
+
+    const rows = within(
+      screen.getByRole('list', { name: 'Team load' }),
+    ).getAllByRole('listitem');
+    expect(rows.map((row) => row.getAttribute('data-member-id'))).toEqual([
+      'chris',
+      'alex',
+      'sam',
+    ]);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'Chris0 tasks0 urgent',
+      'Alex2 tasks1 urgent',
+      'Sam1 task0 urgent',
+    ]);
+    expect(rows.map((row) => shareOf(row))).toEqual(['0%', '50%', '25%']);
+  });
+
+  it('filters the board by the clicked member and clears it on a second click', async () => {
+    const vesselProps = props('team-load');
+    render(<TeamLoadComponent {...vesselProps} />);
+    const alex = () => screen.getByRole('button', { name: /^Alex,/ });
+    expect(alex().getAttribute('aria-pressed')).toBe('false');
+
+    await act(async () => {
+      fireEvent.click(alex());
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('filterByAssignee', {
+      assignee: 'alex',
+    });
+    expect(getBoardFilterSnapshot().assigneeFilter).toBe('alex');
+    expect(alex().getAttribute('aria-pressed')).toBe('true');
+    expect(
+      screen
+        .getByRole('button', { name: /^Sam,/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('false');
+
+    await act(async () => {
+      fireEvent.click(alex());
+    });
+    expect(vesselProps.executeAction).toHaveBeenLastCalledWith(
+      'filterByAssignee',
+      { assignee: 'everyone' },
+    );
+    expect(getBoardFilterSnapshot().assigneeFilter).toBeNull();
+    expect(alex().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('marks the member a filter set elsewhere selected', () => {
+    act(() => {
+      boardFilterActions.filterByAssignee('sam');
+    });
+    render(<TeamLoadComponent {...props('team-load')} />);
+    const sam = screen.getByRole('button', { name: /^Sam,/ });
+    expect(sam.tagName).toBe('BUTTON');
+    expect(sam.getAttribute('aria-pressed')).toBe('true');
+    expect(sam.getAttribute('data-active')).toBe('true');
+  });
+});
+
 describe('Task detail Vessel', () => {
   it('asks for a task until showTask runs', () => {
     render(<TaskDetailComponent {...props('task-detail', 'detail-1')} />);
@@ -786,6 +873,7 @@ describe('Tasks Vessel through Actions', () => {
     render(<ProjectTasksComponent {...props('project-tasks')} />);
     render(<MyPrioritiesComponent {...props('my-priorities')} />);
     render(<TaskDetailComponent {...props('task-detail')} />);
+    render(<TeamLoadComponent {...props('team-load')} />);
 
     const registered = Object.fromEntries(
       Object.keys(TASKLANE_VESSELS).map((vesselId) => [
@@ -906,6 +994,14 @@ function priorityBadge(title: string): string | null {
   return (
     taskRow(title).querySelector('.tasklane-priority-badge')?.textContent ??
     null
+  );
+}
+
+function shareOf(row: HTMLElement): string | null {
+  return (
+    row
+      .querySelector<HTMLElement>('[data-share]')
+      ?.getAttribute('data-share') ?? null
   );
 }
 

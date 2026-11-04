@@ -68,6 +68,7 @@ describe('Tasklane instance', () => {
       'project-tasks',
       'my-priorities',
       'task-detail',
+      'team-load',
     ]);
   });
 

@@ -2,15 +2,15 @@ import {
   defineVessel,
   type VesselActionDefinition,
 } from '@maelstrom-co/protocol';
-import { EVERYONE } from '../stores/board-filter.store';
 import {
   NO_PARENT,
   TASK_STATUSES,
   TASK_URGENCIES,
 } from '../stores/project-tasks.store';
-import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS } from '../stores/team';
+import { ASSIGNEE_CHOICES } from '../stores/team';
 import {
   ADD_TO_MY_PRIORITIES_ACTION,
+  FILTER_BY_ASSIGNEE_ACTION,
   REMOVE_FROM_MY_PRIORITIES_ACTION,
   TASK_REFERENCE,
 } from './task-action.defs';
@@ -150,19 +150,7 @@ const PROJECT_TASK_ACTIONS = defineActions([
       'Delete a task. Its children move to the top level instead of being deleted.',
     parameters: [{ name: 'task', type: 'string', description: TASK_REFERENCE }],
   },
-  {
-    name: 'filterByAssignee',
-    idempotent: true,
-    description: `Show only one team member's tasks on the board, or pass ${EVERYONE} to show every task again. It changes only what the board shows, never the tasks.`,
-    parameters: [
-      {
-        name: 'assignee',
-        type: 'string',
-        enum: [...TEAM_MEMBER_IDS, EVERYONE],
-        description: `Team id whose tasks to show, or ${EVERYONE}. chris is me.`,
-      },
-    ],
-  },
+  FILTER_BY_ASSIGNEE_ACTION,
 ]);
 
 export const projectTasksVessel = defineVessel({
