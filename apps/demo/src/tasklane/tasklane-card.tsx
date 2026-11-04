@@ -17,7 +17,7 @@ export function TasklaneCard({
   return (
     <div className={cn('tasklane-surface tasklane-vessel h-full', className)}>
       <div className="tasklane-vessel-heading">
-        <span className="tasklane-vessel-title">{title}</span>
+        <h2 className="tasklane-vessel-title">{title}</h2>
         {meta && <span className="tasklane-vessel-meta">{meta}</span>}
       </div>
       {children}
