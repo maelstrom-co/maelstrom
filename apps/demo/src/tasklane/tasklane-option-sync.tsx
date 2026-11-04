@@ -201,31 +201,34 @@ function prioritySummary(state: ProjectTasksState): string {
     return task ? [`#${index + 1} ${task.id} "${shorten(task.title)}"`] : [];
   });
   if (lines.length === 0) return 'None yet.';
-  let summary = '';
-  for (const [index, line] of lines.entries()) {
-    const remaining = lines.length - index;
-    if (summary.length + line.length > TASK_SUMMARY_CHARACTER_LIMIT)
-      return `${summary}and ${remaining} more.`;
-    summary += `${line}\n`;
-  }
-  return summary.trimEnd();
+  return boundedLines('', lines, (remaining) => `and ${remaining} more.`);
 }
 
 function taskSummary(state: ProjectTasksState): string {
   if (state.tasks.length === 0) return `${TASK_SUMMARY_HEADING}No tasks yet.`;
-  let summary = TASK_SUMMARY_HEADING;
-  for (const [index, task] of state.tasks.entries()) {
-    const line = `${summaryLine(task, state.myPriorities)}\n`;
-    const remaining = state.tasks.length - index;
-    const overflow = `and ${remaining} more tasks.`;
+  return boundedLines(
+    TASK_SUMMARY_HEADING,
+    state.tasks.map((task) => summaryLine(task, state.myPriorities)),
+    (remaining) => `and ${remaining} more tasks.`,
+  );
+}
+
+// Reserves room for the overflow sentence before each line, so the result
+// never passes the limit even when the cut lands on the last line that fits.
+function boundedLines(
+  heading: string,
+  lines: readonly string[],
+  overflow: (remaining: number) => string,
+): string {
+  let summary = heading;
+  for (const [index, line] of lines.entries()) {
+    const more = overflow(lines.length - index);
     if (
-      summary.length + line.length + overflow.length >
-        TASK_SUMMARY_CHARACTER_LIMIT &&
-      remaining > 0
-    ) {
-      return `${summary}${overflow}`;
-    }
-    summary += line;
+      summary.length + line.length + 1 + more.length >
+      TASK_SUMMARY_CHARACTER_LIMIT
+    )
+      return `${summary}${more}`;
+    summary += `${line}\n`;
   }
   return summary.trimEnd();
 }

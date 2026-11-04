@@ -251,11 +251,28 @@ describe('myPrioritiesDefinition', () => {
     const summary = description.slice(
       myPrioritiesVessel.description.length + MY_PRIORITIES_HEADING.length,
     );
-    expect(summary.length).toBeLessThanOrEqual(
-      TASK_SUMMARY_CHARACTER_LIMIT + 20,
-    );
+    expect(summary.length).toBeLessThanOrEqual(TASK_SUMMARY_CHARACTER_LIMIT);
     expect(summary).toMatch(/^#1 TL-3 /);
     expect(summary).toMatch(/and \d+ more\.$/);
+  });
+
+  it('keeps the priorities summary within its limit wherever the cut lands', () => {
+    for (let padding = 0; padding < 20; padding++) {
+      __resetProjectTasksStoreForTests();
+      for (let i = 0; i < 60; i++) {
+        const created = projectTaskActions.createTask({
+          title: `Generated priority ${i} ${'x'.repeat(padding)}`,
+        });
+        if (created.ok) projectTaskActions.addToMyPriorities(created.task.id);
+      }
+      const { description } = myPrioritiesDefinition(getProjectTasksSnapshot());
+      const summary = description.slice(
+        myPrioritiesVessel.description.length + MY_PRIORITIES_HEADING.length,
+      );
+      expect(summary.length, `padding ${padding}`).toBeLessThanOrEqual(
+        TASK_SUMMARY_CHARACTER_LIMIT,
+      );
+    }
   });
 });
 
