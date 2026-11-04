@@ -47,7 +47,7 @@ export interface ReceiptLine {
   readonly tone: 'success' | 'problem';
 }
 
-/** Every Tasklane Action changes data, so each one planned is owed an entry. */
+/** Data Actions with the phrase a receipt uses when a planned one is skipped. */
 export const TASKLANE_DATA_ACTIONS: Readonly<Record<string, string>> = {
   createTask: 'create a task',
   updateTask: 'update a task',
@@ -65,7 +65,7 @@ interface ActivityWindow {
   readonly id: number;
   readonly requestId: string | null;
   readonly entries: readonly ActivityEntry[];
-  readonly plannedActions: readonly string[] | null;
+  readonly skippedActions: readonly string[];
   readonly closed: boolean;
 }
 
@@ -108,7 +108,7 @@ export function openRequestWindow(requestId: string): void {
     id: state.nextWindowId,
     requestId,
     entries: [],
-    plannedActions: null,
+    skippedActions: [],
     closed: false,
   };
   setState({
@@ -118,13 +118,18 @@ export function openRequestWindow(requestId: string): void {
   });
 }
 
-export function planRequestWindow(
+/**
+ * Records the planned Actions the orchestrator skipped for this request, for
+ * example because their Instance was missing. Manual edits never appear here,
+ * because they run outside the request's Action batch.
+ */
+export function settleRequestActions(
   requestId: string,
-  actions: readonly string[],
+  skippedActions: readonly string[],
 ): void {
   updateRequestWindow(requestId, (window) => ({
     ...window,
-    plannedActions: actions,
+    skippedActions: [...window.skippedActions, ...skippedActions],
   }));
 }
 
@@ -160,21 +165,17 @@ export function __resetTasklaneActivityForTests(): void {
 }
 
 /**
- * One line for a window: failures and unconfirmed Actions first, then
- * successes, joined by " · ". Unconfirmed Actions are only known once the
- * window has closed. A window with nothing to report has no line.
+ * One line for a window: failures and skipped planned Actions first, then
+ * successes, joined by " · ". A window with nothing to report has no line.
  */
 export function summariseReceipt(window: {
   readonly entries: readonly ActivityEntry[];
-  readonly plannedActions: readonly string[] | null;
-  readonly closed: boolean;
+  readonly skippedActions: readonly string[];
 }): ReceiptLine | null {
   const failures = window.entries.flatMap((entry) =>
     entry.outcome === 'failed' ? [`✗ ${entry.text}`] : [],
   );
-  const unconfirmed = window.closed
-    ? unconfirmedActions(window.entries, window.plannedActions ?? [])
-    : [];
+  const unconfirmed = skippedPhrases(window.skippedActions);
   const successes = summariseChanges(
     window.entries.flatMap((entry) =>
       entry.outcome === 'changed' ? [entry.change] : [],
@@ -211,7 +212,7 @@ function record(entry: ActivityEntry): void {
     id: state.nextWindowId,
     requestId: null,
     entries: [entry],
-    plannedActions: null,
+    skippedActions: [],
     closed: true,
   };
   setState({
@@ -247,26 +248,13 @@ function keepRecent(windows: ActivityWindow[]): ActivityWindow[] {
   return windows.slice(-KEPT_WINDOWS);
 }
 
-function unconfirmedActions(
-  entries: readonly ActivityEntry[],
-  planned: readonly string[],
-): string[] {
-  const reported = new Map<string, number>();
-  for (const entry of entries) {
-    reported.set(entry.action, (reported.get(entry.action) ?? 0) + 1);
-  }
-  const missing: string[] = [];
-  for (const action of planned) {
+function skippedPhrases(skipped: readonly string[]): string[] {
+  const phrases: string[] = [];
+  for (const action of skipped) {
     const phrase = TASKLANE_DATA_ACTIONS[action];
-    if (!phrase) continue;
-    const remaining = reported.get(action) ?? 0;
-    if (remaining > 0) {
-      reported.set(action, remaining - 1);
-      continue;
-    }
-    if (!missing.includes(phrase)) missing.push(phrase);
+    if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
   }
-  return missing;
+  return phrases;
 }
 
 function summariseChanges(changes: readonly ChangeDescription[]): string[] {
