@@ -3366,6 +3366,164 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     return { stream, getUserMediaCalls: () => calls };
   }
 
+  it('unavailable playback recovery leaves greeting audio inactive before connection', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    let mintCalls = 0;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => {
+        mintCalls += 1;
+        return fakeToken;
+      },
+      synthesizeGreeting,
+    });
+    try {
+      await adapter.resumeAudioPlayback();
+      expect(adapter.getAudioPlaybackStatus()).toBe('unavailable');
+      expect(GreetingFakeAudioContext.instances).toHaveLength(0);
+      expect(mintCalls).toBe(0);
+      expect(calls).toHaveLength(0);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  it('connected playback recovery waits for a remote stream before activating greeting audio', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    const sent = [...channel.sent];
+    try {
+      await adapter.resumeAudioPlayback();
+      expect(adapter.getAudioPlaybackStatus()).toBe('unavailable');
+      expect(GreetingFakeAudioContext.instances).toHaveLength(0);
+      expect(calls).toHaveLength(0);
+      expect(channel.sent).toEqual(sent);
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  it('unavailable playback recovery leaves retained greeting audio suspended after disconnect', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    try {
+      await connectAndOpen(adapter);
+      const peer = FakeRTCPeerConnection.instances.at(-1);
+      if (!peer) throw new Error('Voice connection is missing');
+      peer.ontrack?.({ streams: [new FakeMediaStream(1)] });
+      await waitForGreetingCondition(
+        () => adapter.getAudioPlaybackStatus() === 'playing',
+        'Remote playback did not start',
+      );
+      adapter.activateAudio();
+      const context = GreetingFakeAudioContext.instances.at(-1);
+      if (!context) throw new Error('Greeting context was not created');
+      await adapter.disconnect();
+      context.state = 'suspended';
+      const sources = context.sources.length;
+
+      await adapter.resumeAudioPlayback();
+      expect(adapter.getAudioPlaybackStatus()).toBe('unavailable');
+      expect(context.state).toBe('suspended');
+      expect(context.sources).toHaveLength(sources);
+      expect(GreetingFakeAudioContext.instances).toHaveLength(1);
+      expect(calls).toHaveLength(0);
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  it('playback recovery unlocks blocked greeting speech and retained remote audio in the same gesture', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const microphone = useMicTracks([new FakeTrack()]);
+    let mintCalls = 0;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => {
+        mintCalls += 1;
+        return fakeToken;
+      },
+      synthesizeGreeting,
+    });
+    try {
+      const channel = await connectAndOpen(adapter);
+      const peer = FakeRTCPeerConnection.instances.at(-1);
+      const audio = FakeAudio.instances.at(-1);
+      if (!peer || !audio) throw new Error('Retained voice media is missing');
+      let mediaAllowed = false;
+      audio.play = async () => {
+        if (!mediaAllowed) {
+          audio.paused = true;
+          throw new DOMException('Gesture required', 'NotAllowedError');
+        }
+        audio.paused = false;
+      };
+      peer.ontrack?.({ streams: [new FakeMediaStream(1)] });
+      await waitForGreetingCondition(
+        () => adapter.getAudioPlaybackStatus() === 'blocked',
+        'Remote playback was not blocked',
+      );
+
+      adapter.activateAudio();
+      const context = GreetingFakeAudioContext.instances.at(-1);
+      if (!context) throw new Error('Greeting context was not created');
+      const resume = context.resume.bind(context);
+      context.state = 'suspended';
+      context.resume = async () => {
+        throw new DOMException('Gesture required', 'NotAllowedError');
+      };
+      adapter.activateAudio();
+      expect(
+        await adapter.speakAssistantText({
+          id: greetingId,
+          text: greetingText,
+          signal: new AbortController().signal,
+        }),
+      ).toBe('not_started');
+      expect(calls).toHaveLength(0);
+
+      context.resume = resume;
+      mediaAllowed = true;
+      const sent = [...channel.sent];
+      const recovery = adapter.resumeAudioPlayback();
+      expect<AudioContextState>(context.state).toBe('running');
+      expect(audio.paused).toBe(false);
+      await recovery;
+      expect(adapter.getAudioPlaybackStatus()).toBe('playing');
+      expect(channel.sent).toEqual(sent);
+      expect(mintCalls).toBe(1);
+      expect(microphone.getUserMediaCalls()).toBe(1);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      expect(FakeAudio.instances).toHaveLength(1);
+
+      const onPlaybackStart = mock(() => {});
+      const speech = adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+        onPlaybackStart,
+      });
+      await waitForGreetingCondition(
+        () => onPlaybackStart.mock.calls.length === 1,
+        'Recovered greeting speech did not start',
+      );
+      const playback = context.sources.at(-1);
+      if (!playback) throw new Error('Greeting playback source is missing');
+      playback.end();
+      expect(await speech).toBe('accepted');
+      expect(calls).toHaveLength(1);
+      expect(microphone.stream.tracks[0]?.enabled).toBe(true);
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
   it('sends the exact assistant item before TTS without forwarding an engine ID that OpenAI may reject', async () => {
     const order: string[] = [];
     const { synthesizeGreeting, calls } = makeSynthesizer({

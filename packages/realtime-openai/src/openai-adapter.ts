@@ -590,6 +590,8 @@ export class OpenAIAdapter
    * Acceptance is not proof of audibility.
    */
   resumeAudioPlayback(): Promise<void> {
+    if (this.#remotePlayback.getStatus() === 'unavailable')
+      return Promise.resolve();
     this.activateAudio();
     return this.#remotePlayback.resume();
   }
