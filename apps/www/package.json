@@ -102,6 +102,11 @@
           "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
         ]
       },
+      "e2e": {
+        "dependsOn": [
+          "^build"
+        ]
+      },
       "infra-typecheck": {
         "command": "tsc --noEmit -p tsconfig.alchemy.json",
         "options": {
