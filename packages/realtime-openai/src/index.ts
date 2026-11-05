@@ -22,3 +22,5 @@ export type {
   SynthesizeGreeting,
   SynthesizeGreetingArgs,
 } from './openai-adapter.types.js';
+
+export type { OpenAIAudioPlaybackStatus } from './remote-audio-playback.js';
