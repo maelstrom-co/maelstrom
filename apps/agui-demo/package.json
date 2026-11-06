@@ -1,0 +1,58 @@
+{
+  "name": "@maelstrom-co/agui-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:api": "AGUI_PORT=4311 AGUI_ORIGIN=http://127.0.0.1:4310 bun --conditions=@maelstrom-co/source src/server/local.ts",
+    "dev:web": "vite",
+    "preview": "bun --conditions=@maelstrom-co/source src/server/local.ts"
+  },
+  "dependencies": {
+    "@ag-ui/core": "1.0.0",
+    "@maelstrom-co/agui": "workspace:*",
+    "@maelstrom-co/agui-protocol": "workspace:*",
+    "@maelstrom-co/agui-server": "workspace:*",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/demo-vessels": "workspace:*",
+    "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/planner-llm": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/realtime": "workspace:*",
+    "@maelstrom-co/realtime-openai-live": "workspace:*",
+    "@maelstrom-co/realtime-openai-live-server": "workspace:*",
+    "@maelstrom-co/realtime-protocol": "workspace:*",
+    "@tanstack/ai": "1.0.0",
+    "@tanstack/ai-openai": "1.0.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "build-hosted": {
+        "dependsOn": [
+          "^build"
+        ],
+        "command": "vite build --config apps/agui-demo/vite.config.ts"
+      },
+      "typecheck": {
+        "dependsOn": [
+          "^build"
+        ],
+        "command": "tsc -p apps/agui-demo/tsconfig.json --noEmit"
+      },
+      "test": {
+        "command": "bun --conditions=@maelstrom-co/source test apps/agui-demo/src"
+      }
+    }
+  }
+}
