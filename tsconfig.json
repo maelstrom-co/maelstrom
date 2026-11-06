@@ -3,6 +3,12 @@
   "compileOnSave": false,
   "files": [],
   "references": [
+    { "path": "./packages/demo-vessels" },
+    { "path": "./apps/agui-workspace-poc" },
+    { "path": "./tools/evals-langfuse" },
+    { "path": "./tools/evals-offline" },
+    { "path": "./apps/docs" },
+    { "path": "./apps/www" },
     {
       "path": "./packages/realtime-openai-live"
     },

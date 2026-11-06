@@ -36,6 +36,7 @@
     "local-live-dev-plugin.ts"
   ],
   "references": [
+    { "path": "../../packages/demo-vessels/tsconfig.lib.json" },
     {
       "path": "../../packages/react-devtools/tsconfig.lib.json"
     },
