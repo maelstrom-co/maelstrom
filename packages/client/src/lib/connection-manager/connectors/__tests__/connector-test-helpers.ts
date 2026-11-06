@@ -37,10 +37,13 @@ export const buildEnvelope = (id: MessageId): ChartRequestMessageType => {
  * the `WebSocket` constructor + `addEventListener` calls run before we
  * reach for the instance.
  */
-export const connectAndOpen = async (connector: {
-  connect: (sessionId: SessionId) => Promise<void>;
-}): Promise<FakeWebSocket> => {
-  const connectPromise = connector.connect(SessionId('session-1'));
+export const connectAndOpen = async (
+  connector: {
+    connect: (sessionId: SessionId) => Promise<void>;
+  },
+  sessionId = SessionId('session-1'),
+): Promise<FakeWebSocket> => {
+  const connectPromise = connector.connect(sessionId);
   await Promise.resolve();
   const ws = FakeWebSocket.instances.at(-1);
   if (!ws) throw new Error('FakeWebSocket was not constructed');

@@ -1556,6 +1556,21 @@ export class Orchestrator {
     }
     let actions: ApplicationActionOutcome[] = [];
     let chart: UIStructuralSnapshot | undefined;
+    let chartRequest: ChartRequest | undefined;
+    const capture = () => {
+      chart = this.getStructuralSnapshot();
+      const { layout, instances } = this.#commandProcessor.store.state;
+      chartRequest = structuredClone(
+        buildChartRequest({
+          updates: [],
+          instances,
+          chartDimensions: this.#chartManager.store.state.chartDimensions,
+          layout,
+          vessels: this.#vesselManager.getAll(),
+          config: { layoutMode: layout?.type ?? this.#config.layoutMode },
+        }),
+      );
+    };
     const releaseActions = this.#commandProcessor.events.on(
       'actions_completed',
       (event) => {
@@ -1571,15 +1586,14 @@ export class Orchestrator {
     const releaseComplete = this.#commandProcessor.events.on(
       'command_complete',
       (event) => {
-        if (event.command === actionsCommand)
-          chart = this.getStructuralSnapshot();
+        if (event.command === actionsCommand) capture();
       },
     );
     const releaseError = this.#commandProcessor.events.on(
       'processing_error',
       (event) => {
         if (event.command === layoutCommand || event.command === actionsCommand)
-          chart = this.getStructuralSnapshot();
+          capture();
       },
     );
     const release = () => {
@@ -1600,7 +1614,7 @@ export class Orchestrator {
             error: new Error('Application settlement retired'),
           };
         }
-        const settlement = { requestId, result, actions, chart };
+        const settlement = { requestId, result, actions, chart, chartRequest };
         await acknowledgment.wait((signal) =>
           notifyApplicationSettled(settlement, signal),
         );
