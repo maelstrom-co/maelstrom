@@ -3,6 +3,7 @@ import {
   type ActionName,
   type ChartRequest,
   ChartRequestMessage,
+  ChartRequestSchema,
   type ChartResizeReason,
   describeDuplicateTilingLeaf,
   findFirstDuplicateTilingLeaf,
@@ -1557,19 +1558,30 @@ export class Orchestrator {
     let actions: ApplicationActionOutcome[] = [];
     let chart: UIStructuralSnapshot | undefined;
     let chartRequest: ChartRequest | undefined;
+    let captureError: Error | undefined;
     const capture = () => {
-      chart = this.getStructuralSnapshot();
-      const { layout, instances } = this.#commandProcessor.store.state;
-      chartRequest = structuredClone(
-        buildChartRequest({
-          updates: [],
-          instances,
-          chartDimensions: this.#chartManager.store.state.chartDimensions,
-          layout,
-          vessels: this.#vesselManager.getAll(),
-          config: { layoutMode: layout?.type ?? this.#config.layoutMode },
-        }),
-      );
+      try {
+        chart = this.getStructuralSnapshot();
+        const { layout, instances } = this.#commandProcessor.store.state;
+        // Snapshot at completion using the transport's JSON semantics. Accepted
+        // opaque Vessel values may have toJSON methods or contain functions.
+        chartRequest = ChartRequestSchema.parse(
+          JSON.parse(
+            JSON.stringify(
+              buildChartRequest({
+                updates: [],
+                instances,
+                chartDimensions: this.#chartManager.store.state.chartDimensions,
+                layout,
+                vessels: this.#vesselManager.getAll(),
+                config: { layoutMode: layout?.type ?? this.#config.layoutMode },
+              }),
+            ),
+          ),
+        );
+      } catch (error) {
+        captureError = toError(error);
+      }
     };
     const releaseActions = this.#commandProcessor.events.on(
       'actions_completed',
@@ -1603,21 +1615,35 @@ export class Orchestrator {
     };
     const settle = async (): Promise<CommandBatchResult> => {
       try {
-        const result = await this.#commandProcessor.dispatchSettled(
+        const batch = await this.#commandProcessor.dispatchSettled(
           layoutCommand,
           actionsCommand,
         );
         release();
-        if (this.#isDisposed || epoch !== this.#connectorEpoch || !chart) {
+        if (this.#isDisposed || epoch !== this.#connectorEpoch) {
           return {
             status: 'unknown',
             error: new Error('Application settlement retired'),
           };
         }
+        if (!chart) {
+          const error =
+            captureError ?? new Error('Application settlement missing');
+          acknowledgment.retire(error);
+          return { status: 'unknown', error };
+        }
+        const result: CommandBatchResult = captureError
+          ? { status: 'unknown', error: captureError }
+          : batch;
         const settlement = { requestId, result, actions, chart, chartRequest };
-        await acknowledgment.wait((signal) =>
-          notifyApplicationSettled(settlement, signal),
-        );
+        await acknowledgment.wait(async (signal) => {
+          try {
+            await notifyApplicationSettled(settlement, signal);
+          } catch (error) {
+            throw captureError ?? error;
+          }
+          if (captureError) throw captureError;
+        });
         if (this.#isDisposed || epoch !== this.#connectorEpoch) {
           return {
             status: 'unknown',

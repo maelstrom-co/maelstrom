@@ -764,8 +764,14 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       this.#agent &&
       'sessionId' in envelope &&
       envelope.sessionId !== this.#sessionId
-    )
+    ) {
+      if (envelope.type === 'engine.error' && envelope.requestId !== undefined)
+        this.#historyCorrelator.reject(
+          envelope.requestId,
+          new WireEngineError(envelope.error, envelope.code),
+        );
       return;
+    }
     switch (envelope.type) {
       case 'engine.diagnostics.event': {
         if (socket !== this.#ws || envelope.event.sessionId !== this.#sessionId)

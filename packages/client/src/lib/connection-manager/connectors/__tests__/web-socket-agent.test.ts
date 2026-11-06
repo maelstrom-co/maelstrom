@@ -6,6 +6,7 @@ import {
   AgentEventMessage,
   ChangeId,
   decodeClientEnvelope,
+  EngineErrorMessage,
   err,
   InstanceId,
   isErr,
@@ -14,6 +15,8 @@ import {
   RunId,
   SessionId,
   tilingLeafToken,
+  VariantName,
+  type VesselDefinition,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
@@ -55,7 +58,10 @@ function emit(socket: FakeWebSocket, event: AgentEvent) {
   socket.emitJson(AgentEventMessage({ sessionId, event }));
 }
 
-async function setup(timeout = 30_000) {
+async function setup(
+  timeout = 30_000,
+  vessel = createMockResponseVessel('create'),
+) {
   const connector = new WebSocketConnector({
     url: 'ws://test',
     protocol: 'agent',
@@ -63,7 +69,7 @@ async function setup(timeout = 30_000) {
   });
   const client = new Orchestrator(connector, {
     sessionId,
-    vessels: [createMockResponseVessel('create')],
+    vessels: [vessel],
   });
   clients.push(client);
   const connecting = client.connect();
@@ -110,6 +116,195 @@ function finish(socket: FakeWebSocket, code?: string) {
 }
 
 describe('native browser application', () => {
+  test('captures accepted opaque Vessel values with wire semantics at Action completion', async () => {
+    let phase = 'before-write';
+    const value = { toJSON: () => ({ phase }) };
+    const date = new Date('2026-01-02T00:00:00Z');
+    const callback = () => {};
+    const original = createMockResponseVessel('create');
+    const vessel: VesselDefinition = {
+      ...original,
+      variants: {
+        default: {
+          ...original.variants.default,
+          props: { value, callback, date },
+          actions: [
+            {
+              ...original.variants.default.actions[0],
+              parameters: [
+                {
+                  name: 'value',
+                  type: 'object',
+                  description: 'Opaque value',
+                  defaultValue: value,
+                  enum: [value, callback, date],
+                },
+                {
+                  name: 'callback',
+                  type: 'object',
+                  description: 'Optional callback',
+                  defaultValue: callback,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    const { client, socket } = await setup(30_000, vessel);
+    const write = mock(() => {
+      phase = 'after-write';
+      return ok(undefined);
+    });
+    client.commandProcessor.registerRunner(InstanceId('entry'), {
+      create: write,
+    });
+    client.commandProcessor.events.on('command_complete', ({ command }) => {
+      if (command.kind === 'execute_actions')
+        queueMicrotask(() => {
+          phase = 'later';
+        });
+    });
+    const ticket = client.enqueueIntent('write with opaque metadata');
+    await flushMicrotasks();
+    const request = accept(socket);
+    expect(
+      request.request.vessels[0].variants[VariantName('default')].props.value,
+    ).toEqual({
+      phase: 'before-write',
+    });
+    emit(socket, {
+      type: 'ui_change',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      changeId,
+      response: createMockResponse(request.inputId, 'entry', 'create'),
+    });
+    await flushMicrotasks();
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(phase).toBe('later');
+    expect(socket.sent).toHaveLength(2);
+    const acknowledgment = input(socket, 1);
+    if (acknowledgment.type !== 'ui_applied')
+      throw new Error('Missing acknowledgment');
+    const variant =
+      acknowledgment.chart.vessels[0].variants[VariantName('default')];
+    expect(variant.props).toEqual({
+      value: { phase: 'after-write' },
+      date: date.toISOString(),
+    });
+    expect(variant.actions[0].parameters).toEqual([
+      {
+        name: 'value',
+        type: 'object',
+        description: 'Opaque value',
+        defaultValue: { phase: 'after-write' },
+        enum: [{ phase: 'after-write' }, null, date.toISOString()],
+      },
+      { name: 'callback', type: 'object', description: 'Optional callback' },
+    ]);
+    finish(socket);
+    expect((await ticket.result).status).toBe('applied');
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  test('a genuine capture failure stays unknown and stops admission after the write', async () => {
+    let written = false;
+    const original = createMockResponseVessel('create');
+    const vessel: VesselDefinition = {
+      ...original,
+      variants: {
+        default: {
+          ...original.variants.default,
+          props: {
+            value: {
+              toJSON() {
+                if (written) throw new Error('capture unavailable');
+                return 'ready';
+              },
+            },
+          },
+        },
+      },
+    };
+    const { client, connector, socket } = await setup(30_000, vessel);
+    const write = mock(() => {
+      written = true;
+      return ok(undefined);
+    });
+    client.commandProcessor.registerRunner(InstanceId('entry'), {
+      create: write,
+    });
+    const ticket = client.enqueueIntent('write before capture fails');
+    await flushMicrotasks();
+    const request = accept(socket);
+    emit(socket, {
+      type: 'ui_change',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      changeId,
+      response: createMockResponse(request.inputId, 'entry', 'create'),
+    });
+    const result = await ticket.result;
+    expect(result).toMatchObject({
+      status: 'unknown',
+      error: { message: 'capture unavailable' },
+    });
+    await expect(client.processIntent('retry')).rejects.toThrow();
+    await expect(
+      connector.process(buildEnvelope(MessageId())),
+    ).rejects.toThrow();
+    expect(socket.sent).toHaveLength(1);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  test('cross-session history errors reject promptly without stopping the active agent request', async () => {
+    const { client, connector, socket } = await setup();
+    const ticket = client.enqueueIntent('show entry');
+    await flushMicrotasks();
+    const request = accept(socket);
+    const history = connector.getHistory(SessionId('other-session'));
+    const historyRequest = decodeClientEnvelope(socket.sent[1]);
+    if (isErr(historyRequest)) throw historyRequest.error;
+    let failure: unknown;
+    void history.catch((error: unknown) => {
+      failure = error;
+    });
+    socket.emitJson(
+      EngineErrorMessage({
+        sessionId: SessionId('other-session'),
+        requestId: historyRequest.value.id,
+        error: 'history backend down',
+        code: 'HistoryError',
+      }),
+    );
+    await flushMicrotasks();
+    expect(failure).toMatchObject({
+      message: 'history backend down',
+      code: 'HistoryError',
+    });
+    socket.emitJson(
+      EngineErrorMessage({
+        sessionId: SessionId('other-session'),
+        requestId: request.inputId,
+        error: 'unrelated session error',
+      }),
+    );
+    emit(socket, {
+      type: 'ui_change',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      changeId,
+      response: {
+        ...createMockResponse(request.inputId, 'entry', 'create'),
+        executionPlan: [],
+      },
+    });
+    await flushMicrotasks();
+    finish(socket);
+    expect((await ticket.result).status).toBe('applied');
+  });
+
   test('conversation input cannot compete with client-dispatched native requests', async () => {
     const { client, socket } = await setup();
     await expect(
