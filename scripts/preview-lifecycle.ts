@@ -1,5 +1,6 @@
 import { appendFileSync } from 'node:fs';
 
+import { assertWorkspaceAlchemyVersion } from './alchemy-version.ts';
 import {
   type DeletePreviewWorkersOptions,
   deletePreviewWorkers,
@@ -1000,6 +1001,10 @@ const deployApp = async (
     dependencies,
     options.ciRunId,
   );
+  assertWorkspaceAlchemyVersion(
+    options.sourceRoot,
+    process.env.ALCHEMY_REQUIRED_VERSION,
+  );
   const cwd = `${options.sourceRoot}/apps/${metadata.directory}`;
   const env = cloudflareEnvironment(
     options.accountId,
@@ -1274,6 +1279,10 @@ export const teardownPreview = async (
   validatePrNumber(options.prNumber);
   validateBunExecutable(options.bunExecutable);
   assertExpectedAccount(options.accountId, options.expectedAccountId);
+  assertWorkspaceAlchemyVersion(
+    options.root,
+    process.env.ALCHEMY_REQUIRED_VERSION,
+  );
   if (
     !['closed', 'manual', 'schedule', 'unlabeled'].includes(options.trigger)
   ) {
@@ -1321,6 +1330,10 @@ export const teardownPreview = async (
       authority = narrowAuthority(authority, live.scope);
       if (authority !== 'all') continue;
       try {
+        assertWorkspaceAlchemyVersion(
+          options.root,
+          process.env.ALCHEMY_REQUIRED_VERSION,
+        );
         await dependencies.runProcess({
           argv: [
             options.bunExecutable,
