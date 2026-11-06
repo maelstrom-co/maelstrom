@@ -247,6 +247,7 @@
     }
   },
   "dependencies": {
+    "@maelstrom-co/demo-vessels": "workspace:*",
     "@ag-ui/core": "1.0.0",
     "@maelstrom-co/agui": "workspace:*",
     "@maelstrom-co/agui-protocol": "workspace:*",

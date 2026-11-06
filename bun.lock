@@ -83,6 +83,7 @@
         "@maelstrom-co/agui-server": "workspace:*",
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/connectors": "workspace:*",
+        "@maelstrom-co/demo-vessels": "workspace:*",
         "@maelstrom-co/devtools": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/planner-jev": "workspace:*",
@@ -314,6 +315,24 @@
       "version": "0.2.1",
       "dependencies": {
         "@maelstrom-co/protocol": "0.2.1",
+      },
+    },
+    "packages/demo-vessels": {
+      "name": "@maelstrom-co/demo-vessels",
+      "version": "0.0.1",
+      "dependencies": {
+        "@maelstrom-co/protocol": "workspace:*",
+        "clsx": "^2.1.1",
+        "lucide-react": "^1.24.0",
+        "maplibre-gl": "^6.14.0",
+        "react": "catalog:",
+        "tailwind-merge": "^3.5.0",
+      },
+      "devDependencies": {
+        "@types/geojson": "^7946.0.16",
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
+        "react-dom": "catalog:",
       },
     },
     "packages/devtools": {
@@ -1408,6 +1427,8 @@
     "@maelstrom-co/connectors": ["@maelstrom-co/connectors@workspace:packages/connectors"],
 
     "@maelstrom-co/demo": ["@maelstrom-co/demo@workspace:apps/demo"],
+
+    "@maelstrom-co/demo-vessels": ["@maelstrom-co/demo-vessels@workspace:packages/demo-vessels"],
 
     "@maelstrom-co/devtools": ["@maelstrom-co/devtools@workspace:packages/devtools"],
 

@@ -1,0 +1,58 @@
+{
+  "name": "@maelstrom-co/demo-vessels",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Shared home-demo Vessel definitions and app-controlled renderers.",
+  "exports": {
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./vessels/*.component": "./src/vessels/*.component.tsx",
+    "./vessels/*.skeleton": "./src/vessels/*.skeleton.tsx",
+    "./vessels/*.vessel.def": "./src/vessels/*.vessel.def.ts",
+    "./components/vessel-card": "./src/components/vessel-card.tsx",
+    "./lib/*": "./src/lib/*.ts",
+    "./view-data": "./src/view-data.ts"
+  },
+  "dependencies": {
+    "@maelstrom-co/protocol": "workspace:*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.24.0",
+    "maplibre-gl": "^6.14.0",
+    "react": "catalog:",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "react-dom": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "command": "tsc -b tsconfig.lib.json",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "outputs": [
+          "{projectRoot}/dist"
+        ]
+      },
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}
