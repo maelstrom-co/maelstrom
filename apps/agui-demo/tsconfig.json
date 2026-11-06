@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "out-tsc",
+    "jsx": "react-jsx",
+    "lib": ["es2022", "dom"],
+    "types": ["bun", "vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "references": [
+    { "path": "../../packages/agui/tsconfig.json" },
+    { "path": "../../packages/agui-protocol/tsconfig.json" },
+    { "path": "../../packages/agui-server/tsconfig.json" },
+    { "path": "../../packages/client/tsconfig.json" },
+    { "path": "../../packages/demo-vessels/tsconfig.json" },
+    { "path": "../../packages/engine/tsconfig.json" },
+    { "path": "../../packages/planner-llm/tsconfig.json" },
+    { "path": "../../packages/protocol/tsconfig.json" },
+    { "path": "../../packages/react/tsconfig.json" },
+    { "path": "../../packages/realtime/tsconfig.json" },
+    { "path": "../../packages/realtime-openai-live/tsconfig.json" },
+    { "path": "../../packages/realtime-openai-live-server/tsconfig.json" },
+    { "path": "../../packages/realtime-protocol/tsconfig.json" }
+  ]
+}

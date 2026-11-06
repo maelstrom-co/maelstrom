@@ -62,6 +62,8 @@ export function CalendarView({
   events,
   weekEvents = {},
   today = new Date(),
+  dayLabel = 'Today',
+  weekLabel = 'This Week',
 }: {
   /** Chart-selected view. */
   variant: 'month' | 'week' | 'day';
@@ -71,6 +73,10 @@ export function CalendarView({
   weekEvents?: Readonly<Record<string, readonly CalendarEventView[]>>;
   /** Calendar date used for the displayed month and day marker. */
   today?: Date;
+  /** Host-selected date label; defaults to the native demo's current-day label. */
+  dayLabel?: string;
+  /** Host-selected week label. */
+  weekLabel?: string;
 }) {
   const eventColors = new Map(
     events.map((e, i) => [
@@ -88,7 +94,7 @@ export function CalendarView({
       <VesselCard
         accent={VESSEL_ACCENTS.calendar}
         label="Week View"
-        meta="This Week"
+        meta={weekLabel}
       >
         <div className="flex-1 grid grid-cols-7 gap-1.5">
           {WEEK_DAYS.map((day, i) => {
@@ -171,7 +177,7 @@ export function CalendarView({
         <VesselCard
           accent={VESSEL_ACCENTS.calendar}
           label="Day View"
-          meta="Today"
+          meta={dayLabel}
         >
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-1">
             <p className="text-sm text-ink-3">Nothing scheduled</p>
@@ -187,7 +193,7 @@ export function CalendarView({
       <VesselCard
         accent={VESSEL_ACCENTS.calendar}
         label="Day View"
-        meta="Today"
+        meta={dayLabel}
       >
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
