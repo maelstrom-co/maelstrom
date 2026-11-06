@@ -12,10 +12,16 @@ export class AguiWebSocketConnector extends WebSocketConnector {
   readonly workspace: AguiWorkspaceClient;
 
   /** Create a connection; authentication and host control frames remain application-owned. */
-  constructor(options: ConstructorParameters<typeof WebSocketConnector>[0]) {
+  constructor(
+    options: Omit<
+      ConstructorParameters<typeof WebSocketConnector>[0],
+      'protocol'
+    >,
+  ) {
     const workspace = new AguiWorkspaceClient();
     super({
       ...options,
+      protocol: 'legacy',
       onOpen: (send, sessionId) => {
         options.onOpen?.(send, sessionId);
         workspace.open(send, sessionId);
@@ -42,7 +48,7 @@ export class AguiWebSocketConnector extends WebSocketConnector {
   }
 
   /** Acknowledge settlement; cancellation stops acknowledgment I/O, never replays Actions. */
-  applicationSettled(
+  override applicationSettled(
     settlement: ApplicationSettlement,
     signal?: AbortSignal,
   ): Promise<void> {

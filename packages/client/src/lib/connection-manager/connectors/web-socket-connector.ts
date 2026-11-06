@@ -25,6 +25,7 @@ import {
 
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
+import type { ApplicationSettlement } from '../application-settlement.js';
 import {
   type AcknowledgedAssistantConnector,
   type AssistantMessage,
@@ -33,6 +34,7 @@ import {
   type ConnectorEvent,
   WireEngineError,
 } from '../connector.types.js';
+import { NativeAgentExchange } from './native-agent-exchange.js';
 
 // A ping is "missed" if its interval elapses with no pong seen since. Two
 // consecutive misses are required before the socket is closed: one miss is
@@ -51,7 +53,14 @@ const MAX_MISSED_HEARTBEATS = 2;
 export interface WebSocketConnectorOptions {
   /** WebSocket URL (ws:// or wss://) */
   url: string;
-  /** Request timeout in milliseconds (default: 30000) */
+  /**
+   * Native wire route. Defaults to legacy Chart request/response. Agent mode
+   * requires version-3 AgentConnection support and Orchestrator settlement.
+   * It admits one UI-only request at a time and permanently stops on uncertain
+   * application. Replace the connector after reconciling uncertain effects.
+   */
+  protocol?: 'legacy' | 'agent';
+  /** Request timeout in milliseconds (default: 30000). In agent mode also bounds application plus terminal acknowledgment, starting at UI delivery. */
   timeout?: number;
   /** Connection establishment timeout in milliseconds (default: 10000) */
   connectTimeoutMs?: number;
@@ -107,6 +116,16 @@ export interface WebSocketConnectorOptions {
   heartbeatIntervalMs?: number;
 }
 
+/** Optional application acknowledgment provided by agent mode or a subclass. */
+// oxlint-disable-next-line typescript/no-unsafe-declaration-merging -- An emitted field would shadow legacy subclass hooks; the merged method is optional.
+export interface WebSocketConnector {
+  /** Agent-mode acknowledgment of canonical application, followed by the run's terminal event. */
+  applicationSettled?(
+    settlement: ApplicationSettlement,
+    signal?: AbortSignal,
+  ): Promise<void>;
+}
+
 /**
  * WebSocket connector for real-time bidirectional communication.
  *
@@ -139,6 +158,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
     | undefined;
   readonly #onFrame: WebSocketConnectorOptions['onFrame'];
   readonly #heartbeatIntervalMs: number | undefined;
+  readonly #agent?: NativeAgentExchange;
 
   readonly capabilities: ConnectorCapabilities = {
     voice: false,
@@ -208,6 +228,27 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   constructor(options: WebSocketConnectorOptions) {
     this.#url = options.url;
     this.#timeout = options.timeout ?? 30000;
+    if (options.protocol === 'agent') {
+      if (
+        !Number.isFinite(this.#timeout) ||
+        this.#timeout <= 0 ||
+        this.#timeout > 2 ** 31 - 1
+      )
+        throw new Error(
+          'WebSocketConnector: agent timeout must be finite and positive',
+        );
+      const agent = new NativeAgentExchange(this.#timeout, (message) => {
+        if (
+          this.#ws?.readyState !== WebSocket.OPEN ||
+          message.sessionId !== this.#sessionId
+        )
+          throw new Error('Native agent transport is unavailable');
+        this.#ws.send(encodeEnvelope(message));
+      });
+      this.#agent = agent;
+      this.applicationSettled = (settlement, signal) =>
+        agent.settle(settlement, signal);
+    }
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
     this.#onOpen = options.onOpen;
     this.#onFrame = options.onFrame;
@@ -246,6 +287,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * this call was explicitly asked to move away from.
    */
   async connect(sessionId: SessionId): Promise<void> {
+    this.#agent?.assertAvailable();
     if (this.#sessionId === sessionId) {
       if (this.#ws?.readyState === WebSocket.OPEN) return;
       if (
@@ -256,16 +298,21 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       }
     }
 
+    this.#agent?.interrupt(
+      new Error('Native agent connection replaced with unfinished work'),
+    );
+    this.#agent?.assertAvailable();
     this.#sessionId = sessionId;
     const attempt = new Promise<void>((resolve, reject) => {
       try {
         this.#ws = new WebSocket(this.#url);
+        const socket = this.#ws;
         this.#liveSocket = this.#ws;
 
         const timeoutId = setTimeout(() => {
           cleanup();
-          this.#ws?.close();
-          this.#ws = null;
+          socket.close();
+          if (this.#ws === socket) this.#ws = null;
           reject(
             new Error(
               `WebSocket connection timed out after ${this.#connectTimeoutMs}ms`,
@@ -275,8 +322,15 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
         const onOpen = () => {
           cleanup();
+          if (this.#ws !== socket) {
+            socket.close();
+            if (this.#agent)
+              reject(new Error('WebSocket connection superseded'));
+            else resolve();
+            return;
+          }
           try {
-            this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
+            this.#onOpen?.((data) => socket.send(data), sessionId);
             if (this.#diagnosticListeners.size)
               this.#sendDiagnosticSubscription();
           } catch (err) {
@@ -284,8 +338,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
             // throw here has no other path back to the promise — without this
             // catch, connect() hangs in 'connecting' forever instead of
             // rejecting.
-            this.#ws?.close();
-            this.#ws = null;
+            socket.close();
+            if (this.#ws === socket) this.#ws = null;
             reject(toError(err));
             return;
           }
@@ -306,9 +360,9 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
         const cleanup = () => {
           clearTimeout(timeoutId);
-          this.#ws?.removeEventListener('open', onOpen);
-          this.#ws?.removeEventListener('error', onError);
-          this.#ws?.removeEventListener('close', onClose);
+          socket.removeEventListener('open', onOpen);
+          socket.removeEventListener('error', onError);
+          socket.removeEventListener('close', onClose);
         };
 
         this.#ws.addEventListener('open', onOpen);
@@ -339,6 +393,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   async disconnect(): Promise<void> {
     this.#stopHeartbeat();
     const disconnected = new Error('Disconnected');
+    this.#agent?.interrupt(disconnected);
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
     this.#assistantCorrelator.rejectAll(disconnected);
@@ -422,10 +477,16 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * Sends a chart_request envelope and waits for the correlated response.
    */
   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
+    this.#agent?.assertAvailable();
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
 
+    if (this.#agent) {
+      if (message.sessionId !== this.#sessionId)
+        throw new Error('Native agent request belongs to a different session');
+      return this.#agent.process(message);
+    }
     const promise = this.#correlator.create(message.id, this.#timeout);
     this.#ws.send(encodeEnvelope(message));
     return promise;
@@ -561,6 +622,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       // socket that's already gone.
       this.#stopHeartbeat();
       const closed = new Error('WebSocket closed');
+      this.#agent?.interrupt(closed);
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       this.#assistantCorrelator.rejectAll(closed);
@@ -590,6 +652,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
     socket: WebSocket,
     sessionId: SessionId | null,
   ): void {
+    if (this.#agent && socket !== this.#ws) return;
     // heartbeat.pong is transport-level, not part of the protocol envelope
     // union by design — decodeServerEnvelope would reject it as undecodable.
     // Only intercept it when the heartbeat option is active, so a stray pong
@@ -640,11 +703,18 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
     // instead of throwing, so there is no outer try/catch here.
     const decoded = decodeServerEnvelope(event.data);
     if (isErr(decoded)) {
+      this.#agent?.interrupt(decoded.error);
       this.#handleDecodeFailure(event.data, decoded.error);
       return;
     }
 
     const envelope = decoded.value;
+    if (
+      this.#agent &&
+      'sessionId' in envelope &&
+      envelope.sessionId !== this.#sessionId
+    )
+      return;
     switch (envelope.type) {
       case 'engine.diagnostics.event': {
         if (socket !== this.#ws || envelope.event.sessionId !== this.#sessionId)
@@ -659,6 +729,12 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
         return;
       }
       case 'engine.maelstrom.response': {
+        if (this.#agent) {
+          this.#agent.interrupt(
+            new Error('Legacy response received on native agent route'),
+          );
+          return;
+        }
         // requestId is already a branded MessageId from the codec, and the
         // response is schema-validated — the first point in the client where
         // a MaelstromResponse is guaranteed well-formed before it resolves.
@@ -700,6 +776,10 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       }
 
       case 'engine.error': {
+        this.#agent?.wireError(
+          envelope.requestId,
+          new WireEngineError(envelope.error, envelope.code),
+        );
         if (envelope.requestId === undefined) {
           // A stream-level fault the host could not correlate to a request
           // (e.g. it failed before recovering an id). Nothing to reject.
@@ -736,6 +816,10 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       }
 
       case 'engine.agent.event': {
+        if (this.#agent) {
+          this.#agent.receive(envelope.event);
+          return;
+        }
         console.warn(
           `[WebSocketConnector] engine.agent.event is not supported yet: event=${envelope.event.type}`,
         );
