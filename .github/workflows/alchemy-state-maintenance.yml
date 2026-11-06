@@ -1,0 +1,139 @@
+name: Alchemy State Maintenance
+
+run-name: Alchemy state ${{ inputs.target }} at ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        options: [preview, production]
+        default: preview
+        required: true
+      source_sha:
+        description: Full reviewed beta.85 PR head SHA
+        type: string
+        required: true
+      source_pr:
+        description: Open same-repository upgrade PR
+        type: string
+        default: '413'
+        required: true
+      callers_paused:
+        description: All outside Alchemy callers are paused; writer workflows are disabled and drained
+        type: boolean
+        default: false
+        required: true
+      source_reviewed:
+        description: Entire candidate program reviewed for execution with the selected account credentials
+        type: boolean
+        default: false
+        required: true
+      preview_run_id:
+        description: Successful preview maintenance run from this same main revision (production only)
+        type: string
+      confirm_production:
+        description: Explicitly authorize production state bootstrap and candidate dry-run
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: alchemy-state-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    if: github.repository == 'maelstrom-co/maelstrom' && github.ref == 'refs/heads/main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: ${{ inputs.target }}
+    env:
+      MAINTENANCE_TARGET: ${{ inputs.target }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      SOURCE_PR: ${{ inputs.source_pr }}
+      CALLERS_PAUSED: ${{ inputs.callers_paused }}
+      SOURCE_REVIEWED: ${{ inputs.source_reviewed }}
+      CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
+      PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
+      ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+      CONTROL_ROOT: ${{ github.workspace }}/control
+      SOURCE_ROOT: ${{ github.workspace }}/source
+      PREVIEW_RECEIPT: ${{ github.workspace }}/receipt/preview.json
+      RECEIPT_OUTPUT: ${{ github.workspace }}/${{ inputs.target }}.json
+    steps:
+      - name: Checkout trusted maintenance control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: control
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: control/.bun-version
+
+      - name: Check maintenance authority and prior preview provenance
+        run: bun --no-env-file control/scripts/alchemy-state-maintenance.ts check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download successful preview receipt
+        if: inputs.target == 'production'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: alchemy-state-maintenance-preview
+          path: receipt
+          run-id: ${{ inputs.preview_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Checkout exact reviewed candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Install trusted pre-upgrade reader
+        working-directory: control
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install reviewed candidate
+        working-directory: source
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Bootstrap and verify preview state
+        if: inputs.target == 'preview'
+        run: bun --no-env-file control/scripts/alchemy-state-maintenance.ts run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+
+      - name: Bootstrap production state and review its plan
+        if: inputs.target == 'production'
+        run: bun --no-env-file control/scripts/alchemy-state-maintenance.ts run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
+
+      - name: Record successful verification
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: alchemy-state-maintenance-${{ inputs.target }}
+          path: ${{ inputs.target }}.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true

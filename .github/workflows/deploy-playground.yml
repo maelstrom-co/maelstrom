@@ -67,6 +67,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Require the coordinated Alchemy version
+        if: vars.ALCHEMY_REQUIRED_VERSION != ''
+        run: bun --no-env-file scripts/alchemy-version.ts
+        env:
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+
       - name: Build production artifact
         run: bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
 
