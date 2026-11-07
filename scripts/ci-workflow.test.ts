@@ -22,17 +22,20 @@ const nxStep = (workflow: Workflow, job: string, targets: string): Step => {
 };
 
 test.each([
-  ['verify', 'check test build typecheck check-links'],
+  ['verify', 'lint test build typecheck sdk-validation links-check'],
   ['e2e', 'e2e'],
-])('%s uses task-based affected on PRs and run-many on push', async (job, targets) => {
-  const workflow = await readCi();
-  const step = nxStep(workflow, job, targets);
-  expect(step.run).toContain(`bunx nx affected -t ${targets}`);
-  expect(step.run).toContain(`bunx nx run-many -t ${targets}`);
-  expect(step.run).not.toContain('${{');
-  expect(step.run).not.toContain('--projects');
-  expect(step.env?.EVENT_NAME).toBe(`\${{ github.event_name }}`);
-});
+])(
+  '%s uses task-based affected on PRs and run-many on push',
+  async (job, targets) => {
+    const workflow = await readCi();
+    const step = nxStep(workflow, job, targets);
+    expect(step.run).toContain(`bunx nx affected -t ${targets}`);
+    expect(step.run).toContain(`bunx nx run-many -t ${targets}`);
+    expect(step.run).not.toContain('${{');
+    expect(step.run).not.toContain('--projects');
+    expect(step.env?.EVENT_NAME).toBe(`\${{ github.event_name }}`);
+  },
+);
 
 test('no step plumbs a project list into nx', async () => {
   const workflow = await readCi();
@@ -44,6 +47,15 @@ test('no step plumbs a project list into nx', async () => {
   }
 });
 
+test('formatting drift fails verification without rewriting the checkout', async () => {
+  const workflow = await readCi();
+  const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
+  const formatSteps = steps.filter((step) => step.run?.includes('nx format:'));
+  expect(formatSteps).toHaveLength(1);
+  expect(formatSteps[0]?.run).toBe('bunx nx format:check --all');
+  expect(workflow.jobs.verify!.steps).toContain(formatSteps[0]);
+});
+
 test('the dead-link check runs as a docs nx target, not a separate step', async () => {
   const workflow = await readCi();
   for (const step of workflow.jobs.verify!.steps) {
@@ -51,7 +63,7 @@ test('the dead-link check runs as a docs nx target, not a separate step', async 
     expect(step.if ?? '').not.toContain('apps/docs/dist');
   }
   const docs = JSON.parse(await Bun.file('apps/docs/package.json').text());
-  const target = docs.nx.targets['check-links'];
+  const target = docs.nx.targets['links-check'];
   expect(target.dependsOn).toContain('build');
   expect(target.inputs).toContain(
     '{workspaceRoot}/scripts/assert-docs-links.ts',
@@ -84,7 +96,11 @@ test('verify installs Playwright before nx when a docs unit test needs a browser
   expect(install['working-directory']).toBe(e2eInstall['working-directory']);
 
   const nxIndex = steps.indexOf(
-    nxStep(workflow, 'verify', 'check test build typecheck check-links'),
+    nxStep(
+      workflow,
+      'verify',
+      'lint test build typecheck sdk-validation links-check',
+    ),
   );
   expect(steps.indexOf(need)).toBeLessThan(steps.indexOf(install));
   expect(steps.indexOf(install)).toBeLessThan(nxIndex);

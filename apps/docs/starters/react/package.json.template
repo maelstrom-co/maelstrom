@@ -10,7 +10,8 @@
     "start:live": "vite build && bun --env-file=.env.local server.ts --live",
     "dev": "bun --no-env-file dev.ts",
     "dev:live": "bun --env-file=.env.local dev.ts --live",
-    "check": "oxlint --deny-warnings . && oxfmt --check .",
+    "lint": "oxlint --deny-warnings .",
+    "format:check": "oxfmt --check .",
     "test": "bun --no-env-file test server.test.ts dev.test.ts",
     "e2e": "playwright test",
     "format": "oxfmt --write ."

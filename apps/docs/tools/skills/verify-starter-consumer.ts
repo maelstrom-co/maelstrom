@@ -18,7 +18,8 @@ try {
   for (const args of [
     ['install', '--frozen-lockfile', '--ignore-scripts'],
     ['audit'],
-    ['run', 'check'],
+    ['run', 'lint'],
+    ['run', 'format:check'],
     ['run', 'typecheck'],
     ['run', 'test'],
     ['run', 'build'],

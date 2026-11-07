@@ -292,12 +292,15 @@ test('playback operations publish typed start/end lifecycle observations', async
       events.map((event) => event.type),
       ['playback-start', 'playback-end'],
     );
-    assert.deepEqual(events[0]?.payload, {
-      playbackId: (events[0]!.payload as { playbackId: string }).playbackId,
+    const [started, ended] = events;
+    assert.ok(started);
+    assert.ok(ended);
+    assert.deepEqual(started.payload, {
+      playbackId: (started.payload as { playbackId: string }).playbackId,
       fixture: 'scenario.wav',
       delayMs: 3_000,
     });
-    assert.equal(events[1]?.clock.domain, 'node-monotonic');
+    assert.equal(ended.clock.domain, 'node-monotonic');
   } finally {
     await driver.dispose();
     await rm(directory, { recursive: true, force: true });
