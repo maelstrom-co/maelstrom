@@ -5,14 +5,12 @@ import type {
 } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
-  type InstanceId,
   isErr,
   MAX_SPLIT_CHILDREN,
   MAX_SPLIT_WEIGHT,
   ok,
   type Result,
   type TilingNode,
-  type VariantName,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
@@ -77,15 +75,16 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
 }
 
 /**
- * Slots to fill, the retained instances, the visible ones in the variants
- * the planned actions leave them in, and whether the decision hands the
- * layout tree off. Shared by every completion call built over one
- * {@link LayoutDecision}, so a stage that splits the completion into
- * several calls still derives them once.
+ * Slots to fill, the retained instances, the visible ones, and whether the
+ * decision hands the layout tree off. Shared by every completion call built
+ * over one {@link LayoutDecision}, so a stage that splits the completion
+ * into several calls still derives them once.
  */
 export interface CompletionPrep {
   readonly slots: readonly Slot[];
+  /** The instances the candidate keeps, each in its variant before the planned actions run. */
   readonly retained: readonly SelectedInstance[];
+  /** The visible instances in the variants the planned actions leave them in, which the tree must fit. */
   readonly visible: readonly VesselInstanceSnapshot[];
   readonly handOff: boolean;
 }
@@ -111,7 +110,7 @@ export function prepareCompletion(decision: LayoutDecision): CompletionPrep {
       vesselId: instance.vesselId,
       variant: isErr(declared)
         ? instance.variant
-        : (declared.value.variants.get(instance.instanceId) ??
+        : (declared.value.finalVariants.get(instance.instanceId) ??
           instance.variant),
     }));
   return {
@@ -141,8 +140,9 @@ export function invalidTree(
  * whether both came from one call or from separate calls run in parallel.
  * Fills pending parameters from `completion`, leaves out an action whose
  * instance, name and filled parameters repeat an earlier one's, simulates
- * the variants of the actions kept, checks `tree` against them, then
- * builds, validates and returns the candidate.
+ * the variants the actions kept leave, checks `tree` against them, then
+ * builds, validates and returns the candidate. The candidate's layout
+ * declares each instance in its variant before the actions run.
  */
 export function assembleCandidate(
   ctx: StageContext,
@@ -192,12 +192,12 @@ export function assembleCandidate(
     request.vessels,
   );
   if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
-  const variantOf = (instance: {
-    readonly instanceId: InstanceId;
-    readonly variant: VariantName;
-  }) => declared.value.variants.get(instance.instanceId) ?? instance.variant;
+  const { variants, finalVariants } = declared.value;
 
-  const shown = visible.map((view) => ({ ...view, variant: variantOf(view) }));
+  const shown = visible.map((view) => ({
+    ...view,
+    variant: finalVariants.get(view.instanceId) ?? view.variant,
+  }));
   if (invalidTree(request, tree, handOff, shown))
     return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
 
@@ -222,7 +222,7 @@ export function assembleCandidate(
       instances: retained.map(({ instanceId, vesselId, variant }) => ({
         instanceId,
         vesselId,
-        variant: variantOf({ instanceId, variant }),
+        variant: variants.get(instanceId) ?? variant,
       })),
     },
   };
