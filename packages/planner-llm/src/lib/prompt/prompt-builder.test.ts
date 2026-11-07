@@ -323,7 +323,10 @@ describe('buildSystemPrompt', () => {
     test(`${mode} prompt states that the layout applies before the actions run`, () => {
       const prompt = buildSystemPrompt(mode);
       expect(prompt).toContain(
-        'The client applies the layout first, then runs the executionPlan actions in order. An action with a transition changes the instance variant when it runs.',
+        "The client applies the layout first, then runs each instance's executionPlan actions in order. Actions on different instances may run concurrently, so do not rely on order across instances. An action with a transition changes the instance variant when it runs.",
+      );
+      expect(prompt).not.toContain(
+        'then runs the executionPlan actions in order',
       );
       expect(prompt).toContain(
         'Only invoke actions that are available in the variant the instance has when the action runs: the variant it has before the executionPlan runs (in tiling mode, the variant declared for it in the layout instances array; in grid mode, its current variant), or the target of an earlier transition action on the same instance',
