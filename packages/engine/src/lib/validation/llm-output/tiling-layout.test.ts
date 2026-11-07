@@ -298,6 +298,40 @@ describe('healTilingLayout', () => {
     expect(reasons).toContain('tree_orphan_reference');
   });
 
+  test.each(['constructor', '__proto__'])(
+    'unknown_variant: an existing Instance declared with the inherited name %s is dropped',
+    (variant) => {
+      const healed = healTilingLayout(
+        makeTilingResponse({
+          executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+          layout: {
+            tree: ['calendar-main'],
+            instances: [
+              { instanceId: 'calendar-main', vesselId: 'calendar', variant },
+            ],
+          },
+        }),
+        makeTilingRequest({
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'day',
+            },
+          ],
+          vessels: [threeViewCalendarVessel],
+        }),
+      );
+
+      expect(healed.layout.instances).toEqual([]);
+      expect(healed.droppedEntries).toContainEqual({
+        reason: 'unknown_variant',
+        instanceId: InstanceId('calendar-main'),
+        variant: VariantName(variant),
+      });
+    },
+  );
+
   test('duplicate_instance_id in instances: keep first, drop subsequent', () => {
     const healed = healTilingLayout(
       makeTilingResponse({

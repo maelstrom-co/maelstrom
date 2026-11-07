@@ -131,6 +131,52 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
   });
 });
 
+describe('parseExecutionPlan inherited Variant names', () => {
+  const vesselId = VesselId('panel');
+  const instanceId = InstanceId('panel-1');
+  const panelVessel = makeVessel({
+    id: vesselId,
+    name: 'Panel',
+    description: 'Single-Variant panel',
+    defaultVariant: VariantName('open'),
+    variants: {
+      [VariantName('open')]: {
+        description: 'Open',
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [{ name: ActionName('refresh'), description: 'Refresh' }],
+      },
+    },
+  });
+
+  test.each(['constructor', '__proto__'])(
+    'an Instance simulated in %s is skipped as variant_not_on_vessel',
+    (variant) => {
+      const { plan, skippedActions } = parseExecutionPlan(
+        [{ instanceId, action: ActionName('refresh') }],
+        {
+          instances: [{ instanceId, vesselId, variant: VariantName(variant) }],
+          vessels: [panelVessel],
+          enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+          turn: userIntentTurn,
+          logger: silentLogger,
+        },
+      );
+
+      expect(plan).toEqual([]);
+      expect(skippedActions).toEqual([
+        {
+          reason: 'variant_not_on_vessel',
+          instanceId,
+          action: ActionName('refresh'),
+          vesselId,
+          variant: VariantName(variant),
+        },
+      ]);
+    },
+  );
+});
+
 describe('parseExecutionPlan — self-transition no-op classification', () => {
   const calendarVesselId = VesselId('calendar');
   const month = VariantName('month');

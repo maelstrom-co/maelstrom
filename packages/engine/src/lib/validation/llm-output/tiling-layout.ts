@@ -82,7 +82,7 @@ export function healTilingLayout(
       });
       continue;
     }
-    if (!(instance.variant in vessel.variants)) {
+    if (!Object.hasOwn(vessel.variants, instance.variant)) {
       droppedEntries.push({
         reason: 'unknown_variant',
         instanceId,

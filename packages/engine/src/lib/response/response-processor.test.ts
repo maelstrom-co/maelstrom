@@ -3230,6 +3230,65 @@ describe('processResponse pre-action Layout Variant', () => {
     );
   });
 
+  test('an existing Instance declared with an inherited Variant name is dropped instead of throwing', () => {
+    const result = processResponse({
+      llmOutput: calendarResponse('constructor', ['showWeek']),
+      request: calendarRequestIn('day'),
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.diagnostics.droppedLayoutEntries).toContainEqual(
+      expect.objectContaining({
+        reason: 'unknown_variant',
+        variant: VariantName('constructor'),
+      }),
+    );
+    expect(result.value.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+  });
+
+  test('a new Instance declared with an inherited Variant name is dropped instead of throwing', () => {
+    const result = processResponse({
+      llmOutput: {
+        userMessage: 'Done',
+        rationale: 'open a second calendar',
+        executionPlan: [{ instanceId: 'calendar-side', action: 'showWeek' }],
+        layout: {
+          tree: ['V', 'calendar-main', 'calendar-side'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'day',
+            },
+            {
+              instanceId: 'calendar-side',
+              vesselId: 'calendar',
+              variant: 'constructor',
+            },
+          ],
+        },
+      },
+      request: calendarRequestIn('day'),
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.diagnostics.droppedLayoutEntries).toContainEqual(
+      expect.objectContaining({
+        reason: 'unknown_variant',
+        variant: VariantName('constructor'),
+      }),
+    );
+    expect(result.value.executionPlan).toEqual([]);
+  });
+
   test('a Layout Variant that disagrees with the transition target is kept with a conflict warning and no retry', () => {
     const response = run(
       calendarResponse('month', ['showWeek']),
