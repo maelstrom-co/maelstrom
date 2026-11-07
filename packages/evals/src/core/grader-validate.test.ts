@@ -460,6 +460,24 @@ describe('shippedFromRecord', () => {
       );
     });
 
+    test('shows each instance in the variant the shipped plan leaves it in', async () => {
+      const switching = {
+        ...candidate,
+        executionPlan: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      };
+      const shipped = await shippedFromRecord(shippedRecord, quoted, {
+        stage: 'complete',
+        records: [
+          { stage: 'complete', ms: 1, outcome: 'ok', output: switching },
+        ],
+      } as never);
+      expect(
+        shipped?.instances.find(
+          (instance) => instance.instanceId === 'weather-main',
+        )?.variant,
+      ).toBe('weekly' as never);
+    });
+
     test('rejects a candidate whose message or tree is not what the record shipped', async () => {
       expect(
         await shippedFromRecord(

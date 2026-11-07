@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import type { LLMContextMessage } from '@maelstrom-co/engine';
 import { buildSystemPrompt } from '@maelstrom-co/planner-llm';
 import { VariantName, VesselSchema } from '@maelstrom-co/protocol';
+import { postActionLayout } from '../core/post-action-instances.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { type ManualFetch, manualTransport } from './transport.js';
 import {
@@ -433,11 +434,15 @@ test('current Engine performs only selected turns and passes actual prior replie
       }[selected],
     );
     expect<unknown>(
-      turns.map(({ response }) =>
-        response.layout.type === 'tiling'
-          ? response.layout.instances[0].variant
-          : undefined,
-      ),
+      turns.map(({ response }) => {
+        const shipped = postActionLayout(
+          response,
+          report.configuration.initialRequest.vessels,
+        );
+        return shipped.type === 'tiling'
+          ? shipped.instances[0].variant
+          : undefined;
+      }),
     ).toEqual(
       {
         D38: ['current'],
@@ -491,7 +496,10 @@ test('current Engine performs only selected turns and passes actual prior replie
       expect(turns[index].request.layout).toEqual(
         index === 0
           ? report.configuration.initialRequest.layout
-          : turns[index - 1].response.layout,
+          : postActionLayout(
+              turns[index - 1].response,
+              report.configuration.initialRequest.vessels,
+            ),
       );
       expect(turns[index].request.vessels).toEqual(
         report.configuration.initialRequest.vessels,
@@ -993,7 +1001,6 @@ test('D39 scores the matching transition and identity without importing D40/D41 
   for (const instances of [
     [],
     [{ instanceId: 'weather-new', vesselId: 'weather', variant: 'weekly' }],
-    [{ instanceId: 'weather-main', vesselId: 'weather', variant: 'current' }],
     [{ instanceId: 'weather-main', vesselId: 'calendar', variant: 'weekly' }],
   ]) {
     const changed = structuredClone(turns);

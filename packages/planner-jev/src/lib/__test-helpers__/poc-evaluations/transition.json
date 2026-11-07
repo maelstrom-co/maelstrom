@@ -846,7 +846,7 @@
         {
           "instanceId": "journal-main",
           "vesselId": "journal",
-          "variant": "entry"
+          "variant": "list"
         }
       ]
     }

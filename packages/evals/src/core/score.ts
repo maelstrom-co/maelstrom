@@ -23,10 +23,12 @@ export interface ArrangedScore extends Score {
 /**
  * Scores a shipped (validated and healed) response: visible and retained
  * sets, ordered actions with parsed parameters, and the variant invariant
- * (an existing instance's declared variant is the one the shipped execution
- * plan leaves it in, simulated with the engine's own rule). New instance ids
- * are matched to the expected ones by Vessel and order, so a planner's own
- * ids score fairly.
+ * (the shipped execution plan replays, with the engine's own rule, from the
+ * variant the layout declares for each existing instance, which is its
+ * variant before the plan runs, and no existing instance switches twice: a
+ * layout variant change followed by a transition action to another variant).
+ * New instance ids are matched to the expected ones by Vessel and order, so a
+ * planner's own ids score fairly.
  */
 export function scoreResponse(
   scenario: Scenario,
@@ -140,8 +142,14 @@ function compareVariants(
   const existing = new Set<string>(
     request.instances.map((instance) => instance.instanceId),
   );
+  const preAction = request.instances.map(
+    (instance) =>
+      layout.instances.find(
+        (candidate) => candidate.instanceId === instance.instanceId,
+      ) ?? instance,
+  );
   const simulated = finalVariants(
-    request.instances,
+    preAction,
     executionPlan.filter((step) => existing.has(step.instanceId)),
     request.vessels,
   );
@@ -150,18 +158,70 @@ function compareVariants(
     failures.push(
       `Execution plan does not simulate: ${step.action} on ${step.instanceId} (${kind})`,
     );
-    return;
   }
-  for (const instance of request.instances) {
-    const declared = layout.instances.find(
-      (candidate) => candidate.instanceId === instance.instanceId,
+  for (const conflict of doubleSwitches(scenario, layout, executionPlan)) {
+    failures.push(
+      `Variant of ${conflict.instanceId} switches twice: the layout moves it from ${conflict.requestVariant} to ${conflict.layoutVariant}, then ${conflict.action} transitions it to ${conflict.actionTarget}`,
     );
-    const wanted = simulated.value.get(instance.instanceId) ?? instance.variant;
-    if (declared && declared.variant !== wanted)
-      failures.push(
-        `Variant of ${instance.instanceId} is ${declared.variant}, but the execution plan leaves it ${wanted}`,
-      );
   }
+}
+
+// Mirrors the Engine's layout_variant_and_action_transition_conflict warning:
+// the first Action whose transition, looked up on the Layout Variant, targets
+// another Variant. The client applies the Layout first, so Actions resolve
+// there.
+function doubleSwitches(
+  scenario: Scenario,
+  layout: TilingLayout,
+  executionPlan: MaelstromResponse['executionPlan'],
+): {
+  readonly instanceId: string;
+  readonly requestVariant: string;
+  readonly layoutVariant: string;
+  readonly action: string;
+  readonly actionTarget: string;
+}[] {
+  const { request } = scenario;
+  return request.instances.flatMap((requested) => {
+    const declared = layout.instances.find(
+      (candidate) => candidate.instanceId === requested.instanceId,
+    );
+    if (
+      declared === undefined ||
+      declared.vesselId !== requested.vesselId ||
+      declared.variant === requested.variant
+    ) {
+      return [];
+    }
+    const vessel = request.vessels.find(
+      (candidate) => candidate.id === requested.vesselId,
+    );
+    if (
+      vessel === undefined ||
+      !Object.hasOwn(vessel.variants, declared.variant)
+    ) {
+      return [];
+    }
+    const layoutActions = vessel.variants[declared.variant].actions;
+    for (const step of executionPlan) {
+      if (step.instanceId !== requested.instanceId) continue;
+      const target = layoutActions.find(
+        (action) => action.name === step.action,
+      )?.transitionsTo;
+      if (target !== undefined && target !== declared.variant) {
+        return [
+          {
+            instanceId: requested.instanceId,
+            requestVariant: requested.variant,
+            layoutVariant: declared.variant,
+            action: step.action,
+            actionTarget: target,
+          },
+        ];
+      }
+    }
+    return [];
+  });
 }
 
 /**

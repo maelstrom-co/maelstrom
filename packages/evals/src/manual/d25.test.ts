@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import type { LLMContextMessage } from '@maelstrom-co/engine';
 import { buildSystemPrompt, buildUserPrompt } from '@maelstrom-co/planner-llm';
 import { ActionName, VariantName, VesselSchema } from '@maelstrom-co/protocol';
+import { postActionLayout } from '../core/post-action-instances.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { d25Request, runD25, scoreD25Turns } from './d25.js';
 import { type ManualFetch, manualTransport } from './transport.js';
@@ -331,7 +332,10 @@ test('current Engine sends three sequential user turns and naturally retained ac
     expect(turns[index].request.layout).toEqual(
       index === 0
         ? report.configuration.initialRequest.layout
-        : turns[index - 1].response.layout,
+        : postActionLayout(
+            turns[index - 1].response,
+            report.configuration.initialRequest.vessels,
+          ),
     );
     expect(turns[index].request.vessels).toEqual(
       report.configuration.initialRequest.vessels,
@@ -409,7 +413,11 @@ test('D25 scores shipped Actions/Variants and captured history independently, ne
         },
       },
     };
-    expect(scoreD25Turns(response, initial).outcome).toBe('fail');
+    // Turn 2 ships showHourly, which reaches hourly from any declared
+    // Variant, so only the other turns end in the wrong Variant.
+    expect(scoreD25Turns(response, initial).outcome).toBe(
+      index === 1 ? 'pass' : 'fail',
+    );
   }
   const missing = structuredClone(turns);
   missing[1] = {

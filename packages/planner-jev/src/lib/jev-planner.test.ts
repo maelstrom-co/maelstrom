@@ -290,10 +290,10 @@ describe('jevPlanner through createEngine', () => {
     ).toBe('llmComplete/param_unfilled');
   });
 
-  test('a transition to a larger variant ships the post-transition variant and the action', async () => {
+  test('a transition declared in its post-transition variant ships the request variant, the action and the restore warning', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened Monday.' });
     const request = makeRequest('open the journal entry "Monday"');
-    const { result, calls, fallback } = await run(
+    const { result, calls, fallback, entries } = await run(
       request,
       talk({
         select: { 'view/journal-main': 'keep' },
@@ -315,7 +315,7 @@ describe('jevPlanner through createEngine', () => {
     expect(
       response.layout.instances.find((i) => i.instanceId === 'journal-main')
         ?.variant,
-    ).toBe('entry');
+    ).toBe('list');
     expect(response.executionPlan).toEqual([
       {
         instanceId: 'journal-main',
@@ -323,6 +323,13 @@ describe('jevPlanner through createEngine', () => {
         params: { title: 'Monday' },
       },
     ]);
+    expect(
+      entries.find((e) => e.msg === 'Response healed')?.data?.detail,
+    ).toMatchObject({
+      warnings: [
+        'instance "journal-main" declared post-action variant "entry", restored to "list" so its transition actions drive the change',
+      ],
+    });
     expect(response.layout.tree).toEqual([
       'V:2,1',
       'ID:journal-main',

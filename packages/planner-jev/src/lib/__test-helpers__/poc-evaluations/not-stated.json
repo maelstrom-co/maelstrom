@@ -955,7 +955,7 @@
         {
           "instanceId": "weather-main",
           "vesselId": "weather",
-          "variant": "weekly"
+          "variant": "current"
         },
         {
           "instanceId": "tasks-main",

@@ -33,6 +33,7 @@ import type { StageRecord } from './instrument.js';
 import { judgeProvenance } from './judge.js';
 import { evaluationJudgeSchema, type JudgeProvenance } from './judge-result.js';
 import type { PlannerEvalPlugin } from './plugin.js';
+import { postActionInstances } from './post-action-instances.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
@@ -339,7 +340,11 @@ export async function shippedFromRecord(
       return {
         ...shipped,
         executionPlan: healed.executionPlan,
-        instances: healed.layout.instances,
+        instances: postActionInstances(
+          healed.layout.instances,
+          healed.executionPlan,
+          scenario.request.vessels,
+        ),
       };
   }
   const existing = new Set<string>(

@@ -71,6 +71,7 @@ export function processResponse({
   // (rather than in a helper) so the discriminator → branch correspondence
   // is locally legible; each cast is paired with the case that justifies it.
   const mode = request.context.layoutMode;
+  const turn = classifyExecutionTurn(request);
   let healed: HealedLayout;
   let layout: GridLayout | TilingLayout;
   switch (mode) {
@@ -85,7 +86,10 @@ export function processResponse({
       break;
     }
     case 'tiling': {
-      healed = healTilingLayout(llmOutput as TilingResponse, request);
+      healed = healTilingLayout(llmOutput as TilingResponse, request, {
+        enumSnapshot,
+        turn,
+      });
       // Same union-narrowing rationale as the `grid` arm.
       layout = buildTilingLayout(
         healed.layout as {
@@ -105,17 +109,10 @@ export function processResponse({
       );
     }
   }
-  // Tiling allows the LLM to declare new instances in `layout.instances`
-  // alongside an action that configures them (per the system prompt:
-  // "To CREATE a new instance, add it to the instances array... add an
-  // action in executionPlan to configure it"). Without merging those
-  // healed declarations into the action resolver's instance map, every
-  // new-instance + configure-action pair gets skipped as unknown_instance
-  // and the retry loop wastes attempts on output the LLM has no reason
-  // to change. Existing instances keep their pre-request variant —
-  // mid-plan transitions are still simulated by `parseExecutionPlan`.
-  // Grid mode has no separate instance-declaration channel (positions
-  // reference existing instanceIds), so it stays as-is.
+  // The client applies the Layout before it runs the Execution Plan, so in
+  // tiling mode every Instance the Layout keeps is simulated from its healed
+  // Layout Variant, new and existing alike. Grid positions carry no Variant,
+  // so grid mode simulates from the request.
   const planInstances: readonly VesselInstanceSnapshot[] =
     healed.mode === 'tiling'
       ? mergeTilingInstances(request.instances, healed.layout.instances)
@@ -126,7 +123,7 @@ export function processResponse({
       instances: planInstances,
       vessels: request.vessels,
       enumSnapshot,
-      turn: classifyExecutionTurn(request),
+      turn,
       logger,
     },
   );
@@ -176,16 +173,19 @@ export function buildDiagnostics(records: DiagnosticRecords): FullDiagnostics {
   };
 }
 
-// Existing instances win on conflict — the LLM declaring a different
-// variant for an already-extant instance shouldn't silently overwrite
-// the simulator's starting state. Variant transitions go through the
-// executionPlan path so the simulator can validate them.
+// Request-only Instances stay in the simulation unchanged, so an Action on an
+// Instance the Layout deletes resolves exactly as it would without the Layout.
 function mergeTilingInstances(
   requestInstances: readonly VesselInstanceSnapshot[],
   healedInstances: readonly HealedTilingInstance[],
 ): readonly VesselInstanceSnapshot[] {
+  const declaredById = new Map(
+    healedInstances.map((instance) => [instance.instanceId, instance]),
+  );
+  const merged: VesselInstanceSnapshot[] = requestInstances.map(
+    (instance) => declaredById.get(instance.instanceId) ?? instance,
+  );
   const seen = new Set(requestInstances.map((i) => i.instanceId));
-  const merged: VesselInstanceSnapshot[] = [...requestInstances];
   for (const instance of healedInstances) {
     if (seen.has(instance.instanceId)) continue;
     merged.push(instance);

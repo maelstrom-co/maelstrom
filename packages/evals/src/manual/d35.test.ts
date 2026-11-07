@@ -8,6 +8,7 @@ import {
   VariantName,
   VesselSchema,
 } from '@maelstrom-co/protocol';
+import { postActionLayout } from '../core/post-action-instances.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { type D35Turn, runD35, scoreD35Turns } from './d35.js';
 import type { ManualFetch } from './transport.js';
@@ -316,7 +317,10 @@ test('D35 synthetic Engine/planner requests carry actual prior replies and exact
     expect(turns[index].request.layout).toEqual(
       index === 0
         ? report.configuration.initialRequest.layout
-        : turns[index - 1].response.layout,
+        : postActionLayout(
+            turns[index - 1].response,
+            report.configuration.initialRequest.vessels,
+          ),
     );
     prior.push(
       { role: 'user', content: intents[index] },
