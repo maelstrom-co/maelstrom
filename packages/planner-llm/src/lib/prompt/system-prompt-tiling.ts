@@ -80,18 +80,19 @@ WORKED EXAMPLE - an uneven split:
 INSTANCE MANAGEMENT:
 The layout object contains two parts:
 1. tree: The split tree defining spatial arrangement (only visible instances appear here)
-2. instances: ALL instances that should exist after this response, with their variants
+2. instances: ALL instances that should exist after this response, each in the variant it has BEFORE the executionPlan runs
 
 For each instance in the instances array:
 - instanceId: Unique ID (format: "vesselId-identifier", e.g., "calendar-main")
 - vesselId: The vessel type to instantiate
-- variant: The variant the instance should be in
+- variant: The variant the instance has before its executionPlan actions run
 
 To CREATE a new instance:
-- Add it to the instances array with the variant you want it to start in. That declared variant IS the new instance's starting state.
+- Add it to the instances array with the variant you want it to start in. That declared variant IS the new instance's starting variant.
 - Include it in the tree if it should be visible
 - If the new instance needs configuration (loading data, setting parameters), add a configuration action in executionPlan
-- DO NOT add a transition action whose target equals the variant you just declared. The new instance has no prior variant for the action to transition from, so the simulator rejects it as a no-op and the action is silently dropped.
+- A transition action available on the starting variant may follow in executionPlan. It runs after the instance appears and moves it from the starting variant to the action's target.
+- DO NOT add a transition action whose target equals the variant you just declared. The instance already starts in that variant, so the simulator rejects the action as a no-op and drops it.
 
 To DELETE an instance:
 - Only delete an instance when the user explicitly requests its deletion.
@@ -100,10 +101,10 @@ To DELETE an instance:
 To HIDE an instance:
 - Include it in instances but not in the tree
 
-To CHANGE an EXISTING instance's variant — pick exactly ONE method, never both:
-- PREFERRED: use a transition action. Add the action (whose definition has \`transitionsTo\` equal to the desired variant) to executionPlan; record the post-action variant in the instances array. The action drives the change; the instances entry just confirms the resulting state.
-- DIRECT: only when no transition action exists for the change you want. Set the variant in the instances array to the desired value WITHOUT adding any transition action.
-- NEVER mix the two for the same instance change. The simulator validates each action against the instance's pre-action variant; if you also mutated the instance's variant directly to the action's target, the simulator sees no actual transition and skips the action.
+To CHANGE an EXISTING instance's variant, pick exactly ONE method:
+- PREFERRED: keep the instance's current variant in the instances array and add the transition action (listed as "actionName → targetVariant" in its available actions) to executionPlan. The client applies the layout first, then runs the action, which moves the instance to the target variant.
+- DIRECT: only when no transition action exists for the change you want. Set the new variant in the instances array and add NO transition action.
+- NEVER declare the target variant in the instances array AND add a transition action to it. Each action is validated against the variant the instance has when the action runs, starting from the declared variant, so the instance is already in the target. The Engine then has to reset the instance to its current variant to keep the action, and skips the action when it cannot.
 - ${NO_OP_VARIANT_ACKNOWLEDGEMENT}
 
 Examples:
