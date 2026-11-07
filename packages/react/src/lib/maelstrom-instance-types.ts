@@ -114,6 +114,14 @@ export interface MaelstromInstanceCore<
    * handler map. Otherwise its Engine actions are skipped after the readiness timeout and its
    * Variant does not change.
    *
+   * Call this hook once per instance, in a component that stays mounted while the instance
+   * moves between Variants, and render Variant-specific content as child components. React
+   * registers the runner in an effect after commit, so a runner registered by a component that
+   * mounts with the new Variant is not in place when the next action of the same Engine plan
+   * runs. That action reaches the previous Variant's runner and is skipped when it finds no
+   * handler there. Because one runner serves every Variant, read the current Variant inside a
+   * handler when its behavior depends on it.
+   *
    * @example
    * m.useActions('calendar', instanceId, {
    *   addEvent: async ({ title }) => {
