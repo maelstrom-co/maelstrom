@@ -229,6 +229,25 @@ The handler params are typed from the vessel definition: `setName` receives `{ n
   Pass a stable `runner`: define it outside the component or wrap it in `useMemo`. A fresh object each render re-registers the handlers on every render. Only one `useActions` call per `instanceId` is supported; a second registration overwrites the first.
 </Aside>
 
+### Register one runner per instance
+
+Call `useActions` once per instance, in a component that stays mounted while the instance moves between variants, such as the vessel's root component. Render variant-specific content as child components, and keep the runner in the parent:
+
+```tsx title="src/vessels/inbox/inbox.component.tsx"
+export default function InboxComponent({
+  instanceId,
+  variantProps,
+}: TypedVesselProps<typeof inboxVessel>) {
+  m.useActions('inbox', instanceId, inboxRunner);
+
+  return variantProps.variant === 'detail' ? <DetailView /> : <ListView />;
+}
+```
+
+Do not call `useActions` from a child that only renders for one variant. React registers a runner in an effect after it commits, so a runner that mounts with the new variant is not in place yet when the next action of the same engine plan runs. If the engine plans `showDetails` and then `selectItem({ id })`, `selectItem` reaches the list view's runner, which has no handler for it, and is skipped.
+
+A runner that outlives variant changes serves every variant, so its handlers must not assume the variant that was showing when the runner was created. If a handler behaves differently per variant, read the current variant inside the handler when it runs.
+
 ### Missing handlers and invalid parameters
 
 If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. What happens next depends on the action's `effect`:

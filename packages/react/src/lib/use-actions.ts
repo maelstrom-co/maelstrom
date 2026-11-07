@@ -24,6 +24,10 @@ import { warnOnce } from './warn-once.js';
  * The runner needs a handler for every action not declared `effect: 'none'`. Without one,
  * that action is skipped and its Variant does not change.
  *
+ * Register the runner once per instance, from a component that stays mounted across Variants.
+ * The registration happens in an effect after commit, so a runner registered by a component
+ * that mounts with a new Variant misses the next action of the same Engine plan.
+ *
  * Limitation: only one useActions call per instanceId is supported. If two components
  * register runners for the same instanceId, the second overwrites the first.
  * Disposal is identity-checked, so unmounting the first will not affect the second's runner.
