@@ -588,8 +588,8 @@ export class ActionManager {
     const records: ActionRecord[] = [];
 
     for (const execution of executions) {
-      // A runner can be replaced after a transition, for example when a
-      // Vessel renders a different component per Variant, so read it per
+      // Runners are Instance-lived, but one can still re-register during a
+      // plan (a remount, or its handler map being replaced), so read it per
       // Action.
       const runner = await this.#currentRunner(instanceId);
       if (!runner) {
