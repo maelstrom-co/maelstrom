@@ -1141,7 +1141,7 @@ describe('variant transitions', () => {
     });
   });
 
-  it('treats a lost compare-and-set as applied, not as an error', async () => {
+  it('keeps a Variant moved during the handler and records the Action as succeeded', async () => {
     const { transitions, variants, applyCalls } = createFakeVariantTransitions({
       'calendar-main': 'day',
     });
@@ -1159,7 +1159,7 @@ describe('variant transitions', () => {
     );
 
     expect(result.successCount).toBe(1);
-    expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
+    expect(applyCalls).toEqual([]);
     expect(variants.get('calendar-main')).toBe('month');
   });
 

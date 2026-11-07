@@ -106,7 +106,9 @@ export type ActionVariantTransition =
 export interface VariantTransitions {
   /**
    * Reads the Instance's current Variant and the named Action's declaration
-   * on it. Called once per Action, at that Action's turn.
+   * on it. Called at the Action's turn, and again once its handler succeeds
+   * when the Action declares a transition, since the Vessel can be redefined
+   * while the handler runs.
    *
    * @param instanceId - The Instance the Action targets.
    * @param action - The Action about to run.
@@ -661,15 +663,28 @@ export class ActionManager {
         observe,
       );
       records.push(record);
-      if (record.result.ok && target) {
-        this.#applyTransition(
-          transitions,
-          instanceId,
-          execution.action,
-          resolution.variant,
-          target,
+      if (!record.result.ok || !target) continue;
+      // The Vessel can be redefined while the handler runs, so the target is
+      // read again from the definition in force once it succeeds.
+      const settled = transitions.resolve(instanceId, execution.action);
+      if (
+        settled.status !== 'available' ||
+        settled.variant !== resolution.variant ||
+        settled.transition.kind !== 'to' ||
+        settled.transition.variant === resolution.variant
+      ) {
+        this.#logger.debug(
+          `Action "${execution.action}" no longer moves Instance "${instanceId}" from Variant "${resolution.variant}" to a defined Variant after its handler, applying no transition`,
         );
+        continue;
       }
+      this.#applyTransition(
+        transitions,
+        instanceId,
+        execution.action,
+        resolution.variant,
+        settled.transition.variant,
+      );
     }
 
     return records;

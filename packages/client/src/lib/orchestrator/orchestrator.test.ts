@@ -44,6 +44,7 @@ import {
   createMockResponse,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
+import type { BatchExecutionResult } from '../command-processor/action-runner.types.js';
 import type {
   AcknowledgedAssistantConnector,
   EngineConnector,
@@ -281,6 +282,8 @@ function seedInstance(
   }));
   return instanceId;
 }
+
+type BatchSummary = Pick<BatchExecutionResult, 'successCount' | 'skippedCount'>;
 
 function currentVariant(
   orchestrator: Orchestrator,
@@ -2458,6 +2461,95 @@ describe('Orchestrator', () => {
           'user invoked "showMonth": variant day → month',
         ]);
         scheduleSpy.mockRestore();
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    async function runShowWeekWhileRedefining(
+      redefined: VesselDefinition,
+    ): Promise<{ orchestrator: Orchestrator; completed: BatchSummary[] }> {
+      let finishShowWeek: ((result: ActionResult) => void) | undefined;
+      const connector = createMockConnector({
+        process: mock((message: ChartRequestMessage) =>
+          Promise.resolve(calendarResponse(message.id, 'showWeek')),
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        vessels: [calendarViewsVessel],
+      });
+      const completed: BatchSummary[] = [];
+      orchestrator.commandProcessor.events.on(
+        'actions_completed',
+        ({ result }) => {
+          completed.push({
+            successCount: result.successCount,
+            skippedCount: result.skippedCount,
+          });
+        },
+      );
+      await orchestrator.connect();
+      orchestrator.commandProcessor.registerRunner(calendarMain, {
+        showWeek: () =>
+          new Promise<ActionResult>((resolve) => {
+            finishShowWeek = resolve;
+          }),
+      });
+
+      const pending = orchestrator.processIntent('show the week');
+      await waitFor(() => finishShowWeek !== undefined);
+      expect(orchestrator.vesselManager.registerVessel(redefined).valid).toBe(
+        true,
+      );
+
+      finishShowWeek?.(ok(undefined));
+      await pending;
+      await orchestrator.commandProcessor.waitForIdle();
+      return { orchestrator, completed };
+    }
+
+    it('skips the transition when the Vessel is redefined without the target during the handler', async () => {
+      const { day, month } = calendarViewsVessel.variants;
+      const { orchestrator, completed } = await runShowWeekWhileRedefining({
+        ...calendarViewsVessel,
+        variants: {
+          day: {
+            ...day,
+            actions: day.actions.filter(({ name }) => name !== 'showWeek'),
+          },
+          month: {
+            ...month,
+            actions: month.actions.filter(({ name }) => name !== 'showWeek'),
+          },
+        },
+      });
+      try {
+        expect(currentVariant(orchestrator, calendarMain)).toBe('day');
+        expect(completed).toEqual([{ successCount: 1, skippedCount: 0 }]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('applies the redefined target when the Vessel changes during the handler', async () => {
+      const { day } = calendarViewsVessel.variants;
+      const { orchestrator, completed } = await runShowWeekWhileRedefining({
+        ...calendarViewsVessel,
+        variants: {
+          ...calendarViewsVessel.variants,
+          day: {
+            ...day,
+            actions: day.actions.map((action) =>
+              action.name === 'showWeek'
+                ? { ...action, transitionsTo: 'month' }
+                : action,
+            ),
+          },
+        },
+      });
+      try {
+        expect(currentVariant(orchestrator, calendarMain)).toBe('month');
+        expect(completed).toEqual([{ successCount: 1, skippedCount: 0 }]);
       } finally {
         await orchestrator.dispose();
       }
