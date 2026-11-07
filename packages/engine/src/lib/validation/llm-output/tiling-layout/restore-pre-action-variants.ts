@@ -1,4 +1,5 @@
 import type {
+  ActionExecution,
   ActionName,
   ChartRequest,
   InstanceId,
@@ -28,17 +29,20 @@ export type ActionAcceptance = Pick<PlanContext, 'enumSnapshot' | 'turn'>;
  *
  * The client applies the Layout before it runs the Execution Plan, so a
  * Layout that already names the Variant a transition Action leads to makes
- * that Action resolve against its own target. An Instance is restored only
- * when the Engine would accept every one of its Actions, replayed in plan
- * order from the request Variant under the same params and turn rules, and
- * the accepted Actions end exactly on the Layout Variant. That one rule
- * leaves a direct switch (no transition), an Action the request Variant does
- * not offer, an Action the Engine would skip, and a transition to some other
- * Variant untouched.
+ * that Action resolve against its own target. Each Instance's Actions are
+ * replayed in plan order twice under the same params and turn rules, once
+ * from the request Variant and once from the Layout Variant. The Instance is
+ * restored when the Actions accepted from the request Variant end exactly on
+ * the Layout Variant and every Action accepted from the Layout Variant is
+ * also accepted, in the same order, from the request Variant. Rejected
+ * Actions keep their own skip diagnostics either way. That rule leaves a
+ * direct switch (no transition), a transition the request Variant does not
+ * offer, a transition to some other Variant, and an Action only the Layout
+ * Variant offers untouched.
  *
- * An unrestored Instance whose Layout changes its Variant while one of its
- * Actions, looked up on the Layout Variant, transitions to a different
- * Variant is reported as a conflict and kept exactly as declared.
+ * An unrestored Instance whose Layout changes its Variant while an Action
+ * accepted from the Layout Variant transitions to a different Variant is
+ * reported as a conflict and kept exactly as declared.
  */
 export function restorePreActionVariants(
   healedInstances: readonly HealedTilingInstance[],
@@ -67,14 +71,26 @@ export function restorePreActionVariants(
     const actions = executionPlan.filter(
       (step) => step.instanceId === instance.instanceId,
     );
+    const acceptedFromRequest = acceptedActions(
+      requested,
+      actions,
+      request.vessels,
+      acceptance,
+    );
+    const acceptedFromLayout = acceptedActions(
+      { ...requested, variant: instance.variant },
+      actions,
+      request.vessels,
+      acceptance,
+    );
     if (
       acceptedActionsEndOn(
         instance.variant,
         requested,
-        actions,
+        acceptedFromRequest,
         request.vessels,
-        acceptance,
-      )
+      ) &&
+      containsInOrder(acceptedFromRequest, acceptedFromLayout)
     ) {
       warnings.push({
         kind: 'pre_action_variant_restored',
@@ -86,7 +102,7 @@ export function restorePreActionVariants(
     }
 
     const conflict = firstTransitionAwayFromLayout(
-      actions,
+      acceptedFromLayout,
       instance.vesselId,
       instance.variant,
       request.vessels,
@@ -115,28 +131,56 @@ const silentLogger: Logger = {
   error() {},
 };
 
-function acceptedActionsEndOn(
-  layoutVariant: VariantName,
-  requested: VesselInstanceSnapshot,
+function acceptedActions(
+  instance: VesselInstanceSnapshot,
   actions: readonly PlannedAction[],
   vessels: readonly Vessel[],
   acceptance: ActionAcceptance,
-): boolean {
-  const { plan, skippedActions } = parseExecutionPlan(actions, {
-    instances: [requested],
+): readonly ActionExecution[] {
+  return parseExecutionPlan(actions, {
+    instances: [instance],
     vessels,
     ...acceptance,
     logger: silentLogger,
-  });
-  if (skippedActions.length > 0) return false;
-  const replay = finalVariants([requested], plan, vessels);
+  }).plan;
+}
+
+function acceptedActionsEndOn(
+  layoutVariant: VariantName,
+  requested: VesselInstanceSnapshot,
+  accepted: readonly ActionExecution[],
+  vessels: readonly Vessel[],
+): boolean {
+  const replay = finalVariants([requested], accepted, vessels);
   return (
     isOk(replay) && replay.value.get(requested.instanceId) === layoutVariant
   );
 }
 
+// Accepted params are parsed from the plan's paramsJson, so the same step
+// serializes identically in both replays.
+function containsInOrder(
+  plan: readonly ActionExecution[],
+  subsequence: readonly ActionExecution[],
+): boolean {
+  let next = 0;
+  for (const step of plan) {
+    const wanted = subsequence[next];
+    if (
+      wanted !== undefined &&
+      wanted.action === step.action &&
+      JSON.stringify(wanted.params) === JSON.stringify(step.params)
+    ) {
+      next += 1;
+    }
+  }
+  return next === subsequence.length;
+}
+
+// Every accepted step up to the first transition away resolves on the Layout
+// Variant, so the lookup never needs to follow the simulation further.
 function firstTransitionAwayFromLayout(
-  actions: readonly PlannedAction[],
+  accepted: readonly ActionExecution[],
   vesselId: VesselId,
   layoutVariant: VariantName,
   vessels: readonly Vessel[],
@@ -148,7 +192,7 @@ function firstTransitionAwayFromLayout(
     return undefined;
   }
 
-  for (const step of actions) {
+  for (const step of accepted) {
     const target = vessel.variants[layoutVariant].actions.find(
       (action) => action.name === step.action,
     )?.transitionsTo;

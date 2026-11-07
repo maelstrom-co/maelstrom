@@ -128,12 +128,12 @@ export type LayoutWarning =
     }
   | {
       /**
-       * An existing Instance was declared in the Variant its own transition
-       * Actions lead to, and the Engine accepts every one of those Actions
-       * from the Instance's current Variant. The Layout is applied before
-       * the Execution Plan runs, so the declaration was reset to the
-       * Instance's current Variant and the Actions were kept to drive the
-       * change.
+       * An existing Instance was declared in the Variant that the Actions
+       * the Engine accepts from its current Variant lead to, and replaying
+       * those Actions from the declared Variant accepts none that this
+       * reading drops. The Layout is applied before the Execution Plan runs,
+       * so the declaration was reset to the Instance's current Variant and
+       * the accepted Actions were kept to drive the change.
        */
       readonly kind: 'pre_action_variant_restored';
       readonly instanceId: InstanceId;
@@ -145,9 +145,10 @@ export type LayoutWarning =
   | {
       /**
        * The Layout changes an existing Instance's Variant directly and an
-       * Action on the same Instance, looked up on the Layout Variant,
-       * changes it again, to a different Variant. Both are kept as declared, so the Instance moves
-       * twice and ends on the Action's target.
+       * Action on the same Instance that the Engine accepts from the Layout
+       * Variant changes it again, to a different Variant. Both are kept as
+       * declared, so the Instance moves twice and ends on the Action's
+       * target.
        */
       readonly kind: 'layout_variant_and_action_transition_conflict';
       readonly instanceId: InstanceId;
@@ -155,7 +156,7 @@ export type LayoutWarning =
       readonly requestVariant: VariantName;
       /** The Variant the Layout declares. */
       readonly layoutVariant: VariantName;
-      /** The first Action whose transition on the Layout Variant targets another Variant. */
+      /** The first accepted Action whose transition on the Layout Variant targets another Variant. */
       readonly actionName: ActionName;
       /** The Variant that Action transitions to. */
       readonly actionTarget: VariantName;

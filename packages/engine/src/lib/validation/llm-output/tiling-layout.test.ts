@@ -1166,6 +1166,17 @@ describe('healTilingLayout pre-action Variant restore', () => {
     expect(healed.droppedEntries).toEqual([]);
   });
 
+  test('a transition Action the Engine will skip for its params on the Layout Variant is not reported as a conflict', () => {
+    const healed = healCalendar({
+      requestVariant: 'day',
+      layoutVariant: 'month',
+      plan: [{ action: 'showWeek', paramsJson: '{"view":"next"}' }],
+    });
+
+    expect(healed.layout.instances[0]?.variant).toBe(VariantName('month'));
+    expect(healed.warnings).toEqual([]);
+  });
+
   test('a Layout Variant equal to the request Variant warns about nothing', () => {
     const healed = healCalendar({
       requestVariant: 'day',

@@ -44,14 +44,16 @@ import {
  * - Malformed split weights → warning, repaired in place. Nothing is dropped,
  *   because a split's arity is exactly what could not be read.
  * - missing rationale → warning, response accepted as-is.
- * - Existing Instance declared in the Variant its own transition Actions lead
- *   to, when the Engine accepts every one of those Actions from the request
- *   Variant → warning, the Variant is reset to the request Variant and every
- *   Action is kept. The Layout holds each Instance's Variant before the
- *   Execution Plan runs, because the client applies the Layout first.
- * - Existing Instance whose Layout Variant changes directly while one of its
- *   Actions, looked up on the Layout Variant, transitions to another Variant
- *   → warning only, Layout and Actions kept as declared.
+ * - Existing Instance declared in the Variant that the Actions the Engine
+ *   accepts from its request Variant lead to, when replaying them from the
+ *   Layout Variant accepts no Action that reading drops → warning, the
+ *   Variant is reset to the request Variant and the accepted Actions are
+ *   kept. Rejected Actions keep their skip diagnostics. The Layout holds
+ *   each Instance's Variant before the Execution Plan runs, because the
+ *   client applies the Layout first.
+ * - Existing Instance whose Layout Variant changes directly while an Action
+ *   the Engine accepts from the Layout Variant transitions to another
+ *   Variant → warning only, Layout and Actions kept as declared.
  */
 export function healTilingLayout(
   response: TilingResponse,

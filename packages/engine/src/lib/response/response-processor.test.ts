@@ -3230,6 +3230,86 @@ describe('processResponse pre-action Layout Variant', () => {
     );
   });
 
+  test('a side-effect Action skipped for its params ahead of the transition still restores the request Variant and keeps the transition', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'add an event and switch to the week view',
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'addEvent',
+            paramsJson: '{"x":1}',
+          },
+          { instanceId: 'calendar-main', action: 'showWeek' },
+        ],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      },
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({
+        reason: 'params_validation_failed',
+        action: ActionName('addEvent'),
+      }),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+  });
+
+  test('an Action only the Layout Variant offers ahead of the transition keeps the declared Layout Variant so that Action ships', () => {
+    const shareOnWeekCalendarVessel: AuthorVessel = {
+      ...threeViewCalendarVessel,
+      variants: {
+        ...threeViewCalendarVessel.variants,
+        week: {
+          ...threeViewCalendarVessel.variants.week,
+          actions: [
+            ...threeViewCalendarVessel.variants.week.actions,
+            { name: 'shareWeek', description: 'Share the week' },
+          ],
+        },
+      },
+    };
+
+    const response = run(
+      calendarResponse('week', ['shareWeek', 'showWeek']),
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'day' },
+        ],
+        vessels: [shareOnWeekCalendarVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('week'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('shareWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({
+        reason: 'self_transition_noop',
+        action: ActionName('showWeek'),
+      }),
+    ]);
+    expect(response.diagnostics.warnings).toEqual([]);
+  });
+
   test('an existing Instance declared with an inherited Variant name is dropped instead of throwing', () => {
     const result = processResponse({
       llmOutput: calendarResponse('constructor', ['showWeek']),
