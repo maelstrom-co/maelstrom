@@ -100,7 +100,7 @@ describe('MaelstromInstance.useActions inference', () => {
 
   it('rejects a runner missing a handler for an Action not declared effect none', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
-      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
       m.useActions(
         'orders',
         'inst-1',
