@@ -38,7 +38,8 @@ export const ActionEffectSchema = z.enum(['none', 'idempotent', 'any']);
  * `effect` parses to an explicit {@link ActionEffect}, `'any'` when omitted,
  * so consumers never branch on `undefined`. An Action with effect `'none'`
  * must declare `transitionsTo` and no parameters; see
- * {@link VesselActionDefinition.effect}.
+ * {@link VesselActionDefinition.effect}. An Action that still declares the
+ * removed `idempotent` flag fails to parse with a migration message.
  */
 export const VesselActionSchema = z
   .object({
@@ -51,8 +52,18 @@ export const VesselActionSchema = z
       .transform(VariantName)
       .optional(),
     effect: ActionEffectSchema.optional().default('any'),
+    // Accepts any value so the refinement below can name the Action in its
+    // migration message, while the parsed type keeps the key unusable.
+    idempotent: z.custom<never>().optional(),
   })
   .superRefine((action, ctx) => {
+    if (action.idempotent !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Action "${action.name}" declares idempotent, which was replaced by effect: 'idempotent'`,
+        path: ['idempotent'],
+      });
+    }
     if (action.effect !== 'none') return;
     if (action.transitionsTo === undefined) {
       ctx.addIssue({
@@ -293,6 +304,13 @@ export interface VesselActionDefinition {
    * parameter value there could only have come from an earlier turn.
    */
   readonly effect?: ActionEffect;
+  /**
+   * Removed. Declare {@link VesselActionDefinition.effect} instead:
+   * `idempotent: true` becomes `effect: 'idempotent'`, and `idempotent: false`
+   * is the default `effect: 'any'`. A definition that still sets it fails to
+   * compile and fails {@link validateVessel}.
+   */
+  readonly idempotent?: never;
 }
 
 // ---------------------------------------------------------------------------

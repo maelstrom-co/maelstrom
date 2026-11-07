@@ -353,6 +353,25 @@ describe('validateVessel', () => {
       );
     });
 
+    test('rejects the removed idempotent flag with a migration message', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'openEntry',
+          description: 'Open an entry',
+          idempotent: true,
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'idempotent'],
+          message:
+            'Action "openEntry" declares idempotent, which was replaced by effect: \'idempotent\'',
+        }),
+      );
+    });
+
     test('rejects effect none with parameters', () => {
       const result = validateVessel(
         vesselWithAction({
@@ -477,5 +496,29 @@ describe('defineVessel', () => {
     // would widen to string.
     const firstAction = v.variants.list.actions[0];
     expect(firstAction?.name).toBe('select');
+  });
+
+  test('rejects the removed idempotent flag at compile time', () => {
+    const v = defineVessel({
+      id: 'orders',
+      name: 'Orders',
+      description: 'Order tracking',
+      defaultVariant: 'list',
+      variants: {
+        list: {
+          props: {},
+          minSize: { width: 2, height: 2 },
+          actions: [
+            {
+              name: 'select',
+              description: 'Select an order',
+              // @ts-expect-error idempotent was replaced by effect
+              idempotent: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(validateVessel(v).valid).toBe(false);
   });
 });
