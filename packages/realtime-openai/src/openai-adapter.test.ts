@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import type {
   CapabilitySnapshot,
   TimedTranscriptFragment,
@@ -18,6 +19,7 @@ import {
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import {
   type GreetingInterruptionRuntime,
   setGreetingInterruptionRuntimeImporterForTests,
@@ -438,20 +440,23 @@ describe('OpenAIAdapter — greeting interruption configuration', () => {
       { providerOptions: { positiveSpeechThreshold: 2 } },
     ],
     ['malformed provider options', { providerOptions: [] }],
-  ])('rejects invalid runtime configuration synchronously: %s', (_name, value) => {
-    let thrown: unknown;
-    try {
-      new OpenAIAdapter({
-        mintToken: async () => fakeToken,
-        greetingInterruption: value as unknown as false,
-      });
-    } catch (error) {
-      thrown = error;
-    }
+  ])(
+    'rejects invalid runtime configuration synchronously: %s',
+    (_name, value) => {
+      let thrown: unknown;
+      try {
+        new OpenAIAdapter({
+          mintToken: async () => fakeToken,
+          greetingInterruption: value as unknown as false,
+        });
+      } catch (error) {
+        thrown = error;
+      }
 
-    expect(thrown).toBeInstanceOf(TypeError);
-    expect((thrown as Error).message).toStartWith('greetingInterruption');
-  });
+      expect(thrown).toBeInstanceOf(TypeError);
+      expect((thrown as Error).message).toStartWith('greetingInterruption');
+    },
+  );
 
   it('rejects invalid configuration before token, microphone, peer, or VAD work', () => {
     let mintCalls = 0;
@@ -477,38 +482,38 @@ describe('OpenAIAdapter — greeting interruption configuration', () => {
     expect(FakeRTCPeerConnection.instances).toEqual([]);
   });
 
-  it.each([
-    undefined,
-    false,
-  ] as const)('keeps the original raw microphone attachment when %p', async (greetingInterruption) => {
-    let runtimeLoads = 0;
-    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
-      async () => {
-        runtimeLoads += 1;
-        return runtime;
-      },
-    );
-    const adapter = new OpenAIAdapter({
-      mintToken: async () => fakeToken,
-      ...(greetingInterruption === undefined ? {} : { greetingInterruption }),
-    });
-    try {
-      await connectAndOpen(adapter);
-    } finally {
-      restoreRuntime();
-    }
+  it.each([undefined, false] as const)(
+    'keeps the original raw microphone attachment when %p',
+    async (greetingInterruption) => {
+      let runtimeLoads = 0;
+      const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+        async () => {
+          runtimeLoads += 1;
+          return runtime;
+        },
+      );
+      const adapter = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        ...(greetingInterruption === undefined ? {} : { greetingInterruption }),
+      });
+      try {
+        await connectAndOpen(adapter);
+      } finally {
+        restoreRuntime();
+      }
 
-    const stream = FakeMediaStream.instances.at(-1);
-    const connection = FakeRTCPeerConnection.instances.at(-1);
-    expect(adapter.getAudioStreams().mic).toBe(
-      stream as unknown as MediaStream,
-    );
-    expect(connection?.getSenders().map((sender) => sender.track)).toEqual(
-      stream?.getTracks(),
-    );
-    expect(connection?.addTrackCalls).toBe(stream?.getTracks().length);
-    expect(runtimeLoads).toBe(0);
-  });
+      const stream = FakeMediaStream.instances.at(-1);
+      const connection = FakeRTCPeerConnection.instances.at(-1);
+      expect(adapter.getAudioStreams().mic).toBe(
+        stream as unknown as MediaStream,
+      );
+      expect(connection?.getSenders().map((sender) => sender.track)).toEqual(
+        stream?.getTracks(),
+      );
+      expect(connection?.addTrackCalls).toBe(stream?.getTracks().length);
+      expect(runtimeLoads).toBe(0);
+    },
+  );
 
   it('lazy-loads the enabled interruption runtime during connection preparation', async () => {
     let runtimeLoads = 0;
@@ -1462,23 +1467,26 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
       'duplicate commit and completion',
       ['commit', 'commit', 'completed', 'completed'],
     ],
-  ] as const)('creates one response for a committed useful transcript: %s', async (_name, order) => {
-    const { channel } = await connectTranscriptConfirmed();
-    const itemId = 'validated-item';
+  ] as const)(
+    'creates one response for a committed useful transcript: %s',
+    async (_name, order) => {
+      const { channel } = await connectTranscriptConfirmed();
+      const itemId = 'validated-item';
 
-    for (const event of order) {
-      if (event === 'commit') channel.receive(committed(itemId));
-      if (event === 'completed') channel.receive(completed(itemId));
-      if (event === 'delta') {
-        channel.receive({ ...usefulDelta, item_id: itemId });
+      for (const event of order) {
+        if (event === 'commit') channel.receive(committed(itemId));
+        if (event === 'completed') channel.receive(completed(itemId));
+        if (event === 'delta') {
+          channel.receive({ ...usefulDelta, item_id: itemId });
+        }
       }
-    }
 
-    expect(responseCreates(channel)).toEqual([{ type: 'response.create' }]);
-    expect(sentFrames(channel)).not.toContainEqual({
-      type: 'input_audio_buffer.commit',
-    });
-  });
+      expect(responseCreates(channel)).toEqual([{ type: 'response.create' }]);
+      expect(sentFrames(channel)).not.toContainEqual({
+        type: 'input_audio_buffer.commit',
+      });
+    },
+  );
 
   it.each([
     ['useful delta only', [usefulDelta]],
@@ -1529,37 +1537,49 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
   it.each([
     ['tools before turns', ['tool', 'tool', 'turn-1', 'turn-2']],
     ['turns before tools', ['turn-1', 'turn-2', 'tool', 'tool']],
-  ] as const)('prioritizes one coalesced tool follow-up before FIFO turns: %s', async (_name, order) => {
-    const { adapter, channel } = await connectTranscriptConfirmed();
-    channel.receive({ type: 'response.created', response: { id: 'active-a' } });
+  ] as const)(
+    'prioritizes one coalesced tool follow-up before FIFO turns: %s',
+    async (_name, order) => {
+      const { adapter, channel } = await connectTranscriptConfirmed();
+      channel.receive({
+        type: 'response.created',
+        response: { id: 'active-a' },
+      });
 
-    let toolNumber = 0;
-    for (const source of order) {
-      if (source === 'tool') {
-        toolNumber += 1;
-        await adapter.sendToolResult(ToolCallId(`call-${toolNumber}`), {
-          ok: true,
-          summary: 'done',
-        });
-      } else {
-        channel.receive(committed(source));
-        channel.receive(completed(source));
+      let toolNumber = 0;
+      for (const source of order) {
+        if (source === 'tool') {
+          toolNumber += 1;
+          await adapter.sendToolResult(ToolCallId(`call-${toolNumber}`), {
+            ok: true,
+            summary: 'done',
+          });
+        } else {
+          channel.receive(committed(source));
+          channel.receive(completed(source));
+        }
       }
-    }
-    expect(responseCreates(channel)).toHaveLength(0);
+      expect(responseCreates(channel)).toHaveLength(0);
 
-    channel.receive({ type: 'response.done', response: { id: 'active-a' } });
-    expect(responseCreates(channel)).toHaveLength(1);
-    channel.receive({ type: 'response.created', response: { id: 'tool-r' } });
-    channel.receive({ type: 'response.done', response: { id: 'tool-r' } });
-    expect(responseCreates(channel)).toHaveLength(2);
-    channel.receive({ type: 'response.created', response: { id: 'turn-r1' } });
-    channel.receive({ type: 'response.done', response: { id: 'turn-r1' } });
-    expect(responseCreates(channel)).toHaveLength(3);
-    channel.receive({ type: 'response.created', response: { id: 'turn-r2' } });
-    channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
-    expect(responseCreates(channel)).toHaveLength(3);
-  });
+      channel.receive({ type: 'response.done', response: { id: 'active-a' } });
+      expect(responseCreates(channel)).toHaveLength(1);
+      channel.receive({ type: 'response.created', response: { id: 'tool-r' } });
+      channel.receive({ type: 'response.done', response: { id: 'tool-r' } });
+      expect(responseCreates(channel)).toHaveLength(2);
+      channel.receive({
+        type: 'response.created',
+        response: { id: 'turn-r1' },
+      });
+      channel.receive({ type: 'response.done', response: { id: 'turn-r1' } });
+      expect(responseCreates(channel)).toHaveLength(3);
+      channel.receive({
+        type: 'response.created',
+        response: { id: 'turn-r2' },
+      });
+      channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
+      expect(responseCreates(channel)).toHaveLength(3);
+    },
+  );
 
   it('gives a pending tool follow-up priority after an idle validated turn', async () => {
     const { adapter, channel } = await connectTranscriptConfirmed();
@@ -1870,28 +1890,31 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
       'nonempty output',
       { id: 'response-1', status: 'cancelled', output: [{ id: 'item-1' }] },
     ],
-  ] as const)('keeps the clear obligation for cancelled response.done with %s', async (_name, response) => {
-    const { adapter, channel } = await connectTranscriptConfirmed();
-    channel.receive({
-      type: 'response.created',
-      response: { id: 'response-1' },
-    });
-    channel.receive(usefulDelta);
-    await adapter.sendToolResult(ToolCallId('call-1'), {
-      ok: true,
-      summary: 'done',
-    });
-    channel.sent.length = 0;
+  ] as const)(
+    'keeps the clear obligation for cancelled response.done with %s',
+    async (_name, response) => {
+      const { adapter, channel } = await connectTranscriptConfirmed();
+      channel.receive({
+        type: 'response.created',
+        response: { id: 'response-1' },
+      });
+      channel.receive(usefulDelta);
+      await adapter.sendToolResult(ToolCallId('call-1'), {
+        ok: true,
+        summary: 'done',
+      });
+      channel.sent.length = 0;
 
-    channel.receive({ type: 'response.done', response });
-    expect(sentFrames(channel)).toEqual([]);
+      channel.receive({ type: 'response.done', response });
+      expect(sentFrames(channel)).toEqual([]);
 
-    channel.receive({ type: 'output_audio_buffer.started' });
-    expect(sentFrames(channel)).toEqual([
-      { type: 'output_audio_buffer.clear' },
-      { type: 'response.create' },
-    ]);
-  });
+      channel.receive({ type: 'output_audio_buffer.started' });
+      expect(sentFrames(channel)).toEqual([
+        { type: 'output_audio_buffer.clear' },
+        { type: 'response.create' },
+      ]);
+    },
+  );
 
   it('does not release a cancelled response clear obligation from wrong, duplicate, or newer response events', async () => {
     const { adapter, channel } = await connectTranscriptConfirmed();
@@ -3750,40 +3773,40 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     ).toEqual([0, 0, 0, 0]);
   });
 
-  it.each([
-    'decode',
-    'source-start',
-  ] as const)('restores the microphone when greeting %s fails', async (failurePoint) => {
-    const mic = new FakeTrack('audio', true);
-    useMicTracks([mic]);
-    const adapter = new OpenAIAdapter({
-      mintToken: async () => fakeToken,
-      synthesizeGreeting: async () => new ArrayBuffer(8),
-    });
-    await connectAndOpen(adapter);
-    adapter.activateAudio();
-    const context = GreetingFakeAudioContext.instances.at(-1)!;
-    if (failurePoint === 'decode') {
-      context.decodeAudioDataImpl = async () => {
-        throw new Error('decode failed');
-      };
-    } else {
-      context.onSourceStart = () => {
-        throw new Error('source start failed');
-      };
-    }
+  it.each(['decode', 'source-start'] as const)(
+    'restores the microphone when greeting %s fails',
+    async (failurePoint) => {
+      const mic = new FakeTrack('audio', true);
+      useMicTracks([mic]);
+      const adapter = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        synthesizeGreeting: async () => new ArrayBuffer(8),
+      });
+      await connectAndOpen(adapter);
+      adapter.activateAudio();
+      const context = GreetingFakeAudioContext.instances.at(-1)!;
+      if (failurePoint === 'decode') {
+        context.decodeAudioDataImpl = async () => {
+          throw new Error('decode failed');
+        };
+      } else {
+        context.onSourceStart = () => {
+          throw new Error('source start failed');
+        };
+      }
 
-    await expect(
-      adapter.speakAssistantText({
-        id: greetingId,
-        text: greetingText,
-        signal: new AbortController().signal,
-      }),
-    ).resolves.toBe('accepted');
-    expect(mic.enabled).toBe(true);
-    expect(mic.enabledMutations).toEqual([false, true]);
-    expect(mic.stopCalls).toBe(0);
-  });
+      await expect(
+        adapter.speakAssistantText({
+          id: greetingId,
+          text: greetingText,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe('accepted');
+      expect(mic.enabled).toBe(true);
+      expect(mic.enabledMutations).toEqual([false, true]);
+      expect(mic.stopCalls).toBe(0);
+    },
+  );
 
   it('restores through caller abort during decode and ignores the late decode completion', async () => {
     const mic = new FakeTrack('audio', true);
@@ -5585,54 +5608,54 @@ describe('OpenAIAdapter: transcript observations', () => {
     await replacement.dispose();
   });
 
-  it.each([
-    undefined,
-    12,
-  ])('finishes an accepted caption when later text exceeds the fragment limit %s', async (maxFragmentChars) => {
-    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-    const session = new RealtimeSession({
-      adapter,
-      instance: makeInertInstance(),
-      sessionId: SessionId('bounded-caption'),
-      transcript: { maxFragmentChars },
-    });
-    const connecting = session.connect();
-    const channel = await latestDataChannel();
-    channel.triggerOpen();
-    await connecting;
-    const accepted = 'x'.repeat(maxFragmentChars ?? 16384);
-    channel.receive({
-      type: 'response.output_audio_transcript.delta',
-      item_id: 'long',
-      delta: accepted,
-    });
-    channel.receive({
-      type: 'response.output_audio_transcript.delta',
-      item_id: 'long',
-      delta: ' more',
-    });
-    channel.receive({
-      type: 'response.output_audio_transcript.done',
-      item_id: 'long',
-      transcript: `${accepted} more`,
-    });
-    channel.receive({
-      type: 'response.output_audio_transcript.done',
-      item_id: 'next',
-      transcript: 'Done.',
-    });
+  it.each([undefined, 12])(
+    'finishes an accepted caption when later text exceeds the fragment limit %s',
+    async (maxFragmentChars) => {
+      const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+      const session = new RealtimeSession({
+        adapter,
+        instance: makeInertInstance(),
+        sessionId: SessionId('bounded-caption'),
+        transcript: { maxFragmentChars },
+      });
+      const connecting = session.connect();
+      const channel = await latestDataChannel();
+      channel.triggerOpen();
+      await connecting;
+      const accepted = 'x'.repeat(maxFragmentChars ?? 16384);
+      channel.receive({
+        type: 'response.output_audio_transcript.delta',
+        item_id: 'long',
+        delta: accepted,
+      });
+      channel.receive({
+        type: 'response.output_audio_transcript.delta',
+        item_id: 'long',
+        delta: ' more',
+      });
+      channel.receive({
+        type: 'response.output_audio_transcript.done',
+        item_id: 'long',
+        transcript: `${accepted} more`,
+      });
+      channel.receive({
+        type: 'response.output_audio_transcript.done',
+        item_id: 'next',
+        transcript: 'Done.',
+      });
 
-    expect(
-      session.observations.getSnapshot().captions.map(({ text, final }) => ({
-        text,
-        final,
-      })),
-    ).toEqual([
-      { text: accepted, final: true },
-      { text: 'Done.', final: true },
-    ]);
-    await session.dispose();
-  });
+      expect(
+        session.observations.getSnapshot().captions.map(({ text, final }) => ({
+          text,
+          final,
+        })),
+      ).toEqual([
+        { text: accepted, final: true },
+        { text: 'Done.', final: true },
+      ]);
+      await session.dispose();
+    },
+  );
 
   function observe(adapter: OpenAIAdapter) {
     const fragments: TimedTranscriptFragment[] = [];

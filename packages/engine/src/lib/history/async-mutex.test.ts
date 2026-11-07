@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { defer } from '../__test-helpers__/defer.js';
 import { createAsyncMutex } from './async-mutex.js';
 

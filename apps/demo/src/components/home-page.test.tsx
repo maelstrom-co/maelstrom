@@ -7,6 +7,7 @@ import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live'
 import { act, cleanup, render } from '@testing-library/react';
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -117,23 +118,26 @@ describe('HomePage voice key errors', () => {
       new LiveTransportError('exchange_rejected', { status: 401 }),
     ],
     ['a missing key', new LiveTransportError('missing_key')],
-  ])('reopens the key drawer with the Live key message for %s', async (_case, cause) => {
-    voiceResult = {
-      ...voiceResult,
-      state: 'error',
-      error: new RealtimeVoiceError(
-        'CONNECTION_FAILED',
-        'Live connection failed',
-        cause,
-      ),
-    };
+  ])(
+    'reopens the key drawer with the Live key message for %s',
+    async (_case, cause) => {
+      voiceResult = {
+        ...voiceResult,
+        state: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Live connection failed',
+          cause,
+        ),
+      };
 
-    const view = await renderHome();
+      const view = await renderHome();
 
-    expect(view.getByRole('dialog', { name: 'API key' }).textContent).toBe(
-      'Live could not use this API key. Update the key, then reconnect.',
-    );
-  });
+      expect(view.getByRole('dialog', { name: 'API key' }).textContent).toBe(
+        'Live could not use this API key. Update the key, then reconnect.',
+      );
+    },
+  );
 
   it('leaves the key drawer closed when Live fails for a reason other than the key', async () => {
     voiceResult = {

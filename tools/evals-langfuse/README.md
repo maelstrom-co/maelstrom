@@ -511,7 +511,8 @@ policy still require approval before any real publication.
 bun test tools/evals-langfuse
 bunx nx run evals-langfuse:typecheck --skip-nx-cache --skipSync
 bunx nx run evals-langfuse:test --skip-nx-cache --skipSync
-bunx nx run evals-langfuse:check --skip-nx-cache --skipSync
+bunx nx run evals-langfuse:lint --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 Tests deny global fetch or explicitly intercept SDK requests with synthetic

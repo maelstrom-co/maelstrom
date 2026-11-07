@@ -19,6 +19,7 @@ import {
   type VesselActionDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import type { StageReplacements } from '../../core/instrument.js';
 import type { Scenario } from '../../core/scenarios.js';
 import { expectedRetained } from '../../core/score.js';

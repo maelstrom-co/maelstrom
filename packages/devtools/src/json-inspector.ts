@@ -1,4 +1,5 @@
 import jsonview from '@pgrabovets/json-view';
+
 import { button, element } from './panel-elements.js';
 
 type JsonMode = 'tree' | 'raw';

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+
 import { installStaleAssetRecovery } from './stale-asset-recovery';
 
 describe('installStaleAssetRecovery', () => {

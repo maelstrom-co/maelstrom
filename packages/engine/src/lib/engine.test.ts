@@ -16,6 +16,7 @@ import {
   ok,
   SessionId,
 } from '@maelstrom-co/protocol';
+
 import {
   brandTilingResponse,
   buildGridResponse,
@@ -112,24 +113,24 @@ describe('createEngine', () => {
       } as unknown as EngineConfig,
       pattern: /retry/,
     },
-  ])('throws synchronously when config is invalid ($name)', ({
-    config,
-    pattern,
-  }) => {
-    let caught: unknown;
-    try {
-      createEngine(config);
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    const error = caught as Error;
-    expect(error.message).toMatch(/Invalid EngineConfig/);
-    expect(error.message).toMatch(pattern);
-    // `@throws` contract: the original ZodError is attached as `cause`.
-    const cause = error.cause as { issues?: unknown[] } | undefined;
-    expect(Array.isArray(cause?.issues)).toBe(true);
-  });
+  ])(
+    'throws synchronously when config is invalid ($name)',
+    ({ config, pattern }) => {
+      let caught: unknown;
+      try {
+        createEngine(config);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      const error = caught as Error;
+      expect(error.message).toMatch(/Invalid EngineConfig/);
+      expect(error.message).toMatch(pattern);
+      // `@throws` contract: the original ZodError is attached as `cause`.
+      const cause = error.cause as { issues?: unknown[] } | undefined;
+      expect(Array.isArray(cause?.issues)).toBe(true);
+    },
+  );
 
   test('returns an Engine for a valid minimal config', () => {
     const engine = createEngine({
@@ -377,46 +378,49 @@ describe('engine.handle — chart_request', () => {
   test.each([
     ['empty', '', 'empty-user-message-secret-8d41e2'],
     ['whitespace-only', ' \t\n ', 'whitespace-user-message-secret-c390af'],
-  ])('redacts model output when userMessage is %s', async (_case, userMessage, secret) => {
-    const logged: unknown[][] = [];
-    const logger: Parameters<typeof createEngine>[0]['logger'] = {
-      debug: () => undefined,
-      info: () => undefined,
-      warn: () => undefined,
-      error: (message, error, data) => logged.push([message, error, data]),
-    };
-    const engine = createEngine({
-      planner: scriptedPlanner([
-        buildGridResponse({
-          userMessage,
-          executionPlan: [
-            {
-              instanceId: 'calendar-main',
-              action: 'showWeek',
-              paramsJson: JSON.stringify({ nested: { value: secret } }),
-            },
-          ],
-        }),
-      ]),
-      logger,
-    });
+  ])(
+    'redacts model output when userMessage is %s',
+    async (_case, userMessage, secret) => {
+      const logged: unknown[][] = [];
+      const logger: Parameters<typeof createEngine>[0]['logger'] = {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        error: (message, error, data) => logged.push([message, error, data]),
+      };
+      const engine = createEngine({
+        planner: scriptedPlanner([
+          buildGridResponse({
+            userMessage,
+            executionPlan: [
+              {
+                instanceId: 'calendar-main',
+                action: 'showWeek',
+                paramsJson: JSON.stringify({ nested: { value: secret } }),
+              },
+            ],
+          }),
+        ]),
+        logger,
+      });
 
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
+      const result = await engine.handle(
+        toChartRequestMessage(makeGridRequest()),
+      );
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('ParseError');
-    if (result.error._tag !== 'ParseError') return;
-    expect(result.error.raw).toBe('userMessage');
-    const serializedError = JSON.stringify(result.error);
-    const serializedLogs = JSON.stringify(logged);
-    expect(serializedError).not.toContain('paramsJson');
-    expect(serializedError).not.toContain(secret);
-    expect(serializedLogs).not.toContain('paramsJson');
-    expect(serializedLogs).not.toContain(secret);
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('ParseError');
+      if (result.error._tag !== 'ParseError') return;
+      expect(result.error.raw).toBe('userMessage');
+      const serializedError = JSON.stringify(result.error);
+      const serializedLogs = JSON.stringify(logged);
+      expect(serializedError).not.toContain('paramsJson');
+      expect(serializedError).not.toContain(secret);
+      expect(serializedLogs).not.toContain('paramsJson');
+      expect(serializedLogs).not.toContain(secret);
+    },
+  );
 
   test('processes a tiling-mode request end-to-end', async () => {
     const tilingResponse = brandTilingResponse({
@@ -732,7 +736,7 @@ describe('engine.handle — chart_request', () => {
 
     const healed = logEntries.filter((e) => e.msg === 'Response healed');
     expect(healed).toHaveLength(1);
-    const detail = (healed[0]?.ctx as { detail: { drops: string[] } }).detail;
+    const detail = (healed[0]!.ctx as { detail: { drops: string[] } }).detail;
     // 16 rendered plus the tail count, matching `formatLayoutWarnings`.
     expect(detail.drops).toHaveLength(17);
     expect(detail.drops[0]).toBe(
@@ -990,57 +994,66 @@ describe('engine.handle with skipReply and needs-clarification', () => {
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a response without userMessage is still an Err when skipReply is %s', async (_case, skipReply) => {
-    const engine = createEngine({
-      planner: answering(replyless()).planner,
-      logger: silentLogger,
-    });
+  ])(
+    'a response without userMessage is still an Err when skipReply is %s',
+    async (_case, skipReply) => {
+      const engine = createEngine({
+        planner: answering(replyless()).planner,
+        logger: silentLogger,
+      });
 
-    const result = await engine.handle(
-      toChartRequestMessage(requestWith(skipReply)),
-    );
+      const result = await engine.handle(
+        toChartRequestMessage(requestWith(skipReply)),
+      );
 
-    expect(isErr(result) && result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-    });
-  });
-
-  test.each([
-    ['absent', undefined],
-    ['false', false],
-  ])('a blank userMessage is still a ParseError when skipReply is %s', async (_case, skipReply) => {
-    const engine = createEngine({
-      planner: answering(buildGridResponse({ userMessage: ' ' })).planner,
-      logger: silentLogger,
-    });
-
-    const result = await engine.handle(
-      toChartRequestMessage(requestWith(skipReply)),
-    );
-
-    expect(isErr(result) && result.error._tag).toBe('ParseError');
-  });
+      expect(isErr(result) && result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+      });
+    },
+  );
 
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a needs-clarification result is Err(ValidationError) naming skipReply when skipReply is %s', async (_case, skipReply) => {
-    const engine = createEngine({
-      planner: answering(clarification).planner,
-      logger: silentLogger,
-    });
+  ])(
+    'a blank userMessage is still a ParseError when skipReply is %s',
+    async (_case, skipReply) => {
+      const engine = createEngine({
+        planner: answering(buildGridResponse({ userMessage: ' ' })).planner,
+        logger: silentLogger,
+      });
 
-    const result = await engine.handle(
-      toChartRequestMessage(requestWith(skipReply)),
-    );
+      const result = await engine.handle(
+        toChartRequestMessage(requestWith(skipReply)),
+      );
 
-    expect(isErr(result) && result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-      message: expect.stringContaining('skipReply'),
-    });
-  });
+      expect(isErr(result) && result.error._tag).toBe('ParseError');
+    },
+  );
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+  ])(
+    'a needs-clarification result is Err(ValidationError) naming skipReply when skipReply is %s',
+    async (_case, skipReply) => {
+      const engine = createEngine({
+        planner: answering(clarification).planner,
+        logger: silentLogger,
+      });
+
+      const result = await engine.handle(
+        toChartRequestMessage(requestWith(skipReply)),
+      );
+
+      expect(isErr(result) && result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message: expect.stringContaining('skipReply'),
+      });
+    },
+  );
 
   test('a response with userMessage ships unchanged when skipReply is true', async () => {
     const engine = createEngine({
@@ -1090,25 +1103,28 @@ describe('engine.handle with skipReply and needs-clarification', () => {
       { ...makeTilingRequest(), skipReply: true },
     ],
     ['a needs-clarification result', clarification, requestWith(true)],
-  ])('%s is accepted by validation but refused at the shipping boundary when skipReply is true', async (_case, output, request) => {
-    const { logger, entries } = spyLogger();
-    const { planner, inputs } = answering(output);
-    const engine = createEngine({ planner, logger, retry: { max: 3 } });
+  ])(
+    '%s is accepted by validation but refused at the shipping boundary when skipReply is true',
+    async (_case, output, request) => {
+      const { logger, entries } = spyLogger();
+      const { planner, inputs } = answering(output);
+      const engine = createEngine({ planner, logger, retry: { max: 3 } });
 
-    const result = await engine.handle(toChartRequestMessage(request));
+      const result = await engine.handle(toChartRequestMessage(request));
 
-    expect(inputs).toHaveLength(1);
-    expect(isErr(result) && result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'skipReply',
-      message: expect.stringContaining(
-        'skipReply is not supported on this path',
-      ),
-    });
-    expect(entries.map((entry) => entry.msg)).toContain(
-      'Refused a skipReply outcome the Engine cannot ship',
-    );
-  });
+      expect(inputs).toHaveLength(1);
+      expect(isErr(result) && result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'skipReply',
+        message: expect.stringContaining(
+          'skipReply is not supported on this path',
+        ),
+      });
+      expect(entries.map((entry) => entry.msg)).toContain(
+        'Refused a skipReply outcome the Engine cannot ship',
+      );
+    },
+  );
 
   const observedKinds = (
     engine: ReturnType<typeof createEngine>,
@@ -1143,20 +1159,23 @@ describe('engine.handle with skipReply and needs-clarification', () => {
   test.each([
     ['true', true, 'succeeded'],
     ['absent', undefined, 'failed'],
-  ])('a needs-clarification result emits one engine.candidate.validated event when skipReply is %s', async (_case, skipReply, outcome) => {
-    const engine = createEngine({
-      planner: answering(clarification).planner,
-      logger: silentLogger,
-      retry: { max: 3 },
-    });
-    const events = observedKinds(engine);
+  ])(
+    'a needs-clarification result emits one engine.candidate.validated event when skipReply is %s',
+    async (_case, skipReply, outcome) => {
+      const engine = createEngine({
+        planner: answering(clarification).planner,
+        logger: silentLogger,
+        retry: { max: 3 },
+      });
+      const events = observedKinds(engine);
 
-    await engine.handle(toChartRequestMessage(requestWith(skipReply)));
+      await engine.handle(toChartRequestMessage(requestWith(skipReply)));
 
-    expect(
-      events.filter((event) => event.kind === 'engine.candidate.validated'),
-    ).toEqual([{ kind: 'engine.candidate.validated', outcome }]);
-  });
+      expect(
+        events.filter((event) => event.kind === 'engine.candidate.validated'),
+      ).toEqual([{ kind: 'engine.candidate.validated', outcome }]);
+    },
+  );
 
   test('skipReply and intentFacts reach the planner as the client sent them', async () => {
     const intentFacts = {
@@ -1476,50 +1495,56 @@ describe('engine.handle with a configured planner', () => {
         throw new Error('stage bug');
       }) as Planner,
     ],
-  ])('a stage that %s is Err(ValidationError), never a rejection', async (_case, planner) => {
-    const { logger, entries } = spyLogger();
-    const engine = createEngine({ planner, logger });
-
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-      message: 'stage bug',
-    });
-    expect(entries.filter((entry) => entry.level === 'error')).toEqual([
-      {
-        level: 'error',
-        msg: 'Planner threw',
-        error: expect.any(Error),
-        ctx: { messageId: DEFAULT_MESSAGE_ID },
-      },
-    ]);
-  });
-
-  test.each([
-    ['null', null],
-    ['a string', 'not a candidate'],
-    ['an empty object', {}],
-  ])('a candidate that is %s is an Err, never a rejection', async (_case, candidate) => {
-    for (const retry of [false, { max: 1 }] as const) {
-      const engine = createEngine({
-        planner: async () => ok(candidate as unknown as PlannerCandidate),
-        logger: silentLogger,
-        retry,
-      });
+  ])(
+    'a stage that %s is Err(ValidationError), never a rejection',
+    async (_case, planner) => {
+      const { logger, entries } = spyLogger();
+      const engine = createEngine({ planner, logger });
 
       const result = await engine.handle(
         toChartRequestMessage(makeGridRequest()),
       );
 
       expect(isErr(result)).toBe(true);
-    }
-  });
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message: 'stage bug',
+      });
+      expect(entries.filter((entry) => entry.level === 'error')).toEqual([
+        {
+          level: 'error',
+          msg: 'Planner threw',
+          error: expect.any(Error),
+          ctx: { messageId: DEFAULT_MESSAGE_ID },
+        },
+      ]);
+    },
+  );
+
+  test.each([
+    ['null', null],
+    ['a string', 'not a candidate'],
+    ['an empty object', {}],
+  ])(
+    'a candidate that is %s is an Err, never a rejection',
+    async (_case, candidate) => {
+      for (const retry of [false, { max: 1 }] as const) {
+        const engine = createEngine({
+          planner: async () => ok(candidate as unknown as PlannerCandidate),
+          logger: silentLogger,
+          retry,
+        });
+
+        const result = await engine.handle(
+          toChartRequestMessage(makeGridRequest()),
+        );
+
+        expect(isErr(result)).toBe(true);
+      }
+    },
+  );
 
   test('an EngineError from a stage is logged once by the Engine', async () => {
     const failure = providerError('upstream down', new Error('503'));
@@ -1542,32 +1567,35 @@ describe('engine.handle with a configured planner', () => {
     ['a raw candidate', async () => buildGridResponse()],
     ['err() of a plain Error', async () => err(new Error('x'))],
     ['err() of a string', async () => err('timeout')],
-  ])('a stage that resolves %s instead of a Result<PlannerCandidate, StageError> is Err(ValidationError) on field "planner"', async (_case, stage) => {
-    const { logger, entries } = spyLogger();
-    const engine = createEngine({
-      planner: stage as unknown as Planner,
-      logger,
-    });
+  ])(
+    'a stage that resolves %s instead of a Result<PlannerCandidate, StageError> is Err(ValidationError) on field "planner"',
+    async (_case, stage) => {
+      const { logger, entries } = spyLogger();
+      const engine = createEngine({
+        planner: stage as unknown as Planner,
+        logger,
+      });
 
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
+      const result = await engine.handle(
+        toChartRequestMessage(makeGridRequest()),
+      );
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ValidationError',
-      field: 'planner',
-      message:
-        'planner returned a value that is not a Result<PlannerCandidate, StageError>',
-    });
-    expect(entries.filter((entry) => entry.level === 'error')).toEqual([
-      expect.objectContaining({
-        msg: 'Planner returned a value that is not a Result',
-        ctx: { messageId: DEFAULT_MESSAGE_ID },
-      }),
-    ]);
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message:
+          'planner returned a value that is not a Result<PlannerCandidate, StageError>',
+      });
+      expect(entries.filter((entry) => entry.level === 'error')).toEqual([
+        expect.objectContaining({
+          msg: 'Planner returned a value that is not a Result',
+          ctx: { messageId: DEFAULT_MESSAGE_ID },
+        }),
+      ]);
+    },
+  );
 
   test('a result that is not a Result is an Err, never a rejection', async () => {
     const engine = createEngine({

@@ -1,4 +1,5 @@
 import type { DiagnosticEvent } from '@maelstrom-co/protocol';
+
 import type { Devtools } from './types.js';
 
 const epochs = new WeakMap<Devtools, number>();

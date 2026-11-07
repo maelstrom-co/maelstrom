@@ -1,6 +1,7 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
+
 import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import type { EventSubscriber } from '../utils/typed-emitter.js';

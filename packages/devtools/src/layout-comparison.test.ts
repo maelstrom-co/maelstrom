@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { requestLayoutComparison } from './layout-comparison.js';
 import { groupRequests, panelEvents } from './panel-model.js';
 
@@ -218,37 +219,40 @@ test('tiling comparisons preserve weighted proportions and never compare them as
   ]);
 });
 
-test.each([
-  'V',
-  'H',
-])('equivalent flat and nested %s tiling splits do not imply movement or resizing', (direction) => {
-  const before = {
-    ...snapshot(
-      [{ instanceId: 'a' }, { instanceId: 'b' }, { instanceId: 'c' }],
-      [],
-    ),
-    layoutMode: 'tiling',
-    layout: {
-      type: 'tiling',
-      tree: [`${direction}:1,1,1`, 'ID:a', 'ID:b', 'ID:c'],
-    },
-  };
-  const after = {
-    ...before,
-    layout: {
-      type: 'tiling',
-      tree: [`${direction}:1,2`, 'ID:a', direction, 'ID:b', 'ID:c'],
-    },
-  };
-  const events = panelEvents([
-    boundary('client.command.started', before),
-    boundary('client.response.applied', after),
-  ]);
-  const comparison = requestLayoutComparison(groupRequests(events)[0], events);
-  if (comparison.availability !== 'available')
-    throw new Error(comparison.reason);
-  expect(comparison.changes).toEqual([]);
-});
+test.each(['V', 'H'])(
+  'equivalent flat and nested %s tiling splits do not imply movement or resizing',
+  (direction) => {
+    const before = {
+      ...snapshot(
+        [{ instanceId: 'a' }, { instanceId: 'b' }, { instanceId: 'c' }],
+        [],
+      ),
+      layoutMode: 'tiling',
+      layout: {
+        type: 'tiling',
+        tree: [`${direction}:1,1,1`, 'ID:a', 'ID:b', 'ID:c'],
+      },
+    };
+    const after = {
+      ...before,
+      layout: {
+        type: 'tiling',
+        tree: [`${direction}:1,2`, 'ID:a', direction, 'ID:b', 'ID:c'],
+      },
+    };
+    const events = panelEvents([
+      boundary('client.command.started', before),
+      boundary('client.response.applied', after),
+    ]);
+    const comparison = requestLayoutComparison(
+      groupRequests(events)[0],
+      events,
+    );
+    if (comparison.availability !== 'available')
+      throw new Error(comparison.reason);
+    expect(comparison.changes).toEqual([]);
+  },
+);
 
 test('imported layout declarations cannot add phantom Instances or override the authoritative snapshot', () => {
   const before = {

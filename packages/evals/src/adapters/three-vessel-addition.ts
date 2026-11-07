@@ -1,7 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
+
 import type { Vessel } from '@maelstrom-co/protocol';
 import { VariantName, VesselSchema } from '@maelstrom-co/protocol';
 import { z } from 'zod';
+
 import type { Verdict } from '../core/runtime/evaluate.js';
 import {
   crossVesselResponseSchema,

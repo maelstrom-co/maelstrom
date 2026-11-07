@@ -1,9 +1,11 @@
 import { lstat, open, unlink } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
+
 import {
   StdioServerTransport,
   serveStdio,
 } from '@modelcontextprotocol/server/stdio';
+
 import { createDevtoolsMcpServer } from './index.js';
 
 let stopRequested = false;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { validatePreviewWorkerUrl } from './preview-worker-url.ts';
 
 const workerName = 'maelstrom-www-alchemy-pr-42';

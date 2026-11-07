@@ -25,6 +25,7 @@ import {
   isErr,
   SessionId,
 } from '@maelstrom-co/protocol';
+
 import { type AgentTransport, openAgentTransport } from './agent-transport';
 import { dispatchFrame } from './dispatch';
 import { engineMetadataFrame } from './engine-model';

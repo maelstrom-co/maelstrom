@@ -1,6 +1,7 @@
 import type { MessageId } from '@maelstrom-co/protocol';
 import type { GreetingSpeechResult } from '@maelstrom-co/realtime';
 import type { OpenAIBuiltInVoice } from '@maelstrom-co/realtime-protocol/openai';
+
 import type {
   GreetingInterruption,
   GreetingInterruptionOperation,

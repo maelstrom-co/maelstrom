@@ -10,11 +10,11 @@ import {
   makeRequest,
 } from '../__test-helpers__/fixtures.js';
 import { buildJevPlanner } from '../jev-planner.js';
-import { buildJevGatedBatchedPlanner } from '../planners-experimental/jev-gated-batched.js';
 import { buildJevGatedBatchedPerInstancePlanner } from '../planners-experimental/jev-gated-batched-per-instance.js';
+import { buildJevGatedBatchedPlanner } from '../planners-experimental/jev-gated-batched.js';
 import { buildJevGatedStepwisePlanner } from '../planners-experimental/jev-gated-stepwise.js';
-import { buildJevUngatedBatchedPlanner } from '../planners-experimental/jev-ungated-batched.js';
 import { buildJevUngatedBatchedPerInstancePlanner } from '../planners-experimental/jev-ungated-batched-per-instance.js';
+import { buildJevUngatedBatchedPlanner } from '../planners-experimental/jev-ungated-batched.js';
 import { buildJevUngatedStepwisePlanner } from '../planners-experimental/jev-ungated-stepwise.js';
 import { createJevDeps, type JevDepsOptions } from '../stages/stage-deps.js';
 import { buildJevComposedPairsPlanner } from './jev-composed-pairs.js';

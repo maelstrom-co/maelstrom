@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
+
 import type { LLMContextMessage } from '@maelstrom-co/engine';
 import { buildSystemPrompt } from '@maelstrom-co/planner-llm';
 import { VariantName, VesselSchema } from '@maelstrom-co/protocol';
+
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { type ManualFetch, manualTransport } from './transport.js';
 import {
@@ -255,46 +257,47 @@ test('Weather dry-runs select exactly one canonical prompt sequence and actual c
   }
 });
 
-test.each(
-  chainCases,
-)('%s rejects canonical trajectory, prompt or lineage cross-wiring before dispatch', async (selected) => {
-  const other = selected === 'D40' ? 'D41' : 'D40';
-  const files = {
-    D40: 'weather-deterministic-cycle',
-    D41: 'weather-deterministic-return',
-  };
-  const path = new URL(
-    `../../cases/v1/${files[selected]}.json`,
-    import.meta.url,
-  );
-  const source = JSON.parse(fs.readFileSync(path, 'utf8'));
-  const alternate = JSON.parse(
-    fs.readFileSync(
-      new URL(`../../cases/v1/${files[other]}.json`, import.meta.url),
-      'utf8',
-    ),
-  );
-  const read = fs.readFileSync;
-  const send = mock<ManualFetch>();
-  for (const field of ['expectations', 'inputs', 'lineage'] as const) {
-    const changed = { ...source, [field]: alternate[field] };
-    const file = spyOn(fs, 'readFileSync').mockImplementation(((...args) => {
-      if (String(args[0]) === path.href && args[1] === 'utf8')
-        return JSON.stringify(changed);
-      return Reflect.apply(read, fs, args);
-    }) as typeof fs.readFileSync);
-    try {
-      await expect(
-        runWeatherSample(flags(selected), env, send),
-      ).rejects.toThrow(
-        'Weather case contract changed; review before dispatch',
-      );
-    } finally {
-      file.mockRestore();
+test.each(chainCases)(
+  '%s rejects canonical trajectory, prompt or lineage cross-wiring before dispatch',
+  async (selected) => {
+    const other = selected === 'D40' ? 'D41' : 'D40';
+    const files = {
+      D40: 'weather-deterministic-cycle',
+      D41: 'weather-deterministic-return',
+    };
+    const path = new URL(
+      `../../cases/v1/${files[selected]}.json`,
+      import.meta.url,
+    );
+    const source = JSON.parse(fs.readFileSync(path, 'utf8'));
+    const alternate = JSON.parse(
+      fs.readFileSync(
+        new URL(`../../cases/v1/${files[other]}.json`, import.meta.url),
+        'utf8',
+      ),
+    );
+    const read = fs.readFileSync;
+    const send = mock<ManualFetch>();
+    for (const field of ['expectations', 'inputs', 'lineage'] as const) {
+      const changed = { ...source, [field]: alternate[field] };
+      const file = spyOn(fs, 'readFileSync').mockImplementation(((...args) => {
+        if (String(args[0]) === path.href && args[1] === 'utf8')
+          return JSON.stringify(changed);
+        return Reflect.apply(read, fs, args);
+      }) as typeof fs.readFileSync);
+      try {
+        await expect(
+          runWeatherSample(flags(selected), env, send),
+        ).rejects.toThrow(
+          'Weather case contract changed; review before dispatch',
+        );
+      } finally {
+        file.mockRestore();
+      }
     }
-  }
-  expect(send).not.toHaveBeenCalled();
-});
+    expect(send).not.toHaveBeenCalled();
+  },
+);
 
 test('Weather CLI/import do not dispatch implicitly and only accept explicit single-case selection', () => {
   const path = `${import.meta.dir}/weather.ts`;
@@ -587,135 +590,137 @@ test('D38 rejects every shipped Action or Chart mutation even when prose offers 
   expect(result.semanticReview.status).toBe('pending-human-review');
 });
 
-test.each(
-  chainCases,
-)('%s checks exact plans, pre-turn Action validity, complete retained snapshots and layout independently of prose', async (selected) => {
-  const { turns, report } = await evidence(selected);
-  const initial = report.configuration.initialRequest;
-  for (let index = 0; index < 3; index++) {
-    for (const plan of [
-      [],
-      [
-        ...turns[index].response.executionPlan,
-        ...turns[index].response.executionPlan,
-      ],
-      [
-        {
-          instanceId: 'other',
-          action: turns[index].response.executionPlan[0].action,
-        },
-      ],
-      [
-        {
-          instanceId: 'weather-main',
-          action: 'setLocation',
-          params: { location: 'Paris' },
-        },
-      ],
-      [
-        {
-          instanceId: 'weather-main',
-          action: turns[index].response.executionPlan[0].action,
-          params: {},
-        },
-      ],
-      [
-        ...turns[index].response.executionPlan,
-        {
-          instanceId: 'weather-main',
-          action: 'setLocation',
-          params: { location: 'Paris' },
-        },
-      ],
-    ]) {
-      const changed = structuredClone(turns);
-      Object.assign(changed[index].response, { executionPlan: plan });
-      expect(scoreWeatherTurns(selected, changed, initial).failures).toContain(
-        `Execution Plan mismatch at turn ${index + 1}`,
-      );
-    }
-    for (const layout of [
-      {
-        type: 'tiling',
-        tree: [],
-        instances: replies(selected)[index].layout.instances,
-      },
-      {
-        type: 'tiling',
-        tree: ['ID:weather-main'],
-        instances: [
+test.each(chainCases)(
+  '%s checks exact plans, pre-turn Action validity, complete retained snapshots and layout independently of prose',
+  async (selected) => {
+    const { turns, report } = await evidence(selected);
+    const initial = report.configuration.initialRequest;
+    for (let index = 0; index < 3; index++) {
+      for (const plan of [
+        [],
+        [
+          ...turns[index].response.executionPlan,
+          ...turns[index].response.executionPlan,
+        ],
+        [
           {
-            instanceId: 'weather-main',
-            vesselId: 'weather',
-            variant: 'unexpected',
+            instanceId: 'other',
+            action: turns[index].response.executionPlan[0].action,
           },
         ],
-      },
-      {
-        type: 'tiling',
-        tree: ['ID:weather-main'],
-        instances: [
+        [
           {
             instanceId: 'weather-main',
-            vesselId: 'other',
-            variant: replies(selected)[index].layout.instances[0].variant,
+            action: 'setLocation',
+            params: { location: 'Paris' },
           },
         ],
-      },
-      {
-        type: 'tiling',
-        tree: ['ID:weather-main'],
-        instances: [
-          ...replies(selected)[index].layout.instances,
-          { instanceId: 'extra', vesselId: 'weather', variant: 'current' },
+        [
+          {
+            instanceId: 'weather-main',
+            action: turns[index].response.executionPlan[0].action,
+            params: {},
+          },
         ],
-      },
-    ]) {
-      const changed = structuredClone(turns);
-      Object.assign(changed[index].response, { layout });
-      expect(scoreWeatherTurns(selected, changed, initial).outcome).toBe(
-        'fail',
-      );
+        [
+          ...turns[index].response.executionPlan,
+          {
+            instanceId: 'weather-main',
+            action: 'setLocation',
+            params: { location: 'Paris' },
+          },
+        ],
+      ]) {
+        const changed = structuredClone(turns);
+        Object.assign(changed[index].response, { executionPlan: plan });
+        expect(
+          scoreWeatherTurns(selected, changed, initial).failures,
+        ).toContain(`Execution Plan mismatch at turn ${index + 1}`);
+      }
+      for (const layout of [
+        {
+          type: 'tiling',
+          tree: [],
+          instances: replies(selected)[index].layout.instances,
+        },
+        {
+          type: 'tiling',
+          tree: ['ID:weather-main'],
+          instances: [
+            {
+              instanceId: 'weather-main',
+              vesselId: 'weather',
+              variant: 'unexpected',
+            },
+          ],
+        },
+        {
+          type: 'tiling',
+          tree: ['ID:weather-main'],
+          instances: [
+            {
+              instanceId: 'weather-main',
+              vesselId: 'other',
+              variant: replies(selected)[index].layout.instances[0].variant,
+            },
+          ],
+        },
+        {
+          type: 'tiling',
+          tree: ['ID:weather-main'],
+          instances: [
+            ...replies(selected)[index].layout.instances,
+            { instanceId: 'extra', vesselId: 'weather', variant: 'current' },
+          ],
+        },
+      ]) {
+        const changed = structuredClone(turns);
+        Object.assign(changed[index].response, { layout });
+        expect(scoreWeatherTurns(selected, changed, initial).outcome).toBe(
+          'fail',
+        );
+      }
     }
-  }
-  const invalidSource = structuredClone(turns);
-  Object.assign(invalidSource[0].request.instances[0], { variant: 'hourly' });
-  expect(
-    scoreWeatherTurns(selected, invalidSource, initial).failures,
-  ).toContain('Action unavailable for incoming Variant at turn 1');
-  const invalidTable = structuredClone(turns);
-  for (const variant of Object.values(
-    invalidTable[0].request.vessels[0].variants,
-  ))
-    Object.assign(variant, { actions: [] });
-  expect(scoreWeatherTurns(selected, invalidTable, initial).failures).toContain(
-    'Action unavailable for incoming Variant at turn 1',
-  );
-});
+    const invalidSource = structuredClone(turns);
+    Object.assign(invalidSource[0].request.instances[0], { variant: 'hourly' });
+    expect(
+      scoreWeatherTurns(selected, invalidSource, initial).failures,
+    ).toContain('Action unavailable for incoming Variant at turn 1');
+    const invalidTable = structuredClone(turns);
+    for (const variant of Object.values(
+      invalidTable[0].request.vessels[0].variants,
+    ))
+      Object.assign(variant, { actions: [] });
+    expect(
+      scoreWeatherTurns(selected, invalidTable, initial).failures,
+    ).toContain('Action unavailable for incoming Variant at turn 1');
+  },
+);
 
-test.each(
-  chainCases,
-)('%s rejects the other chain despite valid Actions, carry-forward and history', async (selected) => {
-  const other = selected === 'D40' ? 'D41' : 'D40';
-  const transport = scripted(replies(other));
-  const report = await runWeatherSample(flags(selected), env, transport.send);
-  if (report.mode !== 'live') throw new Error('Expected execution');
-  expect(report.result).toMatchObject({
-    execution: 'completed',
-    completeness: 'complete',
-    evaluation: 'fail',
-  });
-  expect(report.generationDispatches).toBe(3);
-  expect(transport.requests).toHaveLength(3);
-  expect(report.result.failures).toEqual([
-    'Execution Plan mismatch at turn 2',
-    'Chart layout/Instance snapshot mismatch at turn 2',
-    'Execution Plan mismatch at turn 3',
-    'Action unavailable for incoming Variant at turn 3',
-    'Chart layout/Instance snapshot mismatch at turn 3',
-  ]);
-  expect(report.semanticReview.status).toBe('pending-human-review');
-});
+test.each(chainCases)(
+  '%s rejects the other chain despite valid Actions, carry-forward and history',
+  async (selected) => {
+    const other = selected === 'D40' ? 'D41' : 'D40';
+    const transport = scripted(replies(other));
+    const report = await runWeatherSample(flags(selected), env, transport.send);
+    if (report.mode !== 'live') throw new Error('Expected execution');
+    expect(report.result).toMatchObject({
+      execution: 'completed',
+      completeness: 'complete',
+      evaluation: 'fail',
+    });
+    expect(report.generationDispatches).toBe(3);
+    expect(transport.requests).toHaveLength(3);
+    expect(report.result.failures).toEqual([
+      'Execution Plan mismatch at turn 2',
+      'Chart layout/Instance snapshot mismatch at turn 2',
+      'Execution Plan mismatch at turn 3',
+      'Action unavailable for incoming Variant at turn 3',
+      'Chart layout/Instance snapshot mismatch at turn 3',
+    ]);
+    expect(report.semanticReview.status).toBe('pending-human-review');
+  },
+);
 
 test('all predicates reject incomplete/extra/reordered requests or corrupted history and carry-forward', async () => {
   for (const selected of selectedCases) {

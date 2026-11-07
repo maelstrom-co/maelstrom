@@ -455,7 +455,7 @@ alone does not revoke a pending request; cancel its Actions run instead. A remov
 followed by re-addition queues another exact-SHA request with its own approval,
 even if earlier cleanup removes the visible label. GitHub manual reruns do not
 execute paid evaluations; re-add the label to retry. Normal `test`, `typecheck` and
-`check` targets do not invoke this paid workflow.
+`lint` targets do not invoke this paid workflow.
 
 ### Stage evals
 

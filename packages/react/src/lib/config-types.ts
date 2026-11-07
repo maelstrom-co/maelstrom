@@ -1,4 +1,5 @@
 import type { IntentQueueOptions } from '@maelstrom-co/client';
+
 import type {
   ChartMotionConfig,
   ResolvedChartMotionConfig,

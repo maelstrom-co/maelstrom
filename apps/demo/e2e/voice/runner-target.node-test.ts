@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+
 import { initialNavigationURL, resolveRunnerTarget } from './runner-target.ts';
 
 test('unset and empty base URLs use local routing', () => {

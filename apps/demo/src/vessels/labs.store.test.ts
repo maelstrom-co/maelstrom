@@ -1,5 +1,6 @@
 import { isErr, isOk } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { createLabsActionRunner, getLabsSelection } from './labs.store';
 
 let serial = 0;

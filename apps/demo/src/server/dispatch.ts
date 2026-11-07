@@ -17,6 +17,7 @@ import {
   encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
+
 import {
   classifyIncomingFrame,
   type PlaygroundHelloFrame,

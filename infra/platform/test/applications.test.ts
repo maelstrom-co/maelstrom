@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import { parse } from 'jsonc-parser';
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..');
@@ -129,7 +130,7 @@ describe('application infrastructure contract', () => {
       };
       return Boolean(
         packageJson.dependencies?.alchemy ??
-          packageJson.devDependencies?.alchemy,
+        packageJson.devDependencies?.alchemy,
       );
     });
     expect(alchemyPackages).not.toEqual([]);
@@ -178,8 +179,8 @@ describe('application infrastructure contract', () => {
       expect(dependencies['@effect/language-service']).toBeUndefined();
       const consumesEffectCatalog = Boolean(
         dependencies.effect ||
-          dependencies['@effect/platform-node'] ||
-          dependencies['@effect/platform-bun'],
+        dependencies['@effect/platform-node'] ||
+        dependencies['@effect/platform-bun'],
       );
       if (!consumesEffectCatalog) continue;
       if (dependencies.effect) expect(dependencies.effect).toBe('catalog:');

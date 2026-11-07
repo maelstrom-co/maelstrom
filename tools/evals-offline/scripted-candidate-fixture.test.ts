@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+
 import { getScenario } from '../../packages/evals/src/adapters/offline-case.js';
 import {
   type ScriptedCandidateData,

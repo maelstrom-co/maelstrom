@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
+
 import {
   AGENT_WIRE_VERSION,
   type AgentUtteranceInput,
   MessageId,
 } from '@maelstrom-co/protocol';
+
 import { makeTilingRequest } from '../__test-helpers__/fixtures.js';
 import {
   createInputAdmission,

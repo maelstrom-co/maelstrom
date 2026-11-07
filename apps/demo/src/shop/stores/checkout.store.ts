@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { cartActions, cartTotals, getCartSnapshot } from './cart.store';
 import { CUSTOMER, formatAddress, type Order } from './fixtures';
 import { ordersActions } from './orders.store';

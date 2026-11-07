@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { JevCall } from '@maelstrom-co/planner-jev/_internal';
 import { layoutComposedPairsGateAndDefer } from '@maelstrom-co/planner-jev/_internal';
 import {
@@ -7,6 +8,7 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
+
 import { selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,

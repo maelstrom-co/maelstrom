@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import { act, cleanup, render } from '@testing-library/react';
 import { useRef } from 'react';
+
 import type { MotionRect } from './flip.js';
 import { computeFlipDelta, enterKeyframes, flipKeyframes } from './flip.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';

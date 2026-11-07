@@ -4,6 +4,7 @@ import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
 } from '@maelstrom-co/realtime-protocol/openai';
+
 import { withFetchTimeout } from './fetch-timeout';
 
 /**

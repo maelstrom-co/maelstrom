@@ -5,6 +5,7 @@
  * can exercise the hosted client without a Wrangler config.
  */
 import { extname, join, resolve } from 'node:path';
+
 import {
   headersForPath,
   parseHeaderRules,

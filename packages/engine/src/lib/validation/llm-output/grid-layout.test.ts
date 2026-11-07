@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { GridResponse } from '@maelstrom-co/protocol';
 import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 

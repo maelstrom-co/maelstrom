@@ -1,4 +1,5 @@
 import { z } from 'zod';
+
 import type { Judge, JudgeAnswer } from '../../core/plugin.js';
 
 const MAX_RESPONSE_BYTES = 64 * 1024;

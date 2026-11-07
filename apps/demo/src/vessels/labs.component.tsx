@@ -1,5 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useMemo } from 'react';
+
 import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
 import { createLabsActionRunner, useLabsSelection } from './labs.store';

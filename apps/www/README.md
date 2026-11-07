@@ -45,8 +45,8 @@ scheduling policy. Keep unfinished articles outside this collection.
 
 `labels` is a comma-separated string. Empty segments are removed and the remaining
 labels are trimmed; at least one label must remain. `keywords` is a YAML list of
-nonempty strings (an empty list is allowed). `authorUrl` must be an HTTP(S) URL
-without credentials. The image must be either an HTTP(S) URL without credentials
+nonempty strings (an empty list is allowed). `authorUrl` must be an HTTP or HTTPS URL
+without credentials. The image must be either an HTTP or HTTPS URL without credentials
 or a root-relative public path using letters, digits, slashes, underscores, dots
 and hyphens. Protocol-relative URLs, backslashes, whitespace, percent escapes and
 dot-segment traversal are not accepted for public paths. Put local assets under
@@ -76,7 +76,8 @@ From the repository root, run the affected project gates:
 ```sh
 NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:typecheck' --skip-nx-cache
 NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:test' --skip-nx-cache
-NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:check' --skip-nx-cache
+NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:lint' --skip-nx-cache
+bunx nx format:check --all
 NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:build' --skip-nx-cache
 NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:e2e' --skip-nx-cache
 ```

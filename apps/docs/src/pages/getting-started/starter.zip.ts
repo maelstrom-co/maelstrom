@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+
 import { createReactStarter } from '../../../tools/skills/starter-bundle';
 
 export const prerender = true;

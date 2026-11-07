@@ -4,6 +4,7 @@ import {
 } from '@maelstrom-co/client';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   cleanOptionValues,
   optionKey,
@@ -34,14 +35,17 @@ describe('cleanOptionValues', () => {
     ['a newline', 'DOG\nCAT'],
     ['a control character', 'DOG\x07'],
     ['only whitespace', '   '],
-  ])('drops a value containing %s and names the list in the warning', (_case, value) => {
-    expect(cleanOptionValues([value, 'DOG-DRY'], 'cart')).toStrictEqual([
-      'DOG-DRY',
-    ]);
-    expect(String(warn.mock.calls[0]?.[0])).toMatch(
-      /^\[shop-option-publishing\] cart: dropped 1 value\(s\) /,
-    );
-  });
+  ])(
+    'drops a value containing %s and names the list in the warning',
+    (_case, value) => {
+      expect(cleanOptionValues([value, 'DOG-DRY'], 'cart')).toStrictEqual([
+        'DOG-DRY',
+      ]);
+      expect(String(warn.mock.calls[0]?.[0])).toMatch(
+        /^\[shop-option-publishing\] cart: dropped 1 value\(s\) /,
+      );
+    },
+  );
 
   it('caps the list at the client option count', () => {
     const values = Array.from(

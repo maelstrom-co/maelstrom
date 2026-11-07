@@ -6,7 +6,6 @@ import type {
   Vessel,
   VesselId,
 } from '@maelstrom-co/protocol';
-
 import { findDuplicateTilingLeaves } from '@maelstrom-co/protocol';
 
 import {

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { MetadataObservers } from './integration.js';
 
 test('metadata subscription refresh delivers once, skips removed observers, and observes later work', () => {
@@ -39,6 +40,7 @@ test('throwing and rejecting metadata observers cannot block later observers or 
     throw new Error('asynchronous');
   });
   observers.subscribe(() =>
+    // oxlint-disable-next-line unicorn/no-thenable -- This probe verifies isolation from a throwing thenable accessor.
     Object.defineProperty({}, 'then', {
       get() {
         throw new Error('thenable');

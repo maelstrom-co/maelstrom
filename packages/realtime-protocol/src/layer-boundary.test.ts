@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { builtinModules } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -107,13 +115,13 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
  * The alternative — defaulting unknown names to `browser` — is unsafe in one
  * direction only, and that direction is the one that matters. A Node-only
  * minter named e.g. `@maelstrom-co/realtime-gemini-mint` matches no `-server`
- * or `-agent` suffix, so it would classify as browser, skip the Biome backstop
+ * or `-agent` suffix, so it would classify as browser, skip the lint backstop
  * entirely, and be importable from `@maelstrom-co/react-realtime` with every
  * test green — a credential-reading package one import from the client bundle.
  *
  * Adding a browser package therefore means adding it here. That is a
  * deliberate cost: the omission fails loudly (the new package is held to
- * server rules and has no `biome.json`) instead of silently widening what may
+ * server rules and has no local lint config) instead of silently widening what may
  * reach the browser.
  */
 const BROWSER_PACKAGES = new Set([
@@ -697,7 +705,7 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
   test('an unrecognized package name classifies as server, not browser', () => {
     // The direction of this default is the whole point. A future Node-only
     // minter matching no known suffix must land in the strictest layer, where
-    // the Biome backstop applies to it, rather than being waved through as a
+    // the lint backstop applies to it, rather than being waved through as a
     // browser package that anything may import.
     expect(classify('@maelstrom-co/realtime-gemini-mint')).toBe('server');
     expect(classify('@maelstrom-co/something-nobody-listed')).toBe('server');
@@ -724,129 +732,87 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
   });
 });
 
-/**
- * Biome resolves `overrides[].includes` globs relative to the config that
- * *extends* the shared one, not the repo root. Almost every package here
- * carries its own `biome.json` containing `{"extends": "//"}`, so a root-level
- * override targeting `packages/*-server/**` silently matches nothing in
- * exactly the packages it exists to protect. The rule therefore has to be
- * declared in each server/worker package's own config — which is a
- * copy-paste obligation, and copy-paste obligations rot.
- *
- * This block is what stops that rot: it derives the required specifier list
- * from `classify()` and from each browser package's own `exports` map, so
- * adding a browser package, a subpath, or a server/worker package makes the
- * omission a test failure instead of a silently missing lint rule.
- */
-
-/**
- * Every specifier that resolves into a browser package: the bare name plus one
- * per non-root `exports` key.
- *
- * Biome's `noRestrictedImports` matches the specifier string exactly. Listing
- * `@maelstrom-co/realtime-vad` therefore does nothing about
- * `@maelstrom-co/realtime-vad/assets`, which is a real, published subpath —
- * and the Node-only one, so it is the specifier a worker is most likely to
- * reach for. Each subpath needs its own entry.
- */
 function browserImportSpecifiers(): string[] {
-  const specifiers: string[] = [];
-  for (const pkg of packages) {
-    if (classify(pkg.name) !== 'browser') continue;
-    specifiers.push(pkg.name);
-    for (const key of Object.keys(pkg.pkgJson.exports ?? {})) {
-      if (key === '.' || key === './package.json') continue;
-      specifiers.push(`${pkg.name}${key.slice(1)}`);
-    }
-  }
-  return specifiers.sort();
+  return packages
+    .filter((pkg) => classify(pkg.name) === 'browser')
+    .flatMap((pkg) => [
+      pkg.name,
+      ...Object.keys(pkg.pkgJson.exports ?? {})
+        .filter((key) => key.startsWith('./') && key !== './package.json')
+        .map((key) => pkg.name + key.slice(1)),
+    ]);
 }
 
-describe('package layering — the Biome backstop must cover every browser package', () => {
-  test('the browser specifier list includes published subpaths', () => {
-    // Guards the derivation: if the exports walk broke, the list would
-    // collapse to bare names and every assertion below would still pass.
-    expect(browserImportSpecifiers()).toContain(
-      '@maelstrom-co/realtime-vad/assets',
-    );
-  });
-
+describe('server and worker lint import boundaries', () => {
   for (const pkg of packages) {
     const layer = classify(pkg.name);
     if (layer !== 'server' && layer !== 'worker') continue;
-
-    test(`${pkg.name} (${layer}) restricts every browser specifier`, () => {
-      const configPath = join(pkg.dir, 'biome.json');
-      const relConfigPath = relative(repoRoot, configPath);
-      let biomeConfig: {
-        linter?: {
-          rules?: {
-            style?: {
-              noRestrictedImports?: {
-                level?: string;
-                options?: { paths?: Record<string, unknown> };
-              };
-            };
-          };
-        };
+    test(pkg.name + ' rejects every browser import and subpath', () => {
+      const configPath = join(pkg.dir, '.oxlintrc.json');
+      const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+        rules?: Record<string, [string, { paths?: { name: string }[] }]>;
       };
+      const rule = config.rules?.['eslint/no-restricted-imports'];
+      expect(rule?.[0]).toBe('error');
+      const paths = new Set(rule?.[1].paths?.map((entry) => entry.name));
+      const knownSpecifiers = browserImportSpecifiers();
+      const specifiers = [
+        ...knownSpecifiers,
+        ...knownSpecifiers
+          .filter((specifier) => specifier.split('/').length === 2)
+          .map((specifier) => specifier + '/__boundary_probe__/nested'),
+      ];
+      expect(
+        specifiers.filter(
+          (specifier) =>
+            specifier.split('/').length === 2 && !paths.has(specifier),
+        ),
+      ).toEqual([]);
+
+      const scratch = mkdtempSync(join(tmpdir(), 'maelstrom-import-boundary-'));
       try {
-        biomeConfig = JSON.parse(readFileSync(configPath, 'utf8'));
-      } catch {
-        throw new Error(`INVARIANT VIOLATED: every server-side and worker-side package must carry its own biome.json declaring the browser-import restrictions.
-
-  Package: ${pkg.name} (layer: ${layer})
-  Missing: ${relConfigPath}
-
-Inheriting the root config is not enough, and the failure is silent. Biome resolves an override's "includes" globs relative to the config that extends the shared one, so a root-level override targeting packages/*-server/** does not reach a package that has its own biome.json. Worse, the root globs never matched @maelstrom-co/engine at all — its directory is packages/engine, which is neither *-server nor *-agent — so "it inherits the root rule" is false for engine under every configuration.
-
-Rather than encode which packages the root globs happen to match, this test requires the rule where it is guaranteed to apply: in the package itself.
-
-Fix: create ${relConfigPath} with {"extends": "//"} plus a linter.rules.style.noRestrictedImports block. Copy the shape from packages/realtime-livekit-server/biome.json.
-
-See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
-      }
-
-      const rule = biomeConfig.linter?.rules?.style?.noRestrictedImports;
-
-      // A listed path enforces nothing if the rule itself is switched off.
-      // Silencing a false positive with `"level": "off"` while leaving `paths`
-      // intact is the realistic way this decays, and it would otherwise keep
-      // every assertion below green.
-      if (rule?.level !== undefined && rule.level !== 'error') {
-        throw new Error(`INVARIANT VIOLATED: a server-side or worker-side package must keep noRestrictedImports at "error".
-
-  Package: ${pkg.name} (layer: ${layer})
-  Config: ${relConfigPath}
-  Level: "${rule.level}"
-
-The paths list below is only as strong as the rule carrying it. Setting the level to "off" or "warn" leaves the restrictions in place as documentation while "nx run-many -t check" stops reporting them, so this package could import a browser package with no signal at all. The Biome plugin runs with --error-on-warnings, so "warn" is no safer than "off" in CI, but it is quieter locally.
-
-Fix: set "level": "error" in ${relConfigPath}, or omit the key to inherit the shared config's level. If a specific import is a genuine false positive, exempt that import with a "// biome-ignore" comment stating the invariant rather than disabling the rule for the whole package.
-
-See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
-      }
-
-      const restricted = rule?.options?.paths ?? {};
-      const missing = browserImportSpecifiers().filter(
-        (specifier) => !(specifier in restricted),
-      );
-
-      if (missing.length > 0) {
-        throw new Error(`INVARIANT VIOLATED: a server-side or worker-side package's own biome.json must restrict every specifier that resolves into a browser package.
-
-  Package: ${pkg.name} (layer: ${layer})
-  Not restricted: ${missing.join(', ')}
-
-The manifest-graph tests above catch a forbidden *dependency edge*. This lint rule catches the forbidden *import statement* at the line where it is written, which is a far better error location — but only for the specifiers it actually lists. Anything missing from this list is unguarded by lint, and a workspace-hoisted import that never reaches package.json is unguarded by the manifest tests too, so nothing at all would catch it.
-
-Note that Biome matches specifiers exactly. A subpath such as @maelstrom-co/realtime-vad/assets is a separate entry from the bare package name, not a prefix of it.
-
-Because ${pkg.name} has its own biome.json extending the root config, the root-level "overrides" entry does not reach it: Biome interprets override globs relative to the extending config, not the repo root. The rule must be declared here, in this package's own config.
-
-Fix: add the missing entries to ${relConfigPath} under linter.rules.style.noRestrictedImports.options.paths, each with a message pointing at ${LAYER_BOUNDARY_TEST_PATH}. Copy the shape from an existing sibling such as packages/realtime-livekit-server/biome.json.
-
-See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
+        const fixture = join(scratch, 'imports.ts');
+        writeFileSync(
+          fixture,
+          specifiers
+            .map((specifier) => 'import ' + JSON.stringify(specifier) + ';')
+            .join('\n'),
+        );
+        const run = Bun.spawnSync(
+          [
+            process.execPath,
+            join(repoRoot, 'node_modules/oxlint/bin/oxlint'),
+            '--config',
+            configPath,
+            '--format',
+            'json',
+            fixture,
+          ],
+          { cwd: repoRoot },
+        );
+        expect(run.exitCode).toBe(1);
+        const report = JSON.parse(run.stdout.toString()) as {
+          diagnostics: { code: string }[];
+        };
+        expect(
+          report.diagnostics.filter((diagnostic) =>
+            diagnostic.code.includes('no-restricted-imports'),
+          ),
+        ).toHaveLength(specifiers.length);
+        writeFileSync(fixture, "import 'node:path';\n");
+        const control = Bun.spawnSync(
+          [
+            process.execPath,
+            join(repoRoot, 'node_modules/oxlint/bin/oxlint'),
+            '--config',
+            configPath,
+            fixture,
+          ],
+          { cwd: repoRoot },
+        );
+        expect(control.exitCode).toBe(0);
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
       }
     });
   }

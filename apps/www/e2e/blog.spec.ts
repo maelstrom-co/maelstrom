@@ -1,6 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import { expect, test } from '@playwright/test';
+
 import {
   addExtraPost,
   outputText,

@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
+
 import {
   type ArchiveProcessRequest,
   MAX_PACKED_TARBALL_BYTES,
@@ -240,29 +241,28 @@ describe('validatePackedManifest policy', () => {
     expect(() => validatePackedManifest(entries, '1.2.3', '/unused')).toThrow();
   });
 
-  test.each([
-    'missing',
-    'symlink',
-    'directory',
-  ])('rejects a %s tarball', (kind) =>
-    withTempDir((dir) => {
-      const entries = manifest();
-      writeManifestFiles(dir, entries);
-      const target = join(dir, entries[0]!.tarball);
-      rmSync(target);
-      if (kind === 'symlink') {
-        writeFileSync(join(dir, 'target.tgz'), 'fixture');
-        symlinkSync('target.tgz', target);
-      } else if (kind === 'directory') {
-        mkdirSync(target);
-      }
+  test.each(['missing', 'symlink', 'directory'])(
+    'rejects a %s tarball',
+    (kind) =>
+      withTempDir((dir) => {
+        const entries = manifest();
+        writeManifestFiles(dir, entries);
+        const target = join(dir, entries[0]!.tarball);
+        rmSync(target);
+        if (kind === 'symlink') {
+          writeFileSync(join(dir, 'target.tgz'), 'fixture');
+          symlinkSync('target.tgz', target);
+        } else if (kind === 'directory') {
+          mkdirSync(target);
+        }
 
-      expect(() =>
-        validatePackedManifest(entries, '1.2.3', dir, {
-          runArchiveProcess: fakeArchiveProcess,
-        }),
-      ).toThrow('regular file');
-    }));
+        expect(() =>
+          validatePackedManifest(entries, '1.2.3', dir, {
+            runArchiveProcess: fakeArchiveProcess,
+          }),
+        ).toThrow('regular file');
+      }),
+  );
 
   test('rejects an oversized tarball before archive inspection', () =>
     withTempDir((dir) => {
@@ -391,7 +391,8 @@ describe('validatePackedManifest archive process contract', () => {
         }),
       ).toThrow('Archive');
       expect(calls).toBe(0);
-    }));
+    }),
+  );
 
   test('rejects directory payloads before parsers can disagree on the next header offset', () =>
     withTempDir((dir) => {
@@ -430,52 +431,65 @@ describe('validatePackedManifest archive process contract', () => {
     'package\\package.json',
     'package/escaped\npackage.json',
     'package/space package.json',
-  ])('rejects %p beside a safe manifest so extraction cannot choose different metadata', (name) =>
-    withTempDir((dir) => {
-      const entries = manifest();
-      writeManifestFiles(dir, entries);
-      writeFileSync(
-        join(dir, entries[0]!.tarball),
-        tarGzip([
-          {
-            name: 'package/package.json',
-            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
-          },
-          {
-            name,
-            body: JSON.stringify({ name: entries[0]!.name, version: '9.9.9' }),
-          },
-        ]),
-      );
-      expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
-        'Archive',
-      );
-    }));
+  ])(
+    'rejects %p beside a safe manifest so extraction cannot choose different metadata',
+    (name) =>
+      withTempDir((dir) => {
+        const entries = manifest();
+        writeManifestFiles(dir, entries);
+        writeFileSync(
+          join(dir, entries[0]!.tarball),
+          tarGzip([
+            {
+              name: 'package/package.json',
+              body: JSON.stringify({
+                name: entries[0]!.name,
+                version: '1.2.3',
+              }),
+            },
+            {
+              name,
+              body: JSON.stringify({
+                name: entries[0]!.name,
+                version: '9.9.9',
+              }),
+            },
+          ]),
+        );
+        expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
+          'Archive',
+        );
+      }),
+  );
 
-  test.each([
-    '1',
-    '2',
-    '3',
-    '4',
-    '6',
-  ] as const)('rejects nested member type %s before npm extraction can interpret it', (type) =>
-    withTempDir((dir) => {
-      const entries = manifest();
-      writeManifestFiles(dir, entries);
-      writeFileSync(
-        join(dir, entries[0]!.tarball),
-        tarGzip([
-          {
-            name: 'package/package.json',
-            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
-          },
-          { name: 'package/dist/redirect', type, linkName: '../package.json' },
-        ]),
-      );
-      expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
-        'Archive',
-      );
-    }));
+  test.each(['1', '2', '3', '4', '6'] as const)(
+    'rejects nested member type %s before npm extraction can interpret it',
+    (type) =>
+      withTempDir((dir) => {
+        const entries = manifest();
+        writeManifestFiles(dir, entries);
+        writeFileSync(
+          join(dir, entries[0]!.tarball),
+          tarGzip([
+            {
+              name: 'package/package.json',
+              body: JSON.stringify({
+                name: entries[0]!.name,
+                version: '1.2.3',
+              }),
+            },
+            {
+              name: 'package/dist/redirect',
+              type,
+              linkName: '../package.json',
+            },
+          ]),
+        );
+        expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
+          'Archive',
+        );
+      }),
+  );
 
   test('rejects duplicate canonical paths outside the manifest before npm normalizes the archive', () =>
     withTempDir((dir) => {
@@ -539,7 +553,8 @@ describe('validatePackedManifest archive process contract', () => {
       writeManifestFiles(dir, entries);
       writeFileSync(join(dir, entries[0]!.tarball), tarGzip(members));
       expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow();
-    }));
+    }),
+  );
 
   test.each([
     [
@@ -585,7 +600,8 @@ describe('validatePackedManifest archive process contract', () => {
           runArchiveProcess: () => result,
         }),
       ).toThrow();
-    }));
+    }),
+  );
 
   test('rejects invalid embedded metadata and mismatches', () =>
     withTempDir((dir) => {

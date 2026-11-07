@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+
 import { isHosted } from '../lib/hosted-mode';
 import { ShopPage } from '../shop/shop-page';
 

@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import { DiagnosticCapture } from '@maelstrom-co/devtools/production';
 import { cleanup, fireEvent, render } from '@testing-library/react';
+
 import { devtools } from './production.js';
 
 const nodeEnv = process.env.NODE_ENV;

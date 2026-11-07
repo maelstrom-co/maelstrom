@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { packedIntegrity } from './packed-integrity.ts';
 import { PACKED_PACKAGE_NAMES } from './packed-manifest.ts';
 import {
@@ -96,34 +97,34 @@ test('records package bytes and acceptance without storing local paths or declar
     expect(saved).not.toHaveProperty('available');
   }));
 
-test.each([
-  'flat',
-  'nested',
-])('restores accepted memory from the %s artifact download layout', (layout) =>
-  fixture((root, packages, options) => {
-    const first = createPublicationRecord(options, packages, target);
-    first.set(packages[0]!.name, 'accepted');
-    const recoveryDirectory = join(root, 'recovery');
-    const destination =
-      layout === 'flat'
-        ? recoveryDirectory
-        : join(recoveryDirectory, 'npm-publication-records-1');
-    mkdirSync(destination, { recursive: true });
-    copyFileSync(options.path, join(destination, 'publication-record.json'));
-    const second = createPublicationRecord(
-      {
-        ...options,
-        path: join(root, 'second.json'),
-        recoveryDirectory,
-        context: { ...context, attempt: 2 },
-      },
-      packages,
-      target,
-    );
-    expect(second.accepted(packages[0]!.name)).toBe(true);
-    expect(second.accepted(packages[1]!.name)).toBe(false);
-    expect(second.requiresReconciliation).toBe(true);
-  }));
+test.each(['flat', 'nested'])(
+  'restores accepted memory from the %s artifact download layout',
+  (layout) =>
+    fixture((root, packages, options) => {
+      const first = createPublicationRecord(options, packages, target);
+      first.set(packages[0]!.name, 'accepted');
+      const recoveryDirectory = join(root, 'recovery');
+      const destination =
+        layout === 'flat'
+          ? recoveryDirectory
+          : join(recoveryDirectory, 'npm-publication-records-1');
+      mkdirSync(destination, { recursive: true });
+      copyFileSync(options.path, join(destination, 'publication-record.json'));
+      const second = createPublicationRecord(
+        {
+          ...options,
+          path: join(root, 'second.json'),
+          recoveryDirectory,
+          context: { ...context, attempt: 2 },
+        },
+        packages,
+        target,
+      );
+      expect(second.accepted(packages[0]!.name)).toBe(true);
+      expect(second.accepted(packages[1]!.name)).toBe(false);
+      expect(second.requiresReconciliation).toBe(true);
+    }),
+);
 
 test('rejects a changed tarball before writing a recovery snapshot', () =>
   fixture((root, packages, options) => {
@@ -178,7 +179,8 @@ test.each([
         target,
       ),
     ).toThrow();
-  }));
+  }),
+);
 
 test('an older accepted upload cannot be erased by a later not-attempted snapshot', () =>
   fixture((root, packages, options) => {

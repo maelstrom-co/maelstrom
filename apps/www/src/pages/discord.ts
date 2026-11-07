@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+
 import { DISCORD_INVITE_URL } from '../data/discord-invite';
 
 export const prerender = false;

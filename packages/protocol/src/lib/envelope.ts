@@ -1,4 +1,5 @@
 import { z } from 'zod';
+
 import type { Mutable } from './_drift-guards.ts';
 import {
   type AgentEvent,
@@ -23,9 +24,9 @@ import { MaelstromResponseSchema } from './maelstrom-response-schema.ts';
 import { MessageId, MessageIdSchema } from './message.ts';
 import type { MaelstromResponse } from './response.ts';
 import { err, ok, type Result } from './result.ts';
-import { type SessionId, SessionIdSchema } from './session.ts';
 import type { SessionHistoryEntry } from './session-history-entry.ts';
 import { SessionHistoryEntryArraySchema } from './session-history-entry.ts';
+import { type SessionId, SessionIdSchema } from './session.ts';
 
 // ---------------------------------------------------------------------------
 // Client → engine-host envelopes
@@ -78,8 +79,10 @@ export const HistoryGetMessageSchema = z.object({
  * distinct transport-only discriminator lets legacy injections remain
  * fire-and-forget.
  */
-export interface AcknowledgedAssistantMessage
-  extends Omit<AssistantInjectionMessage, 'type'> {
+export interface AcknowledgedAssistantMessage extends Omit<
+  AssistantInjectionMessage,
+  'type'
+> {
   /** Selects the opt-in, correlated assistant-injection wire path. */
   readonly type: 'client.assistant_message.acknowledged';
 }

@@ -1,6 +1,8 @@
 import { afterEach, expect, mock, test } from 'bun:test';
+
 import { SessionId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import { ConnectionManager } from './connection-manager.js';
 import type { ConnectionOptions } from './connection-manager.types.js';
@@ -285,45 +287,44 @@ test('a retired success cannot reset a replacement retry count before it becomes
   }
 });
 
-test.each([
-  'initial',
-  'probe',
-  'automatic',
-] as const)('a store observer replacing an open breaker preserves recovery after %s failure', async (phase) => {
-  const clock = FakeTimers.install();
-  try {
-    const { x, y, manager } = setup({
-      circuitBreakerTimeoutMs: 5,
-      initialDelayMs: 1,
-      maxDelayMs: 1,
-    });
-    if (phase === 'probe') {
-      x.connect.mockRejectedValueOnce(new Error('Initial failure'));
-      await manager.connect().catch(() => undefined);
-    } else if (phase === 'automatic') await manager.connect();
-    const subscription = manager.store.subscribe(() => {
-      if (manager.store.state.circuitBreakerStatus !== 'open') return;
-      subscription.unsubscribe();
-      manager.setConnector(y.connector);
-    });
-    x.connect.mockRejectedValueOnce(
-      new Error('Failure before store replacement'),
-    );
-    if (phase === 'initial') await manager.connect().catch(() => undefined);
-    if (phase === 'automatic')
-      x.emit({
-        type: 'disconnected',
-        clean: false,
-        message: 'Connection lost',
+test.each(['initial', 'probe', 'automatic'] as const)(
+  'a store observer replacing an open breaker preserves recovery after %s failure',
+  async (phase) => {
+    const clock = FakeTimers.install();
+    try {
+      const { x, y, manager } = setup({
+        circuitBreakerTimeoutMs: 5,
+        initialDelayMs: 1,
+        maxDelayMs: 1,
       });
-    await clock.tickAsync(phase === 'probe' ? 10 : 6);
-    expect(y.connect).toHaveBeenCalledTimes(1);
-    expect(manager.store.state.circuitBreakerStatus).toBe('closed');
-    subscription.unsubscribe();
-  } finally {
-    clock.uninstall();
-  }
-});
+      if (phase === 'probe') {
+        x.connect.mockRejectedValueOnce(new Error('Initial failure'));
+        await manager.connect().catch(() => undefined);
+      } else if (phase === 'automatic') await manager.connect();
+      const subscription = manager.store.subscribe(() => {
+        if (manager.store.state.circuitBreakerStatus !== 'open') return;
+        subscription.unsubscribe();
+        manager.setConnector(y.connector);
+      });
+      x.connect.mockRejectedValueOnce(
+        new Error('Failure before store replacement'),
+      );
+      if (phase === 'initial') await manager.connect().catch(() => undefined);
+      if (phase === 'automatic')
+        x.emit({
+          type: 'disconnected',
+          clean: false,
+          message: 'Connection lost',
+        });
+      await clock.tickAsync(phase === 'probe' ? 10 : 6);
+      expect(y.connect).toHaveBeenCalledTimes(1);
+      expect(manager.store.state.circuitBreakerStatus).toBe('closed');
+      subscription.unsubscribe();
+    } finally {
+      clock.uninstall();
+    }
+  },
+);
 
 test('a store observer replacing a connected binding cannot receive a stale connected event', async () => {
   const { x, y, manager } = setup();

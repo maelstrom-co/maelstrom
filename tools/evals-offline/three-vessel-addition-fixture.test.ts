@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+
 import { validateLoadedCase } from '../../packages/evals/src/adapters/offline-case.js';
 import {
   scoreThreeVesselAddition,

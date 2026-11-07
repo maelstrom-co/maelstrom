@@ -37,7 +37,6 @@ import type {
 } from './candidate.js';
 import { isNeedsClarification } from './candidate.js';
 import type { PlanValidator } from './plan-validator.js';
-import type { ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
   readonly request: ChartRequest;

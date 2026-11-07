@@ -88,7 +88,8 @@ authentication, authorization, persistence, and operational policy.
 ## Check your changes
 
 ```sh
-bun run check
+bun run lint
+bun run format:check
 bun run typecheck
 bun run test
 bunx --no-install playwright install chromium

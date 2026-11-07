@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { LiveSessionConfigSchema, LiveTransportError } from './openai-live.js';
 
 test('startup recovery accepts text roles but rejects executable history and bounds provider context cost', () => {
@@ -56,13 +57,16 @@ test.each([
   'unsafe\u007fvalue',
   'unsafe\u0085value',
   'unsafe\u202evalue',
-])('diagnostic correlation omits oversized or control-bearing fields: %j', (value) => {
-  const error = new LiveTransportError('provider_rejected', {
-    requestId: value,
-    providerCode: value,
-    clientEventId: value,
-  });
-  expect(error.requestId).toBeUndefined();
-  expect(error.providerCode).toBeUndefined();
-  expect(error.clientEventId).toBeUndefined();
-});
+])(
+  'diagnostic correlation omits oversized or control-bearing fields: %j',
+  (value) => {
+    const error = new LiveTransportError('provider_rejected', {
+      requestId: value,
+      providerCode: value,
+      clientEventId: value,
+    });
+    expect(error.requestId).toBeUndefined();
+    expect(error.providerCode).toBeUndefined();
+    expect(error.clientEventId).toBeUndefined();
+  },
+);

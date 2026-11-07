@@ -4,6 +4,7 @@ import type { VoiceCaption, VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 
 let voiceResult: UseVoiceResult;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { deferred } from '@maelstrom-co/engine';
 import type { Ask } from '@maelstrom-co/planner-jev/_internal';
 import {
@@ -8,6 +9,7 @@ import {
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
 import { err, isOk, ok } from '@maelstrom-co/protocol';
+
 import { assertEvaluationRuntime } from '../../../core/ci-runtime.js';
 import { type Scenario, selectScenarios } from '../../../core/scenarios.js';
 import {

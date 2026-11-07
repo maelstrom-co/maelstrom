@@ -2,6 +2,7 @@ import type { TilingTreeNode } from '@maelstrom-co/client';
 import { parseTilingTree } from '@maelstrom-co/client';
 import { type InstanceId, tilingLeafInstanceId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { calendarVessel } from '../vessels/calendar.vessel';
 import { tasksVessel } from '../vessels/tasks.vessel';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from './default-layout';

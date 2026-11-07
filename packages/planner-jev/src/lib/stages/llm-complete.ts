@@ -1,6 +1,7 @@
 import type { PlannerCandidate, Stage } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import { outputSchema, parseFill, type Slot } from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';

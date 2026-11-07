@@ -1,5 +1,6 @@
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
+
 import type { PlaygroundMetadata } from './playground-metadata';
 
 /** Default model for the demo's server-owned planning requests. */

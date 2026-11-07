@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { ComposedPairsRecord } from '@maelstrom-co/planner-jev/_internal';
+
 import type { StageTurnRecord } from '../../core/stage-eval.js';
 import {
   renderArrangementNotAskedSection,

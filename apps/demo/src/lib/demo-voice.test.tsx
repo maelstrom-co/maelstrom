@@ -25,6 +25,7 @@ import {
 } from '@maelstrom-co/realtime-openai-live';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+
 import { createMockConnector } from './__tests__/mock-connector';
 import {
   demoVoiceOpening,
@@ -178,43 +179,43 @@ function deferred() {
   return { promise, resolve };
 }
 
-it.each([
-  'playing',
-  'ambiguous',
-] as const)('does not introduce again when switching during a %s fixed greeting', async (phase) => {
-  selectVoiceProvider('realtime');
-  const orchestrator = newOrchestrator();
-  await orchestrator.connect();
-  vi.spyOn(orchestrator, 'addAssistantMessageAcknowledged').mockResolvedValue(
-    'inserted',
-  );
-  const presentation = deferred();
-  const dispatched = deferred();
-  class GreetingAdapter extends Adapter implements RealtimeGreetingAdapter {
-    activateAudio() {}
-    async speakAssistantText(
-      args: Parameters<RealtimeGreetingAdapter['speakAssistantText']>[0],
-    ) {
-      if (phase === 'playing') args.onPlaybackStart?.();
-      dispatched.resolve();
-      await presentation.promise;
-      return 'accepted' as const;
+it.each(['playing', 'ambiguous'] as const)(
+  'does not introduce again when switching during a %s fixed greeting',
+  async (phase) => {
+    selectVoiceProvider('realtime');
+    const orchestrator = newOrchestrator();
+    await orchestrator.connect();
+    vi.spyOn(orchestrator, 'addAssistantMessageAcknowledged').mockResolvedValue(
+      'inserted',
+    );
+    const presentation = deferred();
+    const dispatched = deferred();
+    class GreetingAdapter extends Adapter implements RealtimeGreetingAdapter {
+      activateAudio() {}
+      async speakAssistantText(
+        args: Parameters<RealtimeGreetingAdapter['speakAssistantText']>[0],
+      ) {
+        if (phase === 'playing') args.onPlaybackStart?.();
+        dispatched.resolve();
+        await presentation.promise;
+        return 'accepted' as const;
+      }
     }
-  }
-  const fixed = new GreetingAdapter();
-  const live = new Adapter();
-  const voice = mountDemoVoice(orchestrator, (provider) =>
-    provider === 'live' ? live : fixed,
-  );
-  await voice.connect();
-  await dispatched.promise;
-  await voice.select('live');
-  await voice.connect();
-  expect(live.openings).toBe(0);
-  presentation.resolve();
-  await voice.disconnect();
-  orchestrator.dispose();
-});
+    const fixed = new GreetingAdapter();
+    const live = new Adapter();
+    const voice = mountDemoVoice(orchestrator, (provider) =>
+      provider === 'live' ? live : fixed,
+    );
+    await voice.connect();
+    await dispatched.promise;
+    await voice.select('live');
+    await voice.connect();
+    expect(live.openings).toBe(0);
+    presentation.resolve();
+    await voice.disconnect();
+    orchestrator.dispose();
+  },
+);
 
 it('does not present the fixed greeting after a Live opening in the same session', async () => {
   selectVoiceProvider('live');
@@ -250,40 +251,46 @@ it.each([
   'connection failure',
   'Engine wait',
   'history failure',
-] as const)('still introduces on Live after an %s Realtime selection', async (scenario) => {
-  selectVoiceProvider('realtime');
-  const orchestrator = newOrchestrator();
-  const fixed = Object.assign(new Adapter(), {
-    activateAudio() {},
-    speakAssistantText: vi.fn(async () => 'accepted' as const),
-  });
-  const live = new Adapter();
-  const voice = mountDemoVoice(orchestrator, (provider) =>
-    provider === 'live' ? live : fixed,
-  );
-  if (scenario === 'connection failure') {
-    vi.spyOn(fixed, 'connect').mockRejectedValue(
-      new Error('fixture connect failure'),
+] as const)(
+  'still introduces on Live after an %s Realtime selection',
+  async (scenario) => {
+    selectVoiceProvider('realtime');
+    const orchestrator = newOrchestrator();
+    const fixed = Object.assign(new Adapter(), {
+      activateAudio() {},
+      speakAssistantText: vi.fn(async () => 'accepted' as const),
+    });
+    const live = new Adapter();
+    const voice = mountDemoVoice(orchestrator, (provider) =>
+      provider === 'live' ? live : fixed,
     );
-    await expect(voice.connect()).rejects.toThrow();
-    expect(fixed.connect).toHaveBeenCalledTimes(1);
-  } else if (scenario === 'Engine wait') {
+    if (scenario === 'connection failure') {
+      vi.spyOn(fixed, 'connect').mockRejectedValue(
+        new Error('fixture connect failure'),
+      );
+      await expect(voice.connect()).rejects.toThrow();
+      expect(fixed.connect).toHaveBeenCalledTimes(1);
+    } else if (scenario === 'Engine wait') {
+      await voice.connect();
+    } else if (scenario === 'history failure') {
+      await orchestrator.connect();
+      vi.spyOn(
+        orchestrator,
+        'addAssistantMessageAcknowledged',
+      ).mockRejectedValue(new Error('fixture history failure'));
+      await voice.connect();
+      await vi.waitFor(() =>
+        expect(voice.session.greetingState).toBe('settled'),
+      );
+    }
+    expect(fixed.speakAssistantText).not.toHaveBeenCalled();
+    await voice.select('live');
     await voice.connect();
-  } else if (scenario === 'history failure') {
-    await orchestrator.connect();
-    vi.spyOn(orchestrator, 'addAssistantMessageAcknowledged').mockRejectedValue(
-      new Error('fixture history failure'),
-    );
-    await voice.connect();
-    await vi.waitFor(() => expect(voice.session.greetingState).toBe('settled'));
-  }
-  expect(fixed.speakAssistantText).not.toHaveBeenCalled();
-  await voice.select('live');
-  await voice.connect();
-  expect(live.openings).toBe(1);
-  await voice.disconnect();
-  orchestrator.dispose();
-});
+    expect(live.openings).toBe(1);
+    await voice.disconnect();
+    orchestrator.dispose();
+  },
+);
 
 it('retains a coherent disconnected session after factory failure and permits an unpaid retry', async () => {
   selectVoiceProvider('live');
@@ -374,50 +381,50 @@ it('releases an uncommitted adapter if session construction fails', async () => 
   orchestrator.dispose();
 });
 
-it.each([
-  'end',
-  'switch',
-] as const)('publishes the %s barrier before reentrant diagnostic subscribers run', async (action) => {
-  selectVoiceProvider('live');
-  const orchestrator = newOrchestrator();
-  const factory = vi.fn<Factory>(() => new Adapter());
-  const voice = mountDemoVoice(orchestrator, factory);
-  await voice.connect();
-  const teardown = deferred();
-  (voice.adapter as Adapter).close = () => teardown.promise;
-  const diagnostics = voice.diagnostics;
-  let nestedEnd: Promise<void> | undefined;
-  let nestedSwitch: Promise<void> | undefined;
-  let settled = false;
-  const unsubscribe = diagnostics.subscribe(() => {
-    if (
-      diagnostics.getSnapshot().activity.at(-1)?.kind !==
-      'voice.session.disconnecting'
-    )
-      return;
-    nestedEnd = voice.voice().disconnect();
-    nestedSwitch = voice.voice().switchProvider('realtime');
-    void nestedSwitch.then(() => {
-      settled = true;
+it.each(['end', 'switch'] as const)(
+  'publishes the %s barrier before reentrant diagnostic subscribers run',
+  async (action) => {
+    selectVoiceProvider('live');
+    const orchestrator = newOrchestrator();
+    const factory = vi.fn<Factory>(() => new Adapter());
+    const voice = mountDemoVoice(orchestrator, factory);
+    await voice.connect();
+    const teardown = deferred();
+    (voice.adapter as Adapter).close = () => teardown.promise;
+    const diagnostics = voice.diagnostics;
+    let nestedEnd: Promise<void> | undefined;
+    let nestedSwitch: Promise<void> | undefined;
+    let settled = false;
+    const unsubscribe = diagnostics.subscribe(() => {
+      if (
+        diagnostics.getSnapshot().activity.at(-1)?.kind !==
+        'voice.session.disconnecting'
+      )
+        return;
+      nestedEnd = voice.voice().disconnect();
+      nestedSwitch = voice.voice().switchProvider('realtime');
+      void nestedSwitch.then(() => {
+        settled = true;
+      });
     });
-  });
-  const operation =
-    action === 'end'
-      ? voice.voice().disconnect()
-      : voice.voice().switchProvider('realtime');
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(settled).toBe(false);
-  expect(factory).toHaveBeenCalledTimes(1);
-  expect(action === 'end' ? nestedEnd : nestedSwitch).toBe(operation);
-  await act(async () => {
-    teardown.resolve();
-    await Promise.all([operation, nestedEnd, nestedSwitch]);
-  });
-  expect(factory).toHaveBeenCalledTimes(2);
-  unsubscribe();
-  await voice.disconnect();
-  orchestrator.dispose();
-});
+    const operation =
+      action === 'end'
+        ? voice.voice().disconnect()
+        : voice.voice().switchProvider('realtime');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(action === 'end' ? nestedEnd : nestedSwitch).toBe(operation);
+    await act(async () => {
+      teardown.resolve();
+      await Promise.all([operation, nestedEnd, nestedSwitch]);
+    });
+    expect(factory).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    await voice.disconnect();
+    orchestrator.dispose();
+  },
+);
 
 it('records the observed connection generation and distinguishes recreated provider instances', async () => {
   selectVoiceProvider('live');

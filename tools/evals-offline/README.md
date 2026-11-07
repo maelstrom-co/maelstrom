@@ -269,7 +269,8 @@ From the workspace root after dependency setup:
 bun test --conditions=@maelstrom-co/source tools/evals-offline
 bunx nx run evals-offline:typecheck --skip-nx-cache --skipSync
 bunx nx run evals-offline:test --skip-nx-cache --skipSync
-bunx nx run evals-offline:check --skip-nx-cache --skipSync
+bunx nx run evals-offline:lint --skip-nx-cache --skipSync
+bunx nx format:check --all
 ```
 
 `--skipSync` avoids Nx's workspace-wide TypeScript solution-reference rewrites;

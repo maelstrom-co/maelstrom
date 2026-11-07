@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   ChartRequestMessage,
   type DiagnosticEvent,
@@ -6,6 +7,7 @@ import {
   ok,
   SessionId,
 } from '@maelstrom-co/protocol';
+
 import {
   buildGridResponse,
   makeGridRequest,
@@ -141,12 +143,10 @@ const subscription = (
   includeContent,
 });
 
-test.each([
-  'promise',
-  'thenable',
-  'throwing-then-getter',
-] as const)('optional Engine observer failures cannot crash or delay requests: %s', (mode) => {
-  const probe = `
+test.each(['promise', 'thenable', 'throwing-then-getter'] as const)(
+  'optional Engine observer failures cannot crash or delay requests: %s',
+  (mode) => {
+    const probe = `
     import { createEngine } from '../index.ts';
     import { ChartRequestMessage, MessageId, SessionId } from '@maelstrom-co/protocol';
     import { buildGridResponse, makeGridRequest, silentLogger } from './__test-helpers__/fixtures.ts';
@@ -177,17 +177,18 @@ test.each([
     await new Promise(resolve => setTimeout(resolve, 10));
     console.log('request completed');
   `;
-  const child = Bun.spawnSync(
-    [process.execPath, '--no-env-file', '--eval', probe],
-    {
-      cwd: import.meta.dir,
-      env: { ...process.env, NODE_ENV: 'development' },
-      timeout: 5000,
-    },
-  );
-  expect(child.exitCode, child.stderr.toString()).toBe(0);
-  expect(child.stdout.toString()).toContain('request completed');
-});
+    const child = Bun.spawnSync(
+      [process.execPath, '--no-env-file', '--eval', probe],
+      {
+        cwd: import.meta.dir,
+        env: { ...process.env, NODE_ENV: 'development' },
+        timeout: 5000,
+      },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(child.stdout.toString()).toContain('request completed');
+  },
+);
 
 test('server forwarding requires host opt-in and matching session; stopping prevents later content access', async () => {
   const emitter = new EngineDiagnosticEmitter();
@@ -354,198 +355,200 @@ test('planner stage evidence preserves request identity and does not replace exi
   });
 });
 
-test.each([
-  'connection',
-  'direct',
-] as const)('colliding request IDs cannot expose another execution through %s dispatch', async (dispatch) => {
-  const gate = Promise.withResolvers<void>();
-  const started = Promise.withResolvers<void>();
-  const scripted = scriptedPlanner([
-    buildGridResponse(),
-    buildGridResponse(),
-    buildGridResponse(),
-  ]);
-  let calls = 0;
-  const engine = createEngine({
-    logger: silentLogger,
-    retry: false,
-    planner: async (input, context) => {
-      if (++calls === 2) started.resolve();
-      await gate.promise;
-      return scripted(input, context);
-    },
-  });
-  const framesA: string[] = [];
-  const framesB: string[] = [];
-  const a = createDiagnosticConnection(engine, {
-    enabled: true,
-    sessionId: SessionId('authorized'),
-    send: (wire) => framesA.push(wire),
-  });
-  const b = createDiagnosticConnection(engine, {
-    enabled: true,
-    sessionId: SessionId('authorized'),
-    send: (wire) => framesB.push(wire),
-  });
-  await a.handle(subscription('authorized', true, true));
-  await b.handle(subscription('authorized', true, true));
-  const envelope = (intent: string) => {
-    const value = makeGridRequest();
-    return ChartRequestMessage({
-      id: MessageId('collision'),
-      sessionId: SessionId('authorized'),
-      request: {
-        ...value,
-        context: {
-          ...value.context,
-          updateReasons: [{ type: 'user_intent', intent }],
-        },
+test.each(['connection', 'direct'] as const)(
+  'colliding request IDs cannot expose another execution through %s dispatch',
+  async (dispatch) => {
+    const gate = Promise.withResolvers<void>();
+    const started = Promise.withResolvers<void>();
+    const scripted = scriptedPlanner([
+      buildGridResponse(),
+      buildGridResponse(),
+      buildGridResponse(),
+    ]);
+    let calls = 0;
+    const engine = createEngine({
+      logger: silentLogger,
+      retry: false,
+      planner: async (input, context) => {
+        if (++calls === 2) started.resolve();
+        await gate.promise;
+        return scripted(input, context);
       },
     });
-  };
-  const pendingA = a.handle(envelope('private-A'));
-  const pendingB =
-    dispatch === 'direct'
-      ? engine.handle(envelope('private-B'))
-      : b.handle(envelope('private-B'));
-  try {
-    await started.promise;
-    expect(framesA.some((wire) => wire.includes('private-B'))).toBe(false);
-    expect(framesB.some((wire) => wire.includes('private-A'))).toBe(false);
-    gate.resolve();
-    await Promise.all([pendingA, pendingB]);
-    expect(calls).toBe(2);
-    const previousB = framesB.length;
-    await a.handle(envelope('private-C'));
-    expect(framesA.some((wire) => wire.includes('private-C'))).toBe(true);
-    expect(framesB).toHaveLength(previousB);
-  } finally {
-    gate.resolve();
-    await Promise.allSettled([pendingA, pendingB]);
-    a.dispose();
-    b.dispose();
-  }
-});
-
-test.each([
-  'active',
-  'late',
-  'resubscribed',
-] as const)('finished execution ownership closes before a wrapping handler settles, forwarding: %s', async (forwarding) => {
-  const engine = createEngine({
-    logger: silentLogger,
-    retry: false,
-    planner: scriptedPlanner([buildGridResponse(), buildGridResponse()]),
-  });
-  const handle = engine.handle.bind(engine);
-  let followup = false;
-  const envelope = (intent: string) => {
-    const value = makeGridRequest();
-    return ChartRequestMessage({
-      id: MessageId('collision'),
+    const framesA: string[] = [];
+    const framesB: string[] = [];
+    const a = createDiagnosticConnection(engine, {
+      enabled: true,
       sessionId: SessionId('authorized'),
-      request: {
-        ...value,
-        context: {
-          ...value.context,
-          updateReasons: [{ type: 'user_intent', intent }],
-        },
-      },
+      send: (wire) => framesA.push(wire),
     });
-  };
-  engine.handle = async (message, signal) => {
-    const result = await handle(message, signal);
-    if (!followup) {
-      followup = true;
-      if (forwarding !== 'active')
-        await connection.handle(subscription('authorized', true, true));
-      await handle(envelope('private-B'));
+    const b = createDiagnosticConnection(engine, {
+      enabled: true,
+      sessionId: SessionId('authorized'),
+      send: (wire) => framesB.push(wire),
+    });
+    await a.handle(subscription('authorized', true, true));
+    await b.handle(subscription('authorized', true, true));
+    const envelope = (intent: string) => {
+      const value = makeGridRequest();
+      return ChartRequestMessage({
+        id: MessageId('collision'),
+        sessionId: SessionId('authorized'),
+        request: {
+          ...value,
+          context: {
+            ...value.context,
+            updateReasons: [{ type: 'user_intent', intent }],
+          },
+        },
+      });
+    };
+    const pendingA = a.handle(envelope('private-A'));
+    const pendingB =
+      dispatch === 'direct'
+        ? engine.handle(envelope('private-B'))
+        : b.handle(envelope('private-B'));
+    try {
+      await started.promise;
+      expect(framesA.some((wire) => wire.includes('private-B'))).toBe(false);
+      expect(framesB.some((wire) => wire.includes('private-A'))).toBe(false);
+      gate.resolve();
+      await Promise.all([pendingA, pendingB]);
+      expect(calls).toBe(2);
+      const previousB = framesB.length;
+      await a.handle(envelope('private-C'));
+      expect(framesA.some((wire) => wire.includes('private-C'))).toBe(true);
+      expect(framesB).toHaveLength(previousB);
+    } finally {
+      gate.resolve();
+      await Promise.allSettled([pendingA, pendingB]);
+      a.dispose();
+      b.dispose();
     }
-    return result;
-  };
-  const frames: string[] = [];
-  const connection = createDiagnosticConnection(engine, {
-    enabled: true,
-    sessionId: SessionId('authorized'),
-    send: (wire) => frames.push(wire),
-  });
-  try {
-    if (forwarding !== 'late')
-      await connection.handle(subscription('authorized', true, true));
-    if (forwarding === 'resubscribed')
-      await connection.handle(subscription('authorized', false));
-    await connection.handle(envelope('private-A'));
-    expect(followup).toBe(true);
-    expect(frames.some((wire) => wire.includes('private-A'))).toBe(
-      forwarding === 'active',
-    );
-    expect(frames.some((wire) => wire.includes('private-B'))).toBe(false);
-  } finally {
-    connection.dispose();
-  }
-});
+  },
+);
+
+test.each(['active', 'late', 'resubscribed'] as const)(
+  'finished execution ownership closes before a wrapping handler settles, forwarding: %s',
+  async (forwarding) => {
+    const engine = createEngine({
+      logger: silentLogger,
+      retry: false,
+      planner: scriptedPlanner([buildGridResponse(), buildGridResponse()]),
+    });
+    const handle = engine.handle.bind(engine);
+    let followup = false;
+    const envelope = (intent: string) => {
+      const value = makeGridRequest();
+      return ChartRequestMessage({
+        id: MessageId('collision'),
+        sessionId: SessionId('authorized'),
+        request: {
+          ...value,
+          context: {
+            ...value.context,
+            updateReasons: [{ type: 'user_intent', intent }],
+          },
+        },
+      });
+    };
+    engine.handle = async (message, signal) => {
+      const result = await handle(message, signal);
+      if (!followup) {
+        followup = true;
+        if (forwarding !== 'active')
+          await connection.handle(subscription('authorized', true, true));
+        await handle(envelope('private-B'));
+      }
+      return result;
+    };
+    const frames: string[] = [];
+    const connection = createDiagnosticConnection(engine, {
+      enabled: true,
+      sessionId: SessionId('authorized'),
+      send: (wire) => frames.push(wire),
+    });
+    try {
+      if (forwarding !== 'late')
+        await connection.handle(subscription('authorized', true, true));
+      if (forwarding === 'resubscribed')
+        await connection.handle(subscription('authorized', false));
+      await connection.handle(envelope('private-A'));
+      expect(followup).toBe(true);
+      expect(frames.some((wire) => wire.includes('private-A'))).toBe(
+        forwarding === 'active',
+      );
+      expect(frames.some((wire) => wire.includes('private-B'))).toBe(false);
+    } finally {
+      connection.dispose();
+    }
+  },
+);
 
 test.each([
   'client.history.get',
   'assistant_message',
   'client.assistant_message.acknowledged',
-] as const)('a pending %s cannot authorize chart diagnostic content', async (type) => {
-  const emitter = new EngineDiagnosticEmitter();
-  const gate = Promise.withResolvers<void>();
-  let started = false;
-  const engine: Engine = {
-    openConnection: () => {
-      throw new Error('unexpected streaming connection');
-    },
-    observeDiagnostics: (observer) => emitter.subscribe(observer),
-    getHistory: async () => {
-      started = true;
-      await gate.promise;
-      return ok([]);
-    },
-    handle: async (message) => {
-      started = true;
-      await gate.promise;
-      return ok({
-        type: 'assistant_message_result',
-        sessionId: message.sessionId,
-        id: message.id,
-        outcome: 'inserted',
-      });
-    },
-  };
-  const frames: string[] = [];
-  const connection = createDiagnosticConnection(engine, {
-    enabled: true,
-    sessionId: SessionId('authorized'),
-    send: (wire) => frames.push(wire),
-  });
-  await connection.handle(subscription('authorized', true, true));
-  const pending = connection.handle({
-    type,
-    id: MessageId('collision'),
-    sessionId: SessionId('authorized'),
-    timestamp: Date.now(),
-    content: 'fixture',
-  });
-  let reads = 0;
-  try {
-    expect(started).toBe(true);
-    emitter.emit(
-      SessionId('authorized'),
-      MessageId('collision'),
-      'engine.planner.started',
-      {},
-      () => {
-        reads++;
-        return { text: 'private chart input' };
+] as const)(
+  'a pending %s cannot authorize chart diagnostic content',
+  async (type) => {
+    const emitter = new EngineDiagnosticEmitter();
+    const gate = Promise.withResolvers<void>();
+    let started = false;
+    const engine: Engine = {
+      openConnection: () => {
+        throw new Error('unexpected streaming connection');
       },
-    );
-    expect(frames).toEqual([]);
-    expect(reads).toBe(0);
-  } finally {
-    gate.resolve();
-    await pending;
-    connection.dispose();
-  }
-});
+      observeDiagnostics: (observer) => emitter.subscribe(observer),
+      getHistory: async () => {
+        started = true;
+        await gate.promise;
+        return ok([]);
+      },
+      handle: async (message) => {
+        started = true;
+        await gate.promise;
+        return ok({
+          type: 'assistant_message_result',
+          sessionId: message.sessionId,
+          id: message.id,
+          outcome: 'inserted',
+        });
+      },
+    };
+    const frames: string[] = [];
+    const connection = createDiagnosticConnection(engine, {
+      enabled: true,
+      sessionId: SessionId('authorized'),
+      send: (wire) => frames.push(wire),
+    });
+    await connection.handle(subscription('authorized', true, true));
+    const pending = connection.handle({
+      type,
+      id: MessageId('collision'),
+      sessionId: SessionId('authorized'),
+      timestamp: Date.now(),
+      content: 'fixture',
+    });
+    let reads = 0;
+    try {
+      expect(started).toBe(true);
+      emitter.emit(
+        SessionId('authorized'),
+        MessageId('collision'),
+        'engine.planner.started',
+        {},
+        () => {
+          reads++;
+          return { text: 'private chart input' };
+        },
+      );
+      expect(frames).toEqual([]);
+      expect(reads).toBe(0);
+    } finally {
+      gate.resolve();
+      await pending;
+      connection.dispose();
+    }
+  },
+);

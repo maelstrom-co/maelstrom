@@ -1,8 +1,8 @@
-// biome-ignore lint/style/noRestrictedImports: This browser fixture is a composition root outside the published server runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- This browser fixture is a composition root outside the published server runtime.
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
-// biome-ignore lint/style/noRestrictedImports: This browser fixture is a composition root outside the published server runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- This browser fixture is a composition root outside the published server runtime.
 import { createDevtools, mountDevtools } from '@maelstrom-co/devtools';
-// biome-ignore lint/style/noRestrictedImports: This browser fixture is a composition root outside the published server runtime.
+// oxlint-disable-next-line eslint/no-restricted-imports -- This browser fixture is a composition root outside the published server runtime.
 import { connectDevtoolsBridge } from '@maelstrom-co/devtools/mcp-bridge';
 import { MessageId } from '@maelstrom-co/protocol';
 

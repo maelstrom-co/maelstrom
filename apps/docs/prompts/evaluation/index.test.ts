@@ -13,6 +13,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { expectedPreparedManifest } from './calibrate-cases';
 import {
   buildCaseInput,
@@ -172,161 +173,168 @@ describe('registered behavioral cases', () => {
   ] as const) {
     const stage = scenario === 'typecheck' ? 'typecheck' : 'behavior';
     const startupDelayMs = scenario === 'delayed behavior' ? 900 : 0;
-    test(scenario === 'early-exit behavior'
-      ? 'grader readiness fails promptly with early-exit command evidence'
-      : `cancelling ${scenario} stops grading and preserves the cancellation in the report`, async () => {
-      const candidateRoot = join(root, 'conversion');
-      await cp(
-        join(import.meta.dir, '../acceptance/fixtures/migration-react'),
-        candidateRoot,
-        { recursive: true },
-      );
-      const manifest = JSON.parse(
-        await readFile(join(candidateRoot, 'package.json.fixture'), 'utf8'),
-      );
-      await rm(join(candidateRoot, 'package.json.fixture'));
-      await writeFile(
-        join(candidateRoot, 'package.json'),
-        `${JSON.stringify(expectedPreparedManifest(manifest), null, 2)}\n`,
-      );
-      const bin = join(candidateRoot, 'node_modules/.bin');
-      await mkdir(bin, { recursive: true });
-      const started = join(root, 'grader.pid');
-      const laterCheck = join(root, 'behavior-started');
-      await writeFile(
-        join(candidateRoot, 'node_modules/cancellation-grader.json'),
-        JSON.stringify({
-          stage,
-          scenario,
-          startupDelayMs,
-          started,
-          laterCheck,
-        }),
-      );
-      for (const name of ['tsc', 'vitest']) {
+    test(
+      scenario === 'early-exit behavior'
+        ? 'grader readiness fails promptly with early-exit command evidence'
+        : `cancelling ${scenario} stops grading and preserves the cancellation in the report`,
+      async () => {
+        const candidateRoot = join(root, 'conversion');
         await cp(
-          join(import.meta.dir, 'fixtures/cancellation-grader.cjs'),
-          join(bin, name),
+          join(import.meta.dir, '../acceptance/fixtures/migration-react'),
+          candidateRoot,
+          { recursive: true },
         );
-      }
-      await writeFile(
-        fakePi,
-        `process.stdin.resume(); process.stdin.on('end', () => setTimeout(() => console.log('done'), ${startupDelayMs}));`,
-      );
-      const controller = new AbortController();
-      const evaluationStartedAt = performance.now();
-      const evaluation = evaluateCase('react-conversion', {
-        ...genericOptions(),
-        command: { executable: process.execPath, args: [fakePi] },
-        candidateRoot,
-        executionAuthorization: 'operator-approved',
-        signal: controller.signal,
-        timeoutMs: cancellationTimeoutMs,
-      });
-      try {
-        if (scenario === 'early-exit behavior') {
-          await expect(
-            waitForGraderPid(started, evaluation, controller),
-          ).rejects.toThrow(
-            /Evaluation settled before grader readiness.*fixture behavior failed before readiness/,
+        const manifest = JSON.parse(
+          await readFile(join(candidateRoot, 'package.json.fixture'), 'utf8'),
+        );
+        await rm(join(candidateRoot, 'package.json.fixture'));
+        await writeFile(
+          join(candidateRoot, 'package.json'),
+          `${JSON.stringify(expectedPreparedManifest(manifest), null, 2)}\n`,
+        );
+        const bin = join(candidateRoot, 'node_modules/.bin');
+        await mkdir(bin, { recursive: true });
+        const started = join(root, 'grader.pid');
+        const laterCheck = join(root, 'behavior-started');
+        await writeFile(
+          join(candidateRoot, 'node_modules/cancellation-grader.json'),
+          JSON.stringify({
+            stage,
+            scenario,
+            startupDelayMs,
+            started,
+            laterCheck,
+          }),
+        );
+        for (const name of ['tsc', 'vitest']) {
+          await cp(
+            join(import.meta.dir, 'fixtures/cancellation-grader.cjs'),
+            join(bin, name),
           );
-          expect(performance.now() - evaluationStartedAt).toBeLessThan(5000);
+        }
+        await writeFile(
+          fakePi,
+          `process.stdin.resume(); process.stdin.on('end', () => setTimeout(() => console.log('done'), ${startupDelayMs}));`,
+        );
+        const controller = new AbortController();
+        const evaluationStartedAt = performance.now();
+        const evaluation = evaluateCase('react-conversion', {
+          ...genericOptions(),
+          command: { executable: process.execPath, args: [fakePi] },
+          candidateRoot,
+          executionAuthorization: 'operator-approved',
+          signal: controller.signal,
+          timeoutMs: cancellationTimeoutMs,
+        });
+        try {
+          if (scenario === 'early-exit behavior') {
+            await expect(
+              waitForGraderPid(started, evaluation, controller),
+            ).rejects.toThrow(
+              /Evaluation settled before grader readiness.*fixture behavior failed before readiness/,
+            );
+            expect(performance.now() - evaluationStartedAt).toBeLessThan(5000);
+            const result = await evaluation;
+            expect(result.status).toBe('completed');
+            expect(result.cancelled).toBe(false);
+            expect(result.manifest.candidateGrader).toMatchObject({
+              commands: [
+                {
+                  exitCode: 0,
+                  timedOut: false,
+                  cancelled: false,
+                  spawnError: null,
+                },
+                {
+                  exitCode: 1,
+                  timedOut: false,
+                  cancelled: false,
+                  spawnError: null,
+                },
+              ],
+            });
+            await expect(stat(started)).rejects.toThrow();
+            await expect(
+              stat(join(candidateRoot, '.evaluation-grade')),
+            ).rejects.toThrow();
+            return;
+          }
+          const pid = await waitForGraderPid(started, evaluation, controller);
+          expect(isProcessAlive(pid)).toBe(true);
+          if (startupDelayMs) {
+            expect(
+              performance.now() - evaluationStartedAt,
+            ).toBeGreaterThanOrEqual(2 * startupDelayMs - 100);
+          }
+          controller.abort();
           const result = await evaluation;
-          expect(result.status).toBe('completed');
-          expect(result.cancelled).toBe(false);
+          expect(result.status).toBe('cancelled');
+          expect(result.cancelled).toBe(true);
+          expect(result.timedOut).toBe(false);
+          expect(result.spawnError).toBeUndefined();
+          expect(result.inspectionError).toBeUndefined();
           expect(result.manifest.candidateGrader).toMatchObject({
-            commands: [
-              {
-                exitCode: 0,
-                timedOut: false,
-                cancelled: false,
-                spawnError: null,
-              },
-              {
-                exitCode: 1,
-                timedOut: false,
-                cancelled: false,
-                spawnError: null,
-              },
-            ],
+            harnessStatus: 'blocked',
+            commands:
+              stage === 'typecheck'
+                ? [
+                    {
+                      status: 'cancelled',
+                      cancelled: true,
+                      timedOut: false,
+                      spawnError: null,
+                    },
+                  ]
+                : [
+                    {
+                      status: 'completed',
+                      exitCode: 0,
+                      cancelled: false,
+                      timedOut: false,
+                      spawnError: null,
+                    },
+                    {
+                      status: 'cancelled',
+                      cancelled: true,
+                      timedOut: false,
+                      spawnError: null,
+                    },
+                  ],
           });
-          await expect(stat(started)).rejects.toThrow();
+          expect(
+            result.criteria.find(({ id }) => id === 'trusted-ui-behavior')
+              ?.status,
+          ).toBe(stage === 'typecheck' ? 'unrun' : 'failed');
+          expect(
+            result.criteria.find(({ id }) => id === 'browser-chart-vessel')
+              ?.status,
+          ).toBe('unrun');
           await expect(
             stat(join(candidateRoot, '.evaluation-grade')),
           ).rejects.toThrow();
-          return;
+          await expect(stat(laterCheck)).rejects.toThrow();
+          expect(isProcessAlive(pid)).toBe(false);
+          const { privateOutputDirectory } = result.manifest.security as {
+            privateOutputDirectory: string;
+          };
+          const persisted = JSON.parse(
+            await readFile(
+              join(privateOutputDirectory, 'manifest.json'),
+              'utf8',
+            ),
+          );
+          expect(persisted).toEqual(result.manifest);
+          expect(persisted.process).toMatchObject({
+            cancelled: true,
+            timedOut: false,
+          });
+        } finally {
+          controller.abort();
+          await evaluation.catch(() => undefined);
         }
-        const pid = await waitForGraderPid(started, evaluation, controller);
-        expect(isProcessAlive(pid)).toBe(true);
-        if (startupDelayMs) {
-          expect(
-            performance.now() - evaluationStartedAt,
-          ).toBeGreaterThanOrEqual(2 * startupDelayMs - 100);
-        }
-        controller.abort();
-        const result = await evaluation;
-        expect(result.status).toBe('cancelled');
-        expect(result.cancelled).toBe(true);
-        expect(result.timedOut).toBe(false);
-        expect(result.spawnError).toBeUndefined();
-        expect(result.inspectionError).toBeUndefined();
-        expect(result.manifest.candidateGrader).toMatchObject({
-          harnessStatus: 'blocked',
-          commands:
-            stage === 'typecheck'
-              ? [
-                  {
-                    status: 'cancelled',
-                    cancelled: true,
-                    timedOut: false,
-                    spawnError: null,
-                  },
-                ]
-              : [
-                  {
-                    status: 'completed',
-                    exitCode: 0,
-                    cancelled: false,
-                    timedOut: false,
-                    spawnError: null,
-                  },
-                  {
-                    status: 'cancelled',
-                    cancelled: true,
-                    timedOut: false,
-                    spawnError: null,
-                  },
-                ],
-        });
-        expect(
-          result.criteria.find(({ id }) => id === 'trusted-ui-behavior')
-            ?.status,
-        ).toBe(stage === 'typecheck' ? 'unrun' : 'failed');
-        expect(
-          result.criteria.find(({ id }) => id === 'browser-chart-vessel')
-            ?.status,
-        ).toBe('unrun');
-        await expect(
-          stat(join(candidateRoot, '.evaluation-grade')),
-        ).rejects.toThrow();
-        await expect(stat(laterCheck)).rejects.toThrow();
-        expect(isProcessAlive(pid)).toBe(false);
-        const { privateOutputDirectory } = result.manifest.security as {
-          privateOutputDirectory: string;
-        };
-        const persisted = JSON.parse(
-          await readFile(join(privateOutputDirectory, 'manifest.json'), 'utf8'),
-        );
-        expect(persisted).toEqual(result.manifest);
-        expect(persisted.process).toMatchObject({
-          cancelled: true,
-          timedOut: false,
-        });
-      } finally {
-        controller.abort();
-        await evaluation.catch(() => undefined);
-      }
-    }, 35_000);
+      },
+      35_000,
+    );
   }
 
   test('rejects candidate/output overlap and read-only candidates before creating output', async () => {
@@ -933,19 +941,17 @@ process.stdin.on('end', () => {
     expect(result.manifest.transport).toMatchObject({ status: 'error-result' });
   });
 
-  test.each([
-    'canary',
-    'empty',
-    'absent',
-  ] as const)('delivers task on stdin in scratch cwd and separates objective checks from semantic review (%s API key)', async (keyState) => {
-    const previousKey = process.env.OPENAI_API_KEY;
-    const canary = `synthetic-secret-canary-${crypto.randomUUID()}`;
-    const key =
-      keyState === 'canary' ? canary : keyState === 'empty' ? '' : undefined;
-    try {
-      if (key === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = key;
-      await fake(`
+  test.each(['canary', 'empty', 'absent'] as const)(
+    'delivers task on stdin in scratch cwd and separates objective checks from semantic review (%s API key)',
+    async (keyState) => {
+      const previousKey = process.env.OPENAI_API_KEY;
+      const canary = `synthetic-secret-canary-${crypto.randomUUID()}`;
+      const key =
+        keyState === 'canary' ? canary : keyState === 'empty' ? '' : undefined;
+      try {
+        if (key === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = key;
+        await fake(`
 if (process.env.OPENAI_API_KEY !== ${JSON.stringify(key)}) process.exit(10);
 if (process.argv.includes('--version')) { console.log('fake-pi 1.2.3'); process.exit(0); }
 let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk);
@@ -954,42 +960,43 @@ process.stdin.on('end', () => {
   if (!process.cwd().endsWith('/case')) process.exit(8);
   console.log(JSON.stringify({ type: 'message_end', message: { role: 'assistant', model: 'fixture-model', provider: 'fixture-provider', content: [{ type: 'text', text: 'legacy final answer' }] } }));
 });`);
-      const result = await evaluateModeling(options());
-      expect(result.exitCode).toBe(0);
-      expect(result.changes).toEqual([]);
-      expect(result.criteria.map((criterion) => criterion.status)).toEqual([
-        'passed',
-        'passed',
-        'passed',
-        'unrun',
-        'unrun',
-        'unrun',
-      ]);
-      expect(result.manifest).toMatchObject({
-        runner: {
-          version: 'fake-pi 1.2.3',
-          model: 'fixture-model',
-          provider: 'fixture-provider',
-        },
-        security: { filesystemSandbox: false, environmentSerialized: false },
-      });
-      const artifactDir = result.manifest.security
-        .privateOutputDirectory as string;
-      for (const serialized of [
-        JSON.stringify(result.manifest),
-        await readFile(join(artifactDir, 'manifest.json'), 'utf8'),
-      ]) {
-        expect(serialized).not.toContain('OPENAI_API_KEY');
-        if (keyState === 'canary') expect(serialized).not.toContain(canary);
+        const result = await evaluateModeling(options());
+        expect(result.exitCode).toBe(0);
+        expect(result.changes).toEqual([]);
+        expect(result.criteria.map((criterion) => criterion.status)).toEqual([
+          'passed',
+          'passed',
+          'passed',
+          'unrun',
+          'unrun',
+          'unrun',
+        ]);
+        expect(result.manifest).toMatchObject({
+          runner: {
+            version: 'fake-pi 1.2.3',
+            model: 'fixture-model',
+            provider: 'fixture-provider',
+          },
+          security: { filesystemSandbox: false, environmentSerialized: false },
+        });
+        const artifactDir = result.manifest.security
+          .privateOutputDirectory as string;
+        for (const serialized of [
+          JSON.stringify(result.manifest),
+          await readFile(join(artifactDir, 'manifest.json'), 'utf8'),
+        ]) {
+          expect(serialized).not.toContain('OPENAI_API_KEY');
+          if (keyState === 'canary') expect(serialized).not.toContain(canary);
+        }
+        expect(
+          await readFile(join(artifactDir, 'stdout.jsonl'), 'utf8'),
+        ).toContain('fixture-model');
+      } finally {
+        if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = previousKey;
       }
-      expect(
-        await readFile(join(artifactDir, 'stdout.jsonl'), 'utf8'),
-      ).toContain('fixture-model');
-    } finally {
-      if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previousKey;
-    }
-  });
+    },
+  );
 
   test('rejects output paths that reach the checkout through a symlink before mkdir', async () => {
     const workspace = join(import.meta.dir, '../../../../');
@@ -1034,7 +1041,9 @@ process.stdin.on('end', () => {
     ).toBe('failed');
 
     const outside = join(root, 'outside-fixture-root');
-    await (await import('node:fs/promises')).mkdir(outside, {
+    await (
+      await import('node:fs/promises')
+    ).mkdir(outside, {
       recursive: true,
     });
     await fake(`

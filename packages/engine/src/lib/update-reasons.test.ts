@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { ChartRequest, UpdateReason } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
+
 import { makeGridRequest } from './__test-helpers__/fixtures.js';
 import { classifyExecutionTurn } from './response/execution-plan/turn.js';
 import { isResizeOnlyBatch } from './update-reasons.js';

@@ -10,6 +10,7 @@ import {
   tilingLeafToken,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+
 import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';

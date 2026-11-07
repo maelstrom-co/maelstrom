@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import {
   createDevtools,
@@ -139,26 +140,26 @@ function mount(tools: Devtools) {
   };
 }
 
-test.each([
-  'structured',
-  'JSON',
-] as const)('a %s snapshot copy preserves its retained selected observation', async (mode) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  const emit = attach(tools);
-  const adapted = copySnapshots(tools, mode);
-  emit('client.request.started', 'selected');
-  emit('client.command.started', 'later');
-  const panel = mount(adapted);
-  panel.selectFirst();
-  expect(panel.raw()).toContain('"marker": "selected"');
-  const before = adapted.getSnapshot();
-  expect(adapted.getSnapshot()).toBe(before);
+test.each(['structured', 'JSON'] as const)(
+  'a %s snapshot copy preserves its retained selected observation',
+  async (mode) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    const emit = attach(tools);
+    const adapted = copySnapshots(tools, mode);
+    emit('client.request.started', 'selected');
+    emit('client.command.started', 'later');
+    const panel = mount(adapted);
+    panel.selectFirst();
+    expect(panel.raw()).toContain('"marker": "selected"');
+    const before = adapted.getSnapshot();
+    expect(adapted.getSnapshot()).toBe(before);
 
-  emit('client.command.completed', 'new');
+    emit('client.command.completed', 'new');
 
-  expect(adapted.getSnapshot()).not.toBe(before);
-  await waitFor(() => expect(panel.raw()).toContain('"marker": "selected"'));
-});
+    expect(adapted.getSnapshot()).not.toBe(before);
+    await waitFor(() => expect(panel.raw()).toContain('"marker": "selected"'));
+  },
+);
 
 test('duplicate IDs cannot select older request evidence through a shorter activity buffer', async () => {
   const tools = createDevtools({
@@ -249,65 +250,70 @@ test('an ID returning after retention loss cannot revive an expired selection', 
   );
 });
 
-test.each([
-  'collector',
-  'structured',
-  'JSON',
-] as const)('transport history cannot revive an expired %s request selection', async (mode) => {
-  const tools = createDevtools({
-    initialIsOpen: true,
-    maxActivityEvents: 1,
-    maxRequestEvents: 1,
-    redact: collideIds(['selected', 'transport', 'replacement']),
-  });
-  const emit = attach(tools);
-  emit('client.request.started', 'selected');
-  const panel = mount(
-    mode === 'collector' ? tools : copySnapshots(tools, mode),
-  );
-  panel.selectFirst();
-  expect(panel.raw()).toContain('"marker": "selected"');
+test.each(['collector', 'structured', 'JSON'] as const)(
+  'transport history cannot revive an expired %s request selection',
+  async (mode) => {
+    const tools = createDevtools({
+      initialIsOpen: true,
+      maxActivityEvents: 1,
+      maxRequestEvents: 1,
+      redact: collideIds(['selected', 'transport', 'replacement']),
+    });
+    const emit = attach(tools);
+    emit('client.request.started', 'selected');
+    const panel = mount(
+      mode === 'collector' ? tools : copySnapshots(tools, mode),
+    );
+    panel.selectFirst();
+    expect(panel.raw()).toContain('"marker": "selected"');
 
-  emit('voice.transport', 'transport', null, {
-    state: 'closed',
-    providerInstanceId: 'voice',
-    providerGeneration: 1,
-  });
-  emit('client.command.started', 'other-id');
-  await waitFor(() =>
-    expect(panel.raw()).toContain('The selected event is no longer retained.'),
-  );
-  emit('client.command.completed', 'replacement');
+    emit('voice.transport', 'transport', null, {
+      state: 'closed',
+      providerInstanceId: 'voice',
+      providerGeneration: 1,
+    });
+    emit('client.command.started', 'other-id');
+    await waitFor(() =>
+      expect(panel.raw()).toContain(
+        'The selected event is no longer retained.',
+      ),
+    );
+    emit('client.command.completed', 'replacement');
 
-  await waitFor(() =>
-    expect(panel.raw()).toContain('The selected event is no longer retained.'),
-  );
-});
+    await waitFor(() =>
+      expect(panel.raw()).toContain(
+        'The selected event is no longer retained.',
+      ),
+    );
+  },
+);
 
-test.each([
-  'Close',
-  'Telemetry',
-])('an ID expiring while %s is visible cannot replace selected evidence', async (view) => {
-  const tools = createDevtools({
-    initialIsOpen: true,
-    maxActivityEvents: 1,
-    maxRequestEvents: 1,
-    redact: collideIds(['selected', 'replacement']),
-  });
-  const emit = attach(tools);
-  emit('client.request.started', 'selected');
-  const panel = mount(copySnapshots(tools));
-  panel.selectFirst();
-  panel.click(view);
+test.each(['Close', 'Telemetry'])(
+  'an ID expiring while %s is visible cannot replace selected evidence',
+  async (view) => {
+    const tools = createDevtools({
+      initialIsOpen: true,
+      maxActivityEvents: 1,
+      maxRequestEvents: 1,
+      redact: collideIds(['selected', 'replacement']),
+    });
+    const emit = attach(tools);
+    emit('client.request.started', 'selected');
+    const panel = mount(copySnapshots(tools));
+    panel.selectFirst();
+    panel.click(view);
 
-  emit('client.command.started', 'other-id');
-  emit('client.command.completed', 'replacement');
-  panel.click(view === 'Close' ? 'Open Maelstrom Devtools' : 'Requests');
+    emit('client.command.started', 'other-id');
+    emit('client.command.completed', 'replacement');
+    panel.click(view === 'Close' ? 'Open Maelstrom Devtools' : 'Requests');
 
-  await waitFor(() =>
-    expect(panel.raw()).toContain('The selected event is no longer retained.'),
-  );
-});
+    await waitFor(() =>
+      expect(panel.raw()).toContain(
+        'The selected event is no longer retained.',
+      ),
+    );
+  },
+);
 
 test('remounting a cached copied snapshot preserves selection through subsequent updates', async () => {
   const tools = createDevtools({ initialIsOpen: true });

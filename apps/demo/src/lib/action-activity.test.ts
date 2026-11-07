@@ -1,5 +1,6 @@
 import type { ActionExecution } from '@maelstrom-co/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   __resetActionActivityForTests,
   type ActivityEntry,

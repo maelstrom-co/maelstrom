@@ -1,4 +1,5 @@
 import type { IntentQueueOptions } from '@maelstrom-co/client';
+
 import { createChart } from './chart/chart.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';

@@ -2,6 +2,7 @@ import type { Orchestrator } from '@maelstrom-co/client';
 import type { MaelstromExtensionContext } from '@maelstrom-co/react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+
 import { orchestrationLegibility } from './orchestration-legibility';
 
 function fakeContext(): MaelstromExtensionContext {

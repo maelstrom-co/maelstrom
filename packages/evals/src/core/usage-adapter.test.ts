@@ -134,25 +134,24 @@ describe('withUsage', () => {
       leftover: { cost: Number.POSITIVE_INFINITY },
       expected: undefined,
     },
-  ])('preserves cache accounting without inflating input tokens: $name', async ({
-    reported,
-    leftover,
-    expected,
-  }) => {
-    const terminal = {
-      type: 'RUN_FINISHED',
-      runId: 'r',
-      threadId: 't',
-      timestamp: 1,
-      usage: reported,
-      metadata: { tanstack: { usage: leftover } },
-    } as unknown as StreamChunk;
-    const { adapter, calls } = wrap(new FakeAdapter([terminal, terminal]));
-    await drain(adapter.chatStream({} as never));
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.usage).toEqual(expected);
-    expect(JSON.stringify(calls)).not.toContain('private-key');
-  });
+  ])(
+    'preserves cache accounting without inflating input tokens: $name',
+    async ({ reported, leftover, expected }) => {
+      const terminal = {
+        type: 'RUN_FINISHED',
+        runId: 'r',
+        threadId: 't',
+        timestamp: 1,
+        usage: reported,
+        metadata: { tanstack: { usage: leftover } },
+      } as unknown as StreamChunk;
+      const { adapter, calls } = wrap(new FakeAdapter([terminal, terminal]));
+      await drain(adapter.chatStream({} as never));
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.usage).toEqual(expected);
+      expect(JSON.stringify(calls)).not.toContain('private-key');
+    },
+  );
 
   test('direct structured output retains cache counters and quoted cost too', async () => {
     const { adapter, calls } = wrap({
@@ -251,18 +250,20 @@ describe('withUsage', () => {
       entries: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }],
       expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
     },
-  ])('keeps unreported counters absent in evaluation records: $entries', async ({
-    entries,
-    expected,
-  }) => {
-    const chunks = finished.map((chunk) =>
-      chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [...entries] } : chunk,
-    );
-    const { adapter, calls } = wrap(new FakeAdapter(chunks));
-    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.usage).toEqual(expected);
-  });
+  ])(
+    'keeps unreported counters absent in evaluation records: $entries',
+    async ({ entries, expected }) => {
+      const chunks = finished.map((chunk) =>
+        chunk.type === 'RUN_FINISHED'
+          ? { ...chunk, usage: [...entries] }
+          : chunk,
+      );
+      const { adapter, calls } = wrap(new FakeAdapter(chunks));
+      expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.usage).toEqual(expected);
+    },
+  );
 
   test('records a call without usage, and one that stops early', async () => {
     const { adapter, calls } = wrap(

@@ -171,99 +171,101 @@ describe('preview workflows', () => {
     );
   });
 
-  test.each([
-    'benchmark-gate',
-    'voice-benchmark',
-  ])('%s label routing admits removals without admitting unrelated or untrusted events', (name) => {
-    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
-      on: { pull_request_target: { types: string[] } };
-      jobs: Record<string, { if: string }>;
-    };
-    expect(workflow.on.pull_request_target.types).toEqual([
-      'labeled',
-      'unlabeled',
-    ]);
-    const evaluate = new Function(
-      'github',
-      'needs',
-      'inputs',
-      'always',
-      'cancelled',
-      'format',
-      `return (${workflow.jobs[name]!.if.replaceAll('needs.benchmark-gate.', "needs['benchmark-gate'].")});`,
-    );
-    const needs = (requested: string) => ({
-      deploy: { result: 'skipped' },
-      'benchmark-gate': { outputs: { requested } },
-    });
-    const permits = (
-      action: string,
-      label: string,
-      overrides: Record<string, unknown> = {},
-      cancelled = false,
-      requested = 'true',
-    ) =>
-      evaluate(
-        {
-          event_name: 'pull_request_target',
-          repository: 'maelstrom-co/maelstrom',
-          event: {
-            sender: { type: 'User' },
-            action,
-            label: { name: label },
-            pull_request: {
-              state: 'open',
-              head: { repo: { full_name: 'maelstrom-co/maelstrom' } },
-            },
-            ...overrides,
-          },
-        },
-        needs(requested),
-        {},
-        () => true,
-        () => cancelled,
-        () => '',
+  test.each(['benchmark-gate', 'voice-benchmark'])(
+    '%s label routing admits removals without admitting unrelated or untrusted events',
+    (name) => {
+      const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+        on: { pull_request_target: { types: string[] } };
+        jobs: Record<string, { if: string }>;
+      };
+      expect(workflow.on.pull_request_target.types).toEqual([
+        'labeled',
+        'unlabeled',
+      ]);
+      const evaluate = new Function(
+        'github',
+        'needs',
+        'inputs',
+        'always',
+        'cancelled',
+        'format',
+        `return (${workflow.jobs[name]!.if.replaceAll('needs.benchmark-gate.', "needs['benchmark-gate'].")});`,
       );
-    for (const action of ['labeled', 'unlabeled']) {
-      for (const label of ['deploy-preview', 'bench-voice']) {
-        expect(permits(action, label)).toBe(true);
-        for (const requested of ['false', ''])
-          expect(permits(action, label, {}, false, requested)).toBe(
-            name === 'benchmark-gate',
-          );
-        expect(permits(action, label, { sender: { type: 'Bot' } })).toBe(false);
-        for (const [state, repository] of [
-          ['closed', 'maelstrom-co/maelstrom'],
-          ['open', 'outsider/fork'],
-        ])
-          expect(
-            permits(action, label, {
+      const needs = (requested: string) => ({
+        deploy: { result: 'skipped' },
+        'benchmark-gate': { outputs: { requested } },
+      });
+      const permits = (
+        action: string,
+        label: string,
+        overrides: Record<string, unknown> = {},
+        cancelled = false,
+        requested = 'true',
+      ) =>
+        evaluate(
+          {
+            event_name: 'pull_request_target',
+            repository: 'maelstrom-co/maelstrom',
+            event: {
+              sender: { type: 'User' },
+              action,
+              label: { name: label },
               pull_request: {
-                state,
-                head: { repo: { full_name: repository } },
+                state: 'open',
+                head: { repo: { full_name: 'maelstrom-co/maelstrom' } },
               },
-            }),
-          ).toBe(false);
-        expect(permits(action, label, {}, true)).toBe(false);
+              ...overrides,
+            },
+          },
+          needs(requested),
+          {},
+          () => true,
+          () => cancelled,
+          () => '',
+        );
+      for (const action of ['labeled', 'unlabeled']) {
+        for (const label of ['deploy-preview', 'bench-voice']) {
+          expect(permits(action, label)).toBe(true);
+          for (const requested of ['false', ''])
+            expect(permits(action, label, {}, false, requested)).toBe(
+              name === 'benchmark-gate',
+            );
+          expect(permits(action, label, { sender: { type: 'Bot' } })).toBe(
+            false,
+          );
+          for (const [state, repository] of [
+            ['closed', 'maelstrom-co/maelstrom'],
+            ['open', 'outsider/fork'],
+          ])
+            expect(
+              permits(action, label, {
+                pull_request: {
+                  state,
+                  head: { repo: { full_name: repository } },
+                },
+              }),
+            ).toBe(false);
+          expect(permits(action, label, {}, true)).toBe(false);
+        }
       }
-    }
-    expect(permits('labeled', 'unrelated')).toBe(false);
-    expect(permits('unlabeled', 'unrelated')).toBe(false);
-    expect(permits('synchronize', 'bench-voice')).toBe(false);
-    expect(
-      evaluate(
-        { event_name: 'workflow_run', event: {} },
-        {
-          deploy: { result: 'success' },
-          'benchmark-gate': { outputs: { requested: 'true' } },
-        },
-        {},
-        () => true,
-        () => false,
-        () => '',
-      ),
-    ).toBe(false);
-  });
+      expect(permits('labeled', 'unrelated')).toBe(false);
+      expect(permits('unlabeled', 'unrelated')).toBe(false);
+      expect(permits('synchronize', 'bench-voice')).toBe(false);
+      expect(
+        evaluate(
+          { event_name: 'workflow_run', event: {} },
+          {
+            deploy: { result: 'success' },
+            'benchmark-gate': { outputs: { requested: 'true' } },
+          },
+          {},
+          () => true,
+          () => false,
+          () => '',
+        ),
+      ).toBe(false);
+    },
+  );
 
   test('deploy records approval before the shared queue and isolates PR builds from credentials', () => {
     const workflow = read('deploy-preview.yml');
@@ -569,12 +571,15 @@ describe('preview workflows', () => {
     ['teardown-preview.yml', 'teardown'],
     ['reconcile-previews.yml', 'discover'],
     ['reconcile-previews.yml', 'reconcile'],
-  ])('%s %s uses the ungated environment so cleanup cannot wait for approval', (file, job) => {
-    const workflow = Bun.YAML.parse(read(file)) as {
-      jobs: Record<string, { environment: string }>;
-    };
-    expect(workflow.jobs[job]!.environment).toBe('preview-auto');
-  });
+  ])(
+    '%s %s uses the ungated environment so cleanup cannot wait for approval',
+    (file, job) => {
+      const workflow = Bun.YAML.parse(read(file)) as {
+        jobs: Record<string, { environment: string }>;
+      };
+      expect(workflow.jobs[job]!.environment).toBe('preview-auto');
+    },
+  );
 
   test('event teardown is trusted, manually default-branch guarded, and one lifecycle command', () => {
     const workflow = read('teardown-preview.yml');
@@ -615,44 +620,49 @@ describe('preview workflows', () => {
   test.each([
     ['invalidate-preview-approval.yml', 'cancel-superseded', true],
     ['teardown-preview.yml', 'cancel-waiting', false],
-  ])('%s %s cancels waiting deploy runs without checking out source', (file, name, keepsCurrentHead) => {
-    const workflow = Bun.YAML.parse(read(file)) as {
-      jobs: Record<
-        string,
-        {
-          if: string;
-          environment?: string;
-          permissions: Record<string, string>;
-          steps: { uses?: string; run?: string }[];
-        }
-      >;
-    };
-    const job = workflow.jobs[name]!;
-    expect(job.permissions).toEqual({
-      actions: 'write',
-      'pull-requests': 'write',
-    });
-    expect(job.environment).toBeUndefined();
-    expect(job.if).toContain(
-      'github.event.pull_request.head.repo.full_name == github.repository',
-    );
-    expect(job.steps.some((step) => step.uses !== undefined)).toBe(false);
-    const script = job.steps.map((step) => step.run ?? '').join('\n');
-    expect(script).toContain('--workflow deploy-preview.yml');
-    expect(script).toContain('--event pull_request_target');
-    expect(script).toContain('--status waiting');
-    expect(script).toContain('--branch "$HEAD_REF"');
-    expect(script.includes('select(.headSha != $head)')).toBe(keepsCurrentHead);
-    expect(script.indexOf('gh run cancel')).toBeLessThan(
-      script.indexOf('--method DELETE'),
-    );
-    expect(script).toContain(approvalNoticeLookup);
-    expect(script).toContain(
-      'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
-    );
-    expect(script.includes('contains($head) | not')).toBe(keepsCurrentHead);
-    expect(script).not.toContain(['$', '{{'].join(''));
-  });
+  ])(
+    '%s %s cancels waiting deploy runs without checking out source',
+    (file, name, keepsCurrentHead) => {
+      const workflow = Bun.YAML.parse(read(file)) as {
+        jobs: Record<
+          string,
+          {
+            if: string;
+            environment?: string;
+            permissions: Record<string, string>;
+            steps: { uses?: string; run?: string }[];
+          }
+        >;
+      };
+      const job = workflow.jobs[name]!;
+      expect(job.permissions).toEqual({
+        actions: 'write',
+        'pull-requests': 'write',
+      });
+      expect(job.environment).toBeUndefined();
+      expect(job.if).toContain(
+        'github.event.pull_request.head.repo.full_name == github.repository',
+      );
+      expect(job.steps.some((step) => step.uses !== undefined)).toBe(false);
+      const script = job.steps.map((step) => step.run ?? '').join('\n');
+      expect(script).toContain('--workflow deploy-preview.yml');
+      expect(script).toContain('--event pull_request_target');
+      expect(script).toContain('--status waiting');
+      expect(script).toContain('--branch "$HEAD_REF"');
+      expect(script.includes('select(.headSha != $head)')).toBe(
+        keepsCurrentHead,
+      );
+      expect(script.indexOf('gh run cancel')).toBeLessThan(
+        script.indexOf('--method DELETE'),
+      );
+      expect(script).toContain(approvalNoticeLookup);
+      expect(script).toContain(
+        'xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"',
+      );
+      expect(script.includes('contains($head) | not')).toBe(keepsCurrentHead);
+      expect(script).not.toContain(['$', '{{'].join(''));
+    },
+  );
 
   test('teardown cancels pending approvals on close or deploy label removal only', () => {
     const workflow = Bun.YAML.parse(read('teardown-preview.yml')) as {

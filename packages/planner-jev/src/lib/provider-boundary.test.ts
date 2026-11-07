@@ -47,39 +47,40 @@ const IMPORT_STATEMENT =
 
 const DYNAMIC_IMPORT = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
 
-describe.each(SHARED_MODULES)('$file boundary', ({
-  file,
-  allowed,
-  typeOnly,
-}) => {
-  const source = readFileSync(join(import.meta.dir, file), 'utf8');
-  const statements = [...source.matchAll(IMPORT_STATEMENT)].map(
-    ([, , typeKeyword, specifier]) => ({
-      specifier: specifier as string,
-      typeOnly: typeKeyword !== undefined,
-    }),
-  );
-
-  test('the file has imports, so the rule is not vacuous', () => {
-    expect(statements.length).toBeGreaterThan(0);
-  });
-
-  test('every import, type imports included, is a neutral module', () => {
-    const outside = [
-      ...statements.map(({ specifier }) => specifier),
-      ...[...source.matchAll(DYNAMIC_IMPORT)].map(([, specifier]) => specifier),
-    ].filter((specifier) => !allowed.includes(specifier as string));
-    expect(outside).toEqual([]);
-  });
-
-  test('TanStack AI, and the call flow from the fetch step, are imported for types only', () => {
-    const valueImports = statements.filter(
-      ({ specifier, typeOnly: isType }) =>
-        typeOnly.includes(specifier) && !isType,
+describe.each(SHARED_MODULES)(
+  '$file boundary',
+  ({ file, allowed, typeOnly }) => {
+    const source = readFileSync(join(import.meta.dir, file), 'utf8');
+    const statements = [...source.matchAll(IMPORT_STATEMENT)].map(
+      ([, , typeKeyword, specifier]) => ({
+        specifier: specifier as string,
+        typeOnly: typeKeyword !== undefined,
+      }),
     );
-    expect(valueImports).toEqual([]);
-  });
-});
+
+    test('the file has imports, so the rule is not vacuous', () => {
+      expect(statements.length).toBeGreaterThan(0);
+    });
+
+    test('every import, type imports included, is a neutral module', () => {
+      const outside = [
+        ...statements.map(({ specifier }) => specifier),
+        ...[...source.matchAll(DYNAMIC_IMPORT)].map(
+          ([, specifier]) => specifier,
+        ),
+      ].filter((specifier) => !allowed.includes(specifier as string));
+      expect(outside).toEqual([]);
+    });
+
+    test('TanStack AI, and the call flow from the fetch step, are imported for types only', () => {
+      const valueImports = statements.filter(
+        ({ specifier, typeOnly: isType }) =>
+          typeOnly.includes(specifier) && !isType,
+      );
+      expect(valueImports).toEqual([]);
+    });
+  },
+);
 
 describe('import reader', () => {
   test('reads type and value imports, multi-line ones included', () => {
@@ -102,11 +103,14 @@ describe('provider client boundary', () => {
   test.each([
     ['openai-decisions-client.ts', ['typesafe-client.ts', 'jev-planner.ts']],
     ['typesafe-client.ts', ['openai-decisions-client.ts']],
-  ])('the import graph of %s, type imports included, never reaches %p', (entry, forbidden) => {
-    const reached = importGraph(join(import.meta.dir, entry));
-    expect(reached).toContain('provider-call.ts');
-    expect(reached.filter((file) => forbidden.includes(file))).toEqual([]);
-  });
+  ])(
+    'the import graph of %s, type imports included, never reaches %p',
+    (entry, forbidden) => {
+      const reached = importGraph(join(import.meta.dir, entry));
+      expect(reached).toContain('provider-call.ts');
+      expect(reached.filter((file) => forbidden.includes(file))).toEqual([]);
+    },
+  );
 });
 
 function importGraph(entry: string): string[] {

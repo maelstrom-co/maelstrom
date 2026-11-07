@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+
 import { createDevtools } from '@maelstrom-co/devtools/production';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { event, attach, mount } = createVoicePanelHarness();

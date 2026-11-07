@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { groundedDebounce } from './grounding-debounce.js';

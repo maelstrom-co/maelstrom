@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
+
 import ArchitectureDiagram from '../ArchitectureDiagram';
 import { STEPS, stepCaption } from '../loop-machine';
 import { NODES } from '../nodes';

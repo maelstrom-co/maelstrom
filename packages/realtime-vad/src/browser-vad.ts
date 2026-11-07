@@ -1,4 +1,5 @@
 import type { RealTimeVADOptions } from '@ricky0123/vad-web';
+
 import type { ResolvedBrowserVadConfig } from './browser-vad-config.js';
 
 type EnabledBrowserVadConfig = Extract<

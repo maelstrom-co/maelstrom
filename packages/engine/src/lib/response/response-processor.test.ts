@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import {
   ActionName,
@@ -7,6 +8,7 @@ import {
   isOk,
   MessageId,
 } from '@maelstrom-co/protocol';
+
 import {
   type AuthorInstanceSnapshot,
   type AuthorVessel,
@@ -615,32 +617,35 @@ describe('processResponse', () => {
       ['string', '"hello"'],
       ['array', '[1,2,3]'],
       ['null', 'null'],
-    ])('skips action when paramsJson is a valid JSON %s (not an object)', (_label, paramsJson) => {
-      const errors: string[] = [];
-      const logger: Logger = {
-        ...silentLogger,
-        error: (msg: string) => errors.push(msg),
-      };
+    ])(
+      'skips action when paramsJson is a valid JSON %s (not an object)',
+      (_label, paramsJson) => {
+        const errors: string[] = [];
+        const logger: Logger = {
+          ...silentLogger,
+          error: (msg: string) => errors.push(msg),
+        };
 
-      const llmOutput: GridResponseAuthor = {
-        userMessage: 'Action test',
-        rationale: 'Test',
-        executionPlan: [{ instanceId: 'a', action: 'doIt', paramsJson }],
-        layout: { positions: [] },
-      };
+        const llmOutput: GridResponseAuthor = {
+          userMessage: 'Action test',
+          rationale: 'Test',
+          executionPlan: [{ instanceId: 'a', action: 'doIt', paramsJson }],
+          layout: { positions: [] },
+        };
 
-      const result = processResponse({
-        llmOutput,
-        request: richRequest(),
-        messageId: MessageId('req-1'),
-        logger,
-      });
-      expect(isOk(result)).toBe(true);
-      if (!isOk(result)) return;
+        const result = processResponse({
+          llmOutput,
+          request: richRequest(),
+          messageId: MessageId('req-1'),
+          logger,
+        });
+        expect(isOk(result)).toBe(true);
+        if (!isOk(result)) return;
 
-      expect(result.value.executionPlan).toHaveLength(0);
-      expect(errors[0]).toContain('not a JSON object');
-    });
+        expect(result.value.executionPlan).toHaveLength(0);
+        expect(errors[0]).toContain('not a JSON object');
+      },
+    );
   });
 
   describe('execution plan validation', () => {
@@ -2972,27 +2977,33 @@ describe('processResponse userMessage and skipReply', () => {
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a missing userMessage is a ParseError when skipReply is %s', (_case, skipReply) => {
-    const result = process(withoutReply(), skipReply);
+  ])(
+    'a missing userMessage is a ParseError when skipReply is %s',
+    (_case, skipReply) => {
+      const result = process(withoutReply(), skipReply);
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ParseError',
-      raw: 'userMessage',
-    });
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ParseError',
+        raw: 'userMessage',
+      });
+    },
+  );
 
   test.each([
     ['absent', undefined, ''],
     ['false', false, ''],
     ['absent', undefined, ' \t\n '],
     ['false', false, ' \t\n '],
-  ])('a blank userMessage is a ParseError when skipReply is %s (%p)', (_case, skipReply, userMessage) => {
-    const result = process(buildGridResponse({ userMessage }), skipReply);
+  ])(
+    'a blank userMessage is a ParseError when skipReply is %s (%p)',
+    (_case, skipReply, userMessage) => {
+      const result = process(buildGridResponse({ userMessage }), skipReply);
 
-    expect(isErr(result) && result.error._tag).toBe('ParseError');
-  });
+      expect(isErr(result) && result.error._tag).toBe('ParseError');
+    },
+  );
 
   test('a missing userMessage is accepted when skipReply is true', () => {
     const result = process(withoutReply(), true);
@@ -3010,14 +3021,14 @@ describe('processResponse userMessage and skipReply', () => {
     expect(isOk(result) && result.value.userMessage).toBe('Done');
   });
 
-  test.each([
-    '',
-    ' \t\n ',
-  ])('a blank userMessage %p passes through unchanged when skipReply is true', (userMessage) => {
-    const result = process(buildGridResponse({ userMessage }), true);
+  test.each(['', ' \t\n '])(
+    'a blank userMessage %p passes through unchanged when skipReply is true',
+    (userMessage) => {
+      const result = process(buildGridResponse({ userMessage }), true);
 
-    expect(isOk(result)).toBe(true);
-    if (!isOk(result)) return;
-    expect(result.value.userMessage).toBe(userMessage);
-  });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.userMessage).toBe(userMessage);
+    },
+  );
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { channelDirectionForStep, EDGES } from '../edges';
 import { STEPS } from '../loop-machine';
 import { NODES } from '../nodes';

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+
 import { extractCiMetric, VoiceMetricRejection } from '../ci-metrics.ts';
 import {
   summarizeVoiceBenchmark,

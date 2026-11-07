@@ -1,4 +1,5 @@
 import type { ResolvedBrowserVadConfig } from '@maelstrom-co/realtime-vad/config';
+
 import {
   type GreetingInterruptionRuntime,
   loadGreetingInterruptionRuntime,
@@ -198,6 +199,7 @@ export class GreetingInterruption {
     this.#operation?.disarm();
     const runtime = this.#runtime;
     if (!runtime) return undefined;
+    // oxlint-disable-next-line eslint/prefer-const -- Construction installs callbacks that close over this binding before assignment completes.
     let operation!: Operation;
     operation = new Operation({
       bridge,

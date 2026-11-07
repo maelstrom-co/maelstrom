@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { createTelemetry, noopTelemetry } from './telemetry.js';
 import type { TelemetryFact, TelemetryRecord, TelemetrySink } from './types.js';
 
@@ -72,40 +74,40 @@ describe('operational telemetry delivery', () => {
     }
   });
 
-  test.each([
-    'timeout',
-    'dispose',
-  ] as const)('exporters can distinguish %s aborts', async (reason) => {
-    clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
-    const started = deferred();
-    let signal: AbortSignal | undefined;
-    const pending = deferred();
-    const telemetry = createTelemetry({
-      exportTimeoutMs: 10,
-      sink: (_batch, abort) => {
-        signal = abort;
-        started.resolve();
-        return pending.promise;
-      },
-    });
-    try {
-      telemetry.record(fact);
-      await started.promise;
-      if (reason === 'dispose') telemetry.dispose();
-      else await clock.tickAsync(10);
-      expect(signal?.reason).toMatchObject(
-        reason === 'timeout'
-          ? {
-              name: 'TimeoutError',
-              message: 'Telemetry exporter deadline exceeded',
-            }
-          : { name: 'AbortError', message: 'Telemetry disposed' },
-      );
-    } finally {
-      pending.resolve();
-      telemetry.dispose();
-    }
-  });
+  test.each(['timeout', 'dispose'] as const)(
+    'exporters can distinguish %s aborts',
+    async (reason) => {
+      clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
+      const started = deferred();
+      let signal: AbortSignal | undefined;
+      const pending = deferred();
+      const telemetry = createTelemetry({
+        exportTimeoutMs: 10,
+        sink: (_batch, abort) => {
+          signal = abort;
+          started.resolve();
+          return pending.promise;
+        },
+      });
+      try {
+        telemetry.record(fact);
+        await started.promise;
+        if (reason === 'dispose') telemetry.dispose();
+        else await clock.tickAsync(10);
+        expect(signal?.reason).toMatchObject(
+          reason === 'timeout'
+            ? {
+                name: 'TimeoutError',
+                message: 'Telemetry exporter deadline exceeded',
+              }
+            : { name: 'AbortError', message: 'Telemetry disposed' },
+        );
+      } finally {
+        pending.resolve();
+        telemetry.dispose();
+      }
+    },
+  );
 
   test('omitting the sink allocates no lifetime or timers and never evaluates facts', async () => {
     clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -228,19 +230,22 @@ describe('operational telemetry delivery', () => {
     { durationMs: Infinity },
     { durationMs: NaN },
     { durationMs: '12' },
-  ])('rejects unsafe metric dimensions and invalid measurements: %j', async (patch) => {
-    let calls = 0;
-    const telemetry = createTelemetry({
-      sink: () => {
-        calls++;
-      },
-    });
-    telemetry.record({ ...fact, ...patch } as TelemetryFact);
-    await telemetry.flush();
-    expect(calls).toBe(0);
-    expect(telemetry.getSnapshot().dropped.invalid).toBe(1);
-    telemetry.dispose();
-  });
+  ])(
+    'rejects unsafe metric dimensions and invalid measurements: %j',
+    async (patch) => {
+      let calls = 0;
+      const telemetry = createTelemetry({
+        sink: () => {
+          calls++;
+        },
+      });
+      telemetry.record({ ...fact, ...patch } as TelemetryFact);
+      await telemetry.flush();
+      expect(calls).toBe(0);
+      expect(telemetry.getSnapshot().dropped.invalid).toBe(1);
+      telemetry.dispose();
+    },
+  );
 
   test('request diversity cannot create new metric labels or suppress aggregate measurements', async () => {
     const records: TelemetryRecord[] = [];
@@ -314,36 +319,40 @@ describe('operational telemetry delivery', () => {
     ['reject', 3],
     ['thenable', 1],
     ['thenable', 3],
-  ])('isolates %s exporter failures with batch size %i and counts lost records', async (failure, batchSize) => {
-    let calls = 0;
-    const sizes: number[] = [];
-    const sink: TelemetrySink = (batch) => {
-      sizes.push(batch.length);
-      if (++calls > 1) return;
-      if (failure === 'throw') throw new Error('CANARY_error');
-      if (failure === 'reject')
-        return Promise.reject(new Error('CANARY_error'));
-      return Object.defineProperty({}, 'then', {
-        get() {
-          throw new Error('CANARY_thenable');
-        },
-      }) as PromiseLike<void>;
-    };
-    const telemetry = createTelemetry({ sink, batchSize });
-    expect(() => {
-      for (let i = 0; i < 5; i++) telemetry.record(fact);
-    }).not.toThrow();
-    const flush = await telemetry.flush();
-    expect(flush.outcome).toBe('settled');
-    expect(flush.snapshot).toMatchObject({
-      accepted: 5,
-      delivered: batchSize === 1 ? 4 : 2,
-      dropped: { exportError: batchSize === 1 ? 1 : 3 },
-    });
-    expect(calls).toBe(batchSize === 1 ? 5 : 2);
-    expect(sizes).toEqual(batchSize === 1 ? [1, 1, 1, 1, 1] : [3, 2]);
-    telemetry.dispose();
-  });
+  ])(
+    'isolates %s exporter failures with batch size %i and counts lost records',
+    async (failure, batchSize) => {
+      let calls = 0;
+      const sizes: number[] = [];
+      const sink: TelemetrySink = (batch) => {
+        sizes.push(batch.length);
+        if (++calls > 1) return;
+        if (failure === 'throw') throw new Error('CANARY_error');
+        if (failure === 'reject')
+          return Promise.reject(new Error('CANARY_error'));
+        // oxlint-disable-next-line unicorn/no-thenable -- This probe verifies isolation from a throwing thenable accessor.
+        return Object.defineProperty({}, 'then', {
+          get() {
+            throw new Error('CANARY_thenable');
+          },
+        }) as PromiseLike<void>;
+      };
+      const telemetry = createTelemetry({ sink, batchSize });
+      expect(() => {
+        for (let i = 0; i < 5; i++) telemetry.record(fact);
+      }).not.toThrow();
+      const flush = await telemetry.flush();
+      expect(flush.outcome).toBe('settled');
+      expect(flush.snapshot).toMatchObject({
+        accepted: 5,
+        delivered: batchSize === 1 ? 4 : 2,
+        dropped: { exportError: batchSize === 1 ? 1 : 3 },
+      });
+      expect(calls).toBe(batchSize === 1 ? 5 : 2);
+      expect(sizes).toEqual(batchSize === 1 ? [1, 1, 1, 1, 1] : [3, 2]);
+      telemetry.dispose();
+    },
+  );
 
   test('one stalled exporter disables delivery so ignored aborts cannot accumulate unbounded work', async () => {
     clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -630,9 +639,12 @@ describe('operational telemetry delivery', () => {
     { exportTimeoutMs: 0 },
     { exportTimeoutMs: 60_001 },
     { capacity: 1.5 },
-  ])('rejects configurations that cannot guarantee bounded delivery: %j', (options) => {
-    expect(() => createTelemetry({ ...options, sink: () => {} })).toThrow(
-      RangeError,
-    );
-  });
+  ])(
+    'rejects configurations that cannot guarantee bounded delivery: %j',
+    (options) => {
+      expect(() => createTelemetry({ ...options, sink: () => {} })).toThrow(
+        RangeError,
+      );
+    },
+  );
 });

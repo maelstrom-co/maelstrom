@@ -2,8 +2,10 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { isOk, type MaelstromResponse, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import {
   type FakeCall,
   type FakeScript,
@@ -105,7 +107,7 @@ test('runs a baseline and a staged arm and keeps the runner and plugin fields ap
     'journal-main',
   ]);
   expect(
-    (staged?.fakeCalls as readonly FakeCall[]).map((call) => call.stage),
+    (staged!.fakeCalls as readonly FakeCall[]).map((call) => call.stage),
   ).toEqual(['pick', 'write']);
   // The scripted planner answers, so the expected deferral does not happen.
   expect(records[3]?.deferredAsExpected).toBe(false);
@@ -322,7 +324,7 @@ test('replays recorded upstream stages and runs the rest live', async () => {
     ['write', false],
   ]);
   expect(
-    (record?.fakeCalls as readonly FakeCall[]).map((call) => call.stage),
+    (record!.fakeCalls as readonly FakeCall[]).map((call) => call.stage),
   ).toEqual(['write']);
 });
 

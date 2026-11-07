@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
+
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent, waitFor } from '@testing-library/react';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { event, mount, attach } = createVoicePanelHarness();
@@ -99,27 +101,28 @@ test('a model call report shows its source and reported zero usage while absent 
   expect(details.textContent).toContain('internal provider calls');
 });
 
-test.each([
-  0, 1,
-])('reported attempt %s matches the producer number in the selected JSON', (attempt) => {
-  const view = recording([
-    event(
-      'attempt',
-      'engine.planner.attempt',
-      { 'maelstrom.attempt': attempt },
-      'request',
-    ),
-  ]);
-  const row = view.shadow.querySelector(
-    '[aria-label="Planner observations"] button',
-  )!;
-  expect(row.textContent).toBe(`Attempt ${attempt} reported`);
-  fireEvent.click(row);
-  view.click('Raw JSON');
-  expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
-    `"maelstrom.attempt": ${attempt}`,
-  );
-});
+test.each([0, 1])(
+  'reported attempt %s matches the producer number in the selected JSON',
+  (attempt) => {
+    const view = recording([
+      event(
+        'attempt',
+        'engine.planner.attempt',
+        { 'maelstrom.attempt': attempt },
+        'request',
+      ),
+    ]);
+    const row = view.shadow.querySelector(
+      '[aria-label="Planner observations"] button',
+    )!;
+    expect(row.textContent).toBe(`Attempt ${attempt} reported`);
+    fireEvent.click(row);
+    view.click('Raw JSON');
+    expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
+      `"maelstrom.attempt": ${attempt}`,
+    );
+  },
+);
 
 test('redacted attempt and validation facts remain explicit and do not appear as failed or accepted work', () => {
   const view = recording([
@@ -360,101 +363,103 @@ test('a retained planner selection keeps keyboard focus when eviction moves its 
   expect(selected.isConnected).toBe(false);
 });
 
-test.each([
-  'Previous',
-  'Next',
-] as const)('a disappearing %s planner page control returns keyboard focus to the request', async (direction) => {
-  const tools = createDevtools({ initialIsOpen: true, maxRequestEvents: 51 });
-  const emit = attach(tools);
-  for (let index = 0; index < 51; index++)
-    emit(
-      'engine.llm.call',
-      { 'gen_ai.request.model': `model-${index}` },
-      'request',
+test.each(['Previous', 'Next'] as const)(
+  'a disappearing %s planner page control returns keyboard focus to the request',
+  async (direction) => {
+    const tools = createDevtools({ initialIsOpen: true, maxRequestEvents: 51 });
+    const emit = attach(tools);
+    for (let index = 0; index < 51; index++)
+      emit(
+        'engine.llm.call',
+        { 'gen_ai.request.model': `model-${index}` },
+        'request',
+      );
+    const view = mount(tools);
+    view.shadow.querySelector<HTMLDetailsElement>(
+      '[aria-label="Planner evidence"]',
+    )!.open = true;
+    view.click('Next planner observations');
+    const control = [...view.shadow.querySelectorAll('button')].find(
+      (button) => button.textContent === `${direction} planner observations`,
+    )!;
+    control.focus();
+    emit('engine.stage.completed', { stage: 'layout' }, 'request');
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(view.shadow.activeElement).not.toBeNull();
+    expect(view.shadow.activeElement).toBe(
+      view.shadow.querySelector('[aria-label="Request details"]'),
     );
-  const view = mount(tools);
-  view.shadow.querySelector<HTMLDetailsElement>(
-    '[aria-label="Planner evidence"]',
-  )!.open = true;
-  view.click('Next planner observations');
-  const control = [...view.shadow.querySelectorAll('button')].find(
-    (button) => button.textContent === `${direction} planner observations`,
-  )!;
-  control.focus();
-  emit('engine.stage.completed', { stage: 'layout' }, 'request');
-  await new Promise<void>((resolve) => queueMicrotask(resolve));
-  expect(view.shadow.activeElement).not.toBeNull();
-  expect(view.shadow.activeElement).toBe(
-    view.shadow.querySelector('[aria-label="Request details"]'),
-  );
-  expect(control.isConnected).toBe(false);
-  expect(
-    view.shadow.querySelectorAll('[aria-label="Planner observations"] button'),
-  ).toHaveLength(50);
-});
+    expect(control.isConnected).toBe(false);
+    expect(
+      view.shadow.querySelectorAll(
+        '[aria-label="Planner observations"] button',
+      ),
+    ).toHaveLength(50);
+  },
+);
 
-test.each([
-  'A',
-  'B',
-] as const)('comparison %s keeps focus in its own request when retention moves the selected planner row', async (side) => {
-  const tools = createDevtools({
-    initialIsOpen: true,
-    maxRequestEvents: 52,
-    maxActivityEvents: 1,
-  });
-  const emit = attach(tools);
-  emit('engine.llm.call', { 'gen_ai.request.model': 'other-model' }, 'other');
-  for (let index = 0; index < 51; index++)
+test.each(['A', 'B'] as const)(
+  'comparison %s keeps focus in its own request when retention moves the selected planner row',
+  async (side) => {
+    const tools = createDevtools({
+      initialIsOpen: true,
+      maxRequestEvents: 52,
+      maxActivityEvents: 1,
+    });
+    const emit = attach(tools);
+    emit('engine.llm.call', { 'gen_ai.request.model': 'other-model' }, 'other');
+    for (let index = 0; index < 51; index++)
+      emit(
+        'engine.llm.call',
+        { 'gen_ai.request.model': `active-model-${index}` },
+        'active',
+      );
+    const view = mount(tools);
+    const selectRequest = (requestId: string) =>
+      fireEvent.click(
+        [...view.shadow.querySelectorAll('.list-pane button')].find((button) =>
+          button.textContent?.includes(`Request ${requestId}`),
+        )!,
+      );
+    if (side === 'B') selectRequest('other');
+    view.click('Compare request');
+    selectRequest(side === 'A' ? 'other' : 'active');
+    const request = () =>
+      view.shadow.querySelector<HTMLElement>(
+        `[aria-label="${side} request details"]`,
+      )!;
+    const planner = request().querySelector<HTMLDetailsElement>(
+      '[aria-label="Planner evidence"]',
+    )!;
+    planner.open = true;
+    view.click('Next planner observations');
+    view.click(`${side} event JSON: Raw JSON`);
+    const selected = request().querySelector<HTMLButtonElement>(
+      '[aria-label="Planner observations"] button',
+    )!;
+    selected.focus();
+    fireEvent.click(selected);
+    await waitFor(() => expect(view.shadow.activeElement).not.toBeNull());
     emit(
       'engine.llm.call',
-      { 'gen_ai.request.model': `active-model-${index}` },
+      { 'gen_ai.request.model': 'active-model-51' },
       'active',
     );
-  const view = mount(tools);
-  const selectRequest = (requestId: string) =>
-    fireEvent.click(
-      [...view.shadow.querySelectorAll('.list-pane button')].find((button) =>
-        button.textContent?.includes(`Request ${requestId}`),
-      )!,
+    emit(
+      'engine.llm.call',
+      { 'gen_ai.request.model': 'active-model-52' },
+      'active',
     );
-  if (side === 'B') selectRequest('other');
-  view.click('Compare request');
-  selectRequest(side === 'A' ? 'other' : 'active');
-  const request = () =>
-    view.shadow.querySelector<HTMLElement>(
-      `[aria-label="${side} request details"]`,
-    )!;
-  const planner = request().querySelector<HTMLDetailsElement>(
-    '[aria-label="Planner evidence"]',
-  )!;
-  planner.open = true;
-  view.click('Next planner observations');
-  view.click(`${side} event JSON: Raw JSON`);
-  const selected = request().querySelector<HTMLButtonElement>(
-    '[aria-label="Planner observations"] button',
-  )!;
-  selected.focus();
-  fireEvent.click(selected);
-  await waitFor(() => expect(view.shadow.activeElement).not.toBeNull());
-  emit(
-    'engine.llm.call',
-    { 'gen_ai.request.model': 'active-model-51' },
-    'active',
-  );
-  emit(
-    'engine.llm.call',
-    { 'gen_ai.request.model': 'active-model-52' },
-    'active',
-  );
-  await new Promise<void>((resolve) => queueMicrotask(resolve));
-  expect(view.shadow.activeElement).not.toBeNull();
-  expect(view.shadow.activeElement).toBe(request());
-  expect(request().textContent).toContain('Showing 51–52 of 52');
-  expect(
-    view.shadow.querySelector(`[aria-label="${side} event JSON"] .json-raw`)
-      ?.textContent,
-  ).toContain('active-model-50');
-});
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(view.shadow.activeElement).not.toBeNull();
+    expect(view.shadow.activeElement).toBe(request());
+    expect(request().textContent).toContain('Showing 51–52 of 52');
+    expect(
+      view.shadow.querySelector(`[aria-label="${side} event JSON"] .json-raw`)
+        ?.textContent,
+    ).toContain('active-model-50');
+  },
+);
 
 test('comparison columns retain independent planner pages and inherit the initial request page', () => {
   const view = recording(
@@ -609,13 +614,18 @@ test.each([
   ['engine.planner.failed', undefined, 'Not reported'],
   ['engine.planner.completed', 'unsupported', 'Invalid or unavailable'],
   ['engine.planner.completed', 'unreported', 'Invalid or unavailable'],
-] as const)('planner outcome %s preserves unavailable %s without inventing failure or success', (kind, outcome, expected) => {
-  const view = recording([event('outcome', kind, { outcome }, 'request')]);
-  const details = view.shadow.querySelector('[aria-label="Planner evidence"]')!;
-  expect(details.textContent).toContain(`Planning outcome · ${expected}`);
-  expect(details.textContent).not.toContain('Planning outcome · Failed');
-  expect(details.textContent).not.toContain('Planning outcome · Succeeded');
-});
+] as const)(
+  'planner outcome %s preserves unavailable %s without inventing failure or success',
+  (kind, outcome, expected) => {
+    const view = recording([event('outcome', kind, { outcome }, 'request')]);
+    const details = view.shadow.querySelector(
+      '[aria-label="Planner evidence"]',
+    )!;
+    expect(details.textContent).toContain(`Planning outcome · ${expected}`);
+    expect(details.textContent).not.toContain('Planning outcome · Failed');
+    expect(details.textContent).not.toContain('Planning outcome · Succeeded');
+  },
+);
 
 test('inspecting a stopped recording preserves every exported event and never starts a second recording', () => {
   const tools = createDevtools({ initialIsOpen: true });

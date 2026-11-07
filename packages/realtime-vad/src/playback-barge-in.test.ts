@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+
 import { type InstalledClock, install } from '@sinonjs/fake-timers';
-import type { CreateBrowserVadOptions } from './browser-vad.js';
+
 import { resolveBrowserVadConfig } from './browser-vad-config.js';
+import type { CreateBrowserVadOptions } from './browser-vad.js';
 import {
   createPlaybackBargeIn,
   type PlaybackBargeIn,

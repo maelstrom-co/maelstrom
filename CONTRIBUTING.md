@@ -182,6 +182,8 @@ bunx nx dev demo               # run the demo app (see apps/demo/README.md for e
 nx run-many -t build           # build all packages
 nx run-many -t test            # run all tests
 nx run-many -t typecheck       # type-check all packages
+bun run check                 # lint and check formatting without writes
+bun run format                # apply Oxfmt formatting and import order
 bun run docs:lint              # check documentation prose
 ```
 
@@ -263,8 +265,9 @@ See the [README](./README.md) for the package architecture and core concepts.
 ## Pull requests
 
 - Sign off every commit (`git commit -s`) — see [DCO](#developer-certificate-of-origin-dco).
-- Run `nx run-many -t check test build typecheck` before pushing. CI runs the
-  same four targets plus `e2e`.
+- Run `bun run check` and `nx run-many -t test build typecheck --skip-nx-cache`
+  before pushing. CI selects affected lint, test, build, typecheck, browser, and
+  artifact-validation targets, and checks formatting across the workspace.
 - PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
   (`type(scope): summary`). Squash-merge lands the PR title verbatim as the
   commit subject, so the title is the permanent changelog entry.

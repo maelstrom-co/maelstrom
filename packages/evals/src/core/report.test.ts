@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   fakePluginWith,
   TOKYO_CANDIDATE,
 } from './__test-helpers__/fake-planner.js';
-import { GRADER_VERSION } from './grader.js';
 import type { GraderValidation } from './grader-validate.js';
+import { GRADER_VERSION } from './grader.js';
 import { judgeFromGrader } from './judge-result.js';
 import { renderMarkdown, renderPaired, summarize } from './report.js';
 import type { RunRecord } from './run.js';
@@ -457,7 +458,7 @@ describe('grader', () => {
   });
 
   test('keeps grader usage out of the arm’s own provider tokens', () => {
-    expect((jevSummary?.tokens.fake as { calls: number }).calls).toBe(0);
+    expect((jevSummary!.tokens.fake as { calls: number }).calls).toBe(0);
   });
 
   test('has no grader summary when no turn was graded', () => {
@@ -540,21 +541,24 @@ describe('grader', () => {
     { kind: 'llm', provider: 'openai', model: 'fake' },
     { kind: 'unknown', provider: 'custom' },
     { kind: 'unknown', provider: 'historical', model: 'not-historical' },
-  ] as const)('an unbound historical calibration does not validate current provenance %o', (provenance) => {
-    const current = records.map((record) => ({
-      ...record,
-      judge: judgeFromGrader(record.grader, provenance),
-    }));
-    const report = renderMarkdown(
-      summarize(current, plugins),
-      {},
-      { plugins, graderValidation: passing },
-    );
-    expect(report).not.toContain('grader: validated');
-    expect(report).not.toContain('| Grader request_satisfied mean');
-    expect(report).toContain(provenance.provider);
-    expect(report).toContain('unvalidated');
-  });
+  ] as const)(
+    'an unbound historical calibration does not validate current provenance %o',
+    (provenance) => {
+      const current = records.map((record) => ({
+        ...record,
+        judge: judgeFromGrader(record.grader, provenance),
+      }));
+      const report = renderMarkdown(
+        summarize(current, plugins),
+        {},
+        { plugins, graderValidation: passing },
+      );
+      expect(report).not.toContain('grader: validated');
+      expect(report).not.toContain('| Grader request_satisfied mean');
+      expect(report).toContain(provenance.provider);
+      expect(report).toContain('unvalidated');
+    },
+  );
 
   test('known judge headlines require matching rubric version, provider and model calibration', () => {
     const provenance = {

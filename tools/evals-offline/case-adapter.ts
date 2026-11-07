@@ -32,8 +32,8 @@ import {
 import { scriptedCandidateDataSchema } from '../../packages/evals/src/adapters/scripted-candidate.js';
 import { threeVesselAdditionDataSchema } from '../../packages/evals/src/adapters/three-vessel-addition.js';
 import { weatherActionBackedDataSchema } from '../../packages/evals/src/adapters/weather-action-backed-transition.js';
-import { judgeEvidence } from '../../packages/evals/src/core/judge.js';
 import { judgeNotRun } from '../../packages/evals/src/core/judge-result.js';
+import { judgeEvidence } from '../../packages/evals/src/core/judge.js';
 import { plannerScenarioFromCase } from '../../packages/evals/src/core/planner-case.js';
 import type { ReplaySource } from '../../packages/evals/src/core/replay.js';
 import type { EvalOptions } from '../../packages/evals/src/core/run.js';

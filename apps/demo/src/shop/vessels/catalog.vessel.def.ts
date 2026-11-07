@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import { withActionOptions } from '../../lib/vessel-options';
 import { CATALOG_SKUS, FOOD_TYPES, SPECIES } from '../stores/fixtures';
 

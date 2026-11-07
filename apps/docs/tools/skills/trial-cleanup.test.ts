@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { finishTrialCleanup } from './trial-runtime';
 
 const failure = (code: string) =>
@@ -21,18 +22,18 @@ test('a late denial is accepted only after the retained group becomes absent', a
   ]);
 });
 
-test.each([
-  'denied',
-  'present',
-])('an unproved %s group preserves the original cleanup failure', async (state) => {
-  const denial = failure('EPERM');
-  await expect(
-    finishTrialCleanup(-42, (_target, signal) => {
-      if (signal === 'SIGKILL' || state === 'denied') throw denial;
-      return true;
-    }),
-  ).rejects.toBe(denial);
-});
+test.each(['denied', 'present'])(
+  'an unproved %s group preserves the original cleanup failure',
+  async (state) => {
+    const denial = failure('EPERM');
+    await expect(
+      finishTrialCleanup(-42, (_target, signal) => {
+        if (signal === 'SIGKILL' || state === 'denied') throw denial;
+        return true;
+      }),
+    ).rejects.toBe(denial);
+  },
+);
 
 test('an unknown liveness probe never proves cleanup', async () => {
   const denial = failure('EPERM');
@@ -61,19 +62,16 @@ test('other signal failures remain failures', async () => {
   ).rejects.toBe(error);
 });
 
-test.each([
-  0,
-  1,
-  -1,
-  Number.NaN,
-  Number.POSITIVE_INFINITY,
-])('invalid target %d is rejected without sending a signal', async (target) => {
-  let calls = 0;
-  await expect(
-    finishTrialCleanup(target, () => {
-      calls++;
-      return true;
-    }),
-  ).rejects.toBeInstanceOf(RangeError);
-  expect(calls).toBe(0);
-});
+test.each([0, 1, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+  'invalid target %d is rejected without sending a signal',
+  async (target) => {
+    let calls = 0;
+    await expect(
+      finishTrialCleanup(target, () => {
+        calls++;
+        return true;
+      }),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(calls).toBe(0);
+  },
+);

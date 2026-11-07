@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { Effect, Layer } from 'effect';
+
 import {
   type ClaimResendAttempt,
   WaitlistPersistenceError,
@@ -111,11 +113,14 @@ describe('waitlist resend workflow', () => {
     [{ code: 'E_RATE_LIMIT_EXCEEDED' }, 'retryable:E_RATE_LIMIT_EXCEEDED'],
     [{ code: 'E_INTERNAL_SERVER_ERROR' }, 'unknown:E_INTERNAL_SERVER_ERROR'],
     [new Error('private provider detail'), 'unknown:unclassified'],
-  ] as const)('consumes delivery failure and records its stable disposition', async (failure, expected) => {
-    const h = harness({ sendThrows: failure });
-    await deliver(h, await begin(h));
-    expect(h.events.at(-1)).toBe(expected);
-  });
+  ] as const)(
+    'consumes delivery failure and records its stable disposition',
+    async (failure, expected) => {
+      const h = harness({ sendThrows: failure });
+      await deliver(h, await begin(h));
+      expect(h.events.at(-1)).toBe(expected);
+    },
+  );
 
   test('consumes a missing provider message id', async () => {
     const h = harness({ sendResult: Promise.resolve({}) });

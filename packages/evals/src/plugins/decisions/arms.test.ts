@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   DECISIONS_TEST_MODEL,
   dummyAdapter,
 } from '@maelstrom-co/planner-jev/_testing';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import { armRegistry, defaultArms, resolveArms } from '../../core/arms.js';
 import type { ArmDeps } from '../../core/plugin.js';
 import type { LlmRole } from '../../core/usage-adapter.js';

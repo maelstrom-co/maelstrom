@@ -5,6 +5,7 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { SessionHistoryEntryArraySchema } from '@maelstrom-co/protocol';
+
 import type { Unsubscribe } from '../../types.js';
 import type {
   AssistantMessage,

@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
 import { runLangfuseCli } from './cli.ts';
 import type { RunLinkClient } from './run-link-publisher.ts';
 import {
@@ -235,59 +236,62 @@ test.each([
   { arms: ['baseline'] },
   { arms: ['jev-poc'] },
   { arms: ['baseline', 'jev-poc'] },
-])('supported recipe identity is consistent across manifest and requests for %j', async ({
-  arms,
-}) => {
-  await save(records().filter((row) => arms.some((arm) => arm === row.arm)));
-  const { plan } = await preview();
-  const judge = {
-    provider: 'typesafe',
-    model: 'jev-1.13.0',
-    rubric: 'planner_response_text_1',
-    rubricVersion: 2,
-    evidenceRendering: 'planner_response_text_1',
-    calibration: 'unvalidated',
-    scores: [
-      { name: 'request_satisfied', min: 0, max: 1 },
-      { name: 'arrangement_match', min: 0, max: 1 },
-    ],
-  };
-  expect(plan.manifest.judge).toEqual(judge);
-  expect(plan.manifest.samples.map((sample) => sample.arm)).toEqual([...arms]);
-  const runKey = createHash('sha256')
-    .update(
-      JSON.stringify([
-        'maelstrom/run-links/v1',
-        plan.manifest.datasetName,
-        'test',
-        plan.manifest.source.runId,
-        'summary',
-        judge,
-      ]),
-    )
-    .digest('hex');
-  const scope = arms.length > 1 ? 'mixed-arms' : arms[0];
-  for (const request of plan.requests) {
-    expect(request.runName).toBe(
-      `${judge.provider}-${judge.model}-${scope}-${runKey}`,
-    );
-    expect(request.runDescription).toBe(
-      `Imported saved TypeSafe ${judge.model} judgments; ${judge.rubric} v${judge.rubricVersion}; ${judge.calibration}; ${scope} (${arms.join(', ')}). Descriptive fixed evidence, not a paired planner-arm comparison. Publication timestamps are not evaluation latency.`,
-    );
-    expect(request.metadata).toEqual({
-      sourceRunId: plan.manifest.source.runId,
-      provider: judge.provider,
-      model: judge.model,
-      rubric: judge.rubric,
-      rubricVersion: judge.rubricVersion,
-      calibration: judge.calibration,
-      arms: arms.join(','),
-      samples: arms.length,
-      timing: 'publication preparation only',
-    });
-  }
-  expect(plan.journalFile).toBe(`langfuse-run-links-${runKey}.jsonl`);
-});
+])(
+  'supported recipe identity is consistent across manifest and requests for %j',
+  async ({ arms }) => {
+    await save(records().filter((row) => arms.some((arm) => arm === row.arm)));
+    const { plan } = await preview();
+    const judge = {
+      provider: 'typesafe',
+      model: 'jev-1.13.0',
+      rubric: 'planner_response_text_1',
+      rubricVersion: 2,
+      evidenceRendering: 'planner_response_text_1',
+      calibration: 'unvalidated',
+      scores: [
+        { name: 'request_satisfied', min: 0, max: 1 },
+        { name: 'arrangement_match', min: 0, max: 1 },
+      ],
+    };
+    expect(plan.manifest.judge).toEqual(judge);
+    expect(plan.manifest.samples.map((sample) => sample.arm)).toEqual([
+      ...arms,
+    ]);
+    const runKey = createHash('sha256')
+      .update(
+        JSON.stringify([
+          'maelstrom/run-links/v1',
+          plan.manifest.datasetName,
+          'test',
+          plan.manifest.source.runId,
+          'summary',
+          judge,
+        ]),
+      )
+      .digest('hex');
+    const scope = arms.length > 1 ? 'mixed-arms' : arms[0];
+    for (const request of plan.requests) {
+      expect(request.runName).toBe(
+        `${judge.provider}-${judge.model}-${scope}-${runKey}`,
+      );
+      expect(request.runDescription).toBe(
+        `Imported saved TypeSafe ${judge.model} judgments; ${judge.rubric} v${judge.rubricVersion}; ${judge.calibration}; ${scope} (${arms.join(', ')}). Descriptive fixed evidence, not a paired planner-arm comparison. Publication timestamps are not evaluation latency.`,
+      );
+      expect(request.metadata).toEqual({
+        sourceRunId: plan.manifest.source.runId,
+        provider: judge.provider,
+        model: judge.model,
+        rubric: judge.rubric,
+        rubricVersion: judge.rubricVersion,
+        calibration: judge.calibration,
+        arms: arms.join(','),
+        samples: arms.length,
+        timing: 'publication preparation only',
+      });
+    }
+    expect(plan.journalFile).toBe(`langfuse-run-links-${runKey}.jsonl`);
+  },
+);
 
 test('link publish sends only reviewed run-item requests, journaling attempts before sends and receipts before next send', async () => {
   const { plan, approval } = await preview();
@@ -452,42 +456,45 @@ test.each([
   'wrong-item',
   'wrong-name',
   'duplicate-id',
-])('unconfirmed %s receipt stops after the accepted prefix with no retry', async (failure) => {
-  await save([
-    ...records(),
-    ...records().map((row) => ({ ...row, scenarioId: 'weather2' })),
-  ]);
-  const { approval, plan } = await preview();
-  let calls = 0;
-  const outcome = await runLangfuseCli(
-    publishArgs(approval),
-    dependencies(async (request) => {
-      calls++;
-      if (calls === 1) return receipt(request);
-      if (failure === 'throw') throw new Error('SECRET PROVIDER ERROR');
-      const result = receipt(request, failure === 'duplicate-id' ? 0 : calls);
-      if (failure === 'wrong-run') result.datasetRunId = 'other';
-      if (failure === 'wrong-trace') result.traceId = 'other';
-      if (failure === 'wrong-item') result.datasetItemId = 'other';
-      if (failure === 'wrong-name') result.datasetRunName = 'other';
-      return result;
-    }),
-  );
-  expect(outcome).toMatchObject({
-    exitCode: 3,
-    output: { status: 'partial', attempted: 2, accepted: 1, unsent: 2 },
-  });
-  expect(calls).toBe(2);
-  expect((await journal(plan)).at(-2)).toMatchObject({
-    status: 'uncertain',
-    reconciliationRequired: true,
-  });
-  expect(
-    (await runLangfuseCli(publishArgs(approval), dependencies())).output.code,
-  ).toBe('run_link_journal_unavailable');
-  sanitized(outcome);
-  expect(JSON.stringify(await journal(plan))).not.toContain('SECRET');
-});
+])(
+  'unconfirmed %s receipt stops after the accepted prefix with no retry',
+  async (failure) => {
+    await save([
+      ...records(),
+      ...records().map((row) => ({ ...row, scenarioId: 'weather2' })),
+    ]);
+    const { approval, plan } = await preview();
+    let calls = 0;
+    const outcome = await runLangfuseCli(
+      publishArgs(approval),
+      dependencies(async (request) => {
+        calls++;
+        if (calls === 1) return receipt(request);
+        if (failure === 'throw') throw new Error('SECRET PROVIDER ERROR');
+        const result = receipt(request, failure === 'duplicate-id' ? 0 : calls);
+        if (failure === 'wrong-run') result.datasetRunId = 'other';
+        if (failure === 'wrong-trace') result.traceId = 'other';
+        if (failure === 'wrong-item') result.datasetItemId = 'other';
+        if (failure === 'wrong-name') result.datasetRunName = 'other';
+        return result;
+      }),
+    );
+    expect(outcome).toMatchObject({
+      exitCode: 3,
+      output: { status: 'partial', attempted: 2, accepted: 1, unsent: 2 },
+    });
+    expect(calls).toBe(2);
+    expect((await journal(plan)).at(-2)).toMatchObject({
+      status: 'uncertain',
+      reconciliationRequired: true,
+    });
+    expect(
+      (await runLangfuseCli(publishArgs(approval), dependencies())).output.code,
+    ).toBe('run_link_journal_unavailable');
+    sanitized(outcome);
+    expect(JSON.stringify(await journal(plan))).not.toContain('SECRET');
+  },
+);
 
 test('deadline remains uncertain, stops later links, and an uncooperative request cannot change the journal later', async () => {
   const overrides = { 'timeout-ms': '10', 'shutdown-timeout-ms': '5' };
@@ -540,48 +547,50 @@ test('a startup failure keeps a durable blocking journal and no sent association
   sanitized(outcome);
 });
 
-test.each([
-  3, 4,
-])('journal sync failure at step %i never allows a falsely accepted or unjournaled POST', async (failAt) => {
-  const { approval, plan } = await preview();
-  const probe = await open(join(directory, 'probe'), 'w');
-  const prototype: FileHandle = Object.getPrototypeOf(probe);
-  const original = prototype.sync;
-  let syncs = 0;
-  let sends = 0;
-  const fault = spyOn(prototype, 'sync').mockImplementation(function (
-    this: FileHandle,
-  ) {
-    if (++syncs === failAt)
-      return Promise.reject(new Error('SECRET DISK ERROR'));
-    return original.call(this);
-  });
-  try {
-    const outcome = await runLangfuseCli(
-      publishArgs(approval),
-      dependencies(async (request) => {
-        sends++;
-        return receipt(request);
-      }),
-    );
-    expect(outcome).toMatchObject({
-      exitCode: failAt === 3 ? 1 : 3,
-      output: {
-        status: failAt === 3 ? 'failed' : 'uncertain',
-        accepted: 0,
-      },
+test.each([3, 4])(
+  'journal sync failure at step %i never allows a falsely accepted or unjournaled POST',
+  async (failAt) => {
+    const { approval, plan } = await preview();
+    const probe = await open(join(directory, 'probe'), 'w');
+    const prototype: FileHandle = Object.getPrototypeOf(probe);
+    const original = prototype.sync;
+    let syncs = 0;
+    let sends = 0;
+    const fault = spyOn(prototype, 'sync').mockImplementation(function (
+      this: FileHandle,
+    ) {
+      if (++syncs === failAt)
+        return Promise.reject(new Error('SECRET DISK ERROR'));
+      return original.call(this);
     });
-    expect(sends).toBe(failAt === 3 ? 0 : 1);
-    expect(
-      (await runLangfuseCli(publishArgs(approval), dependencies())).output.code,
-    ).toBe('run_link_journal_unavailable');
-    expect(JSON.stringify(await journal(plan))).not.toContain('SECRET');
-    sanitized(outcome);
-  } finally {
-    fault.mockRestore();
-    await probe.close();
-  }
-});
+    try {
+      const outcome = await runLangfuseCli(
+        publishArgs(approval),
+        dependencies(async (request) => {
+          sends++;
+          return receipt(request);
+        }),
+      );
+      expect(outcome).toMatchObject({
+        exitCode: failAt === 3 ? 1 : 3,
+        output: {
+          status: failAt === 3 ? 'failed' : 'uncertain',
+          accepted: 0,
+        },
+      });
+      expect(sends).toBe(failAt === 3 ? 0 : 1);
+      expect(
+        (await runLangfuseCli(publishArgs(approval), dependencies())).output
+          .code,
+      ).toBe('run_link_journal_unavailable');
+      expect(JSON.stringify(await journal(plan))).not.toContain('SECRET');
+      sanitized(outcome);
+    } finally {
+      fault.mockRestore();
+      await probe.close();
+    }
+  },
+);
 
 test('real pinned SDK uses only dataset-run-items POST and serializes explicit createdAt without datasetVersion', async () => {
   const { approval, plan } = await preview();

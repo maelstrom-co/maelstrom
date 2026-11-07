@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+
 import { safeGetItem, safeSetItem } from '../preferences';
 
 describe('safeGetItem', () => {

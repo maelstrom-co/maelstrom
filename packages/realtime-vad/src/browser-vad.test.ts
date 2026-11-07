@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createBrowserVad } from './browser-vad.js';
 import { resolveBrowserVadConfig } from './browser-vad-config.js';
+import { createBrowserVad } from './browser-vad.js';
 
 type CapturedVadOptions = {
   baseAssetPath?: string;
@@ -25,32 +25,30 @@ function deferred() {
 }
 
 describe('resolveBrowserVadConfig', () => {
-  test.each([
-    undefined,
-    true,
-  ] as const)('uses automatic defaults for %p', (vad) => {
-    expect(resolveBrowserVadConfig(vad)).toEqual({
-      enabled: true,
-      assetBaseUrl: '/vad-web/',
-      preRollMs: 250,
-      providerOptions: {},
-    });
-  });
+  test.each([undefined, true] as const)(
+    'uses automatic defaults for %p',
+    (vad) => {
+      expect(resolveBrowserVadConfig(vad)).toEqual({
+        enabled: true,
+        assetBaseUrl: '/vad-web/',
+        preRollMs: 250,
+        providerOptions: {},
+      });
+    },
+  );
 
   test('keeps manual mode free of automatic configuration', () => {
     expect(resolveBrowserVadConfig(false)).toEqual({ enabled: false });
   });
 
-  test.each([
-    [null],
-    ['automatic'],
-    [1],
-    [[]],
-  ])('rejects invalid top-level VAD configuration %p', (vad) => {
-    expect(() => resolveBrowserVadConfig(vad as never)).toThrow(
-      'vad must be false, true, or an options object',
-    );
-  });
+  test.each([[null], ['automatic'], [1], [[]]])(
+    'rejects invalid top-level VAD configuration %p',
+    (vad) => {
+      expect(() => resolveBrowserVadConfig(vad as never)).toThrow(
+        'vad must be false, true, or an options object',
+      );
+    },
+  );
 
   test.each([
     ['relative/path', 'relative/path/'],
@@ -79,14 +77,12 @@ describe('resolveBrowserVadConfig', () => {
     );
   });
 
-  test.each([
-    -1,
-    501,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('rejects invalid transport pre-roll %p', (preRollMs) => {
-    expect(() => resolveBrowserVadConfig({ preRollMs })).toThrow('preRollMs');
-  });
+  test.each([-1, 501, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid transport pre-roll %p',
+    (preRollMs) => {
+      expect(() => resolveBrowserVadConfig({ preRollMs })).toThrow('preRollMs');
+    },
+  );
 
   test('accepts the explicit provider tuning allowlist', () => {
     const providerOptions = {

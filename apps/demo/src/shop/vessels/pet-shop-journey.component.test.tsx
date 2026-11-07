@@ -10,6 +10,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { CATALOG_SKUS } from '../stores/fixtures';
 import { cartVessel } from './cart.vessel.def';
 import { catalogVessel } from './catalog.vessel.def';
@@ -42,18 +43,14 @@ vi.mock('../maelstrom', () => ({
   },
 }));
 
-const { __resetCartStoreForTests, cartActions, getCartSnapshot } = await import(
-  '../stores/cart.store'
-);
-const { __resetCatalogStoreForTests, getCatalogSnapshot } = await import(
-  '../stores/catalog.store'
-);
-const { __resetCheckoutStoreForTests } = await import(
-  '../stores/checkout.store'
-);
-const { __resetOrdersStoreForTests, getOrdersSnapshot } = await import(
-  '../stores/orders.store'
-);
+const { __resetCartStoreForTests, cartActions, getCartSnapshot } =
+  await import('../stores/cart.store');
+const { __resetCatalogStoreForTests, getCatalogSnapshot } =
+  await import('../stores/catalog.store');
+const { __resetCheckoutStoreForTests } =
+  await import('../stores/checkout.store');
+const { __resetOrdersStoreForTests, getOrdersSnapshot } =
+  await import('../stores/orders.store');
 const OrdersComponent = (await import('./orders.component')).default;
 const CatalogComponent = (await import('./catalog.component')).default;
 const CartComponent = (await import('./cart.component')).default;

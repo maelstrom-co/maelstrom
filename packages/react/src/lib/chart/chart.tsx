@@ -142,7 +142,6 @@ export function createChart(
       // presence of `exiting` (not the config object, which is a fresh
       // reference every render) so the animation isn't restarted mid-flight by
       // an unrelated Chart re-render while this instance is already exiting.
-      // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
       useEffect(() => {
         if (!exiting) return;
         const node = ref.current;
@@ -152,6 +151,7 @@ export function createChart(
           easing: exiting.easing,
           fill: 'forwards',
         });
+        // oxlint-disable-next-line react/exhaustive-deps -- deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
       }, [Boolean(exiting)]);
 
       const vessel = useStore(orchestrator.vesselManager.store, (s) =>
@@ -177,9 +177,9 @@ export function createChart(
       const lazyLoader = isLazy
         ? lazyLoaderRegistry.get(instance.vesselId)
         : undefined;
-      // biome-ignore lint/correctness/useExhaustiveDependencies: lazyRetryKey is intentionally in deps though unused in the body — incrementing it produces a fresh React.lazy() instance, busting the cached rejected Promise on retry.
       const LazyComponent = useMemo(
         () => (lazyLoader ? lazy(lazyLoader) : null),
+        // oxlint-disable-next-line react/exhaustive-deps -- lazyRetryKey is intentionally in deps though unused in the body — incrementing it produces a fresh React.lazy() instance, busting the cached rejected Promise on retry.
         [lazyLoader, lazyRetryKey],
       );
 

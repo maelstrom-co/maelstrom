@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+
 import { domToMarkdown, initCopyForAi } from '../copy-for-ai';
 
 describe('domToMarkdown', () => {

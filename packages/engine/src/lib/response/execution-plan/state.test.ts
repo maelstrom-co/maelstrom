@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { InstanceId, VariantName } from '@maelstrom-co/protocol';
 
 import { createSimulationState } from './state.js';

@@ -74,11 +74,7 @@ export type {
   Instrument,
   InstrumentAttributes,
 } from './lib/planner/instrument.js';
-export {
-  named,
-  noopInstrument,
-  stageName,
-} from './lib/planner/instrument.js';
+export { named, noopInstrument, stageName } from './lib/planner/instrument.js';
 export { pipeline } from './lib/planner/pipeline.js';
 export type {
   PlanValidationInput,

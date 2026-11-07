@@ -1,4 +1,5 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
+
 import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
 import { plural } from '../plural';

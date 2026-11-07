@@ -1,4 +1,5 @@
 import { createMaelstrom } from '@maelstrom-co/react';
+
 import {
   appointmentsEntry,
   labEntry,

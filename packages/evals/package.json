@@ -60,7 +60,13 @@
         "command": "bun test --conditions=@maelstrom-co/source",
         "options": {
           "cwd": "{projectRoot}"
-        }
+        },
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/apps/demo/src/**/*"
+        ]
       }
     }
   }

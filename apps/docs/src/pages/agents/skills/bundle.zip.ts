@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+
 import { createSkillsBundle } from '../../../../tools/skills/bundle';
 
 export const prerender = true;

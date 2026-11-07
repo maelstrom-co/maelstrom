@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { ComposedPairsRecord } from '@maelstrom-co/planner-jev/_internal';
 import { InstanceId, type TilingNode } from '@maelstrom-co/protocol';
+
 import { checkPairAnswers } from './pairs-attribution.js';
 
 const FOCUS_TREE = [

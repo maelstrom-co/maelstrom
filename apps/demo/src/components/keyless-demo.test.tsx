@@ -2,6 +2,7 @@
 
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { CAPABILITY_NOTE } from './capability-note';
 import { KeylessDemo } from './keyless-demo';
 

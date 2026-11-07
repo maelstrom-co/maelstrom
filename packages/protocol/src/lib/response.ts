@@ -589,7 +589,7 @@ function readSplitWeightFields(token: TilingSplitToken): {
   let fieldCount = 0;
   let blankFieldSeen = false;
 
-  for (let start = 2; start <= token.length; ) {
+  for (let start = 2; start <= token.length;) {
     const comma = token.indexOf(',', start);
     const end = comma === -1 ? token.length : comma;
     if (isBlankRange(token, start, end)) {

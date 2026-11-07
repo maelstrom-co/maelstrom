@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import { ASSIGN_TASK_ACTION } from './task-action.defs';
 
 const TRIAGE_INBOX_DESCRIPTION =

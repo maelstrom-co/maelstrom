@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { z } from 'zod';
 
 import { ActionName } from './action-name.js';
@@ -173,34 +174,34 @@ describe('execution plan', () => {
       schema: TilingResponseSchema,
       payload: tilingPayload({ tree: [], instances: [] }),
     },
-  ])('rejects paramsJson above 16384 UTF-8 bytes ($name)', ({
-    schema,
-    payload,
-  }) => {
-    const atLimit = `{"value":"${'é'.repeat(8186)}"}`;
-    const overLimit = `{"value":"${'é'.repeat(8186)}a"}`;
-    const encoder = new TextEncoder();
+  ])(
+    'rejects paramsJson above 16384 UTF-8 bytes ($name)',
+    ({ schema, payload }) => {
+      const atLimit = `{"value":"${'é'.repeat(8186)}"}`;
+      const overLimit = `{"value":"${'é'.repeat(8186)}a"}`;
+      const encoder = new TextEncoder();
 
-    expect(encoder.encode(atLimit).byteLength).toBe(16_384);
-    expect(encoder.encode(overLimit).byteLength).toBe(16_385);
+      expect(encoder.encode(atLimit).byteLength).toBe(16_384);
+      expect(encoder.encode(overLimit).byteLength).toBe(16_385);
 
-    expect(
-      schema.safeParse({
-        ...payload,
-        executionPlan: [
-          { instanceId: 'x', action: 'select', paramsJson: atLimit },
-        ],
-      }).success,
-    ).toBe(true);
-    expect(
-      schema.safeParse({
-        ...payload,
-        executionPlan: [
-          { instanceId: 'x', action: 'select', paramsJson: overLimit },
-        ],
-      }).success,
-    ).toBe(false);
-  });
+      expect(
+        schema.safeParse({
+          ...payload,
+          executionPlan: [
+            { instanceId: 'x', action: 'select', paramsJson: atLimit },
+          ],
+        }).success,
+      ).toBe(true);
+      expect(
+        schema.safeParse({
+          ...payload,
+          executionPlan: [
+            { instanceId: 'x', action: 'select', paramsJson: overLimit },
+          ],
+        }).success,
+      ).toBe(false);
+    },
+  );
 
   test.each([
     {
@@ -213,25 +214,25 @@ describe('execution plan', () => {
       schema: TilingResponseSchema,
       payload: tilingPayload({ tree: [], instances: [] }),
     },
-  ])('rejects executionPlan above 64 entries ($name)', ({
-    schema,
-    payload,
-  }) => {
-    const action = { instanceId: 'x', action: 'select' };
+  ])(
+    'rejects executionPlan above 64 entries ($name)',
+    ({ schema, payload }) => {
+      const action = { instanceId: 'x', action: 'select' };
 
-    expect(
-      schema.safeParse({
-        ...payload,
-        executionPlan: Array.from({ length: 64 }, () => action),
-      }).success,
-    ).toBe(true);
-    expect(
-      schema.safeParse({
-        ...payload,
-        executionPlan: Array.from({ length: 65 }, () => action),
-      }).success,
-    ).toBe(false);
-  });
+      expect(
+        schema.safeParse({
+          ...payload,
+          executionPlan: Array.from({ length: 64 }, () => action),
+        }).success,
+      ).toBe(true);
+      expect(
+        schema.safeParse({
+          ...payload,
+          executionPlan: Array.from({ length: 65 }, () => action),
+        }).success,
+      ).toBe(false);
+    },
+  );
 });
 
 describe('UserIntentReasonSchema', () => {
@@ -443,14 +444,14 @@ describe('ChartRequestSchema skipReply and intentFacts', () => {
     expect(parseThroughJson(req)).toEqual(req);
   });
 
-  test.each([
-    true,
-    false,
-  ])('skipReply %p round-trips through parse and JSON', (skipReply) => {
-    const req = { ...validChartRequest(), skipReply };
-    expect(ChartRequestSchema.parse(req).skipReply).toBe(skipReply);
-    expect(parseThroughJson(req)).toEqual(req);
-  });
+  test.each([true, false])(
+    'skipReply %p round-trips through parse and JSON',
+    (skipReply) => {
+      const req = { ...validChartRequest(), skipReply };
+      expect(ChartRequestSchema.parse(req).skipReply).toBe(skipReply);
+      expect(parseThroughJson(req)).toEqual(req);
+    },
+  );
 
   test('intentFacts round-trips through parse and JSON', () => {
     const intentFacts = {

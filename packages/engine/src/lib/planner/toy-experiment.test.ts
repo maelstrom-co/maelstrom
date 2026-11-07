@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { InstanceId } from '@maelstrom-co/protocol';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 

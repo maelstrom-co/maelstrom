@@ -5,6 +5,7 @@ import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
 import tsConfigPaths from 'vite-tsconfig-paths';
+
 import { productionUrl } from './src/lib/blog';
 
 // The Cloudflare adapter boots a workerd runtime that breaks `astro dev`, so we

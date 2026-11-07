@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
@@ -11,6 +12,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { install } from '@sinonjs/fake-timers';
+
 import { createEngine } from '../../index.js';
 import {
   buildGridResponse,

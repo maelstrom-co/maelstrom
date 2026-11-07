@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { Logger } from '@maelstrom-co/engine';
 import { buildActionParameterEnumSnapshot } from '@maelstrom-co/engine';
 import type { AuthorVessel } from '@maelstrom-co/engine/_testing';
@@ -8,6 +9,7 @@ import {
 } from '@maelstrom-co/engine/_testing';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
+
 import {
   buildDefaultUserSections,
   buildGridChartState,
@@ -545,14 +547,14 @@ describe('buildVesselsSection', () => {
     expect(Object.isFrozen(normalized)).toBe(true);
     expect(Object.isFrozen(normalized?.value)).toBe(true);
     expect(
-      Object.isFrozen((normalized?.value as { nested: object }).nested),
+      Object.isFrozen((normalized!.value as { nested: object }).nested),
     ).toBe(true);
 
     declaredValue.nested.id = 2;
     expect(normalized?.value).toEqual({ nested: { id: 1 } });
     expect(
       Reflect.set(
-        (normalized?.value as { nested: { id: number } }).nested,
+        (normalized!.value as { nested: { id: number } }).nested,
         'id',
         3,
       ),
@@ -562,7 +564,7 @@ describe('buildVesselsSection', () => {
 });
 
 function makeCyclicValue(): unknown {
-  // biome-ignore lint/suspicious/noExplicitAny: constructing a deliberately cyclic object for the test.
+  // oxlint-disable-next-line typescript/no-explicit-any -- constructing a deliberately cyclic object for the test.
   const cyclic: any = { name: 'loop' };
   cyclic.self = cyclic;
   return cyclic;

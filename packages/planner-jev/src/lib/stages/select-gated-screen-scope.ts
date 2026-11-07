@@ -6,6 +6,7 @@ import {
   isOk,
   ok,
 } from '@maelstrom-co/protocol';
+
 import type { Ask } from '../ask.js';
 import { STAGE_NAME } from '../defer.js';
 import {
@@ -17,11 +18,7 @@ import {
   readAnswer,
 } from '../questions.js';
 import type { SelectedInstance } from '../types.js';
-import {
-  GATE_THRESHOLD,
-  NEEDS_ACTIONS_THRESHOLD,
-  selectGated,
-} from './select-gated.js';
+import { GATE_THRESHOLD, selectGated } from './select-gated.js';
 import type { GatedSelection } from './stage-types.js';
 
 const STAGE = STAGE_NAME.jevSelect;

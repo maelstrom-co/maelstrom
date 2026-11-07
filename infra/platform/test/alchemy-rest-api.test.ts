@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   Credentials,
   fromAwsCredentialIdentity,
@@ -20,13 +21,12 @@ import * as HttpClient from 'effect/http/HttpClient';
 import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import * as Layer from 'effect/Layer';
 
-interface ProbeApi
-  extends Resource<
-    'AWS.ApiGateway.RestApi',
-    RestApi['Props'],
-    RestApi['Attributes'],
-    RestApi['Binding']
-  > {}
+interface ProbeApi extends Resource<
+  'AWS.ApiGateway.RestApi',
+  RestApi['Props'],
+  RestApi['Attributes'],
+  RestApi['Binding']
+> {}
 const ProbeApi = Resource<ProbeApi>('AWS.ApiGateway.RestApi');
 
 async function reconcile(options: {
@@ -269,15 +269,14 @@ describe('REST API compatibility with cycle-only precreation', () => {
     ).toHaveLength(2);
   });
 
-  test.each([
-    'foreign',
-    'partial',
-    'older',
-  ] as const)('does not recover an API with %s ownership or generation tags', async (recover) => {
-    const result = await reconcile({ recorded: false, recover });
-    expect(result.exit).toMatchObject({ _tag: 'Success', value: undefined });
-    expect(result.creates).toBe(0);
-  });
+  test.each(['foreign', 'partial', 'older'] as const)(
+    'does not recover an API with %s ownership or generation tags',
+    async (recover) => {
+      const result = await reconcile({ recorded: false, recover });
+      expect(result.exit).toMatchObject({ _tag: 'Success', value: undefined });
+      expect(result.creates).toBe(0);
+    },
+  );
 
   test('refuses ambiguous owned APIs before any mutation', async () => {
     const result = await reconcile({ recorded: false, recover: 'ambiguous' });

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   createEngine,
   createInMemoryStore,
@@ -16,6 +17,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   scoreThreeVesselAddition,
   threeVesselAdditionCatalogSchema,

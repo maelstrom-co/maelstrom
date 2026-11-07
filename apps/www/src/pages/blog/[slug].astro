@@ -1,7 +1,9 @@
 ---
 import { type CollectionEntry, getCollection, render } from 'astro:content';
+
 import Layout from '../../layouts/Layout.astro';
 import { blogPath, productionUrl, sortPosts } from '../../lib/blog';
+
 import '../../styles/blog.css';
 
 export async function getStaticPaths() {
@@ -20,17 +22,35 @@ const { title, description, date, image, keywords, author, authorUrl, labels } =
   post.data;
 ---
 
-<Layout title={`${title} — Maelstrom`} description={description} canonical={productionUrl(blogPath(post.id))} image={productionUrl(image)} keywords={keywords} article={{ date, author, authorUrl, labels }}>
+<Layout
+  title={`${title} — Maelstrom`}
+  description={description}
+  canonical={productionUrl(blogPath(post.id))}
+  image={productionUrl(image)}
+  keywords={keywords}
+  article={{ date, author, authorUrl, labels }}
+>
   <main class="container blog-page">
     <a href={blogPath()}>← All posts</a>
     <article>
       <header>
         <h1>{title}</h1>
         <p>{description}</p>
-        <p><time datetime={date.toISOString()}>{date.toISOString().slice(0, 10)}</time> · By <a href={authorUrl}>{author}</a></p>
-        <ul class="blog-labels" aria-label="Labels">{labels.map((label) => <li>{label}</li>)}</ul>
+        <p>
+          <time datetime={date.toISOString()}>
+            {date.toISOString().slice(0, 10)}
+          </time>{' '}
+          · By <a href={authorUrl}>{author}</a>
+        </p>
+        <ul class="blog-labels" aria-label="Labels">
+          {labels.map((label) => (
+            <li>{label}</li>
+          ))}
+        </ul>
       </header>
-      <div class="blog-prose"><Content /></div>
+      <div class="blog-prose">
+        <Content />
+      </div>
     </article>
   </main>
 </Layout>

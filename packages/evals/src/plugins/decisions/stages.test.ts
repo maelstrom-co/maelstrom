@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { AskCall } from '@maelstrom-co/planner-jev/_internal';
 import {
   conversation,
@@ -7,6 +8,7 @@ import {
   type Script,
   scriptedDecisionsFetch,
 } from '@maelstrom-co/planner-jev/_testing';
+
 import { selectScenarios } from '../../core/scenarios.js';
 import { runStageEval, type StageTurnRecord } from '../../core/stage-eval.js';
 import {

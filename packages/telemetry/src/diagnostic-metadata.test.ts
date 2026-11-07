@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { projectDiagnosticMetadata } from './diagnostic-metadata.js';
 import { createTelemetry } from './telemetry.js';
 import type { TelemetryFact, TelemetryRecord } from './types.js';
@@ -90,9 +91,12 @@ test.each<[string, Record<string, unknown>, TelemetryFact]>([
     {},
     { operation: 'voice.tool', outcome: 'cancelled' },
   ],
-])('projects existing producer evidence without changing its meaning: %s', (kind, metadata, expected) => {
-  expect(projectDiagnosticMetadata(kind, metadata)).toEqual(expected);
-});
+])(
+  'projects existing producer evidence without changing its meaning: %s',
+  (kind, metadata, expected) => {
+    expect(projectDiagnosticMetadata(kind, metadata)).toEqual(expected);
+  },
+);
 
 test('application completion with missing Action evidence does not invent a clean outcome', () => {
   for (const metadata of [
@@ -187,22 +191,19 @@ test('metadata projection never reads content, identifiers, free text, or timest
   telemetry.dispose();
 });
 
-test.each([
-  undefined,
-  -1,
-  Infinity,
-  NaN,
-  '12',
-])('invalid local duration stays unknown without subtracting process clocks: %j', (durationMs) => {
-  expect(
-    projectDiagnosticMetadata('voice.tool.result', {
-      ok: true,
-      durationMs,
-      at: 10,
-      serverAt: 999,
-    }),
-  ).toEqual({ operation: 'voice.tool', outcome: 'succeeded' });
-});
+test.each([undefined, -1, Infinity, NaN, '12'])(
+  'invalid local duration stays unknown without subtracting process clocks: %j',
+  (durationMs) => {
+    expect(
+      projectDiagnosticMetadata('voice.tool.result', {
+        ok: true,
+        durationMs,
+        at: 10,
+        serverAt: 999,
+      }),
+    ).toEqual({ operation: 'voice.tool', outcome: 'succeeded' });
+  },
+);
 
 test.each<[string, Record<string, unknown>, TelemetryFact['operation']]>([
   ['client.action.completed', { outcome: 'CANARY_outcome' }, 'client.action'],
@@ -218,22 +219,25 @@ test.each<[string, Record<string, unknown>, TelemetryFact['operation']]>([
     },
     'voice.tool',
   ],
-])('known terminal evidence remains counted when its outcome is unavailable: %s', async (kind, metadata, operation) => {
-  const records: TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  try {
-    const fact = projectDiagnosticMetadata(kind, metadata);
-    if (fact) telemetry.record(fact);
-    await telemetry.flush();
-    expect(records.map((record) => record.attributes)).toEqual([
-      { operation, outcome: 'unknown' },
-    ]);
-    expect(JSON.stringify(records)).not.toContain('CANARY');
-  } finally {
-    telemetry.dispose();
-  }
-});
+])(
+  'known terminal evidence remains counted when its outcome is unavailable: %s',
+  async (kind, metadata, operation) => {
+    const records: TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    try {
+      const fact = projectDiagnosticMetadata(kind, metadata);
+      if (fact) telemetry.record(fact);
+      await telemetry.flush();
+      expect(records.map((record) => record.attributes)).toEqual([
+        { operation, outcome: 'unknown' },
+      ]);
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+    } finally {
+      telemetry.dispose();
+    }
+  },
+);

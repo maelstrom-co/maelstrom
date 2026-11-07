@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { WebsiteEnv } from '../infra/Website.js';
 import type { PreviewWebsiteEnv } from '../infra/PreviewWebsite.js';
+import type { WebsiteEnv } from '../infra/Website.js';
 
 export type RuntimeWebsiteEnv = PreviewWebsiteEnv &
   Partial<Omit<WebsiteEnv, keyof PreviewWebsiteEnv>>;
