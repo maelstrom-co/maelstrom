@@ -196,7 +196,7 @@ function withCompactMap(): readonly Vessel[] {
   const focusLocation = {
     name: ActionName('focusLocation'),
     description: 'Focus a saved place',
-    idempotent: false,
+    effect: 'any' as const,
     parameters: [
       { name: 'name', type: 'string' as const, description: 'Place name' },
     ],

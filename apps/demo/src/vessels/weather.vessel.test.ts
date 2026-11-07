@@ -55,7 +55,7 @@ describe('weatherVessel compact variant', () => {
     expect(weatherVessel.variants[variant].actions).toContainEqual(
       expect.objectContaining({
         name: 'showCompact',
-        idempotent: true,
+        effect: 'none',
         transitionsTo: 'compact',
       }),
     );
@@ -77,7 +77,7 @@ describe('weatherVessel compact variant', () => {
       expect(actions).toContainEqual(
         expect.objectContaining({
           name,
-          idempotent: true,
+          effect: 'none',
           transitionsTo: target,
         }),
       );

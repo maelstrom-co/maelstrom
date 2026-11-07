@@ -27,23 +27,48 @@ export const ActionParameterSchema = z.object({
 });
 
 /**
+ * Parses an {@link ActionEffect}: what running an Action does beyond its
+ * declared Variant transition.
+ */
+export const ActionEffectSchema = z.enum(['none', 'idempotent', 'any']);
+
+/**
  * Brands an Action and defers transition-target existence to {@link VesselSchema}.
  *
- * `idempotent` parses to an explicit boolean so consumers never branch on
- * `undefined`; see {@link VesselActionDefinition.idempotent} for what the flag
- * promises.
+ * `effect` parses to an explicit {@link ActionEffect}, `'any'` when omitted,
+ * so consumers never branch on `undefined`. An Action with effect `'none'`
+ * must declare `transitionsTo` and no parameters; see
+ * {@link VesselActionDefinition.effect}.
  */
-export const VesselActionSchema = z.object({
-  name: z.string().min(1, 'Action name is required').transform(ActionName),
-  description: z.string().min(1, 'Action description is required'),
-  parameters: z.array(ActionParameterSchema).optional(),
-  transitionsTo: z
-    .string()
-    .min(1, 'transitionsTo must be non-empty')
-    .transform(VariantName)
-    .optional(),
-  idempotent: z.boolean().optional().default(false),
-});
+export const VesselActionSchema = z
+  .object({
+    name: z.string().min(1, 'Action name is required').transform(ActionName),
+    description: z.string().min(1, 'Action description is required'),
+    parameters: z.array(ActionParameterSchema).optional(),
+    transitionsTo: z
+      .string()
+      .min(1, 'transitionsTo must be non-empty')
+      .transform(VariantName)
+      .optional(),
+    effect: ActionEffectSchema.optional().default('any'),
+  })
+  .superRefine((action, ctx) => {
+    if (action.effect !== 'none') return;
+    if (action.transitionsTo === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Action "${action.name}" declares effect "none" but no transitionsTo`,
+        path: ['transitionsTo'],
+      });
+    }
+    if (action.parameters && action.parameters.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Action "${action.name}" declares effect "none" but takes parameters`,
+        path: ['parameters'],
+      });
+    }
+  });
 
 /** Validates local Variant shape; cross-Action invariants require {@link VesselSchema}. */
 export const VesselVariantSchema = z.object({
@@ -160,6 +185,17 @@ export const VesselSchema = z
 /** Parameter definition for an action */
 export type ActionParameter = z.infer<typeof ActionParameterSchema>;
 
+/**
+ * What running an Action does beyond its declared Variant transition. See
+ * {@link VesselActionDefinition.effect} for the handler rule each value
+ * implies.
+ *
+ * - `'none'`: nothing. The framework only switches the Variant.
+ * - `'idempotent'`: an application effect that is safe to run again.
+ * - `'any'`: an application effect that may not be safe to run again.
+ */
+export type ActionEffect = z.infer<typeof ActionEffectSchema>;
+
 /** An action that can be invoked on a Vessel. Post-parse shape with branded fields. See {@link VesselActionDefinition}. */
 export type VesselAction = z.infer<typeof VesselActionSchema>;
 
@@ -223,21 +259,40 @@ export interface VesselVariantDefinition {
 
 /** Author-facing shape for a {@link VesselAction}. See {@link VesselDefinition}. */
 export interface VesselActionDefinition {
+  /** Action name, unique within its Variant. */
   readonly name: string;
+  /** What the Action does, written for the Planner that chooses it. */
   readonly description: string;
+  /** Parameters the Action's handler receives. Omit for none. */
   readonly parameters?: ReadonlyArray<ActionParameter>;
+  /** The Variant the Instance moves to once the Action has run. */
   readonly transitionsTo?: string;
   /**
-   * Whether re-running this Action with the same parameters leaves the Vessel
-   * in the state a single run would. The Engine may re-emit an Action on a
-   * turn triggered by nothing but a chart resize, and it cannot see Vessel
-   * contents to tell a first run from a repeat; such a turn admits only
-   * actions marked `true` that the model invoked with no parameters, since a
-   * parameter value there could only have come from an earlier turn. Omit the
-   * flag for anything that appends, removes, or otherwise accumulates.
-   * Defaults to `false`.
+   * What running this Action does beyond its `transitionsTo`. Defaults to
+   * `'any'`.
+   *
+   * - `'none'`: no application effect. The framework only switches the
+   *   Variant, so a handler is optional. Declare it only for a view switch
+   *   that needs nothing from the application, such as showing a week view.
+   *   It must declare `transitionsTo` and no parameters, and it is safe to
+   *   run again.
+   * - `'idempotent'`: a handler is required, and running the Action again
+   *   with the same parameters leaves the Vessel where one run would, such as
+   *   opening an item that may already be open.
+   * - `'any'`: a handler is required, and the Action may append, remove or
+   *   otherwise accumulate, so it is not safe to run again.
+   *
+   * An Action without a handler that is not declared `'none'` is skipped and
+   * changes no Variant, so a missing handler never reports success. The
+   * client's `ActionRunner` type requires those handlers at compile time.
+   *
+   * The Engine may re-emit an Action on a turn triggered by nothing but a
+   * chart resize, and it cannot see Vessel contents to tell a first run from
+   * a repeat. Such a turn admits only Actions declared `'none'` or
+   * `'idempotent'` that the model invoked with no parameters, since a
+   * parameter value there could only have come from an earlier turn.
    */
-  readonly idempotent?: boolean;
+  readonly effect?: ActionEffect;
 }
 
 // ---------------------------------------------------------------------------

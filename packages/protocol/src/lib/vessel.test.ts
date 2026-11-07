@@ -276,6 +276,107 @@ describe('validateVessel', () => {
     ).toBe(true);
   });
 
+  describe('Action effect', () => {
+    function vesselWithAction(action: Record<string, unknown>) {
+      return {
+        ...validVessel,
+        variants: {
+          ...validVessel.variants,
+          month: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [action],
+          },
+        },
+      };
+    }
+
+    function parsedEffect(action: Record<string, unknown>) {
+      const result = validateVessel(vesselWithAction(action));
+      if (!result.valid) throw new Error('expected valid');
+      return result.vessel.variants[VariantName('month')]?.actions[0]?.effect;
+    }
+
+    test('parses an omitted effect as any', () => {
+      expect(
+        parsedEffect({ name: 'addEvent', description: 'Add an event' }),
+      ).toBe('any');
+    });
+
+    test('keeps each declared effect', () => {
+      expect(
+        parsedEffect({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'none',
+        }),
+      ).toBe('none');
+      expect(
+        parsedEffect({
+          name: 'openEntry',
+          description: 'Open an entry',
+          effect: 'idempotent',
+          parameters: [{ name: 'id', type: 'string', description: 'Entry id' }],
+        }),
+      ).toBe('idempotent');
+    });
+
+    test('rejects an effect outside none, idempotent and any', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'pure',
+        }),
+      );
+      expect(result.valid).toBe(false);
+    });
+
+    test('rejects effect none without transitionsTo', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'refresh',
+          description: 'Refresh',
+          effect: 'none',
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'transitionsTo'],
+          message:
+            'Action "refresh" declares effect "none" but no transitionsTo',
+        }),
+      );
+    });
+
+    test('rejects effect none with parameters', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'none',
+          parameters: [
+            { name: 'date', type: 'string', description: 'Week start' },
+          ],
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'parameters'],
+          message:
+            'Action "showWeek" declares effect "none" but takes parameters',
+        }),
+      );
+    });
+  });
+
   // Without `Object.hasOwn`, indexing `vessel.variants[key]` returns the
   // matching `Object.prototype` member (truthy) for keys like `'toString'` /
   // `'__proto__'` / `'constructor'`, silently bypassing the existence check.

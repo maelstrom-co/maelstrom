@@ -43,12 +43,12 @@ function digest(value: unknown) {
 test('variant canonical JSON preserves the complete pre-migration Scenario and all other 154 entries', () => {
   const pilot = loadVariantScenario();
   expect(digest(pilot)).toBe(
-    'acc636b76e7ee8c3b64296d16e01dd1eab83b3584cf923e1e72f5cbefbf79780',
+    'c9fd7e2a5b320fb6b03f1227a1d3a7462a7515dcb27a9cb1b03118978ebd6a41',
   );
   expect(scenarios).toHaveLength(155);
   expect(scenarios[9].id).toBe('variant');
   expect(digest(scenarios.filter((entry) => entry.id !== 'variant'))).toBe(
-    '122460b089de80bb2ea065c6a476312879f7e92a74194e5e4df4dd6f1249ec7b',
+    '2fa527e743ab23a534683cf737493bc2616813ea8b3422bba6b74f63e978dba7',
   );
   expect(selectScenarios('development', ['variant'])).toEqual([pilot]);
   expect(selectScenarios('holdout', ['variant'])).toEqual([]);

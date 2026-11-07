@@ -29,25 +29,25 @@
                     "description": "City or place to request weather for"
                   }
                 ],
-                "idempotent": true
+                "effect": "idempotent"
               },
               {
                 "name": "showHourly",
                 "description": "Show hourly forecast for today",
                 "transitionsTo": "hourly",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showWeekly",
                 "description": "Show weekly forecast",
                 "transitionsTo": "weekly",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showCompact",
                 "description": "Shrink weather to a one-line strip with location, temperature and condition",
                 "transitionsTo": "compact",
-                "idempotent": true
+                "effect": "none"
               }
             ]
           },
@@ -69,25 +69,25 @@
                     "description": "City or place to request weather for"
                   }
                 ],
-                "idempotent": true
+                "effect": "idempotent"
               },
               {
                 "name": "showCurrent",
                 "description": "Show current conditions",
                 "transitionsTo": "current",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showWeekly",
                 "description": "Show weekly forecast",
                 "transitionsTo": "weekly",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showCompact",
                 "description": "Shrink weather to a one-line strip with location, temperature and condition",
                 "transitionsTo": "compact",
-                "idempotent": true
+                "effect": "none"
               }
             ]
           },
@@ -109,25 +109,25 @@
                     "description": "City or place to request weather for"
                   }
                 ],
-                "idempotent": true
+                "effect": "idempotent"
               },
               {
                 "name": "showCurrent",
                 "description": "Show current conditions",
                 "transitionsTo": "current",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showHourly",
                 "description": "Show hourly forecast",
                 "transitionsTo": "hourly",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showCompact",
                 "description": "Shrink weather to a one-line strip with location, temperature and condition",
                 "transitionsTo": "compact",
-                "idempotent": true
+                "effect": "none"
               }
             ]
           },
@@ -149,25 +149,25 @@
                     "description": "City or place to request weather for"
                   }
                 ],
-                "idempotent": true
+                "effect": "idempotent"
               },
               {
                 "name": "showCurrent",
                 "description": "Show current conditions in detail",
                 "transitionsTo": "current",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showHourly",
                 "description": "Show hourly forecast",
                 "transitionsTo": "hourly",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "showWeekly",
                 "description": "Show weekly forecast",
                 "transitionsTo": "weekly",
-                "idempotent": true
+                "effect": "none"
               }
             ]
           }
@@ -190,7 +190,7 @@
                 "name": "showTrends",
                 "description": "Open the trends view; no trend data is available",
                 "transitionsTo": "trends",
-                "idempotent": true
+                "effect": "none"
               }
             ]
           },
@@ -205,7 +205,7 @@
                 "name": "showList",
                 "description": "Open the list view; no lab results are available",
                 "transitionsTo": "list",
-                "idempotent": true
+                "effect": "none"
               },
               {
                 "name": "selectMarker",
@@ -219,7 +219,7 @@
                     "description": "Marker to select: hemoglobin, platelets or glucose"
                   }
                 ],
-                "idempotent": true
+                "effect": "idempotent"
               }
             ]
           }
@@ -240,13 +240,13 @@
             "actions": [
               {
                 "name": "showWeek",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch to week view for event timeline",
                 "transitionsTo": "week"
               },
               {
                 "name": "showDay",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch to day view for hourly schedule",
                 "transitionsTo": "day"
               },
@@ -281,7 +281,7 @@
               },
               {
                 "name": "moveEvent",
-                "idempotent": true,
+                "effect": "idempotent",
                 "description": "Reschedule an event on today's schedule to a new time",
                 "parameters": [
                   {
@@ -308,13 +308,13 @@
             "actions": [
               {
                 "name": "showMonth",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch back to month view",
                 "transitionsTo": "month"
               },
               {
                 "name": "showDay",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch to day view",
                 "transitionsTo": "day"
               },
@@ -347,7 +347,7 @@
               },
               {
                 "name": "moveEvent",
-                "idempotent": true,
+                "effect": "idempotent",
                 "description": "Reschedule an event on today's schedule to a new time",
                 "parameters": [
                   {
@@ -373,13 +373,13 @@
             "actions": [
               {
                 "name": "showMonth",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch to month view",
                 "transitionsTo": "month"
               },
               {
                 "name": "showWeek",
-                "idempotent": true,
+                "effect": "none",
                 "description": "Switch to week view",
                 "transitionsTo": "week"
               },
@@ -412,7 +412,7 @@
               },
               {
                 "name": "moveEvent",
-                "idempotent": true,
+                "effect": "idempotent",
                 "description": "Reschedule an event on today's schedule to a new time",
                 "parameters": [
                   {

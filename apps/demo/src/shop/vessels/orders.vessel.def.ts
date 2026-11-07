@@ -7,7 +7,7 @@ const CUSTOMER_PETS = CUSTOMER.pets
 
 const SHOW_ORDER_DETAILS = {
   name: 'showOrderDetails',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Open one past order to see its line items (SKU, product name, quantity, unit price) and totals. Use this to find out exactly which products the customer bought before, e.g. the SKU of the dog food they usually reorder.',
   parameters: [
@@ -21,7 +21,7 @@ const SHOW_ORDER_DETAILS = {
 
 const SHOW_MOST_RECENT_ORDER = {
   name: 'showMostRecentOrder',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Open the customer\'s most recent order to see its line items. The quickest way to answer "what did I order last time" or to start a reorder.',
 } as const;
@@ -48,7 +48,7 @@ export const ordersVessel = defineVessel({
         SHOW_MOST_RECENT_ORDER,
         {
           name: 'backToOrderList',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Return to the list of all past orders',
           transitionsTo: 'list',
         },

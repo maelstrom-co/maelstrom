@@ -380,7 +380,7 @@ function sameEffect(
 ): boolean {
   return (
     after(current) === after(chosen) &&
-    current.definition.idempotent === chosen.definition.idempotent &&
+    current.definition.effect === chosen.definition.effect &&
     parameterShape(current.definition) === parameterShape(chosen.definition)
   );
 }

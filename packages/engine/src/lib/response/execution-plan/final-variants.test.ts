@@ -127,7 +127,7 @@ describe('finalVariants (mirrors the engine simulate-variant rule)', () => {
                     name: ActionName('showRadar'),
                     description: 'Radar',
                     transitionsTo: VariantName('radar'),
-                    idempotent: true,
+                    effect: 'none',
                   },
                 ],
               },

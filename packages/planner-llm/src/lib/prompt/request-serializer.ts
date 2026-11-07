@@ -147,8 +147,10 @@ function serializeAction(
 
   // Named in the resize-only instruction: the model is told a resize-triggered
   // turn may carry only these, and only without parameters, so it stops
-  // re-emitting the rest instead of having them refused after the fact.
-  if (action.idempotent) {
+  // re-emitting the rest instead of having them refused after the fact. The
+  // model only needs to know an Action is safe to repeat, so both rerun-safe
+  // effects share one marker.
+  if (action.effect === 'none' || action.effect === 'idempotent') {
     str += ' [idempotent]';
   }
 
