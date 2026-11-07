@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { CloudflareEnvironment } from '@alchemy.run/cloudflare';
 import { AdoptPolicy } from 'alchemy/AdoptPolicy';
 import { AlchemyContext } from 'alchemy/AlchemyContext';
 import * as Apply from 'alchemy/Apply';
-import { CloudflareEnvironment } from 'alchemy/Cloudflare';
 import * as Plan from 'alchemy/Plan';
 import * as Provider from 'alchemy/Provider';
 import { renamedFrom } from 'alchemy/Rename';

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import * as Cloudflare from '@alchemy.run/cloudflare';
 import {
   ASTRO_WORKER_FLAGS,
   WAITLIST_SENDER_ADDRESS,
@@ -8,7 +9,6 @@ import {
   WORKER_COMPATIBILITY_DATE,
   workerObservabilityNoTraces,
 } from '@maelstrom-co/platform-infra';
-import * as Cloudflare from 'alchemy/Cloudflare';
 import { retain } from 'alchemy/RemovalPolicy';
 import * as Effect from 'effect/Effect';
 

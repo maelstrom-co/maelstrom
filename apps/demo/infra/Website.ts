@@ -1,9 +1,9 @@
 import { resolve } from 'node:path';
+import * as Cloudflare from '@alchemy.run/cloudflare';
 import {
   WORKER_COMPATIBILITY_DATE,
   workerObservability,
 } from '@maelstrom-co/platform-infra';
-import * as Cloudflare from 'alchemy/Cloudflare';
 import { retain } from 'alchemy/RemovalPolicy';
 import { workerEnv } from './workerEnv.js';
 

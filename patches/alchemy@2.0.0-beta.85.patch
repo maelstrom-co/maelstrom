@@ -1,0 +1,1592 @@
+diff --git a/src/Apply.ts b/src/Apply.ts
+--- a/src/Apply.ts
++++ b/src/Apply.ts
+@@ -19,6 +19,7 @@
+   UnverifiableReplacement,
+ } from "./AdoptPolicy.ts";
+ import { AlchemyContext } from "./AlchemyContext.ts";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount, recordedWorkerAccountId } from "./WorkerAccount.ts";
+ import {
+   Artifacts,
+   ArtifactStore,
+@@ -237,9 +238,10 @@
+   previous?: any,
+ ) {
+   if (node.provider.read) {
+-    return yield* node.provider
++    const observed = yield* node.provider
+       .read({ id: logicalId, fqn, instanceId, olds: news, output: undefined, previous })
+       .pipe(instrumentLifecycle("read", fqn, node.resource.Type, logicalId, instanceId));
++    return { observed, attributes: observed };
+   }
+   const observed = yield* node.provider.observe!({
+     id: logicalId,
+@@ -255,9 +257,35 @@
+       }),
+     );
+   }
+-  return observed;
++  return { observed, attributes: undefined };
+ });
+ 
++type InPlaceNode = {
++  provider: Pick<ProviderService<any>, "diff" | "read" | "observe">;
++  resource: { Type: string };
++};
++
++const verifyInPlace = Effect.fn(function* (
++  node: InPlaceNode,
++  input: Parameters<NonNullable<ProviderService<any>["diff"]>>[0],
++) {
++  const decision = input.olds === undefined || node.provider.diff === undefined
++    ? undefined
++    : yield* node.provider.diff(input).pipe(
++        provideLifecycleScope({ logicalId: input.id, fqn: input.fqn, instanceId: input.instanceId, type: node.resource.Type }),
++        Effect.withSpan("provider.diff"),
++      );
++  const ownershipAware = node.provider.read !== undefined || node.provider.observe !== undefined;
++  if (decision?.action === "replace" ||
++      (ownershipAware && decision?.action !== "update" && decision?.action !== "noop")) {
++    return yield* new UnverifiableReplacement({
++      message: `Cannot reconcile '${input.fqn}' in place: its resolved inputs require replacement or the provider did not confirm an in-place update. Resolve immutable identity before cyclic precreation and return an explicit update/noop diff for mutable changes.`,
++      resourceType: node.resource.Type,
++      logicalId: input.id,
++    });
++  }
++});
++
+ export const apply = <P extends Plan>(
+   plan: P,
+ ): Effect.Effect<
+@@ -303,6 +331,22 @@
+     const stack = yield* Stack;
+     const stage = yield* Stage;
+     const stackName = stack.name;
++      const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++      for (const node of Object.values(plan.resources)) {
++        const liveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++        if (liveWorker || (node.state && hasLiveWorkerAccount(node.state))) {
++          const accountId = yield* workerAccount;
++          if (liveWorker && node.workerAccountId !== undefined) {
++            yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, accountId);
++          }
++          if (node.state) yield* assertWorkerAccount(node.state, accountId);
++        }
++      }
++      for (const node of Object.values(plan.deletions)) {
++        if (node && hasLiveWorkerAccount(node.state)) {
++          yield* assertWorkerAccount(node.state, yield* workerAccount);
++        }
++      }
+ 
+     const tracker: Record<string, ResourceTracker> = {};
+     const outputs: Record<string, any> = {};
+@@ -647,6 +691,16 @@
+     const inCycle = cycleMembers.has(fqn);
+     const logicalId = node.resource.LogicalId;
+     const namespace = node.resource.Namespace;
++    const isLiveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++    const workerAccountId = isLiveWorker || (node.state && hasLiveWorkerAccount(node.state))
++      ? yield* currentWorkerAccountId
++      : undefined;
++    if (workerAccountId !== undefined) {
++      if (isLiveWorker && node.workerAccountId !== undefined) {
++        yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, workerAccountId);
++      }
++      if (node.state) yield* assertWorkerAccount(node.state, workerAccountId);
++    }
+ 
+     const commit = <S extends ResourceState>(value: Omit<S, "namespace">) =>
+       state.set({
+@@ -670,6 +724,8 @@
+           ...value,
+           adoptionBlocked: value.adoptionBlocked ?? node.adoptionBlocked,
+           propsIncomplete: propsIncomplete(value),
++          workerAccountId: value.resourceType === "Cloudflare.Worker" && stampedMode(value) !== "local" ? workerAccountId : undefined,
++          workerIdentityResolved: value.resourceType === "Cloudflare.Worker" && value.attr === undefined ? isResolved(value.props?.name) && isResolved(value.props?.namespace) : undefined,
+           props: stripUnresolved(value.props),
+           bindings: stripUnresolved(value.bindings),
+           namespace,
+@@ -886,28 +942,23 @@
+ 
+     // ── create ──
+     if (node.action === "create") {
++      let attr: any = node.state?.attr;
++      let attrProps = node.state?.props;
++      const checkpointCreate = (props: Record<string, any>, attributes: any, bindings = excludeDeletedBindings(node.bindings)) =>
++        commit<CreatingResourceState>({
++          status: "creating", fqn, logicalId, instanceId, resourceType: node.resource.Type,
++          props, attr: attributes, providerVersion: node.provider.version ?? 0, bindings,
++          downstream: node.downstream, removalPolicy: node.resource.RemovalPolicy,
++          providerMode: node.mode, adoptionBlocked: node.adoptionBlocked,
++        });
++
+       if (!node.state) {
+         // First persistence point for a brand new logical resource. Once this is
+         // written, retries know they should resume creation instead of planning
+         // another fresh create from scratch.
+-        yield* commit<CreatingResourceState>({
+-          status: "creating",
+-          fqn,
+-          logicalId,
+-          instanceId,
+-          resourceType: node.resource.Type,
+-          props: node.props,
+-          attr: undefined,
+-          providerVersion: node.provider.version ?? 0,
+-          bindings: excludeDeletedBindings(node.bindings),
+-          downstream: node.downstream,
+-          removalPolicy: node.resource.RemovalPolicy,
+-          providerMode: node.mode,
+-          adoptionBlocked: node.adoptionBlocked,
+-        });
++        yield* checkpointCreate(node.props, undefined);
+       }
+ 
+-      let attr: any = node.state?.attr;
+       // Whether the identity reconcile claims has passed the ownership check.
+       let admitted = node.deferredAdoption === undefined;
+ 
+@@ -927,10 +978,11 @@
+         // Without `observe`, precreate and reconcile claim the identity unchecked.
+         admitted =
+           (yield* observeBeforePrecreate(node, props, fqn, logicalId, instanceId)) !== "unresolved";
++        yield* checkpointCreate(props, undefined);
+         // Some resources need a placeholder physical resource before their real
+         // create can finish. Persist that stub so downstream evaluation can proceed.
+         yield* report("pre-creating");
+-        attr = yield* node.provider
++        const stub = yield* node.provider
+           .precreate({
+             id: logicalId,
+             fqn,
+@@ -940,24 +992,10 @@
+             bindings: excludeDeletedBindings(node.bindings),
+           })
+           .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+-        yield* commit<CreatingResourceState>({
+-          status: "creating",
+-          fqn,
+-          logicalId,
+-          instanceId,
+-          resourceType: node.resource.Type,
+-          props: node.props,
+-          // A stub for an unresolved identity claims nothing. Leave the
+-          // checkpoint without it, so a retry checks the identity again.
+-          attr: admitted ? attr : undefined,
+-          providerVersion: node.provider.version ?? 0,
+-          bindings: excludeDeletedBindings(node.bindings),
+-          downstream: node.downstream,
+-          removalPolicy: node.resource.RemovalPolicy,
+-          providerMode: node.mode,
+-          adoptionBlocked: node.adoptionBlocked,
+-        });
+-        yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++        attr = admitted ? stub : undefined;
++        attrProps = props;
++        yield* checkpointCreate(props, attr);
++        yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
+       }
+ 
+       // While we're waiting on upstream outputs the resource isn't actually
+@@ -975,27 +1013,21 @@
+ 
+       const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
+ 
++      if (attr !== undefined && havePropsChanged(attrProps, news)) {
++        yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: attrProps, news, output: attr, oldBindings: node.state?.bindings ?? [], newBindings: bindingOutputs });
++      }
++
+       if (!admitted) {
+-        const checkpoint = (attr: any) =>
+-          commit<CreatingResourceState>({
+-            status: "creating",
+-            fqn,
+-            logicalId,
+-            instanceId,
+-            resourceType: node.resource.Type,
+-            props: news,
+-            attr,
+-            providerVersion: node.provider.version ?? 0,
+-            bindings: bindingOutputs,
+-            downstream: node.downstream,
+-            removalPolicy: node.resource.RemovalPolicy,
+-            providerMode: node.mode,
+-            adoptionBlocked: node.adoptionBlocked,
+-          });
+         // Refusal or interruption must retain identity, never foreign
+         // attributes, nor a stub for an identity not yet checked.
+-        yield* checkpoint(undefined);
+-        const observed = yield* observeResolved(node, news, fqn, logicalId, instanceId);
++        yield* checkpointCreate(news, undefined, bindingOutputs);
++        const { observed, attributes } = yield* observeResolved(
++          node,
++          news,
++          fqn,
++          logicalId,
++          instanceId,
++        );
+         if (observed !== undefined) {
+           if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+             return yield* new OwnedBySomeoneElse({
+@@ -1008,13 +1040,11 @@
+               logicalId,
+             });
+           }
+-          // Reconcile keeps a precreated stub as its output.
+-          attr ??= stripUnowned(observed);
+-          // A creating checkpoint retains olds: undefined on retry.
+-          yield* checkpoint(attr);
++          if (attributes !== undefined) attr ??= stripUnowned(attributes);
+         }
+       }
+ 
++      yield* checkpointCreate(news, attr, bindingOutputs);
+       attr = yield* node.provider
+         .reconcile({
+           id: logicalId,
+@@ -1096,6 +1126,23 @@
+         node.adopting === true ||
+         (node.state.status === "updating" && node.state.adopting === true);
+ 
++      const previousProps = adopting
++        ? undefined
++        : node.state.status === "created" ||
++            node.state.status === "updated" ||
++            node.state.status === "replaced"
++          ? node.state.props
++          : node.state.old.props;
++
++      // Providers receive the resolved binding payload for this exact pass, while
++      // `previousProps` tells them what state the live resource is being updated from.
++      const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++
++      const comparisonProps = adopting ? node.state.props : previousProps;
++      if (!isResolved(node.props) && havePropsChanged(comparisonProps, news)) {
++        yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: comparisonProps, news, output: node.state.attr, oldBindings: node.state.bindings ?? [], newBindings: bindingOutputs });
++      }
++
+       yield* node.state.status === "replaced"
+         ? commit<ReplacedResourceState>({
+             // Keep the replacement wrapper intact while changing the live
+@@ -1126,18 +1173,6 @@
+ 
+       yield* report(node.action === "adopted" ? "adopting" : "updating");
+ 
+-      const previousProps = adopting
+-        ? undefined
+-        : node.state.status === "created" ||
+-            node.state.status === "updated" ||
+-            node.state.status === "replaced"
+-          ? node.state.props
+-          : node.state.old.props;
+-
+-      // Providers receive the resolved binding payload for this exact pass, while
+-      // `previousProps` tells them what state the live resource is being updated from.
+-      const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
+-
+       const attr = yield* node.provider
+         .reconcile({
+           id: logicalId,
+@@ -1296,15 +1331,37 @@
+           }
+         });
+ 
+-      const deleteFirst = Effect.fn(function* () {
++      const resumedAttrs = node.state.status === "replacing" && !node.restart && node.state.attr !== undefined;
++      let attr: any = replState.attr;
++      let attrProps = replState.props;
++      const checkpoint = (props: Record<string, any>) =>
++        commit<ReplacingResourceState>({
++          status: "replacing",
++          fqn,
++          logicalId,
++          instanceId,
++          resourceType: node.resource.Type,
++          props,
++          attr,
++          providerVersion: node.provider.version ?? 0,
++          bindings: excludeDeletedBindings(node.bindings),
++          downstream: node.downstream,
++          old: replState.old,
++          deleteFirst: node.deleteFirst,
++          removalPolicy: node.resource.RemovalPolicy,
++          providerMode: node.mode,
++          adoptionBlocked: node.adoptionBlocked,
++        });
++
++      const deleteFirst = Effect.fn(function* (props: Record<string, any>) {
+         yield* scopedSession.note(
+           "Deleting previous resource before creating its replacement (deleteFirst)...",
+         );
+         yield* deleteOldGenerations(replState.old);
++        attr = undefined;
++        yield* checkpoint(props);
+       });
+ 
+-      let attr: any = replState.attr;
+-
+       // ── replacement admission ──
+       //
+       // The replacement may resolve to a physical identity that already
+@@ -1316,7 +1373,7 @@
+       let admitted = attr !== undefined || node.deferredAdoption === undefined;
+       const admit = Effect.fn(function* (props: Record<string, any>) {
+         admitted = true;
+-        const observed = yield* observeResolved(
++        const { observed, attributes } = yield* observeResolved(
+           node,
+           props,
+           fqn,
+@@ -1324,8 +1381,7 @@
+           instanceId,
+           replState.old?.attr,
+         );
+-        if (observed === undefined) return;
+-        if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
++        if (observed !== undefined && Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+           return yield* new OwnedBySomeoneElse({
+             message:
+               `Cannot replace resource '${fqn}' (${node.resource.Type}): ` +
+@@ -1339,7 +1395,11 @@
+         // A delete-first target may be the previous generation itself, which
+         // is about to be deleted — never hand its attributes to reconcile.
+         // Reconcile keeps a precreated stub as its output.
+-        if (!node.deleteFirst) attr ??= stripUnowned(observed);
++        if (!node.deleteFirst && attributes !== undefined && attr === undefined) {
++          attr = stripUnowned(attributes);
++          attrProps = props;
++        }
++        yield* checkpoint(props);
+       });
+ 
+       // A cycle precreates on the props its upstreams outside the cycle
+@@ -1385,7 +1445,10 @@
+       // about to run, so a failed upstream never leaves the resource missing.
+       let deletedFirst = false;
+       if (node.deleteFirst && inCycle) {
+-        yield* deleteFirst();
++        if (resumedAttrs && !isResolved(node.props) && havePropsChanged(replState.props, precreateProps)) {
++          yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: replState.props, news: precreateProps, output: attr, oldBindings: replState.bindings ?? [], newBindings: excludeDeletedBindings(node.bindings) });
++        }
++        yield* deleteFirst(precreateProps);
+         deletedFirst = true;
+       }
+ 
+@@ -1397,7 +1460,7 @@
+ 
+       if (inCycle && node.provider.precreate && attr === undefined) {
+         yield* report("pre-creating");
+-        attr = yield* node.provider
++        const stub = yield* node.provider
+           .precreate({
+             id: logicalId,
+             fqn,
+@@ -1407,25 +1470,10 @@
+             bindings: excludeDeletedBindings(node.bindings),
+           })
+           .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+-        yield* commit<ReplacingResourceState>({
+-          status: "replacing",
+-          fqn,
+-          logicalId,
+-          instanceId,
+-          resourceType: node.resource.Type,
+-          props: node.props,
+-          // A stub for an unresolved identity claims nothing. Leave the
+-          // checkpoint without it, so a retry checks the identity again.
+-          attr: admitted ? attr : undefined,
+-          providerVersion: node.provider.version ?? 0,
+-          bindings: excludeDeletedBindings(node.bindings),
+-          downstream: node.downstream,
+-          old: replState.old,
+-          deleteFirst: node.deleteFirst,
+-          removalPolicy: node.resource.RemovalPolicy,
+-          providerMode: node.mode,
+-        });
+-        yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++        attr = admitted ? stub : undefined;
++        attrProps = precreateProps;
++        yield* checkpoint(precreateProps);
++        yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
+       }
+ 
+       // See create-flow note: while we're waiting on upstream outputs
+@@ -1441,12 +1489,15 @@
+       const news = (yield* Output.evaluate(node.props, outputs)) as Record<string, any>;
+ 
+       const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++      if (attr !== undefined && havePropsChanged(attrProps, news)) {
++        yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: attrProps, news, output: attr, oldBindings: replState.bindings ?? [], newBindings: bindingOutputs });
++      }
+ 
+       if (!admitted) {
+         yield* admit(news);
+       }
+       if (node.deleteFirst && !deletedFirst) {
+-        yield* deleteFirst();
++        yield* deleteFirst(news);
+       }
+ 
+       attr = yield* node.provider
+@@ -1761,6 +1812,7 @@
+   >,
+   reportEvent: Reporter,
+   state: {
++    get: (req: { stack: string; stage: string; fqn: string }) => Effect.Effect<PersistedState | undefined, StateStoreError, never>;
+     set: <V extends PersistedState>(req: {
+       stack: string;
+       stage: string;
+@@ -1797,13 +1849,16 @@
+       const instanceId = tracker[fqn].instanceId;
+ 
+       const scopedSession = resourceSession(reportEvent, fqn, logicalId);
++      if (propsChanged) {
++        yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: oldProps, news: newProps, output: tracker[fqn].output, oldBindings, newBindings });
++      }
+ 
+       // A cycle peer resolves against its peers' first outputs, so an
+       // identity checked then may resolve differently now. Check the identity
+       // these props resolve to before reconcile claims it.
+       const deferredAdoption = "deferredAdoption" in node ? node.deferredAdoption : undefined;
+       if (propsChanged && deferredAdoption !== undefined) {
+-        const observed = yield* observeResolved(
++        const { observed } = yield* observeResolved(
+           node,
+           newProps,
+           fqn,
+@@ -1844,12 +1899,17 @@
+         instanceId,
+       });
+ 
++      // GC may have trimmed the generation chain since planning. Preserve only
++      // the current checkpoint's cleanup backlog and identity metadata.
++      const persisted = yield* state.get({ stack: stackName, stage, fqn });
++      const previous = persisted?.kind === "action" ? undefined : persisted;
+       yield* state.set({
+         stack: stackName,
+         stage,
+         fqn,
+         value: {
+-          status: "updated",
++          ...previous,
++          status: previous?.status === "replaced" ? "replaced" : "updated",
+           fqn,
+           logicalId,
+           instanceId,
+@@ -1870,7 +1930,7 @@
+           removalPolicy: node.resource.RemovalPolicy,
+           providerMode: node.mode,
+           adoptionBlocked: node.adoptionBlocked,
+-        } as UpdatedResourceState,
++        } as UpdatedResourceState | ReplacedResourceState,
+       });
+ 
+       terminalStatuses.set(fqn, {
+@@ -2132,6 +2192,8 @@
+               providerMode: generation.providerMode,
+             };
+ 
++        const workerIdentityResolved = generation.workerIdentityResolved;
++        const workerAccountId = recordedWorkerAccountId(generation);
+         const adoptionBlocked = isDeleteNode(node)
+           ? node.state.adoptionBlocked
+           : generation.adoptionBlocked;
+@@ -2239,6 +2301,10 @@
+ 
+         function deleteResourceBody() {
+           return Effect.gen(function* () {
++            const accountState = isDeleteNode(node) ? node.state : node.old;
++            if (hasLiveWorkerAccount(accountState)) {
++              yield* assertWorkerAccount(accountState, yield* currentWorkerAccountId);
++            }
+             if (isDeleteNode(node)) {
+               yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
+               if (node.action === "orphaned") {
+@@ -2281,7 +2347,7 @@
+                     "migrated predecessor. Any interrupted new physical " +
+                     "resource must be identified and cleaned up manually.",
+                 );
+-              } else if (incompleteProps) {
++              } else if (incompleteProps || (resourceType === "Cloudflare.Worker" && workerIdentityResolved !== true)) {
+                 yield* scopedSession.note(
+                   "Skipping recovery: unresolved properties were omitted from " +
+                     "this interrupted create's state, so they cannot identify it. " +
+@@ -2349,6 +2415,8 @@
+                 removalPolicy: node.resource.RemovalPolicy,
+                 providerMode,
+                 adoptionBlocked,
++                workerIdentityResolved,
++                workerAccountId,
+                 propsIncomplete: incompleteProps,
+               });
+             }
+@@ -2420,6 +2488,8 @@
+                   bindings: excludeDeletedBindings(node.bindings),
+                   removalPolicy: node.removalPolicy,
+                   providerMode: node.providerMode,
++                  workerIdentityResolved: node.workerIdentityResolved,
++                  workerAccountId: node.workerAccountId,
+                   propsIncomplete: node.propsIncomplete,
+                 });
+               }
+diff --git a/src/Plan.ts b/src/Plan.ts
+--- a/src/Plan.ts
++++ b/src/Plan.ts
+@@ -18,6 +18,7 @@
+   UnverifiableReplacement,
+ } from "./AdoptPolicy.ts";
+ import { AlchemyContext } from "./AlchemyContext.ts";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount } from "./WorkerAccount.ts";
+ import {
+   Artifacts,
+   ArtifactStore,
+@@ -110,6 +111,8 @@
+ }
+ 
+ export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
++  /** Cloudflare account whose identity was checked while planning this Worker. */
++  workerAccountId?: string;
+   resource: R;
+   provider: ProviderService<R>;
+   /**
+@@ -523,6 +526,16 @@
+       (fqn) => state.get({ stack: stackName, stage: stage, fqn }),
+       { concurrency: "unbounded" },
+     );
++    const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++    for (const [index, row] of oldResources.entries()) {
++      const fqn = resourceFqns[index];
++      const touched = !selected || selected.has(fqn) || resources.some((resource) =>
++        resource.Type === "Cloudflare.Worker" && resource.FormerFqns?.includes(fqn),
++      );
++      if (touched && row && row.kind !== "action" && hasLiveWorkerAccount(row)) {
++        yield* assertWorkerAccount(row, yield* workerAccount);
++      }
++    }
+ 
+     // Snapshot of every persisted row, keyed by FQN. The rename resolution
+     // below reads from this map instead of issuing per-FQN `state.get`s —
+@@ -1368,6 +1381,9 @@
+       // prior state — its row is reaped by `actionDeletions` below.)
+       const { row: persistedRow, renamedFrom, renameMoved } = yield* getPersistedRow(resource);
+       let oldState: ResourceState | undefined = persistedRow;
++      const workerAccountId = resource.Type === "Cloudflare.Worker" && mode !== "local"
++        ? yield* workerAccount
++        : undefined;
+ 
+       // Engine-level adoption. When there is no prior state, always
+       // consult `provider.read` (if implemented) so the engine — not
+@@ -1521,6 +1537,7 @@
+       ) =>
+         ({
+           ...node,
++          workerAccountId,
+           provider,
+           resource,
+           bindings: bindingDiffs,
+@@ -1538,7 +1555,7 @@
+                 // Plan reads resolved props itself; without `read`, Apply
+                 // admits them through `observe`.
+                 ((oldState === undefined && (!isResolved(news) || !provider.read)) ||
+-                  (oldState?.status === "creating" && oldState.attr === undefined))))
++                  (oldState?.attr === undefined && (oldState?.status === "creating" || (resource.Type === "Cloudflare.Worker" && oldState?.status === "deleting"))))))
+               ? { adopt: adoptThis }
+               : undefined,
+         }) as any as T;
+@@ -1572,6 +1589,7 @@
+           provider.read &&
+           !reusesMigratedFqn &&
+           !oldState.propsIncomplete &&
++          (resource.Type !== "Cloudflare.Worker" || (oldState.workerIdentityResolved === true && isResolved(news) && !havePropsChanged(oldState.props, news))) &&
+           isResolved(oldState.props)
+         ) {
+           const attr = yield* provider
+diff --git a/src/Provider.ts b/src/Provider.ts
+--- a/src/Provider.ts
++++ b/src/Provider.ts
+@@ -282,6 +282,13 @@
+    * Properties that are always stable across any update.
+    */
+   stables?: Extract<keyof Res["Attributes"], string>[];
++  /**
++   * Classifies mutable changes versus replacement of the physical resource.
++   * Ownership-aware providers must return an explicit update/noop decision
++   * for props that change during late resolution or cyclic convergence.
++   * An absent or inconclusive decision refuses the in-place mutation.
++   * Binding-only convergence retains the ordinary reconciliation contract.
++   */
+   diff?(input: {
+     id: string;
+     /**
+@@ -313,7 +320,9 @@
+    * `Unresolved` when the identity depends on props that have not resolved
+    * yet: the engine then checks the resolved identity before `reconcile`.
+    *
+-   * The attributes may be partial. During a replacement, `previous` holds
++   * The attributes may be partial and establish ownership only. They do not
++   * populate persisted state or reconciliation output; implement `read` to
++   * supply complete adoption attributes. During a replacement, `previous` holds
+    * the attributes of the generation being replaced: report a resource that
+    * is that generation as owned. The engine compares no attributes itself.
+    *
+diff --git a/src/State/ResourceState.ts b/src/State/ResourceState.ts
+--- a/src/State/ResourceState.ts
++++ b/src/State/ResourceState.ts
+@@ -26,6 +26,10 @@
+   | ReplacementResourceState;
+ 
+ interface BaseResourceState {
++  /** Whether a legacy Worker checkpoint retained its complete script identity. */
++  workerIdentityResolved?: boolean;
++  /** Cloudflare account recorded before a live Worker mutation. */
++  workerAccountId?: string;
+   /**
+    * Discriminator vs {@link ActionState}. Optional for back-compat: legacy
+    * persisted rows have no `kind` field and are implicitly resources.
+diff --git a/src/WorkerAccount.ts b/src/WorkerAccount.ts
+new file mode 100644
+--- /dev/null
++++ b/src/WorkerAccount.ts
+@@ -0,0 +1,83 @@
++import * as Context from "effect/Context";
++import * as Data from "effect/Data";
++import * as Effect from "effect/Effect";
++import * as Option from "effect/Option";
++import * as Predicate from "effect/Predicate";
++import { stampedMode, type ProviderMode } from "./ProviderMode.ts";
++// Keep the provider's existing service key without importing an optional provider.
++class CloudflareEnvironment extends Context.Service<CloudflareEnvironment, Effect.Effect<{ readonly accountId: string }>>() ("Cloudflare::CloudflareEnvironment") {}
++
++/** An interrupted Worker cannot be recovered outside its original account. */
++export class WorkerAccountMismatch extends Data.TaggedError("WorkerAccountMismatch")<{
++  /** Account recorded before the original cloud mutation. */
++  expectedAccountId: string | undefined;
++  /** Account resolved for the current operation. */
++  actualAccountId: string | undefined;
++  /** Reason the operation requires account identity recovery. */
++  message: string;
++}> {}
++
++/** Account identity retained by a Worker generation or replacement ancestor. */
++export interface WorkerAccountState {
++  /** Resource provider owning this generation. */
++  resourceType?: string;
++  /** Mode in which the generation was created. */
++  providerMode?: ProviderMode;
++  /** Account persisted before a cloud mutation. */
++  workerAccountId?: string;
++  /** Recorded provider attributes, including the account for legacy rows. */
++  attr?: unknown;
++  /** Earlier generation whose cleanup still requires its original identity. */
++  old?: WorkerAccountState;
++}
++
++/** Resolve the account without performing a resource API request. */
++export const currentWorkerAccountId = Effect.gen(function* () {
++  const environment = yield* Effect.serviceOption(CloudflareEnvironment);
++  const accountId = Option.isSome(environment)
++    ? (yield* environment.value).accountId
++    : undefined;
++  if (typeof accountId !== "string" || !/^[a-f0-9]{32}$/i.test(accountId)) {
++    return yield* new WorkerAccountMismatch({
++      expectedAccountId: undefined,
++      actualAccountId: accountId,
++      message: "A live Worker requires a resolved Cloudflare account before planning or mutation.",
++    });
++  }
++  return accountId;
++});
++
++const attributeAccount = (state: WorkerAccountState): string | undefined =>
++  Predicate.hasProperty(state.attr, "accountId") && typeof state.attr.accountId === "string"
++    ? state.attr.accountId
++    : undefined;
++
++/** Read the account recorded in checkpoint metadata or trusted legacy attributes. */
++export const recordedWorkerAccountId = (state: WorkerAccountState): string | undefined =>
++  state.workerAccountId ?? attributeAccount(state);
++
++/** Whether a generation chain contains a live Worker requiring account validation. */
++export const hasLiveWorkerAccount = (state: WorkerAccountState): boolean =>
++  (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") ||
++  (state.old !== undefined && hasLiveWorkerAccount(state.old));
++
++/** Refuse unknown or changed accounts before inspecting or mutating any generation. */
++export const assertWorkerAccount: (state: WorkerAccountState, accountId: string) => Effect.Effect<void, WorkerAccountMismatch> = Effect.fn(function* (
++  state: WorkerAccountState,
++  accountId: string,
++) {
++  if (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") {
++    const expectedAccountId = recordedWorkerAccountId(state);
++    const attrsAccountId = attributeAccount(state);
++    if (expectedAccountId !== accountId || (attrsAccountId !== undefined && attrsAccountId !== accountId)) {
++      return yield* new WorkerAccountMismatch({
++        expectedAccountId,
++        actualAccountId: accountId,
++        message: expectedAccountId === undefined
++          ? "This Worker checkpoint has no recorded Cloudflare account; recover its identity manually."
++          : `Worker checkpoint account ${expectedAccountId} does not match current account ${accountId}.`,
++      });
++    }
++  }
++  if (state.old) yield* assertWorkerAccount(state.old, accountId);
++});
+diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
+--- a/src/Cli/commands/state.ts
++++ b/src/Cli/commands/state.ts
+@@ -1,3 +1,8 @@
++import * as Layer from "effect/Layer";
++import * as Logger from "effect/Logger";
++import { CurrentLogAnnotations } from "effect/References";
++import { consoleSettings, makeConsoleLogger } from "../GlobalLog.ts";
++import { encodeState } from "../../State/StateEncoding.ts";
+ import { Command, Flag } from "effect/cli";
+ import * as Argument from "effect/cli/Argument";
+ import * as Console from "effect/Console";
+@@ -113,7 +118,66 @@
+         Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` })),
+       ),
+     );
++
++const legacyMain = Argument.File("main", { mustExist: true }).pipe(
++  Argument.withDescription("Main file to deploy, defaults to alchemy.run.ts"),
++  Argument.withDefault("alchemy.run.ts"),
++);
++const legacyLocal = Flag.Boolean("local").pipe(
++  Flag.withDescription("Read from local .alchemy/state instead of the stack's configured state store"),
++  Flag.withDefault(false),
++);
++const legacySource = (args: Omit<StateArgs, "backend" | "name"> & { readonly local: boolean }) =>
++  source({ ...args, name: undefined, backend: args.local ? "local" : "configured" });
++
++const legacyDiagnostics = Layer.mergeAll(
++  // The ambient Interaction layer is already memoized against stdout.
++  Layer.fresh(Interaction.layerNonInteractive({ stdout: process.stderr })),
++  Logger.layer([Logger.make((options) => { if (options.fiber.getRef(CurrentLogAnnotations)["alchemy.event"] !== true) makeConsoleLogger(consoleSettings(options.fiber.context).format === "json" ? undefined : Logger.withConsoleError(Logger.formatLogFmt)).log(options); })]),
++);
++
++// Version notices run before handlers and must use the same machine-output routing.
++const legacyInstrumentCommand = (command: string) =>
++  <Args, A, E, R>(handler: (args: Args) => Effect.Effect<A, E, R>) =>
++  (args: Args) => instrumentCommand(command)(handler)(args).pipe(Effect.provide(legacyDiagnostics));
++
++const getCommand = Command.make(
++  "get",
++  {
++    stack: Flag.String("stack"),
++    stageName: Flag.String("stage"),
++    fqn: Flag.String("fqn"),
++    main: legacyMain,
++    envFile,
++    profile,
++    local: legacyLocal,
++  },
++  legacyInstrumentCommand("state.get")(
++    Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
++      const store = yield* Alchemist.State.store(legacySource(args));
++      const value = yield* store.get({ stack, stage: stageName, fqn });
++      yield* Console.log(
++        value === undefined
++          ? `(not found: ${stack}/${stageName}/${fqn})`
++          : JSON.stringify(encodeState(value), null, 2),
++      );
++    }),
++  ),
++);
+ 
++const stacksCommand = Command.make(
++  "stacks",
++  { main: legacyMain, envFile, profile, local: legacyLocal },
++  legacyInstrumentCommand("state.stacks")(
++    Effect.fn(function* (args) {
++      const store = yield* Alchemist.State.store(legacySource(args));
++      const stacks = [...(yield* store.listStacks())].sort();
++      yield* Console.log(stacks.length === 0 ? "(no stacks)" : stacks.join("\n"));
++    }),
++  ),
++);
++
++
+ const listCommand = Command.make(
+   "list",
+   { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName },
+@@ -453,7 +517,7 @@
+   ),
+ ).pipe(
+   Command.withDescription("Inspect and manage deployment state"),
+-  Command.withSubcommands([
++  Command.withSubcommands([getCommand, stacksCommand, 
+     listCommand,
+     readCommand,
+     deleteCommand,
+diff --git a/lib/Apply.js b/lib/Apply.js
+--- a/lib/Apply.js
++++ b/lib/Apply.js
+@@ -9,6 +9,7 @@
+ import { makeResolveContext } from "./ActionRuntimeContext.js";
+ import { OwnedBySomeoneElse, stripUnowned, Unowned, Unresolved, UnverifiableReplacement, } from "./AdoptPolicy.js";
+ import { AlchemyContext } from "./AlchemyContext.js";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount, recordedWorkerAccountId } from "./WorkerAccount.js";
+ import { Artifacts, ArtifactStore, createArtifactStore, ensureArtifactStore, makeScopedArtifacts, } from "./Artifacts.js";
+ import { failCredentialsRequired, demandPlanCredentials, } from "./Auth/Demand.js";
+ import { havePropsChanged, isResolved, stripEffects, stripUnresolved } from "./Diff.js";
+@@ -115,9 +116,10 @@
+  */
+ const observeResolved = Effect.fn(function* (node, news, fqn, logicalId, instanceId, previous) {
+     if (node.provider.read) {
+-        return yield* node.provider
++        const observed = yield* node.provider
+             .read({ id: logicalId, fqn, instanceId, olds: news, output: undefined, previous })
+             .pipe(instrumentLifecycle("read", fqn, node.resource.Type, logicalId, instanceId));
++        return { observed, attributes: observed };
+     }
+     const observed = yield* node.provider.observe({
+         id: logicalId,
+@@ -131,8 +133,22 @@
+             message: `The provider for '${fqn}' (${node.resource.Type}) reported its identity as Unresolved, but its props are resolved.`,
+         }));
+     }
+-    return observed;
++    return { observed, attributes: undefined };
+ });
++const verifyInPlace = Effect.fn(function* (node, input) {
++    const decision = input.olds === undefined || node.provider.diff === undefined
++        ? undefined
++        : yield* node.provider.diff(input).pipe(provideLifecycleScope({ logicalId: input.id, fqn: input.fqn, instanceId: input.instanceId, type: node.resource.Type }), Effect.withSpan("provider.diff"));
++    const ownershipAware = node.provider.read !== undefined || node.provider.observe !== undefined;
++    if (decision?.action === "replace" ||
++        (ownershipAware && decision?.action !== "update" && decision?.action !== "noop")) {
++        return yield* new UnverifiableReplacement({
++            message: `Cannot reconcile '${input.fqn}' in place: its resolved inputs require replacement or the provider did not confirm an in-place update. Resolve immutable identity before cyclic precreation and return an explicit update/noop diff for mutable changes.`,
++            resourceType: node.resource.Type,
++            logicalId: input.id,
++        });
++    }
++});
+ export const apply = (plan) => Effect.gen(function* () {
+     // Credential-free dev: a dev-mode plan that needs the real cloud
+     // (`Alchemy.remote()` rows, remote-proxied bindings, deletions of rows
+@@ -163,6 +179,23 @@
+     const stack = yield* Stack;
+     const stage = yield* Stage;
+     const stackName = stack.name;
++    const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++    for (const node of Object.values(plan.resources)) {
++        const liveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++        if (liveWorker || (node.state && hasLiveWorkerAccount(node.state))) {
++            const accountId = yield* workerAccount;
++            if (liveWorker && node.workerAccountId !== undefined) {
++                yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, accountId);
++            }
++            if (node.state)
++                yield* assertWorkerAccount(node.state, accountId);
++        }
++    }
++    for (const node of Object.values(plan.deletions)) {
++        if (node && hasLiveWorkerAccount(node.state)) {
++            yield* assertWorkerAccount(node.state, yield* workerAccount);
++        }
++    }
+     const tracker = {};
+     const outputs = {};
+     const terminalStatuses = new Map();
+@@ -328,6 +361,17 @@
+     const inCycle = cycleMembers.has(fqn);
+     const logicalId = node.resource.LogicalId;
+     const namespace = node.resource.Namespace;
++    const isLiveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++    const workerAccountId = isLiveWorker || (node.state && hasLiveWorkerAccount(node.state))
++        ? yield* currentWorkerAccountId
++        : undefined;
++    if (workerAccountId !== undefined) {
++        if (isLiveWorker && node.workerAccountId !== undefined) {
++            yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, workerAccountId);
++        }
++        if (node.state)
++            yield* assertWorkerAccount(node.state, workerAccountId);
++    }
+     const commit = (value) => state.set({
+         stack: stackName,
+         stage,
+@@ -349,6 +393,8 @@
+             ...value,
+             adoptionBlocked: value.adoptionBlocked ?? node.adoptionBlocked,
+             propsIncomplete: propsIncomplete(value),
++            workerAccountId: value.resourceType === "Cloudflare.Worker" && stampedMode(value) !== "local" ? workerAccountId : undefined,
++            workerIdentityResolved: value.resourceType === "Cloudflare.Worker" && value.attr === undefined ? isResolved(value.props?.name) && isResolved(value.props?.namespace) : undefined,
+             props: stripUnresolved(value.props),
+             bindings: stripUnresolved(value.bindings),
+             namespace,
+@@ -539,27 +585,20 @@
+     // ── lifecycle ──
+     // ── create ──
+     if (node.action === "create") {
++        let attr = node.state?.attr;
++        let attrProps = node.state?.props;
++        const checkpointCreate = (props, attributes, bindings = excludeDeletedBindings(node.bindings)) => commit({
++            status: "creating", fqn, logicalId, instanceId, resourceType: node.resource.Type,
++            props, attr: attributes, providerVersion: node.provider.version ?? 0, bindings,
++            downstream: node.downstream, removalPolicy: node.resource.RemovalPolicy,
++            providerMode: node.mode, adoptionBlocked: node.adoptionBlocked,
++        });
+         if (!node.state) {
+             // First persistence point for a brand new logical resource. Once this is
+             // written, retries know they should resume creation instead of planning
+             // another fresh create from scratch.
+-            yield* commit({
+-                status: "creating",
+-                fqn,
+-                logicalId,
+-                instanceId,
+-                resourceType: node.resource.Type,
+-                props: node.props,
+-                attr: undefined,
+-                providerVersion: node.provider.version ?? 0,
+-                bindings: excludeDeletedBindings(node.bindings),
+-                downstream: node.downstream,
+-                removalPolicy: node.resource.RemovalPolicy,
+-                providerMode: node.mode,
+-                adoptionBlocked: node.adoptionBlocked,
+-            });
++            yield* checkpointCreate(node.props, undefined);
+         }
+-        let attr = node.state?.attr;
+         // Whether the identity reconcile claims has passed the ownership check.
+         let admitted = node.deferredAdoption === undefined;
+         if (attr !== undefined) {
+@@ -577,10 +616,11 @@
+             // Without `observe`, precreate and reconcile claim the identity unchecked.
+             admitted =
+                 (yield* observeBeforePrecreate(node, props, fqn, logicalId, instanceId)) !== "unresolved";
++            yield* checkpointCreate(props, undefined);
+             // Some resources need a placeholder physical resource before their real
+             // create can finish. Persist that stub so downstream evaluation can proceed.
+             yield* report("pre-creating");
+-            attr = yield* node.provider
++            const stub = yield* node.provider
+                 .precreate({
+                 id: logicalId,
+                 fqn,
+@@ -590,24 +630,10 @@
+                 bindings: excludeDeletedBindings(node.bindings),
+             })
+                 .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+-            yield* commit({
+-                status: "creating",
+-                fqn,
+-                logicalId,
+-                instanceId,
+-                resourceType: node.resource.Type,
+-                props: node.props,
+-                // A stub for an unresolved identity claims nothing. Leave the
+-                // checkpoint without it, so a retry checks the identity again.
+-                attr: admitted ? attr : undefined,
+-                providerVersion: node.provider.version ?? 0,
+-                bindings: excludeDeletedBindings(node.bindings),
+-                downstream: node.downstream,
+-                removalPolicy: node.resource.RemovalPolicy,
+-                providerMode: node.mode,
+-                adoptionBlocked: node.adoptionBlocked,
+-            });
+-            yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++            attr = admitted ? stub : undefined;
++            attrProps = props;
++            yield* checkpointCreate(props, attr);
++            yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
+         }
+         // While we're waiting on upstream outputs the resource isn't actually
+         // creating anything yet — surface that as "pending" so the CLI doesn't
+@@ -619,26 +645,14 @@
+         yield* report("creating");
+         const news = (yield* Output.evaluate(node.props, outputs));
+         const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++        if (attr !== undefined && havePropsChanged(attrProps, news)) {
++            yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: attrProps, news, output: attr, oldBindings: node.state?.bindings ?? [], newBindings: bindingOutputs });
++        }
+         if (!admitted) {
+-            const checkpoint = (attr) => commit({
+-                status: "creating",
+-                fqn,
+-                logicalId,
+-                instanceId,
+-                resourceType: node.resource.Type,
+-                props: news,
+-                attr,
+-                providerVersion: node.provider.version ?? 0,
+-                bindings: bindingOutputs,
+-                downstream: node.downstream,
+-                removalPolicy: node.resource.RemovalPolicy,
+-                providerMode: node.mode,
+-                adoptionBlocked: node.adoptionBlocked,
+-            });
+             // Refusal or interruption must retain identity, never foreign
+             // attributes, nor a stub for an identity not yet checked.
+-            yield* checkpoint(undefined);
+-            const observed = yield* observeResolved(node, news, fqn, logicalId, instanceId);
++            yield* checkpointCreate(news, undefined, bindingOutputs);
++            const { observed, attributes } = yield* observeResolved(node, news, fqn, logicalId, instanceId);
+             if (observed !== undefined) {
+                 if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+                     return yield* new OwnedBySomeoneElse({
+@@ -650,12 +664,11 @@
+                         logicalId,
+                     });
+                 }
+-                // Reconcile keeps a precreated stub as its output.
+-                attr ??= stripUnowned(observed);
+-                // A creating checkpoint retains olds: undefined on retry.
+-                yield* checkpoint(attr);
++                if (attributes !== undefined)
++                    attr ??= stripUnowned(attributes);
+             }
+         }
++        yield* checkpointCreate(news, attr, bindingOutputs);
+         attr = yield* node.provider
+             .reconcile({
+             id: logicalId,
+@@ -729,6 +742,20 @@
+         const news = (yield* Output.evaluate(node.props, outputs));
+         const adopting = node.adopting === true ||
+             (node.state.status === "updating" && node.state.adopting === true);
++        const previousProps = adopting
++            ? undefined
++            : node.state.status === "created" ||
++                node.state.status === "updated" ||
++                node.state.status === "replaced"
++                ? node.state.props
++                : node.state.old.props;
++        // Providers receive the resolved binding payload for this exact pass, while
++        // `previousProps` tells them what state the live resource is being updated from.
++        const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++        const comparisonProps = adopting ? node.state.props : previousProps;
++        if (!isResolved(node.props) && havePropsChanged(comparisonProps, news)) {
++            yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: comparisonProps, news, output: node.state.attr, oldBindings: node.state.bindings ?? [], newBindings: bindingOutputs });
++        }
+         yield* node.state.status === "replaced"
+             ? commit({
+                 // Keep the replacement wrapper intact while changing the live
+@@ -757,16 +784,6 @@
+                 providerMode: node.mode,
+             });
+         yield* report(node.action === "adopted" ? "adopting" : "updating");
+-        const previousProps = adopting
+-            ? undefined
+-            : node.state.status === "created" ||
+-                node.state.status === "updated" ||
+-                node.state.status === "replaced"
+-                ? node.state.props
+-                : node.state.old.props;
+-        // Providers receive the resolved binding payload for this exact pass, while
+-        // `previousProps` tells them what state the live resource is being updated from.
+-        const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
+         const attr = yield* node.provider
+             .reconcile({
+             id: logicalId,
+@@ -917,11 +934,32 @@
+                 yield* deleteOldGenerations(old.old);
+             }
+         });
+-        const deleteFirst = Effect.fn(function* () {
++        const resumedAttrs = node.state.status === "replacing" && !node.restart && node.state.attr !== undefined;
++        let attr = replState.attr;
++        let attrProps = replState.props;
++        const checkpoint = (props) => commit({
++            status: "replacing",
++            fqn,
++            logicalId,
++            instanceId,
++            resourceType: node.resource.Type,
++            props,
++            attr,
++            providerVersion: node.provider.version ?? 0,
++            bindings: excludeDeletedBindings(node.bindings),
++            downstream: node.downstream,
++            old: replState.old,
++            deleteFirst: node.deleteFirst,
++            removalPolicy: node.resource.RemovalPolicy,
++            providerMode: node.mode,
++            adoptionBlocked: node.adoptionBlocked,
++        });
++        const deleteFirst = Effect.fn(function* (props) {
+             yield* scopedSession.note("Deleting previous resource before creating its replacement (deleteFirst)...");
+             yield* deleteOldGenerations(replState.old);
++            attr = undefined;
++            yield* checkpoint(props);
+         });
+-        let attr = replState.attr;
+         // ── replacement admission ──
+         //
+         // The replacement may resolve to a physical identity that already
+@@ -933,10 +971,8 @@
+         let admitted = attr !== undefined || node.deferredAdoption === undefined;
+         const admit = Effect.fn(function* (props) {
+             admitted = true;
+-            const observed = yield* observeResolved(node, props, fqn, logicalId, instanceId, replState.old?.attr);
+-            if (observed === undefined)
+-                return;
+-            if (Unowned.is(observed) && !node.deferredAdoption?.adopt) {
++            const { observed, attributes } = yield* observeResolved(node, props, fqn, logicalId, instanceId, replState.old?.attr);
++            if (observed !== undefined && Unowned.is(observed) && !node.deferredAdoption?.adopt) {
+                 return yield* new OwnedBySomeoneElse({
+                     message: `Cannot replace resource '${fqn}' (${node.resource.Type}): ` +
+                         "its replacement exists in the cloud but is not owned by this " +
+@@ -949,8 +985,11 @@
+             // A delete-first target may be the previous generation itself, which
+             // is about to be deleted — never hand its attributes to reconcile.
+             // Reconcile keeps a precreated stub as its output.
+-            if (!node.deleteFirst)
+-                attr ??= stripUnowned(observed);
++            if (!node.deleteFirst && attributes !== undefined && attr === undefined) {
++                attr = stripUnowned(attributes);
++                attrProps = props;
++            }
++            yield* checkpoint(props);
+         });
+         // A cycle precreates on the props its upstreams outside the cycle
+         // determine; anything else waits for every upstream.
+@@ -984,7 +1023,10 @@
+         // about to run, so a failed upstream never leaves the resource missing.
+         let deletedFirst = false;
+         if (node.deleteFirst && inCycle) {
+-            yield* deleteFirst();
++            if (resumedAttrs && !isResolved(node.props) && havePropsChanged(replState.props, precreateProps)) {
++                yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: replState.props, news: precreateProps, output: attr, oldBindings: replState.bindings ?? [], newBindings: excludeDeletedBindings(node.bindings) });
++            }
++            yield* deleteFirst(precreateProps);
+             deletedFirst = true;
+         }
+         if (attr !== undefined) {
+@@ -994,7 +1036,7 @@
+         }
+         if (inCycle && node.provider.precreate && attr === undefined) {
+             yield* report("pre-creating");
+-            attr = yield* node.provider
++            const stub = yield* node.provider
+                 .precreate({
+                 id: logicalId,
+                 fqn,
+@@ -1004,25 +1046,10 @@
+                 bindings: excludeDeletedBindings(node.bindings),
+             })
+                 .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+-            yield* commit({
+-                status: "replacing",
+-                fqn,
+-                logicalId,
+-                instanceId,
+-                resourceType: node.resource.Type,
+-                props: node.props,
+-                // A stub for an unresolved identity claims nothing. Leave the
+-                // checkpoint without it, so a retry checks the identity again.
+-                attr: admitted ? attr : undefined,
+-                providerVersion: node.provider.version ?? 0,
+-                bindings: excludeDeletedBindings(node.bindings),
+-                downstream: node.downstream,
+-                old: replState.old,
+-                deleteFirst: node.deleteFirst,
+-                removalPolicy: node.resource.RemovalPolicy,
+-                providerMode: node.mode,
+-            });
+-            yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
++            attr = admitted ? stub : undefined;
++            attrProps = precreateProps;
++            yield* checkpoint(precreateProps);
++            yield* storeAndSignal({ output: stub, props: {}, bindings: [], instanceId });
+         }
+         // See create-flow note: while we're waiting on upstream outputs
+         // the replacement isn't actually being created yet.
+@@ -1033,11 +1060,14 @@
+         yield* report("creating replacement");
+         const news = (yield* Output.evaluate(node.props, outputs));
+         const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++        if (attr !== undefined && havePropsChanged(attrProps, news)) {
++            yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: attrProps, news, output: attr, oldBindings: replState.bindings ?? [], newBindings: bindingOutputs });
++        }
+         if (!admitted) {
+             yield* admit(news);
+         }
+         if (node.deleteFirst && !deletedFirst) {
+-            yield* deleteFirst();
++            yield* deleteFirst(news);
+         }
+         attr = yield* node.provider
+             .reconcile({
+@@ -1287,12 +1317,15 @@
+             const namespace = node.resource.Namespace;
+             const instanceId = tracker[fqn].instanceId;
+             const scopedSession = resourceSession(reportEvent, fqn, logicalId);
++            if (propsChanged) {
++                yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: oldProps, news: newProps, output: tracker[fqn].output, oldBindings, newBindings });
++            }
+             // A cycle peer resolves against its peers' first outputs, so an
+             // identity checked then may resolve differently now. Check the identity
+             // these props resolve to before reconcile claims it.
+             const deferredAdoption = "deferredAdoption" in node ? node.deferredAdoption : undefined;
+             if (propsChanged && deferredAdoption !== undefined) {
+-                const observed = yield* observeResolved(node, newProps, fqn, logicalId, instanceId, tracker[fqn].output);
++                const { observed } = yield* observeResolved(node, newProps, fqn, logicalId, instanceId, tracker[fqn].output);
+                 if (observed !== undefined && Unowned.is(observed) && !deferredAdoption.adopt) {
+                     return yield* new OwnedBySomeoneElse({
+                         message: `Cannot converge resource '${fqn}' (${node.resource.Type}): ` +
+@@ -1322,12 +1355,17 @@
+                 bindings: newBindings,
+                 instanceId,
+             });
++            // GC may have trimmed the generation chain since planning. Preserve only
++            // the current checkpoint's cleanup backlog and identity metadata.
++            const persisted = yield* state.get({ stack: stackName, stage, fqn });
++            const previous = persisted?.kind === "action" ? undefined : persisted;
+             yield* state.set({
+                 stack: stackName,
+                 stage,
+                 fqn,
+                 value: {
+-                    status: "updated",
++                    ...previous,
++                    status: previous?.status === "replaced" ? "replaced" : "updated",
+                     fqn,
+                     logicalId,
+                     instanceId,
+@@ -1533,6 +1571,8 @@
+                     }))),
+                     providerMode: generation.providerMode,
+                 };
++            const workerIdentityResolved = generation.workerIdentityResolved;
++            const workerAccountId = recordedWorkerAccountId(generation);
+             const adoptionBlocked = isDeleteNode(node)
+                 ? node.state.adoptionBlocked
+                 : generation.adoptionBlocked;
+@@ -1606,6 +1646,10 @@
+             })));
+             function deleteResourceBody() {
+                 return Effect.gen(function* () {
++                    const accountState = isDeleteNode(node) ? node.state : node.old;
++                    if (hasLiveWorkerAccount(accountState)) {
++                        yield* assertWorkerAccount(accountState, yield* currentWorkerAccountId);
++                    }
+                     if (isDeleteNode(node)) {
+                         yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
+                         if (node.action === "orphaned") {
+@@ -1644,7 +1688,7 @@
+                                 "migrated predecessor. Any interrupted new physical " +
+                                 "resource must be identified and cleaned up manually.");
+                         }
+-                        else if (incompleteProps) {
++                        else if (incompleteProps || (resourceType === "Cloudflare.Worker" && workerIdentityResolved !== true)) {
+                             yield* scopedSession.note("Skipping recovery: unresolved properties were omitted from " +
+                                 "this interrupted create's state, so they cannot identify it. " +
+                                 "Any interrupted physical resource must be identified and " +
+@@ -1702,6 +1746,8 @@
+                             removalPolicy: node.resource.RemovalPolicy,
+                             providerMode,
+                             adoptionBlocked,
++                            workerIdentityResolved,
++                            workerAccountId,
+                             propsIncomplete: incompleteProps,
+                         });
+                     }
+@@ -1764,6 +1810,8 @@
+                                 bindings: excludeDeletedBindings(node.bindings),
+                                 removalPolicy: node.removalPolicy,
+                                 providerMode: node.providerMode,
++                                workerIdentityResolved: node.workerIdentityResolved,
++                                workerAccountId: node.workerAccountId,
+                                 propsIncomplete: node.propsIncomplete,
+                             });
+                         }
+@@ -1868,4 +1916,3 @@
+     const sa = new Set(a);
+     return sa.size === new Set(b).size && b.every((fqn) => sa.has(fqn));
+ };
+-//# sourceMappingURL=Apply.js.map
+\ No newline at end of file
+diff --git a/lib/Plan.js b/lib/Plan.js
+--- a/lib/Plan.js
++++ b/lib/Plan.js
+@@ -12,6 +12,7 @@
+ import { isAction } from "./Action.js";
+ import { AdoptPolicy, OwnedBySomeoneElse, stripUnowned, Unowned, UnverifiableReplacement, } from "./AdoptPolicy.js";
+ import { AlchemyContext } from "./AlchemyContext.js";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount } from "./WorkerAccount.js";
+ import { Artifacts, ArtifactStore, createArtifactStore, ensureArtifactStore, makeScopedArtifacts, } from "./Artifacts.js";
+ import { demandRemoteCredentials, failCredentialsRequired } from "./Auth/Demand.js";
+ import { dedupeBindings, diffBindings, havePropsChanged, isResolved, } from "./Diff.js";
+@@ -194,6 +195,14 @@
+         stage: stage,
+     });
+     const oldResources = yield* Effect.forEach(resourceFqns, (fqn) => state.get({ stack: stackName, stage: stage, fqn }), { concurrency: "unbounded" });
++    const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++    for (const [index, row] of oldResources.entries()) {
++        const fqn = resourceFqns[index];
++        const touched = !selected || selected.has(fqn) || resources.some((resource) => resource.Type === "Cloudflare.Worker" && resource.FormerFqns?.includes(fqn));
++        if (touched && row && row.kind !== "action" && hasLiveWorkerAccount(row)) {
++            yield* assertWorkerAccount(row, yield* workerAccount);
++        }
++    }
+     // Snapshot of every persisted row, keyed by FQN. The rename resolution
+     // below reads from this map instead of issuing per-FQN `state.get`s —
+     // every renamedFrom-decorated resource (each StaticSite carries one
+@@ -924,6 +933,9 @@
+         // prior state — its row is reaped by `actionDeletions` below.)
+         const { row: persistedRow, renamedFrom, renameMoved } = yield* getPersistedRow(resource);
+         let oldState = persistedRow;
++        const workerAccountId = resource.Type === "Cloudflare.Worker" && mode !== "local"
++            ? yield* workerAccount
++            : undefined;
+         // Engine-level adoption. When there is no prior state, always
+         // consult `provider.read` (if implemented) so the engine — not
+         // each lifecycle method — owns the existence/ownership decision.
+@@ -1064,6 +1076,7 @@
+         const adoptThis = resource.Adopt ?? (yield* shouldAdopt);
+         const Node = (node) => ({
+             ...node,
++            workerAccountId,
+             provider,
+             resource,
+             bindings: bindingDiffs,
+@@ -1080,7 +1093,7 @@
+                         // Plan reads resolved props itself; without `read`, Apply
+                         // admits them through `observe`.
+                         ((oldState === undefined && (!isResolved(news) || !provider.read)) ||
+-                            (oldState?.status === "creating" && oldState.attr === undefined))))
++                            (oldState?.attr === undefined && (oldState?.status === "creating" || (resource.Type === "Cloudflare.Worker" && oldState?.status === "deleting"))))))
+                 ? { adopt: adoptThis }
+                 : undefined,
+         });
+@@ -1113,6 +1126,7 @@
+             if (provider.read &&
+                 !reusesMigratedFqn &&
+                 !oldState.propsIncomplete &&
++                (resource.Type !== "Cloudflare.Worker" || (oldState.workerIdentityResolved === true && isResolved(news) && !havePropsChanged(oldState.props, news))) &&
+                 isResolved(oldState.props)) {
+                 const attr = yield* provider
+                     .read({
+@@ -1944,4 +1958,3 @@
+     lines.push("");
+     return lines.join("\n");
+ };
+-//# sourceMappingURL=Plan.js.map
+\ No newline at end of file
+diff --git a/lib/Provider.js b/lib/Provider.js
+--- a/lib/Provider.js
++++ b/lib/Provider.js
+@@ -171,4 +171,3 @@
+     }
+     return Option.none();
+ });
+-//# sourceMappingURL=Provider.js.map
+\ No newline at end of file
+diff --git a/lib/State/ResourceState.js b/lib/State/ResourceState.js
+--- a/lib/State/ResourceState.js
++++ b/lib/State/ResourceState.js
+@@ -1 +1 @@
+-//# sourceMappingURL=ResourceState.js.map
+\ No newline at end of file
++export {};
+diff --git a/lib/WorkerAccount.js b/lib/WorkerAccount.js
+new file mode 100644
+--- /dev/null
++++ b/lib/WorkerAccount.js
+@@ -0,0 +1,53 @@
++import * as Context from "effect/Context";
++import * as Data from "effect/Data";
++import * as Effect from "effect/Effect";
++import * as Option from "effect/Option";
++import * as Predicate from "effect/Predicate";
++import { stampedMode } from "./ProviderMode.js";
++// Keep the provider's existing service key without importing an optional provider.
++class CloudflareEnvironment extends Context.Service()("Cloudflare::CloudflareEnvironment") {
++}
++/** An interrupted Worker cannot be recovered outside its original account. */
++export class WorkerAccountMismatch extends Data.TaggedError("WorkerAccountMismatch") {
++}
++/** Resolve the account without performing a resource API request. */
++export const currentWorkerAccountId = Effect.gen(function* () {
++    const environment = yield* Effect.serviceOption(CloudflareEnvironment);
++    const accountId = Option.isSome(environment)
++        ? (yield* environment.value).accountId
++        : undefined;
++    if (typeof accountId !== "string" || !/^[a-f0-9]{32}$/i.test(accountId)) {
++        return yield* new WorkerAccountMismatch({
++            expectedAccountId: undefined,
++            actualAccountId: accountId,
++            message: "A live Worker requires a resolved Cloudflare account before planning or mutation.",
++        });
++    }
++    return accountId;
++});
++const attributeAccount = (state) => Predicate.hasProperty(state.attr, "accountId") && typeof state.attr.accountId === "string"
++    ? state.attr.accountId
++    : undefined;
++/** Read the account recorded in checkpoint metadata or trusted legacy attributes. */
++export const recordedWorkerAccountId = (state) => state.workerAccountId ?? attributeAccount(state);
++/** Whether a generation chain contains a live Worker requiring account validation. */
++export const hasLiveWorkerAccount = (state) => (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") ||
++    (state.old !== undefined && hasLiveWorkerAccount(state.old));
++/** Refuse unknown or changed accounts before inspecting or mutating any generation. */
++export const assertWorkerAccount = Effect.fn(function* (state, accountId) {
++    if (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") {
++        const expectedAccountId = recordedWorkerAccountId(state);
++        const attrsAccountId = attributeAccount(state);
++        if (expectedAccountId !== accountId || (attrsAccountId !== undefined && attrsAccountId !== accountId)) {
++            return yield* new WorkerAccountMismatch({
++                expectedAccountId,
++                actualAccountId: accountId,
++                message: expectedAccountId === undefined
++                    ? "This Worker checkpoint has no recorded Cloudflare account; recover its identity manually."
++                    : `Worker checkpoint account ${expectedAccountId} does not match current account ${accountId}.`,
++            });
++        }
++    }
++    if (state.old)
++        yield* assertWorkerAccount(state.old, accountId);
++});
+diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
+--- a/lib/Cli/commands/state.js
++++ b/lib/Cli/commands/state.js
+@@ -1,3 +1,8 @@
++import * as Layer from "effect/Layer";
++import * as Logger from "effect/Logger";
++import { CurrentLogAnnotations } from "effect/References";
++import { consoleSettings, makeConsoleLogger } from "../GlobalLog.js";
++import { encodeState } from "../../State/StateEncoding.js";
+ import { Command, Flag } from "effect/cli";
+ import * as Argument from "effect/cli/Argument";
+ import * as Console from "effect/Console";
+@@ -55,6 +60,35 @@
+ /** Run a state tree operation against a resolved store, mapping a bad path
+  * to a single-line user error instead of a cause dump. */
+ const usingStore = (store) => (operation) => provideStore(store)(operation).pipe(Effect.catchTag("InvalidStatePath", (error) => Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` }))));
++const legacyMain = Argument.File("main", { mustExist: true }).pipe(Argument.withDescription("Main file to deploy, defaults to alchemy.run.ts"), Argument.withDefault("alchemy.run.ts"));
++const legacyLocal = Flag.Boolean("local").pipe(Flag.withDescription("Read from local .alchemy/state instead of the stack's configured state store"), Flag.withDefault(false));
++const legacySource = (args) => source({ ...args, name: undefined, backend: args.local ? "local" : "configured" });
++const legacyDiagnostics = Layer.mergeAll(
++// The ambient Interaction layer is already memoized against stdout.
++Layer.fresh(Interaction.layerNonInteractive({ stdout: process.stderr })), Logger.layer([Logger.make((options) => { if (options.fiber.getRef(CurrentLogAnnotations)["alchemy.event"] !== true)
++        makeConsoleLogger(consoleSettings(options.fiber.context).format === "json" ? undefined : Logger.withConsoleError(Logger.formatLogFmt)).log(options); })]));
++// Version notices run before handlers and must use the same machine-output routing.
++const legacyInstrumentCommand = (command) => (handler) => (args) => instrumentCommand(command)(handler)(args).pipe(Effect.provide(legacyDiagnostics));
++const getCommand = Command.make("get", {
++    stack: Flag.String("stack"),
++    stageName: Flag.String("stage"),
++    fqn: Flag.String("fqn"),
++    main: legacyMain,
++    envFile,
++    profile,
++    local: legacyLocal,
++}, legacyInstrumentCommand("state.get")(Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
++    const store = yield* Alchemist.State.store(legacySource(args));
++    const value = yield* store.get({ stack, stage: stageName, fqn });
++    yield* Console.log(value === undefined
++        ? `(not found: ${stack}/${stageName}/${fqn})`
++        : JSON.stringify(encodeState(value), null, 2));
++})));
++const stacksCommand = Command.make("stacks", { main: legacyMain, envFile, profile, local: legacyLocal }, legacyInstrumentCommand("state.stacks")(Effect.fn(function* (args) {
++    const store = yield* Alchemist.State.store(legacySource(args));
++    const stacks = [...(yield* store.listStacks())].sort();
++    yield* Console.log(stacks.length === 0 ? "(no stacks)" : stacks.join("\n"));
++})));
+ const listCommand = Command.make("list", { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName }, instrumentCommand("state.list")(Effect.fn(function* ({ path, recursive, ...args }) {
+     const store = yield* Alchemist.State.store(source(args));
+     const items = yield* usingStore(store)(State.listState({
+@@ -229,7 +263,7 @@
+         return yield* failWithHelp(["alchemy", "state"]);
+     }
+     yield* stateExplorer(args);
+-}))).pipe(Command.withDescription("Inspect and manage deployment state"), Command.withSubcommands([
++}))).pipe(Command.withDescription("Inspect and manage deployment state"), Command.withSubcommands([getCommand, stacksCommand,
+     listCommand,
+     readCommand,
+     deleteCommand,
+@@ -239,4 +273,3 @@
+     logsCommand,
+     unsafeCommand,
+ ]));
+-//# sourceMappingURL=state.js.map
+\ No newline at end of file
+diff --git a/lib/Plan.d.ts b/lib/Plan.d.ts
+--- a/lib/Plan.d.ts
++++ b/lib/Plan.d.ts
+@@ -23,6 +23,8 @@
+     data: Data;
+ }
+ export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
++    /** Cloudflare account checked while planning this Worker. */
++    workerAccountId?: string;
+     resource: R;
+     provider: ProviderService<R>;
+     /**
+diff --git a/lib/State/ResourceState.d.ts b/lib/State/ResourceState.d.ts
+--- a/lib/State/ResourceState.d.ts
++++ b/lib/State/ResourceState.d.ts
+@@ -9,6 +9,10 @@
+ export type ReplacementResourceState = ReplacingResourceState | ReplacedResourceState;
+ export type ReplacementOldResourceState = CreatingResourceState | CreatedResourceState | UpdatingReourceState | UpdatedResourceState | DeletingResourceState | ReplacementResourceState;
+ interface BaseResourceState {
++    /** Whether a legacy Worker checkpoint retained its complete identity. */
++    workerIdentityResolved?: boolean;
++    /** Cloudflare account recorded before a live Worker mutation. */
++    workerAccountId?: string;
+     /**
+      * Discriminator vs {@link ActionState}. Optional for back-compat: legacy
+      * persisted rows have no `kind` field and are implicitly resources.
+diff --git a/lib/WorkerAccount.d.ts b/lib/WorkerAccount.d.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/WorkerAccount.d.ts
+@@ -0,0 +1,37 @@
++import * as Effect from "effect/Effect";
++import { type ProviderMode } from "alchemy/ProviderMode";
++declare const WorkerAccountMismatch_base: new <A extends Record<string, any> = {}>(args: import("effect/Types").VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => import("effect/Cause").YieldableError & {
++    readonly _tag: "WorkerAccountMismatch";
++} & Readonly<A>;
++/** An interrupted Worker cannot be recovered outside its original account. */
++export declare class WorkerAccountMismatch extends WorkerAccountMismatch_base<{
++    /** Account recorded before the original cloud mutation. */
++    expectedAccountId: string | undefined;
++    /** Account resolved for the current operation. */
++    actualAccountId: string | undefined;
++    /** Reason the operation requires account identity recovery. */
++    message: string;
++}> {
++}
++/** Account identity retained by a Worker generation or replacement ancestor. */
++export interface WorkerAccountState {
++    /** Resource provider owning this generation. */
++    resourceType?: string;
++    /** Mode in which the generation was created. */
++    providerMode?: ProviderMode;
++    /** Account persisted before a cloud mutation. */
++    workerAccountId?: string;
++    /** Recorded provider attributes, including the account for legacy rows. */
++    attr?: unknown;
++    /** Earlier generation whose cleanup still requires its original identity. */
++    old?: WorkerAccountState;
++}
++/** Resolve the account without performing a resource API request. */
++export declare const currentWorkerAccountId: Effect.Effect<string, WorkerAccountMismatch, never>;
++/** Read the account recorded in checkpoint metadata or trusted legacy attributes. */
++export declare const recordedWorkerAccountId: (state: WorkerAccountState) => string | undefined;
++/** Whether a generation chain contains a live Worker requiring account validation. */
++export declare const hasLiveWorkerAccount: (state: WorkerAccountState) => boolean;
++/** Refuse unknown or changed accounts before inspecting or mutating any generation. */
++export declare const assertWorkerAccount: (state: WorkerAccountState, accountId: string) => Effect.Effect<void, WorkerAccountMismatch>;
++export {};
+diff --git a/lib/Provider.d.ts b/lib/Provider.d.ts
+--- a/lib/Provider.d.ts
++++ b/lib/Provider.d.ts
+@@ -209,6 +209,13 @@
+      * Properties that are always stable across any update.
+      */
+     stables?: Extract<keyof Res["Attributes"], string>[];
++    /**
++     * Classifies mutable changes versus replacement of the physical resource.
++     * Ownership-aware providers must return an explicit update/noop decision
++     * for props that change during late resolution or cyclic convergence.
++     * An absent or inconclusive decision refuses the in-place mutation.
++     * Binding-only convergence retains the ordinary reconciliation contract.
++     */
+     diff?(input: {
+         id: string;
+         /**
