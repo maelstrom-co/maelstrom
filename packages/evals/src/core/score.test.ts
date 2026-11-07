@@ -242,7 +242,7 @@ describe('scoreResponse', () => {
                       {
                         name: ActionName('openAgenda'),
                         description: 'Agenda in the day view',
-                        idempotent: false,
+                        effect: 'any',
                         transitionsTo: VariantName('day'),
                       },
                     ],
