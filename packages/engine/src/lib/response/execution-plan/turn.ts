@@ -27,12 +27,15 @@ export type ExecutionTurn =
 /** An action the turn itself refuses, independent of whether it resolves. */
 export type TurnRefusal =
   | {
-      /** The Action's author never declared re-running it harmless. */
+      /**
+       * The Action's author never declared re-running it harmless: its
+       * effect is `'any'`.
+       */
       readonly kind: 'non_idempotent_on_resize';
       readonly vesselId: VesselId;
     }
   | {
-      /** The Action is declared idempotent but was emitted with parameters. */
+      /** The Action is declared rerun-safe but was emitted with parameters. */
       readonly kind: 'parameterized_on_resize';
       readonly vesselId: VesselId;
     };
@@ -51,12 +54,13 @@ export function classifyExecutionTurn(request: ChartRequest): ExecutionTurn {
  * The Engine never sees Vessel contents, so on a turn triggered by nothing
  * but a resize it cannot tell a first run of an action apart from a re-run of
  * one an earlier turn already performed. Only actions their author declared
- * `idempotent` survive that ambiguity, since re-running them changes nothing.
+ * with effect `'none'` or `'idempotent'` survive that ambiguity, since
+ * re-running them changes nothing.
  * A freshly declared instance id is no evidence of fresh state: a Vessel is
  * free to back every instance with one store, so an action replayed at a new
  * id can still write the state an older id already holds.
  *
- * Declared idempotence is not enough on its own. It promises that running an
+ * A rerun-safe effect is not enough on its own. It promises that running an
  * action twice with the same parameters matches running it once, and says
  * nothing about running it with different ones. A resize carries no user
  * intent, which leaves the conversation history as the only place a parameter
@@ -83,7 +87,7 @@ export function turnRefusesAction(
   actionDef: VesselAction,
 ): TurnRefusal | undefined {
   if (turn.kind !== 'resize_only') return undefined;
-  if (!actionDef.idempotent) {
+  if (actionDef.effect === 'any') {
     return { kind: 'non_idempotent_on_resize', vesselId: instance.vesselId };
   }
   if (emitsParams(item.paramsJson)) {

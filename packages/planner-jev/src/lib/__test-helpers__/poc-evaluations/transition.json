@@ -70,7 +70,7 @@
                     "name": "showWeek",
                     "description": "Switch to week view",
                     "transitionsTo": "week",
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "addEvent",
@@ -88,7 +88,7 @@
                       }
                     ],
                     "transitionsTo": "day",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               },
@@ -103,7 +103,7 @@
                     "name": "showMonth",
                     "description": "Switch back to month view",
                     "transitionsTo": "month",
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "addEvent",
@@ -120,7 +120,7 @@
                         "description": "Time like 9:00 or 14:30"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               },
@@ -135,7 +135,7 @@
                     "name": "showMonth",
                     "description": "Switch to month view",
                     "transitionsTo": "month",
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "addEvent",
@@ -152,7 +152,7 @@
                         "description": "Time like 9:00 or 14:30"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               }
@@ -181,13 +181,13 @@
                         "description": "City or place to request weather for"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "showWeekly",
                     "description": "Show the weekly forecast",
                     "transitionsTo": "weekly",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               },
@@ -208,13 +208,13 @@
                         "description": "City or place to request weather for"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "showCurrent",
                     "description": "Show current conditions",
                     "transitionsTo": "current",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               }
@@ -249,7 +249,7 @@
                         "required": false
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "checkTask",
@@ -267,7 +267,7 @@
                         ]
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "setLimit",
@@ -279,7 +279,7 @@
                         "description": "How many tasks to show"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "importTasks",
@@ -291,7 +291,7 @@
                         "description": "Tasks to import"
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               }
@@ -325,7 +325,7 @@
                       }
                     ],
                     "transitionsTo": "route",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               },
@@ -340,7 +340,7 @@
                     "name": "showOverview",
                     "description": "Show all saved places",
                     "transitionsTo": "overview",
-                    "idempotent": false
+                    "effect": "any"
                   },
                   {
                     "name": "showRoute",
@@ -356,7 +356,7 @@
                         ]
                       }
                     ],
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               }
@@ -386,7 +386,7 @@
                       }
                     ],
                     "transitionsTo": "entry",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               },
@@ -401,7 +401,7 @@
                     "name": "backToList",
                     "description": "Return to the entries list",
                     "transitionsTo": "list",
-                    "idempotent": false
+                    "effect": "any"
                   }
                 ]
               }
@@ -624,7 +624,7 @@
               }
             ],
             "transitionsTo": "entry",
-            "idempotent": false
+            "effect": "any"
           }
         }
       },

@@ -47,7 +47,7 @@ describe('buildVesselsSection', () => {
     expect(output).toContain('→ week');
   });
 
-  test('marks an idempotent action and leaves the rest unmarked', () => {
+  test('marks rerun-safe actions idempotent and leaves the rest unmarked', () => {
     const output = buildVesselsSection(
       makeGridRequest({
         vessels: [
@@ -65,7 +65,12 @@ describe('buildVesselsSection', () => {
                     name: 'showDetail',
                     description: 'Open the detail view',
                     transitionsTo: 'detail',
-                    idempotent: true,
+                    effect: 'none',
+                  },
+                  {
+                    name: 'refresh',
+                    description: 'Reload the order',
+                    effect: 'idempotent',
                   },
                   { name: 'archive', description: 'Archive the order' },
                 ],
@@ -82,6 +87,7 @@ describe('buildVesselsSection', () => {
     );
 
     expect(output).toContain('showDetail → detail [idempotent]');
+    expect(output).toContain('refresh [idempotent]');
     expect(output).not.toContain('archive [idempotent]');
   });
 

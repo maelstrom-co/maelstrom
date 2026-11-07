@@ -5,7 +5,7 @@ import { CATALOG_SKUS, FOOD_TYPES, SPECIES } from '../stores/fixtures';
 
 const SEARCH_PRODUCTS = {
   name: 'searchProducts',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Search the pet-food catalog and show matching products with price, fat % and protein %. Every parameter is optional and they combine: use species, foodType and maxFatPercent for structured criteria, and query for free text such as a brand, protein source or need ("salmon", "Northpaw", "sensitive stomach", "weight"). Call with no parameters to list the whole catalog.',
   parameters: [
@@ -40,7 +40,7 @@ const SEARCH_PRODUCTS = {
 
 const FIND_SIMILAR_PRODUCTS = {
   name: 'findSimilarProducts',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Show products similar to a given product: same species, same food type (dry or wet) and a compatible life stage, sorted leanest first. Set lowerFatOnly to keep only alternatives with less fat than the reference product. This is the way to answer "something like what I usually buy but lower in fat".',
   parameters: [
@@ -68,7 +68,7 @@ const FIND_SIMILAR_PRODUCTS = {
 
 const SHOW_PRODUCT_DETAILS = {
   name: 'showProductDetails',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Open one product to see its full details: brand, size, price, fat %, protein %, life stage and description.',
   parameters: [
@@ -82,7 +82,7 @@ const SHOW_PRODUCT_DETAILS = {
 
 const CLEAR_SEARCH = {
   name: 'clearSearch',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Clear any search or similarity filter and list the whole catalog.',
 } as const;
@@ -114,7 +114,7 @@ const baseCatalogVessel = defineVessel({
         { ...CLEAR_SEARCH, transitionsTo: 'results' },
         {
           name: 'backToResults',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Return to the list of search results',
           transitionsTo: 'results',
         },

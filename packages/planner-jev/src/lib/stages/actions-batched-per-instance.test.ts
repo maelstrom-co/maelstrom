@@ -309,7 +309,7 @@ describe('actionsBatchedPerInstance', () => {
     ]);
   });
 
-  test('drops a second action whose name and bound parameters repeat an earlier one, regardless of the idempotent flag', async () => {
+  test('drops a second action whose name and bound parameters repeat an earlier one, regardless of the declared effect', async () => {
     const { result, logs } = await run(
       selectionOf('add "Buy milk" twice', TASKS_ONLY),
       answering({

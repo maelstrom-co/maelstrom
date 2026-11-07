@@ -25,7 +25,7 @@ export const checkoutVessel = defineVessel({
       actions: [
         {
           name: 'returnToCheckoutReview',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Dismiss the order confirmation and go back to reviewing the current cart for checkout.',
           transitionsTo: 'review',

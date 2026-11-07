@@ -98,7 +98,12 @@ Actions live on each variant's `actions` array. A `VesselActionDefinition` has f
 - **`description`**: what the action does, in plain language. The LLM reads this to decide when to invoke it.
 - **`parameters`** *(optional)*: an array of `ActionParameter` describing typed inputs the LLM fills.
 - **`transitionsTo`** *(optional)*: the name of the variant this action moves the vessel into. Omit it for actions that mutate data without changing variant.
-- **`idempotent`** *(optional, defaults to `false`)*: whether running the action twice leaves the vessel where running it once would. The Engine may re-emit an action on a turn triggered by nothing but a chart resize, and it cannot see vessel contents to tell a first run from a repeat, so such a turn admits only actions marked `true` that the LLM invoked with no parameters. A parameter value there could only have come from earlier in the conversation, so `setLocation("Tokyo")` is refused on a resize even when marked. Mark pure navigation (`expand`, `showWeek`); leave anything that appends or accumulates unmarked.
+- **`effect`** *(optional, defaults to `'any'`)*: what running the action does beyond its `transitionsTo`. It decides whether the action needs a handler and whether it is safe to run again:
+  - `'none'`: the action has no application effect. Maelstrom only switches the variant, so it needs no handler. Use it for a view switch such as `expand` or `showWeek`. It must declare `transitionsTo` and no parameters.
+  - `'idempotent'`: the action needs a handler, and running it twice with the same parameters leaves the vessel where running it once would, such as opening an entry that may already be open.
+  - `'any'`: the action needs a handler and may append, remove or otherwise accumulate, so running it twice is not safe. Leave `effect` unset for these.
+
+  The Engine may re-emit an action on a turn triggered by nothing but a chart resize, and it cannot see vessel contents to tell a first run from a repeat. Such a turn admits only `'none'` and `'idempotent'` actions that the LLM invoked with no parameters. A parameter value there could only have come from earlier in the conversation, so `setLocation("Tokyo")` is refused on a resize even when it is declared `'idempotent'`.
 
 Give `card` an action that takes a parameter and an action that switches to `expanded`:
 
