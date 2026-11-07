@@ -54,6 +54,13 @@ const orderVessel = defineVessel({
 
 const entry = vessel(orderVessel, () => null);
 
+// Every orders Action needs a handler, so tests override only the one they observe.
+const unusedHandlers: ActionRunner<typeof orderVessel> = {
+  selectOrder: () => ok(undefined),
+  refresh: () => ok(undefined),
+  close: () => ok(undefined),
+};
+
 afterEach(() => cleanup());
 
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
@@ -102,6 +109,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 
@@ -145,6 +153,7 @@ describe('m.useActions()', () => {
       ok(undefined),
     );
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       selectOrder: selectOrderHandler,
     };
 
@@ -192,6 +201,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 
@@ -245,6 +255,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 

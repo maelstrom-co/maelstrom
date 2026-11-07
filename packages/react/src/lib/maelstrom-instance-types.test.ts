@@ -66,6 +66,8 @@ describe('MaelstromInstance.useActions inference', () => {
           void _id;
           return ok(undefined);
         },
+        refresh: async () => ok(undefined),
+        close: async () => ok(undefined),
       });
     }
   });
@@ -79,6 +81,8 @@ describe('MaelstromInstance.useActions inference', () => {
           void _id;
           return ok(undefined);
         },
+        refresh: async () => ok(undefined),
+        close: async () => ok(undefined),
       });
     }
   });
@@ -87,9 +91,25 @@ describe('MaelstromInstance.useActions inference', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('orders', 'inst-1', {
+        selectOrder: async () => ok(undefined),
         refresh: async () => ok(undefined),
         close: async () => ok(undefined),
       });
+    }
+  });
+
+  it('rejects a runner missing a handler for an Action not declared effect none', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useActions(
+        'orders',
+        'inst-1',
+        // @ts-expect-error - `close` declares no effect, so it needs a handler
+        {
+          selectOrder: async () => ok(undefined),
+          refresh: async () => ok(undefined),
+        },
+      );
     }
   });
 
@@ -97,6 +117,9 @@ describe('MaelstromInstance.useActions inference', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('orders', 'inst-1', {
+        selectOrder: async () => ok(undefined),
+        refresh: async () => ok(undefined),
+        close: async () => ok(undefined),
         // @ts-expect-error - 'bogus' is not an action on the orders vessel
         bogus: async () => ok(undefined),
       });

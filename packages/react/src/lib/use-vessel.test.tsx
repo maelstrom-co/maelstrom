@@ -42,7 +42,14 @@ const orderVessel = defineVessel({
     detail: {
       props: { view: 'detail' as const, orderId: '' },
       minSize: { width: 3, height: 3 },
-      actions: [{ name: 'close', description: 'Close', transitionsTo: 'list' }],
+      actions: [
+        {
+          name: 'close',
+          description: 'Close',
+          transitionsTo: 'list',
+          effect: 'none',
+        },
+      ],
     },
   },
 });
@@ -525,6 +532,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
       const runner = useMemo(
         () => ({
           viewDetail: () => ok(undefined),
+          refresh: () => ok(undefined),
         }),
         [],
       );
@@ -655,6 +663,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
       const runner = useMemo(
         () => ({
           viewDetail: () => err(new Error('action failed')),
+          refresh: () => ok(undefined),
         }),
         [],
       );
@@ -708,6 +717,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
           viewDetail: () => {
             throw new Error('runner threw');
           },
+          refresh: () => ok(undefined),
         }),
         [],
       );

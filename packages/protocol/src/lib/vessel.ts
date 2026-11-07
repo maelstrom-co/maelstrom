@@ -37,7 +37,7 @@ export const ActionEffectSchema = z.enum(['none', 'idempotent', 'any']);
  *
  * `effect` parses to an explicit {@link ActionEffect}, `'any'` when omitted,
  * so consumers never branch on `undefined`. An Action with effect `'none'`
- * must declare `transitionsTo` and no parameters; see
+ * must declare `transitionsTo` and no parameters. See
  * {@link VesselActionDefinition.effect}. An Action that still declares the
  * removed `idempotent` flag fails to parse with a migration message.
  */

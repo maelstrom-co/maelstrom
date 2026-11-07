@@ -102,16 +102,24 @@ export interface MaelstromInstanceCore<
    * Pass a stable runner reference (defined outside the component or wrapped in useMemo)
    * to prevent unnecessary re-registrations on each render.
    *
+   * The runner needs a handler for every action not declared `effect: 'none'`, and the type
+   * requires one. An action without a handler that is not declared `effect: 'none'` is skipped
+   * and its Variant does not change, so a missing handler never reports success. An action
+   * declared `effect: 'none'` needs no handler: its `transitionsTo` applies on its own.
+   *
    * For Engine-planned actions the handler runs while the instance is still in its
    * pre-action Variant, and the action's `transitionsTo` applies after the handler succeeds.
-   * An Engine action with `transitionsTo` and no handler still transitions, but only once
-   * this hook has registered a runner for the instance. A Vessel that only transitions must
-   * still call `useActions`, with an empty handler map if it has no side effects. Otherwise
-   * its Engine actions are skipped after the readiness timeout and its Variant does not change.
+   * Engine actions run only once this hook has registered a runner for the instance. A Vessel
+   * whose actions are all declared `effect: 'none'` must still call `useActions`, with an empty
+   * handler map. Otherwise its Engine actions are skipped after the readiness timeout and its
+   * Variant does not change.
    *
    * @example
    * m.useActions('calendar', instanceId, {
-   *   showWeek: () => ok(undefined),
+   *   addEvent: async ({ title }) => {
+   *     await saveEvent(title);
+   *     return ok(undefined);
+   *   },
    * });
    */
   useActions: <Id extends VesselIds<T>>(

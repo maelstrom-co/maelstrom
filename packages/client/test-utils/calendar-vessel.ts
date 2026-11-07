@@ -5,8 +5,8 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 
-// The demo calendar shape: view switches are pure transitions, addEvent is a
-// handler-only Action.
+// The demo calendar shape: view switches declare effect `none` and need no
+// handler, addEvent is a handler-only Action.
 export const calendarViewsVessel = {
   id: 'calendar',
   name: 'Calendar',
@@ -18,11 +18,17 @@ export const calendarViewsVessel = {
       minSize: { width: 1, height: 1 },
       actions: [
         { name: 'addEvent', description: 'Add an event' },
-        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+        {
+          name: 'showWeek',
+          description: 'Week view',
+          transitionsTo: 'week',
+          effect: 'none',
+        },
         {
           name: 'showMonth',
           description: 'Month view',
           transitionsTo: 'month',
+          effect: 'none',
         },
       ],
     },
@@ -31,11 +37,17 @@ export const calendarViewsVessel = {
       minSize: { width: 1, height: 1 },
       actions: [
         { name: 'addEvent', description: 'Add an event' },
-        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
+        {
+          name: 'showDay',
+          description: 'Day view',
+          transitionsTo: 'day',
+          effect: 'none',
+        },
         {
           name: 'showMonth',
           description: 'Month view',
           transitionsTo: 'month',
+          effect: 'none',
         },
       ],
     },
@@ -43,8 +55,18 @@ export const calendarViewsVessel = {
       props: {},
       minSize: { width: 1, height: 1 },
       actions: [
-        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
-        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+        {
+          name: 'showDay',
+          description: 'Day view',
+          transitionsTo: 'day',
+          effect: 'none',
+        },
+        {
+          name: 'showWeek',
+          description: 'Week view',
+          transitionsTo: 'week',
+          effect: 'none',
+        },
       ],
     },
   },

@@ -418,7 +418,11 @@ describe('m.Chart — executeAction routing (regression)', () => {
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function Reader() {
       processIntent = m.useMaelstrom().processIntent;
-      m.useActions('orders', 'inst-1', { selectOrder });
+      m.useActions('orders', 'inst-1', {
+        selectOrder,
+        refresh: () => ok(undefined),
+        close: () => ok(undefined),
+      });
       return null;
     }
 

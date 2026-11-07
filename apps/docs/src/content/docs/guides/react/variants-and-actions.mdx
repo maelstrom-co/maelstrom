@@ -105,7 +105,7 @@ Actions live on each variant's `actions` array. A `VesselActionDefinition` has f
 
   The Engine may re-emit an action on a turn triggered by nothing but a chart resize, and it cannot see vessel contents to tell a first run from a repeat. Such a turn admits only `'none'` and `'idempotent'` actions that the LLM invoked with no parameters. A parameter value there could only have come from earlier in the conversation, so `setLocation("Tokyo")` is refused on a resize even when it is declared `'idempotent'`.
 
-Give `card` an action that takes a parameter and an action that switches to `expanded`:
+Give `card` an action that takes a parameter and an action that switches to `expanded`. Switching views needs nothing from your app, so `expand` declares `effect: 'none'`:
 
 ```ts title="src/vessels/greeting/greeting.vessel.ts"
     card: {
@@ -130,6 +130,7 @@ Give `card` an action that takes a parameter and an action that switches to `exp
           name: 'expand',
           description: 'Show the greeting with a longer message.',
           transitionsTo: 'expanded',
+          effect: 'none',
         },
       ],
     },
@@ -154,12 +155,12 @@ These Engine checks do not validate Actions invoked locally through `executeActi
 
 ## transitionsTo wiring
 
-When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, and it moves the instance into the named target variant. `defineVessel` only preserves literal types for downstream inference — it performs no validation itself. Rejection happens at registration: `registerVessel()` runs `VesselSchema` (via `validateVessel`) and throws if a `transitionsTo` names a variant that doesn't exist, so a typo fails fast rather than at runtime.
+When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, which an `effect: 'none'` action may omit, and it moves the instance into the named target variant. `defineVessel` only preserves literal types for downstream inference. It performs no validation itself. Rejection happens at registration: `registerVessel()` runs `VesselSchema` (via `validateVessel`) and throws if a `transitionsTo` names a variant that doesn't exist, so a typo fails fast rather than at runtime.
 
 The order of those two steps depends on who invoked the action:
 
 - **Local `executeAction`**: the instance moves to the target variant first, so the UI responds at once. The handler runs next, and if it fails, the variant reverts, unless a newer change has already replaced it.
-- **Engine-planned action**: the handler runs first, while the instance is still in the variant it had before the action. The transition applies only after the handler succeeds, so a failed handler leaves the variant alone. A pure transition, one with no handler, applies on its own, as long as the component has called `useActions` for that instance. Each engine action is checked against the variant the instance has when that action's turn comes, so an action that a previous action moved away from is skipped.
+- **Engine-planned action**: the handler runs first, while the instance is still in the variant it had before the action. The transition applies only after the handler succeeds, so a failed handler leaves the variant alone. An action declared `effect: 'none'` needs no handler: its transition applies on its own, as long as the component has called `useActions` for that instance. Any other action without a handler is skipped and its variant does not change. Each engine action is checked against the variant the instance has when that action's turn comes, so an action that a previous action moved away from is skipped.
 
 After a transition, your component re-renders with `variantProps` narrowed to the target variant. That is why `expand` above moves `card` → `expanded`: the next render hits the `expanded` branch and gains access to `message`. The target variant's `minSize` becomes the floor for later grid layout validation; it has no effect in tiling mode.
 
@@ -203,7 +204,7 @@ export default function GreetingComponent({
 
 ### The app handles actions
 
-`m.useActions(vesselId, instanceId, runner)` registers the handlers. The `runner` is a partial map from action name to an async handler: you only implement the actions you care about, and the rest are no-ops. Each handler returns an `ActionResult`, signalled with `ok(...)` or `err(...)` from `@maelstrom-co/protocol`:
+`m.useActions(vesselId, instanceId, runner)` registers the handlers. The `runner` maps action names to handlers. It needs a handler for every action not declared `effect: 'none'`, and TypeScript reports a runner that leaves one out. Handlers for `effect: 'none'` actions are optional. Each handler returns an `ActionResult`, signalled with `ok(...)` or `err(...)` from `@maelstrom-co/protocol`:
 
 ```tsx title="src/vessels/greeting/greeting.actions.tsx"
 import { ok, err } from '@maelstrom-co/protocol';
@@ -216,14 +217,13 @@ export function GreetingActions({ instanceId }: { instanceId: string }) {
       await saveGreetingTarget(name);
       return ok(undefined);
     },
-    expand: () => ok(undefined),
   });
 
   return null;
 }
 ```
 
-The handler params are typed from the vessel definition: `setName` receives `{ name: string }`, and `expand` (no parameters) takes none. Handlers run for both engine-initiated actions and the `executeAction` calls fired from your component, so the same `setName` logic serves the LLM and the button.
+The handler params are typed from the vessel definition: `setName` receives `{ name: string }`, and a parameterless action's handler takes none. `expand` is declared `effect: 'none'`, so the runner leaves it out. Handlers run for both engine-initiated actions and the `executeAction` calls fired from your component, so the same `setName` logic serves the LLM and the button.
 
 <Aside type="note">
   Pass a stable `runner`: define it outside the component or wrap it in `useMemo`. A fresh object each render re-registers the handlers on every render. Only one `useActions` call per `instanceId` is supported; a second registration overwrites the first.
@@ -231,7 +231,14 @@ The handler params are typed from the vessel definition: `setName` receives `{ n
 
 ### Missing handlers and invalid parameters
 
-If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. An action with `transitionsTo` still moves the instance to its target variant, so actions that only transition variants need no handler of their own. Engine-planned actions still need a registered runner: the Vessel's component must call `useActions` for the instance, with an empty handler map if none of its actions has side effects. If no runner registers before the readiness timeout, the engine's actions for that instance are reported as skipped and its variant does not change. An engine-planned action with neither a handler nor `transitionsTo` is reported as skipped. When an action needs data or side effects, return `err(...)` from the handler for invalid parameters so the failure reaches the error surface instead of silently mutating state.
+If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. What happens next depends on the action's `effect`:
+
+- **`effect: 'none'`**: the action needs no handler. Its `transitionsTo` still moves the instance to its target variant.
+- **`'idempotent'` or `'any'`**: the action is reported as skipped and the variant does not change, even when it declares `transitionsTo`. Without this rule, an action such as `selectItem({ id })` with a stale or missing handler would switch to the detail view, select nothing, and still report success. The `ActionRunner` type catches a missing handler at compile time, so this case only appears when the runner is assembled at runtime or registered for the wrong vessel.
+
+A locally invoked action that is skipped this way reverts its optimistic transition, the same as a failed handler.
+
+Engine-planned actions still need a registered runner: the Vessel's component must call `useActions` for the instance, with an empty handler map if all of its actions are declared `effect: 'none'`. If no runner registers before the readiness timeout, the engine's actions for that instance are reported as skipped and its variant does not change. When an action needs data or side effects, return `err(...)` from the handler for invalid parameters so the failure reaches the error surface instead of silently mutating state.
 
 ```tsx
 setName: async ({ name }) => {
@@ -241,7 +248,7 @@ setName: async ({ name }) => {
 }
 ```
 
-With both halves wired, the loop is complete: the component (or the LLM) fires `expand`, the runner's handler runs, the action transitions the vessel to `expanded`, and the component re-renders into the expanded state.
+With both halves wired, the loop is complete: the component (or the LLM) fires `setName`, the runner's handler saves the name, and the component re-renders with it. When it fires `expand`, Maelstrom moves the vessel to `expanded` with no handler involved, and the component re-renders into the expanded state.
 
 ## Options that change at runtime
 
