@@ -132,7 +132,7 @@ describe('CommandProcessor.dispatchSettled with Vessel resolution', () => {
     processor.dispose();
   });
 
-  it('applies a pure transition Action after the layout and settles as applied', async () => {
+  it('applies an effect none transition Action after the layout and settles as applied', async () => {
     processor.registerRunner(calendarMain, {});
 
     const settled = await processor.dispatchSettled(

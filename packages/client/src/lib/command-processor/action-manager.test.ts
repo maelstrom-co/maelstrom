@@ -25,6 +25,10 @@ import {
   calendarMain,
   calendarViewsVessel,
 } from '../../../test-utils/calendar-vessel.js';
+import {
+  inboxMain,
+  listDetailVessel,
+} from '../../../test-utils/list-detail-vessel.js';
 import { Logger } from '../utils/logger.js';
 import { ActionManager, type VariantTransitions } from './action-manager.js';
 import type {
@@ -740,6 +744,7 @@ const calendarVessel: VesselDefinition = {
           name: 'showYear',
           description: 'Undeclared view',
           transitionsTo: 'year',
+          effect: 'none',
         },
       ],
     },
@@ -748,18 +753,17 @@ const calendarVessel: VesselDefinition = {
 
 // Keeps Variants in a plain map and resolves with the CommandProcessor's
 // resolver, so these tests pin the ActionManager rules without a store.
-function createFakeVariantTransitions(initial: Record<string, string>) {
+function createFakeVariantTransitions(
+  initial: Record<string, string>,
+  vessel: VesselDefinition = calendarVessel,
+) {
   const variants = new Map<string, string>(Object.entries(initial));
   const applyCalls: [string, string, string][] = [];
   const transitions: VariantTransitions = {
     resolve(instanceId, action) {
       const variant = variants.get(instanceId);
       if (variant === undefined) return { status: 'instance_missing' };
-      return resolveActionOnVariant(
-        calendarVessel,
-        VariantName(variant),
-        action,
-      );
+      return resolveActionOnVariant(vessel, VariantName(variant), action);
     },
     apply(instanceId, expected, next) {
       applyCalls.push([instanceId, expected, next]);
@@ -792,7 +796,7 @@ describe('variant transitions', () => {
     manager.dispose();
   });
 
-  it('applies a pure transition with no handler and records it as applied', async () => {
+  it('applies an effect none transition with no handler and records it as applied', async () => {
     const { transitions, variants, applyCalls } = createFakeVariantTransitions({
       'calendar-main': 'day',
     });
@@ -810,6 +814,69 @@ describe('variant transitions', () => {
     expect(result.actions[0].result.ok).toBe(true);
     expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
     expect(variants.get('calendar-main')).toBe('week');
+  });
+
+  it('skips a transition Action that needs a handler and has none, without moving the Variant', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions(
+      { 'inbox-main': 'list' },
+      listDetailVessel,
+    );
+    manager.registerRunner(inboxMain, {});
+
+    const result = await manager.executeActions(
+      [
+        {
+          instanceId: inboxMain,
+          action: ActionName('selectItem'),
+          params: { id: 'item-7' },
+        },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "selectItem" on Variant "list" of Instance "inbox-main" has no handler and is not declared effect "none"',
+    });
+    expect(applyCalls).toEqual([]);
+    expect(variants.get('inbox-main')).toBe('list');
+  });
+
+  it('applies an effect none switch with no handler, then skips a following Action that has none', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions(
+      { 'inbox-main': 'list' },
+      listDetailVessel,
+    );
+    manager.registerRunner(inboxMain, {});
+
+    const result = await manager.executeActions(
+      [
+        { instanceId: inboxMain, action: ActionName('showDetails') },
+        {
+          instanceId: inboxMain,
+          action: ActionName('selectItem'),
+          params: { id: 'item-7' },
+        },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(1);
+    expect(result.actions[0].skipped).toBeUndefined();
+    expect(result.actions[1]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "selectItem" on Variant "detail" of Instance "inbox-main" has no handler and is not declared effect "none"',
+    });
+    expect(applyCalls).toEqual([['inbox-main', 'list', 'detail']]);
+    expect(variants.get('inbox-main')).toBe('detail');
   });
 
   it('runs a side-effect handler on the pre-action Variant, then applies the transition', async () => {
@@ -1132,7 +1199,7 @@ describe('variant transitions', () => {
       skipped: true,
       errorCategory: 'application',
       reason:
-        'Action "addEvent" has no handler on Instance "calendar-main" and no transition on Variant "day"',
+        'Action "addEvent" on Variant "day" of Instance "calendar-main" has no handler and is not declared effect "none"',
     });
   });
 
@@ -1197,7 +1264,7 @@ describe('variant transitions', () => {
     ]);
   });
 
-  it('reports readiness and handler starts to the observer, with no start for a pure transition', async () => {
+  it('reports readiness and handler starts to the observer, with no start for an effect none transition', async () => {
     const { transitions, variants } = createFakeVariantTransitions({
       'calendar-main': 'day',
     });

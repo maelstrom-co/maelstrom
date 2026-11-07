@@ -86,6 +86,7 @@ A `VesselAction` is an edge in the graph:
 - **`description`** — what the LLM reads to decide whether to invoke it.
 - **`parameters`** — optional structured arguments (`ActionParameter[]`).
 - **`transitionsTo`** — the target variant after the action runs.
+- **`effect`**: what the action does beyond its transition: `'none'` for a pure view switch that needs no handler, `'idempotent'` for an effect that is safe to repeat, or `'any'`, the default, for anything else. Every action not declared `'none'` needs a handler, or it is skipped and its variant does not change.
 
 `transitionsTo` is what makes the machine a machine. When it's set, the action moves the instance to a new state — and a new `minSize`, and a new action set. That holds wherever the action runs: a user's local action and an engine-planned action both apply it on the client. When it's omitted, the action is a *self-action*: it can still mutate `props` or trigger side effects via the framework binding, but the Vessel's variant doesn't change.
 

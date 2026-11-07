@@ -1,4 +1,5 @@
 import {
+  type ActionEffect,
   type ActionExecution,
   type ActionName,
   err,
@@ -38,7 +39,8 @@ export interface ActionProgress {
  * Action's turn comes.
  *
  * - `available`: the Action is defined on `variant`, the Instance's current
- *   Variant, and `transition` describes its declared `transitionsTo`.
+ *   Variant, `transition` describes its declared `transitionsTo` and `effect`
+ *   its declared effect.
  * - `instance_missing`: the Instance is not in the store.
  * - `vessel_unknown`: no Vessel definition is registered for the Instance.
  * - `action_not_on_variant`: the current Variant does not define the Action.
@@ -51,6 +53,11 @@ export type ActionVariantResolution =
       readonly variant: VariantName;
       /** The Action's declared Variant transition on `variant`. */
       readonly transition: ActionVariantTransition;
+      /**
+       * The Action's declared effect on `variant`. Only an Action declared
+       * `'none'` may run without a handler.
+       */
+      readonly effect: ActionEffect;
     }
   | {
       /** The Instance is not in the store. */
@@ -143,9 +150,11 @@ export interface VariantTransitions {
  *
  * Given {@link VariantTransitions}, each Action resolves against the
  * Instance's Variant at its turn and applies its `transitionsTo` after the
- * handler succeeds. A transition with no handler applies on its own, but only
- * once the Instance has a registered runner. Without them, handlers are looked
- * up by name alone and no Variant changes.
+ * handler succeeds. An Action declared effect `'none'` with no handler applies
+ * its transition on its own, but only once the Instance has a registered
+ * runner. Any other Action without a handler is skipped and changes no
+ * Variant. Without them, handlers are looked up by name alone and no Variant
+ * changes.
  *
  * @example
  * ```typescript
@@ -336,16 +345,18 @@ export class ActionManager {
    * 2. Resolves against the Instance's current Variant. An Action not defined
    *    there is skipped as `application`, with a `reason`.
    * 3. Runs its handler, if the runner has one. A failed handler applies no
-   *    transition.
+   *    transition. With no handler, only an Action declared effect `'none'`
+   *    continues. Any other is skipped as `application`, with a `reason`, and
+   *    applies no transition.
    * 4. Applies its `transitionsTo` with compare-and-set against the Variant
-   *    from step 2. A transition with no handler counts as applied. A target
-   *    equal to the current Variant, or one the Vessel does not define,
-   *    applies nothing. A lost compare-and-set is not an error.
+   *    from step 2. An effect `'none'` transition with no handler counts as
+   *    applied. A target equal to the current Variant, or one the Vessel does
+   *    not define, applies nothing. A lost compare-and-set is not an error.
    *
-   * With no handler, an Action that declares no transition or transitions to
-   * a Variant the Vessel does not define is skipped as `application`, with a
-   * `reason`. One whose target equals the current Variant succeeds without a
-   * change.
+   * With no handler, an effect `'none'` Action that declares no transition or
+   * transitions to a Variant the Vessel does not define is skipped as
+   * `application`, with a `reason`. One whose target equals the current
+   * Variant succeeds without a change.
    *
    * Without `transitions`, handlers are looked up by name alone and no
    * Variant changes.
@@ -621,6 +632,14 @@ export class ActionManager {
       const handler = runner[execution.action];
 
       if (!handler) {
+        if (resolution.effect !== 'none') {
+          const reason = `Action "${execution.action}" on Variant "${resolution.variant}" of Instance "${instanceId}" has no handler and is not declared effect "none"`;
+          this.#warn(`${reason}, skipping`);
+          records.push(
+            skippedRecord(instanceId, execution.action, 'application', reason),
+          );
+          continue;
+        }
         if (resolution.transition.kind === 'none') {
           const reason = `Action "${execution.action}" has no handler on Instance "${instanceId}" and no transition on Variant "${resolution.variant}"`;
           this.#warn(`${reason}, skipping`);

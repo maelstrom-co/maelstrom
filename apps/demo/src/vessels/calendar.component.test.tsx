@@ -42,7 +42,7 @@ function latestHandlers(): CalendarHandlers {
   const calls = vi.mocked(m.useActions).mock.calls;
   const last = calls.at(-1);
   if (!last) throw new Error('m.useActions was not called');
-  return last[2] as CalendarHandlers;
+  return last[2] as unknown as CalendarHandlers;
 }
 
 beforeEach(() => {

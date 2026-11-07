@@ -26,6 +26,7 @@ export function resolveActionOnVariant(
   return {
     status: 'available',
     variant,
+    effect: definition.effect ?? 'any',
     transition:
       target === undefined
         ? { kind: 'none' }

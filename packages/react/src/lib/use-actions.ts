@@ -21,6 +21,9 @@ import { warnOnce } from './warn-once.js';
  * Pass a stable runner reference (defined outside the component or wrapped in useMemo)
  * to prevent unnecessary re-registrations on each render.
  *
+ * The runner needs a handler for every action not declared `effect: 'none'`. Without one,
+ * that action is skipped and its Variant does not change.
+ *
  * Limitation: only one useActions call per instanceId is supported. If two components
  * register runners for the same instanceId, the second overwrites the first.
  * Disposal is identity-checked, so unmounting the first will not affect the second's runner.

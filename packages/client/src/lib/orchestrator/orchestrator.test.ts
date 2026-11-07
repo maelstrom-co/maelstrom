@@ -38,6 +38,10 @@ import {
   createTestOrchestrator,
 } from '../../../test-utils/connector-mocks.js';
 import {
+  inboxMain,
+  listDetailVessel,
+} from '../../../test-utils/list-detail-vessel.js';
+import {
   createMockEmptyResponse,
   createMockResponse,
 } from '../../../test-utils/mocks.js';
@@ -2154,6 +2158,58 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('reverts a transition whose Action needs a handler when the runner has none', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(listDetailVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: inboxMain,
+        vesselId: 'inbox',
+        variant: 'list',
+      });
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+      orchestrator.commandProcessor.registerRunner(instanceId, {});
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('selectItem'), {
+        id: 'item-7',
+      });
+      expect(currentVariant(orchestrator, instanceId)).toBe('detail');
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await waitFor(() => currentVariant(orchestrator, instanceId) === 'list');
+
+      const mutations = scheduleSpy.mock.calls.map(([reason]) =>
+        reason.type === 'vessel_mutation' ? reason.changes : reason.type,
+      );
+      expect(mutations).toEqual([
+        'user invoked "selectItem" with {"id":"item-7"}: variant list → detail',
+        'action "selectItem" did not run; reverted variant detail → list',
+      ]);
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('keeps an effect none transition when the runner has no handler for it', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(listDetailVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: inboxMain,
+        vesselId: 'inbox',
+        variant: 'list',
+      });
+      orchestrator.commandProcessor.registerRunner(instanceId, {});
+
+      orchestrator.invokeAction(instanceId, ActionName('showDetails'));
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('detail');
+      orchestrator.dispose();
+    });
+
     it('does not revert when a newer transition superseded this one (last-write-wins)', async () => {
       const { orchestrator } = createTestOrchestrator();
       orchestrator.vesselManager.registerVessel(threeStateVessel);
@@ -2392,7 +2448,7 @@ describe('Orchestrator', () => {
       };
     }
 
-    it('applies a pure transition from an Engine response and schedules no vessel_mutation', async () => {
+    it('applies an effect none transition from an Engine response and schedules no vessel_mutation', async () => {
       const connector = createMockConnector({
         process: mock((message: ChartRequestMessage) =>
           Promise.resolve(calendarResponse(message.id, 'showWeek')),

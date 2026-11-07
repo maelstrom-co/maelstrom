@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   ActionName,
   type GridLayout,
@@ -21,6 +21,11 @@ import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
+import {
+  createInboxLayout,
+  inboxMain,
+  listDetailVessel,
+} from '../../../test-utils/list-detail-vessel.js';
 import type { BatchExecutionResult } from './action-runner.types.js';
 import type { Command } from './command.types.js';
 import {
@@ -659,6 +664,36 @@ describe('CommandProcessor Engine Action transitions', () => {
 
     expect(processor.store.state.layout?.type).toBe('grid');
     expect(variantOf(processor)).toBe(VariantName('week'));
+    processor.dispose();
+  });
+
+  it('skips a transition Action without its handler and leaves the Variant alone', async () => {
+    const processor = new CommandProcessor({
+      defaultActionWaitTimeoutMs: 0,
+      resolveVessel: (vesselId: VesselId) =>
+        vesselId === listDetailVessel.id ? listDetailVessel : undefined,
+    });
+    processor.registerRunner(inboxMain, {});
+    processor.setLayout(createInboxLayout('list'));
+    await processor.waitForIdle();
+    const setVariant = spyOn(processor, 'setVariantIfCurrent');
+
+    const settled = await processor.dispatchSettled({
+      kind: 'execute_actions',
+      executionPlan: [
+        {
+          instanceId: inboxMain,
+          action: ActionName('selectItem'),
+          params: { id: 'item-7' },
+        },
+      ],
+    });
+
+    expect(settled.status).toBe('unknown');
+    expect(setVariant).not.toHaveBeenCalled();
+    expect(processor.store.state.instances.get(inboxMain)?.variant).toBe(
+      VariantName('list'),
+    );
     processor.dispose();
   });
 

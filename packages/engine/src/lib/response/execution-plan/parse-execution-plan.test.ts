@@ -1341,7 +1341,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
   });
 
   test('a no-effect action on an introduced instance survives', () => {
-    // The declared effect is the whole gate; where the instance came from
+    // The declared effect is the whole gate. Where the instance came from
     // never enters into it.
     const { plan, skippedActions } = parseWith(
       requestWith([resizeReason]),
