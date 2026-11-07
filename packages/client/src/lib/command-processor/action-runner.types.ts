@@ -75,6 +75,7 @@ type ParamsToObject<Params extends ReadonlyArray<ActionParameter>> = {
   [K in OptionalParamKeys<Params>]?: ParamTypeFor<Params, K>;
 };
 
+// oxlint-disable-next-line typescript/ban-types -- The empty intersection flattens the mapped type in editor hovers and error output.
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 type HandlerRequiredActionNames<V extends VesselDefinition> = Exclude<
