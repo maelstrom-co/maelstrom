@@ -15,7 +15,7 @@ export const taskDetailVessel = defineVessel({
       actions: [
         {
           name: 'showTask',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Show a task in this Instance. It only changes what this Instance shows, never the task.',
           parameters: [
