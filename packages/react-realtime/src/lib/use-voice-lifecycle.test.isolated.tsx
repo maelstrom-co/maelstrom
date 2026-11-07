@@ -106,7 +106,7 @@ const testVessel = defineVessel({
     default: {
       props: {},
       minSize: { width: 1, height: 1 },
-      actions: [],
+      actions: [{ name: 'show', description: 'Show the Instance' }],
     },
   },
 });

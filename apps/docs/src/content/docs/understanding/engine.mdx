@@ -115,7 +115,7 @@ The dropped entry is logged for diagnostics, but consumers receive only the surv
 
 ### Resize-only turns
 
-A resize-only request carries no user intent or Vessel mutation. The Engine has no Vessel contents with which to distinguish a repeated side effect from new work. When every update reason is a `chart_resize`, it accepts an Action only if the definition declares `idempotent: true` and the Planner supplied no parameters. Missing the flag produces `non_idempotent_on_resize`; supplying parameters produces `parameterized_on_resize`.
+A resize-only request carries no user intent or Vessel mutation. The Engine has no Vessel contents with which to distinguish a repeated side effect from new work. When every update reason is a `chart_resize`, it accepts an Action only if the definition declares `effect: 'none'` or `effect: 'idempotent'` and the Planner supplied no parameters. An Action with effect `'any'`, the default, produces `non_idempotent_on_resize`. Supplying parameters produces `parameterized_on_resize`.
 
 Idempotence applies to repeated calls with the same parameters. A resize gives the Planner no reason to choose a new parameter value: `showWeek()` may adjust a view, while `setLocation("Tokyo")` changes application state. An Action that allows parameters can still run on resize if the Planner invokes it without them.
 

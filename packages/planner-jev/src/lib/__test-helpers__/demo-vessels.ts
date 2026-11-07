@@ -18,13 +18,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showWeek',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch to week view for event timeline',
             transitionsTo: 'week',
           },
           {
             name: 'showDay',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch to day view for hourly schedule',
             transitionsTo: 'day',
           },
@@ -59,7 +59,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [
@@ -87,13 +87,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showMonth',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch back to month view',
             transitionsTo: 'month',
           },
           {
             name: 'showDay',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch to day view',
             transitionsTo: 'day',
           },
@@ -126,7 +126,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [
@@ -153,13 +153,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showMonth',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch to month view',
             transitionsTo: 'month',
           },
           {
             name: 'showWeek',
-            idempotent: true,
+            effect: 'none',
             description: 'Switch to week view',
             transitionsTo: 'week',
           },
@@ -192,7 +192,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [
@@ -228,7 +228,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'setLocation',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Try to load weather for a city or place without assuming the request succeeds',
             parameters: [
@@ -241,13 +241,13 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showHourly',
-            idempotent: true,
+            effect: 'none',
             description: 'Show hourly forecast for today',
             transitionsTo: 'hourly',
           },
           {
             name: 'showWeekly',
-            idempotent: true,
+            effect: 'none',
             description: 'Show weekly forecast',
             transitionsTo: 'weekly',
           },
@@ -262,7 +262,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'setLocation',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Try to load weather for a city or place without assuming the request succeeds',
             parameters: [
@@ -275,13 +275,13 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showCurrent',
-            idempotent: true,
+            effect: 'none',
             description: 'Show current conditions',
             transitionsTo: 'current',
           },
           {
             name: 'showWeekly',
-            idempotent: true,
+            effect: 'none',
             description: 'Show weekly forecast',
             transitionsTo: 'weekly',
           },
@@ -296,7 +296,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'setLocation',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Try to load weather for a city or place without assuming the request succeeds',
             parameters: [
@@ -309,13 +309,13 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showCurrent',
-            idempotent: true,
+            effect: 'none',
             description: 'Show current conditions',
             transitionsTo: 'current',
           },
           {
             name: 'showHourly',
-            idempotent: true,
+            effect: 'none',
             description: 'Show hourly forecast',
             transitionsTo: 'hourly',
           },
@@ -417,7 +417,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showRoute',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Show driving directions and travel time to a destination',
             parameters: [
@@ -437,7 +437,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'focusLocation',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show a single saved place as a compact card',
             parameters: [
               {
@@ -465,13 +465,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showOverview',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show all saved locations',
             transitionsTo: 'overview',
           },
           {
             name: 'showRoute',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Show driving directions and travel time to a destination',
             parameters: [
@@ -490,7 +490,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'focusLocation',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show a single saved place as a compact card',
             parameters: [
               {
@@ -518,13 +518,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showOverview',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show all saved locations',
             transitionsTo: 'overview',
           },
           {
             name: 'showRoute',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Show driving directions and travel time to a destination',
             parameters: [
@@ -574,7 +574,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'openEntry',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
             parameters: [
@@ -609,7 +609,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'openEntry',
-            idempotent: true,
+            effect: 'idempotent',
             description:
               'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
             parameters: [
@@ -635,7 +635,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'backToList',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Return to the journal entries list',
             transitionsTo: 'list',
           },

@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import {
   type ActionExecution,
   ActionName,
@@ -7,14 +15,27 @@ import {
   InstanceId,
   isErr,
   ok,
+  VariantName,
+  type VesselDefinition,
+  VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import { ActionManager } from './action-manager.js';
+import {
+  calendarMain,
+  calendarViewsVessel,
+} from '../../../test-utils/calendar-vessel.js';
+import {
+  inboxMain,
+  listDetailVessel,
+} from '../../../test-utils/list-detail-vessel.js';
+import { Logger } from '../utils/logger.js';
+import { ActionManager, type VariantTransitions } from './action-manager.js';
 import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
+import { resolveActionOnVariant } from './action-variant-resolution.js';
 
 const i1 = InstanceId('instance-1');
 const i2 = InstanceId('instance-2');
@@ -701,5 +722,580 @@ describe('ActionManager', () => {
       expect(result.failureCount).toBe(10);
       expect(result.allSucceeded).toBe(false);
     });
+  });
+});
+
+// The shared calendar plus a self-transition and a transition to an
+// undeclared Variant, for the edge cases.
+const calendarVessel: VesselDefinition = {
+  ...calendarViewsVessel,
+  variants: {
+    ...calendarViewsVessel.variants,
+    day: {
+      ...calendarViewsVessel.variants.day,
+      actions: [
+        ...calendarViewsVessel.variants.day.actions,
+        {
+          name: 'refreshDay',
+          description: 'Re-show the day',
+          transitionsTo: 'day',
+        },
+        {
+          name: 'showYear',
+          description: 'Undeclared view',
+          transitionsTo: 'year',
+          effect: 'none',
+        },
+      ],
+    },
+  },
+};
+
+// Keeps Variants in a plain map and resolves with the CommandProcessor's
+// resolver, so these tests pin the ActionManager rules without a store.
+function createFakeVariantTransitions(
+  initial: Record<string, string>,
+  vessel: VesselDefinition = calendarVessel,
+) {
+  const variants = new Map<string, string>(Object.entries(initial));
+  const applyCalls: [string, string, string][] = [];
+  const transitions: VariantTransitions = {
+    resolve(instanceId, action) {
+      const variant = variants.get(instanceId);
+      if (variant === undefined) return { status: 'instance_missing' };
+      return resolveActionOnVariant(vessel, VariantName(variant), action);
+    },
+    apply(instanceId, expected, next) {
+      applyCalls.push([instanceId, expected, next]);
+      if (variants.get(instanceId) !== expected) return false;
+      variants.set(instanceId, next);
+      return true;
+    },
+  };
+  return { transitions, variants, applyCalls };
+}
+
+function plan(...actions: string[]): ActionExecution[] {
+  return actions.map((action) => ({
+    instanceId: calendarMain,
+    action: ActionName(action),
+  }));
+}
+
+describe('variant transitions', () => {
+  let manager: ActionManager;
+
+  beforeEach(() => {
+    manager = new ActionManager({
+      readinessTimeoutMs: 50,
+      executionTimeoutMs: 20,
+    });
+  });
+
+  afterEach(() => {
+    manager.dispose();
+  });
+
+  it('applies an effect none transition with no handler and records it as applied', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, {});
+
+    const result = await manager.executeActions(
+      plan('showWeek'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.skippedCount).toBe(0);
+    expect(result.successCount).toBe(1);
+    expect(result.actions[0].skipped).toBeUndefined();
+    expect(result.actions[0].result.ok).toBe(true);
+    expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
+    expect(variants.get('calendar-main')).toBe('week');
+  });
+
+  it('skips a transition Action that needs a handler and has none, without moving the Variant', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions(
+      { 'inbox-main': 'list' },
+      listDetailVessel,
+    );
+    manager.registerRunner(inboxMain, {});
+
+    const result = await manager.executeActions(
+      [
+        {
+          instanceId: inboxMain,
+          action: ActionName('selectItem'),
+          params: { id: 'item-7' },
+        },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "selectItem" on Variant "list" of Instance "inbox-main" has no handler and is not declared effect "none"',
+    });
+    expect(applyCalls).toEqual([]);
+    expect(variants.get('inbox-main')).toBe('list');
+  });
+
+  it('applies an effect none switch with no handler, then skips a following Action that has none', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions(
+      { 'inbox-main': 'list' },
+      listDetailVessel,
+    );
+    manager.registerRunner(inboxMain, {});
+
+    const result = await manager.executeActions(
+      [
+        { instanceId: inboxMain, action: ActionName('showDetails') },
+        {
+          instanceId: inboxMain,
+          action: ActionName('selectItem'),
+          params: { id: 'item-7' },
+        },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(1);
+    expect(result.actions[0].skipped).toBeUndefined();
+    expect(result.actions[1]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "selectItem" on Variant "detail" of Instance "inbox-main" has no handler and is not declared effect "none"',
+    });
+    expect(applyCalls).toEqual([['inbox-main', 'list', 'detail']]);
+    expect(variants.get('inbox-main')).toBe('detail');
+  });
+
+  it('runs a side-effect handler on the pre-action Variant, then applies the transition', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const seen: string[] = [];
+    manager.registerRunner(calendarMain, {
+      showWeek: async () => {
+        const resolution = transitions.resolve(
+          calendarMain,
+          ActionName('showWeek'),
+        );
+        seen.push(
+          resolution.status === 'available' ? resolution.variant : 'n/a',
+        );
+        seen.push(`applies-before-handler-returns:${applyCalls.length}`);
+        return ok(undefined);
+      },
+    });
+
+    const result = await manager.executeActions(
+      plan('showWeek'),
+      undefined,
+      transitions,
+    );
+
+    expect(seen).toEqual(['day', 'applies-before-handler-returns:0']);
+    expect(result.successCount).toBe(1);
+    expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
+    expect(variants.get('calendar-main')).toBe('week');
+  });
+
+  it.each([
+    ['an error result', () => err(new Error('rejected')), 'application'],
+    [
+      'a throw',
+      () => {
+        throw new Error('thrown');
+      },
+      'application',
+    ],
+    ['a timeout', () => new Promise<never>(() => {}), 'timeout'],
+  ] as const)('applies no transition when the handler fails with %s', async (_label, handler, category) => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, { showWeek: handler });
+
+    const result = await manager.executeActions(
+      plan('showWeek'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.failureCount).toBe(1);
+    expect(result.actions[0].errorCategory).toBe(category);
+    expect(applyCalls).toEqual([]);
+    expect(variants.get('calendar-main')).toBe('day');
+  });
+
+  it('skips every Action as readiness without a transition when the runner never registers', async () => {
+    const { transitions, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const resolve = spyOn(transitions, 'resolve');
+
+    const result = await manager.executeActions(
+      plan('showWeek', 'addEvent'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.skippedCount).toBe(2);
+    expect(result.actions.map((record) => record.errorCategory)).toEqual([
+      'readiness',
+      'readiness',
+    ]);
+    expect(applyCalls).toEqual([]);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('skips an Action not defined on the current Variant with a reason, and keeps going', async () => {
+    const { transitions, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const addEvent = mock(() => ok(undefined));
+    const showDay = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, { addEvent, showDay });
+
+    const result = await manager.executeActions(
+      plan('showDay', 'addEvent'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.actions[0]).toMatchObject({
+      action: ActionName('showDay'),
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "showDay" is not defined on Variant "day" of Instance "calendar-main"',
+    });
+    expect(showDay).not.toHaveBeenCalled();
+    expect(addEvent).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(1);
+    expect(applyCalls).toEqual([]);
+  });
+
+  it('names a missing Instance and an unknown Vessel in the skip reason', async () => {
+    manager.registerRunner(calendarMain, {});
+    const missing = await manager.executeActions(plan('showWeek'), undefined, {
+      resolve: () => ({ status: 'instance_missing' }),
+      apply: () => true,
+    });
+    expect(missing.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "showWeek" targets Instance "calendar-main", which is not in the store',
+    });
+
+    const unknownVessel = await manager.executeActions(
+      plan('showWeek'),
+      undefined,
+      {
+        resolve: () => ({
+          status: 'vessel_unknown',
+          vesselId: VesselId('calendar'),
+          variant: VariantName('day'),
+        }),
+        apply: () => true,
+      },
+    );
+    expect(unknownVessel.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "showWeek" cannot be resolved on Variant "day" of Instance "calendar-main": Vessel "calendar" is not registered',
+    });
+  });
+
+  it('resolves each Action against the Variant the previous Action left', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const seenByAddEvent: (string | undefined)[] = [];
+    manager.registerRunner(calendarMain, {
+      addEvent: () => {
+        seenByAddEvent.push(variants.get('calendar-main'));
+        return ok(undefined);
+      },
+    });
+
+    const result = await manager.executeActions(
+      plan('addEvent', 'showWeek', 'showDay'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(3);
+    expect(result.skippedCount).toBe(0);
+    expect(seenByAddEvent).toEqual(['day']);
+    expect(applyCalls).toEqual([
+      ['calendar-main', 'day', 'week'],
+      ['calendar-main', 'week', 'day'],
+    ]);
+    expect(variants.get('calendar-main')).toBe('day');
+  });
+
+  it('reads the runner at each Action turn so a replaced runner handles later Actions', async () => {
+    const { transitions } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const firstAddEvent = mock(() => ok(undefined));
+    const secondAddEvent = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, {
+      showWeek: () => {
+        manager.registerRunner(calendarMain, { addEvent: secondAddEvent });
+        return ok(undefined);
+      },
+      addEvent: firstAddEvent,
+    });
+
+    const result = await manager.executeActions(
+      plan('showWeek', 'addEvent'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(2);
+    expect(firstAddEvent).not.toHaveBeenCalled();
+    expect(secondAddEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for readiness again when the runner unregisters mid-sequence', async () => {
+    // A readiness window far longer than the re-registration delay, so a slow
+    // timer cannot turn the wait into a readiness skip.
+    const patient = new ActionManager({ readinessTimeoutMs: 1_000 });
+    try {
+      const { transitions } = createFakeVariantTransitions({
+        'calendar-main': 'day',
+      });
+      const secondAddEvent = mock(() => ok(undefined));
+      const unregister = patient.registerRunner(calendarMain, {
+        showWeek: () => {
+          unregister();
+          setTimeout(() => {
+            patient.registerRunner(calendarMain, { addEvent: secondAddEvent });
+          }, 5);
+          return ok(undefined);
+        },
+      });
+
+      const result = await patient.executeActions(
+        plan('showWeek', 'addEvent'),
+        undefined,
+        transitions,
+      );
+
+      expect(result.successCount).toBe(2);
+      expect(secondAddEvent).toHaveBeenCalledTimes(1);
+    } finally {
+      patient.dispose();
+    }
+  });
+
+  it('skips as readiness without a transition when the runner stays gone mid-sequence', async () => {
+    const { transitions, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const unregister = manager.registerRunner(calendarMain, {
+      addEvent: () => {
+        unregister();
+        return ok(undefined);
+      },
+    });
+
+    const result = await manager.executeActions(
+      plan('addEvent', 'showWeek'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.actions[1]).toMatchObject({
+      skipped: true,
+      errorCategory: 'readiness',
+    });
+    expect(applyCalls).toEqual([]);
+  });
+
+  it('does not apply a transition whose target is the current Variant', async () => {
+    const { transitions, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    const refreshDay = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, { refreshDay });
+
+    const result = await manager.executeActions(
+      plan('refreshDay'),
+      undefined,
+      transitions,
+    );
+
+    expect(refreshDay).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(1);
+    expect(applyCalls).toEqual([]);
+  });
+
+  it('warns about an unknown target Variant and applies no transition', async () => {
+    const logger = new Logger(false);
+    const warn = spyOn(logger, 'warn').mockImplementation(() => {});
+    const local = new ActionManager({ logger, readinessTimeoutMs: 50 });
+    try {
+      const { transitions, applyCalls } = createFakeVariantTransitions({
+        'calendar-main': 'day',
+      });
+      local.registerRunner(calendarMain, { showYear: () => ok(undefined) });
+      const withHandler = await local.executeActions(
+        plan('showYear'),
+        undefined,
+        transitions,
+      );
+      expect(withHandler.successCount).toBe(1);
+      expect(applyCalls).toEqual([]);
+      expect(
+        warn.mock.calls.some((args) => String(args[0]).includes('"year"')),
+      ).toBe(true);
+
+      local.registerRunner(calendarMain, {});
+      const withoutHandler = await local.executeActions(
+        plan('showYear'),
+        undefined,
+        transitions,
+      );
+      expect(withoutHandler.actions[0]).toMatchObject({
+        skipped: true,
+        errorCategory: 'application',
+      });
+      expect(withoutHandler.actions[0].reason).toContain('"year"');
+      expect(applyCalls).toEqual([]);
+    } finally {
+      local.dispose();
+    }
+  });
+
+  it('skips an Action with neither a transition nor a handler as application', async () => {
+    const { transitions } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, {});
+
+    const result = await manager.executeActions(
+      plan('addEvent'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+      reason:
+        'Action "addEvent" on Variant "day" of Instance "calendar-main" has no handler and is not declared effect "none"',
+    });
+  });
+
+  it('treats a lost compare-and-set as applied, not as an error', async () => {
+    const { transitions, variants, applyCalls } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, {
+      showWeek: () => {
+        variants.set('calendar-main', 'month');
+        return ok(undefined);
+      },
+    });
+
+    const result = await manager.executeActions(
+      plan('showWeek'),
+      undefined,
+      transitions,
+    );
+
+    expect(result.successCount).toBe(1);
+    expect(applyCalls).toEqual([['calendar-main', 'day', 'week']]);
+    expect(variants.get('calendar-main')).toBe('month');
+  });
+
+  it('runs each Instance in its own Variant sequence and counts across Instances', async () => {
+    const calendarSide = InstanceId('calendar-side');
+    const { transitions, variants } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+      'calendar-side': 'week',
+    });
+    const mainAddEvent = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, { addEvent: mainAddEvent });
+    manager.registerRunner(calendarSide, {});
+
+    const result = await manager.executeActions(
+      [
+        { instanceId: calendarMain, action: ActionName('showWeek') },
+        { instanceId: calendarSide, action: ActionName('showMonth') },
+        { instanceId: calendarMain, action: ActionName('addEvent') },
+        { instanceId: calendarSide, action: ActionName('showMonth') },
+      ],
+      undefined,
+      transitions,
+    );
+
+    expect(variants.get('calendar-main')).toBe('week');
+    expect(variants.get('calendar-side')).toBe('month');
+    expect(mainAddEvent).toHaveBeenCalledTimes(1);
+    expect(result.successCount).toBe(3);
+    expect(result.skippedCount).toBe(1);
+    expect(
+      result.actions
+        .filter((record) => record.skipped)
+        .map((record) => [record.instanceId, record.action, record.reason]),
+    ).toEqual([
+      [
+        calendarSide,
+        ActionName('showMonth'),
+        'Action "showMonth" is not defined on Variant "month" of Instance "calendar-side"',
+      ],
+    ]);
+  });
+
+  it('reports readiness and handler starts to the observer, with no start for an effect none transition', async () => {
+    const { transitions, variants } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+    });
+    manager.registerRunner(calendarMain, { addEvent: () => ok(undefined) });
+    const progress: string[] = [];
+
+    const result = await manager.executeActions(
+      plan('addEvent', 'showWeek', 'showMonth'),
+      ({ phase, action }) => {
+        progress.push(action ? `${phase}:${action}` : phase);
+      },
+      transitions,
+    );
+
+    expect(progress).toEqual(['waiting', 'ready', 'started:addEvent']);
+    expect(result.successCount).toBe(3);
+    expect(variants.get('calendar-main')).toBe('month');
+  });
+
+  it('keeps the flat handler lookup with no transitions when none are supplied', async () => {
+    const showDay = mock(() => ok(undefined));
+    manager.registerRunner(calendarMain, { showDay });
+
+    const flat = await manager.executeActions(plan('showDay', 'showWeek'));
+
+    expect(showDay).toHaveBeenCalledTimes(1);
+    expect(flat.actions[0].skipped).toBeUndefined();
+    expect(flat.actions[1]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+    });
+    expect(flat.actions[1].reason).toBeUndefined();
   });
 });

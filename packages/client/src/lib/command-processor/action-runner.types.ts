@@ -75,6 +75,23 @@ type ParamsToObject<Params extends ReadonlyArray<ActionParameter>> = {
   [K in OptionalParamKeys<Params>]?: ParamTypeFor<Params, K>;
 };
 
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+type HandlerRequiredActionNames<V extends VesselDefinition> = Exclude<
+  GetAllActions<V>,
+  { readonly effect: 'none' }
+>['name'];
+
+type HandlerOptionalActionNames<V extends VesselDefinition> = Exclude<
+  ActionNames<V>,
+  HandlerRequiredActionNames<V>
+>;
+
+type ActionHandlerFor<
+  V extends VesselDefinition,
+  Name extends string,
+> = ActionHandler<GetActionParams<GetAllActions<V>, Name>>;
+
 type GetActionParams<A, Name extends string> = A extends { name: Name }
   ? A extends { parameters: infer P }
     ? P extends ReadonlyArray<ActionParameter>
@@ -123,9 +140,18 @@ export type ActionHandler<Params> = [Params] extends [undefined]
   : (params: Params) => Promise<ActionResult> | ActionResult;
 
 /**
- * Typed action runner map keyed by action name.
- * All action handlers are optional, but type inference is preserved
- * for any handlers that are implemented.
+ * Typed action runner map keyed by action name, inferred from the Vessel
+ * definition.
+ *
+ * A handler is required for every Action that is not declared
+ * `effect: 'none'`, because such an Action without a handler is skipped and
+ * changes no Variant. A handler is optional for an Action declared
+ * `effect: 'none'`: the framework applies its transition on its own. When the
+ * same Action name appears on several Variants, its handler is required if any
+ * of those declarations is not `'none'`.
+ *
+ * A widened definition typed as plain `VesselDefinition`, whose Action names
+ * are not literal, makes every handler optional.
  *
  * @example
  * ```typescript
@@ -137,18 +163,20 @@ export type ActionHandler<Params> = [Params] extends [undefined]
  *     console.log(params.orderId);
  *     return ok(undefined);
  *   },
- *   closeOrderDetails: () => {
- *     return ok(undefined);
- *   },
+ *   // `showList` is declared `effect: 'none'`, so it may be left out.
  * };
  * ```
  */
 export type ActionRunner<V extends VesselDefinition = VesselDefinition> =
-  Partial<{
-    [Name in ActionNames<V>]: ActionHandler<
-      GetActionParams<GetAllActions<V>, Name>
-    >;
-  }>;
+  string extends ActionNames<V>
+    ? { [Name in ActionNames<V>]?: ActionHandlerFor<V, Name> }
+    : Simplify<
+        {
+          [Name in HandlerRequiredActionNames<V>]: ActionHandlerFor<V, Name>;
+        } & {
+          [Name in HandlerOptionalActionNames<V>]?: ActionHandlerFor<V, Name>;
+        }
+      >;
 
 /**
  * Untyped action runner map used for internal storage.
@@ -182,6 +210,15 @@ export interface ActionRecord {
   skipped?: boolean;
   /** Producer-known cause of skipped or failed work; omitted when unavailable. */
   errorCategory?: TelemetryErrorCategory;
+  /**
+   * Human-readable diagnostic for why a skipped Action did not run, naming the
+   * Action, the Instance and, when known, its Variant. Set on skips recorded
+   * while Actions resolve against their Instance's Variant: `application`
+   * skips, and `readiness` skips for a runner that went away mid-sequence.
+   * The readiness skip before any Action runs, and execution without Variant
+   * resolution, leave it unset. Branch on `errorCategory`, not on this text.
+   */
+  reason?: string;
 }
 
 /**

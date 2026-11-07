@@ -67,7 +67,7 @@ test('case-owned canonical snapshots preserve all 155 pre-change scenarios and t
   expect(scenarios).toHaveLength(155);
   expect(new Set(scenarios.map(({ id }) => id)).size).toBe(155);
   expect(digest(scenarios)).toBe(
-    'fc2f28f3ba7e3a258c49dad7cdcd152127c02cb77b42c592f633db59be1aab9b',
+    '64fdff566923cd8aa19b9c0f6529a7d4d19d1f4f7cace2c349f35dae356521c4',
   );
   expect(
     digest(
@@ -75,7 +75,7 @@ test('case-owned canonical snapshots preserve all 155 pre-change scenarios and t
         ({ id }) => !['preserve', 'generate-content', 'variant'].includes(id),
       ),
     ),
-  ).toBe('1b438ff0bbfcc6af889946a833e2723ba2f0a47503173867e83c2ae83963c354');
+  ).toBe('7f5bf3c959213ba75170365e226e4c8ccc04917e4beb22ff6260b4e280c03b69');
   expect([scenarios[0].id, scenarios[9].id, scenarios[25].id]).toEqual([
     'preserve',
     'variant',

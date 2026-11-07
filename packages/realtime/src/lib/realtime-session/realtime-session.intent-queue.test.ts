@@ -123,6 +123,24 @@ describe('RealtimeSession shared intent admission', () => {
     const client = new Orchestrator(connector, {
       sessionId,
       intentQueue: policy,
+      vessels: [
+        {
+          id: 'vessel',
+          name: 'Vessel',
+          description: 'test vessel',
+          defaultVariant: 'default',
+          variants: {
+            default: {
+              props: {},
+              minSize: { width: 1, height: 1 },
+              actions: [
+                { name: 'show', description: 'Show the Instance' },
+                { name: 'fail', description: 'Fail on purpose' },
+              ],
+            },
+          },
+        },
+      ],
     });
     cleanup.push(() => client.dispose());
     await client.connect();

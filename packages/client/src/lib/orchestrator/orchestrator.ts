@@ -248,6 +248,9 @@ export class Orchestrator {
     this.#commandProcessor = new CommandProcessor({
       debug: this.#config.debug,
       defaultActionWaitTimeoutMs: this.#config.readyTimeoutMs,
+      // Read lazily, so the VesselManager assigned below is in place by the
+      // first Action.
+      resolveVessel: (vesselId) => this.#vesselManager.get(vesselId),
     });
     this.#updateCoordinator = new UpdateCoordinator({
       debounceDelayMs: this.#config.debounceDelayMs,
@@ -731,6 +734,9 @@ export class Orchestrator {
    * 4. If the runner fails (error result, throw, or timeout), reverts the
    *    variant — but only if the store variant is still the one this call set,
    *    so a newer transition or an engine layout that landed in between wins.
+   *    An action that does not run at all, because no runner registered or
+   *    the runner has no handler for it, reverts the same way unless it is
+   *    declared effect `'none'`, which needs no handler.
    * 5. When (and only when) a transition actually happened in step 2, schedules
    *    a `vessel_mutation` update so the engine can re-plan layout. Bursts are
    *    coalesced by the UpdateCoordinator's debounce.
@@ -744,6 +750,8 @@ export class Orchestrator {
    * - Never throws; invalid input warns and no-ops.
    * - The variant transition is applied before the runner is awaited.
    * - A revert never clobbers a variant a later write already changed.
+   * - Only an action declared effect `'none'` keeps its transition without a
+   *   handler.
    * - No `transitionsTo`, or no effective variant change → no engine update.
    *
    * @param instanceId - The instance to act on; must exist in the store.
@@ -841,10 +849,13 @@ export class Orchestrator {
     }
 
     const execution: ActionExecution = { instanceId, action, params };
-    void this.#runLocalAction(execution, transition).finally(() => {
-      this.#localActions -= 1;
-      this.#intentScheduler.wake();
-    });
+    const needsHandler = actionDef.effect !== 'none';
+    void this.#runLocalAction(execution, transition, needsHandler).finally(
+      () => {
+        this.#localActions -= 1;
+        this.#intentScheduler.wake();
+      },
+    );
   }
 
   // ==========================================================================
@@ -1223,12 +1234,15 @@ export class Orchestrator {
   async #runLocalAction(
     execution: ActionExecution,
     transition: { from: VariantName; to: VariantName } | null,
+    needsHandler: boolean,
   ): Promise<void> {
     const outcome = await this.#commandProcessor.runLocalAction(execution);
-    // Only a failed runner reverts. 'succeeded' keeps the transition; 'skipped'
-    // (no runner ready within the readiness window) also keeps it — a pure
-    // transition has nothing to run or undo.
-    if (outcome === 'failed' && transition) {
+    // A skip means no handler ran. An effect `none` transition has nothing to
+    // run or undo, so it stands. Any other action never did its work, so its
+    // transition must not stand either.
+    const reverts =
+      outcome === 'failed' || (outcome === 'skipped' && needsHandler);
+    if (reverts && transition) {
       // Guarded revert: only undo when our transition still stands.
       const reverted = this.#commandProcessor.setVariantIfCurrent(
         execution.instanceId,
@@ -1242,7 +1256,7 @@ export class Orchestrator {
         this.#scheduleMutation({
           type: 'vessel_mutation',
           instanceId: execution.instanceId,
-          changes: `action "${execution.action}" failed; reverted variant ${transition.to} → ${transition.from}`,
+          changes: `action "${execution.action}" ${outcome === 'failed' ? 'failed' : 'did not run'}; reverted variant ${transition.to} → ${transition.from}`,
         });
       }
     }

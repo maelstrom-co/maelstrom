@@ -74,9 +74,9 @@ test('canonical registry preserves all 155 pre-migration values/order and option
   expect(jsonBackedScenarioIds).toEqual(loaded.jsonBackedScenarioIds);
   expect(scenarios).toHaveLength(155);
   expect(new Set(jsonBackedScenarioIds).size).toBe(155);
-  // Captured from the generated registry before removing its TypeScript definitions.
+  // Captured from the generated registry, with each Action carrying its parsed `effect`.
   expect(digest(scenarios)).toBe(
-    'fc2f28f3ba7e3a258c49dad7cdcd152127c02cb77b42c592f633db59be1aab9b',
+    '64fdff566923cd8aa19b9c0f6529a7d4d19d1f4f7cace2c349f35dae356521c4',
   );
   expect(JSON.parse(JSON.stringify(scenarios))).toEqual(scenarios);
   expect(selectScenarios('development')).toHaveLength(97);

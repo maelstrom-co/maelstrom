@@ -2805,7 +2805,7 @@ describe('processResponse', () => {
   // Chart resizes are the one trigger that arrives without any user or vessel
   // signal, so the serialized state the LLM sees is identical to the state
   // before an action it already ran. The Engine refuses every action its
-  // author did not declare idempotent on such a turn rather than replaying it.
+  // author did not declare rerun-safe on such a turn rather than replaying it.
   describe('resize-only update reasons', () => {
     const journalVessel: AuthorVessel = {
       id: 'journal',
@@ -2828,7 +2828,7 @@ describe('processResponse', () => {
               name: 'showRead',
               description: 'Switch to reading',
               transitionsTo: 'read',
-              idempotent: true,
+              effect: 'none',
             },
           ],
         },
@@ -2915,7 +2915,7 @@ describe('processResponse', () => {
       expect(result.value.diagnostics.retryHint.recommend).toBe(false);
     });
 
-    test('keeps an idempotent Variant transition on an existing instance', () => {
+    test('keeps a no-effect Variant transition on an existing instance', () => {
       const llmOutput: TilingResponseAuthor = {
         userMessage: 'Switched the journal to reading',
         rationale: 'Narrower chart suits the read variant',

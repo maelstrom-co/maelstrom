@@ -17,8 +17,6 @@ describe('Labs selection handlers', () => {
       expect(getLabsSelection(first)).toBe(markerSlug);
       expect(getLabsSelection(second)).toBeNull();
     }
-    expect(isOk(runner.showList())).toBe(true);
-    expect(isOk(runner.showTrends())).toBe(true);
     expect(getLabsSelection(first)).toBe('glucose');
     expect(
       isOk(

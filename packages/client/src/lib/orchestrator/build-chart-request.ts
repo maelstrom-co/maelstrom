@@ -12,6 +12,7 @@ import {
   type Vessel,
 } from '@maelstrom-co/protocol';
 
+import { withLiveVariants } from '../command-processor/tiling-layout-live-variants.js';
 import type { VesselInstance } from '../types.js';
 
 /**
@@ -34,9 +35,15 @@ import type { VesselInstance } from '../types.js';
  * `layout.instances`, so a bare `instances: []` here would itself be
  * schema-invalid whenever the board is non-empty. Declared-but-untreed
  * instances are simply hidden until the engine places them. A stored layout
- * only rides through unchanged when its `type` already matches; the
- * previously arranged board's positions are lost otherwise, since a tiling
- * tree and grid positions aren't reinterpretable as each other.
+ * only rides through when its `type` already matches; the previously
+ * arranged board's positions are lost otherwise, since a tiling tree and grid
+ * positions aren't reinterpretable as each other.
+ *
+ * A matching tiling layout is sent as a copy whose `instances[].variant` is
+ * the live Variant of each Instance in `instances`, since Action transitions
+ * change the live Variant without rewriting the stored layout. Declarations
+ * with no live Instance keep their stored Variant. The `layout` argument is
+ * never mutated, and a matching grid layout is forwarded unchanged.
  */
 export function buildChartRequest(params: {
   updates: UpdateReason[];
@@ -68,7 +75,9 @@ export function buildChartRequest(params: {
     instances: instanceSnapshots,
     vessels,
     layout: layoutMatchesMode
-      ? layout
+      ? layout.type === 'tiling'
+        ? withLiveVariants(layout, instances)
+        : layout
       : config.layoutMode === 'tiling'
         ? { type: 'tiling', tree: [], instances: instanceSnapshots }
         : { type: 'grid', positions: [] },

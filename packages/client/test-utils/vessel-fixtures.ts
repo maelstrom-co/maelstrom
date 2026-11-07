@@ -23,7 +23,7 @@ export function createTestVessel(
             // Explicit because `VesselActionSchema` defaults it, so a
             // validated vessel is only structurally equal to this fixture
             // when the fixture states the field too.
-            idempotent: false,
+            effect: 'any',
             parameters: [
               {
                 name: 'param1',

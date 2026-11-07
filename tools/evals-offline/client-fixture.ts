@@ -42,7 +42,7 @@ const defaultData: ClientFixtureData = {
   createdInstanceId: 'created',
   intent: 'Open the report and create weather',
   effects: [
-    { action: 'openBreakdown', variant: 'breakdown' },
+    { action: 'openBreakdown', variant: 'summary' },
     { action: 'configure', variant: 'current' },
   ],
 };
@@ -144,7 +144,7 @@ export function clientFixture(
                 {
                   instanceId: InstanceId(data.reportInstanceId),
                   vesselId: VesselId('report'),
-                  variant: VariantName('breakdown'),
+                  variant: VariantName('summary'),
                 },
                 {
                   instanceId: InstanceId(data.createdInstanceId),

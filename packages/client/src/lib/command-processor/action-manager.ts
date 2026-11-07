@@ -1,11 +1,14 @@
 import {
+  type ActionEffect,
   type ActionExecution,
   type ActionName,
   err,
   type InstanceId,
   ok,
   toError,
+  type VariantName,
   type VesselDefinition,
+  type VesselId,
 } from '@maelstrom-co/protocol';
 
 import { isPromise, type Unsubscribe } from '../types.js';
@@ -32,6 +35,109 @@ export interface ActionProgress {
 }
 
 /**
+ * How an Action resolves against its Instance's Variant at the moment the
+ * Action's turn comes.
+ *
+ * - `available`: the Action is defined on `variant`, the Instance's current
+ *   Variant, `transition` describes its declared `transitionsTo` and `effect`
+ *   its declared effect.
+ * - `instance_missing`: the Instance is not in the store.
+ * - `vessel_unknown`: no Vessel definition is registered for the Instance.
+ * - `action_not_on_variant`: the current Variant does not define the Action.
+ */
+export type ActionVariantResolution =
+  | {
+      /** The Action is defined on the current Variant. */
+      readonly status: 'available';
+      /** The Instance's Variant before this Action runs. */
+      readonly variant: VariantName;
+      /** The Action's declared Variant transition on `variant`. */
+      readonly transition: ActionVariantTransition;
+      /**
+       * The Action's declared effect on `variant`. Only an Action declared
+       * `'none'` may run without a handler.
+       */
+      readonly effect: ActionEffect;
+    }
+  | {
+      /** The Instance is not in the store. */
+      readonly status: 'instance_missing';
+    }
+  | {
+      /** The Instance's Vessel has no registered definition. */
+      readonly status: 'vessel_unknown';
+      /** The unregistered Vessel. */
+      readonly vesselId: VesselId;
+      /** The Instance's current Variant. */
+      readonly variant: VariantName;
+    }
+  | {
+      /** The current Variant does not define the Action. */
+      readonly status: 'action_not_on_variant';
+      /** The Instance's current Variant. */
+      readonly variant: VariantName;
+    };
+
+/**
+ * The `transitionsTo` an Action declares on the Variant it runs from.
+ *
+ * - `none`: the Action declares no transition.
+ * - `to`: the Action moves the Instance to `variant`, a Variant of its Vessel.
+ * - `unknown_target`: the Action names `target`, which its Vessel does not
+ *   define, so no transition can apply.
+ */
+export type ActionVariantTransition =
+  | {
+      /** No transition is declared. */
+      readonly kind: 'none';
+    }
+  | {
+      /** The Action transitions to a defined Variant. */
+      readonly kind: 'to';
+      /** The Variant the Action moves the Instance to. */
+      readonly variant: VariantName;
+    }
+  | {
+      /** The Action transitions to a Variant its Vessel does not define. */
+      readonly kind: 'unknown_target';
+      /** The undefined Variant name as declared. */
+      readonly target: string;
+    };
+
+/**
+ * Lets {@link ActionManager.executeActions} resolve each Action against the
+ * Instance's current Variant and apply the Action's `transitionsTo`.
+ *
+ * {@link CommandProcessor} builds one from its store and Vessel registry.
+ */
+export interface VariantTransitions {
+  /**
+   * Reads the Instance's current Variant and the named Action's declaration
+   * on it. Called once per Action, at that Action's turn.
+   *
+   * @param instanceId - The Instance the Action targets.
+   * @param action - The Action about to run.
+   * @returns The Variant and declared transition, or why the Action is
+   * unavailable.
+   */
+  resolve(instanceId: InstanceId, action: ActionName): ActionVariantResolution;
+  /**
+   * Compare-and-set: moves the Instance to `next` only while its Variant is
+   * still `expected`.
+   *
+   * @param instanceId - The Instance to transition.
+   * @param expected - The Variant the Action started from.
+   * @param next - The Variant the Action transitions to.
+   * @returns Whether the transition applied. `false` means a newer write won.
+   */
+  apply(
+    instanceId: InstanceId,
+    expected: VariantName,
+    next: VariantName,
+  ): boolean;
+}
+
+/**
  * ActionManager handles action execution for vessel instances.
  *
  * Components register typed action runners per instance to handle actions.
@@ -41,6 +147,14 @@ export interface ActionProgress {
  *
  * The manager includes a waitForReady mechanism to handle race conditions
  * where the server sends actions before components have registered their runners.
+ *
+ * Given {@link VariantTransitions}, each Action resolves against the
+ * Instance's Variant at its turn and applies its `transitionsTo` after the
+ * handler succeeds. An Action declared effect `'none'` with no handler applies
+ * its transition on its own, but only once the Instance has a registered
+ * runner. Any other Action without a handler is skipped and changes no
+ * Variant. Without them, handlers are looked up by name alone and no Variant
+ * changes.
  *
  * @example
  * ```typescript
@@ -221,14 +335,41 @@ export class ActionManager {
    * - Sequentially within the same instance (respects executionPlan order)
    *
    * Waits for runners to be ready before executing. Actions are skipped if
-   * no runner is registered within the timeout.
+   * no runner is registered within the timeout, including Actions that only
+   * transition: an Instance whose runner never registers changes no Variant.
+   *
+   * With `transitions`, each Action in turn:
+   * 1. Reads the Instance's runner, waiting for readiness again if it went
+   *    away mid-sequence. A runner that never returns skips the Action as
+   *    `readiness`.
+   * 2. Resolves against the Instance's current Variant. An Action not defined
+   *    there is skipped as `application`, with a `reason`.
+   * 3. Runs its handler, if the runner has one. A failed handler applies no
+   *    transition. With no handler, only an Action declared effect `'none'`
+   *    continues. Any other is skipped as `application`, with a `reason`, and
+   *    applies no transition.
+   * 4. Applies its `transitionsTo` with compare-and-set against the Variant
+   *    from step 2. An effect `'none'` transition with no handler counts as
+   *    applied. A target equal to the current Variant, or one the Vessel does
+   *    not define, applies nothing. A lost compare-and-set is not an error.
+   *
+   * With no handler, an effect `'none'` Action that declares no transition or
+   * transitions to a Variant the Vessel does not define is skipped as
+   * `application`, with a `reason`. One whose target equals the current
+   * Variant succeeds without a change.
+   *
+   * Without `transitions`, handlers are looked up by name alone and no
+   * Variant changes.
    *
    * @param executionPlan - Array of actions to execute
+   * @param observe - Receives readiness and handler start progress
+   * @param transitions - Resolves Actions per Variant and applies transitions
    * @returns Result of the batch execution
    */
   async executeActions(
     executionPlan: readonly ActionExecution[],
     observe?: (progress: ActionProgress) => void,
+    transitions?: VariantTransitions,
   ): Promise<BatchExecutionResult> {
     const report = observe
       ? (progress: ActionProgress) => notifyObserver(observe, progress)
@@ -280,6 +421,15 @@ export class ActionManager {
               skipped: true,
               errorCategory: 'readiness' as const,
             }));
+          }
+
+          if (transitions) {
+            return this.#executeInstanceActionsWithTransitions(
+              instanceId,
+              actionDefs.map((a) => a.execution),
+              transitions,
+              report,
+            );
           }
 
           // Get the runner now that we're ready
@@ -397,8 +547,6 @@ export class ActionManager {
     const records: ActionRecord[] = [];
 
     for (const { execution, runner } of actions) {
-      const startTime = performance.now();
-
       if (!runner) {
         // Should not happen since we wait for ready, but just in case
         this.#warn(
@@ -432,60 +580,225 @@ export class ActionManager {
         continue;
       }
 
-      let timedOut = false;
-      try {
-        this.#logger.debug(
-          `Executing action "${execution.action}" on instance "${instanceId}"`,
+      records.push(
+        await this.#runHandler(instanceId, execution, handler, observe),
+      );
+    }
+
+    return records;
+  }
+
+  async #executeInstanceActionsWithTransitions(
+    instanceId: InstanceId,
+    executions: readonly ActionExecution[],
+    transitions: VariantTransitions,
+    observe?: (progress: ActionProgress) => void,
+  ): Promise<ActionRecord[]> {
+    const records: ActionRecord[] = [];
+
+    for (const execution of executions) {
+      // A runner can be replaced after a transition, for example when a
+      // Vessel renders a different component per Variant, so read it per
+      // Action.
+      const runner = await this.#currentRunner(instanceId);
+      if (!runner) {
+        const reason = `No runner registered for Instance "${instanceId}" when Action "${execution.action}" was due`;
+        this.#warn(`${reason}, skipping`);
+        records.push(
+          skippedRecord(instanceId, execution.action, 'readiness', reason),
         );
+        continue;
+      }
 
-        observe?.({ instanceId, action: execution.action, phase: 'started' });
-        const handlerResult = handler(execution.params);
-
-        // Handle both sync (Result) and async (Promise<Result>) handlers
-        // without unnecessary Promise wrapping overhead for sync handlers
-        const result = isPromise(handlerResult)
-          ? await this.#withExecutionTimeout(
-              handlerResult,
-              instanceId,
-              execution.action,
-              () => {
-                timedOut = true;
-              },
-            )
-          : handlerResult;
-
-        const duration = performance.now() - startTime;
-
-        this.#logger.debug(
-          `Action "${execution.action}" completed on instance "${instanceId}" (${duration.toFixed(2)}ms)`,
+      const resolution = transitions.resolve(instanceId, execution.action);
+      if (resolution.status !== 'available') {
+        const reason = describeUnavailableAction(
+          instanceId,
+          execution.action,
+          resolution,
         );
+        this.#warn(`${reason}, skipping`);
+        records.push(
+          skippedRecord(instanceId, execution.action, 'application', reason),
+        );
+        continue;
+      }
 
+      const target = this.#transitionTarget(
+        instanceId,
+        execution.action,
+        resolution,
+      );
+      const handler = runner[execution.action];
+
+      if (!handler) {
+        if (resolution.effect !== 'none') {
+          const reason = `Action "${execution.action}" on Variant "${resolution.variant}" of Instance "${instanceId}" has no handler and is not declared effect "none"`;
+          this.#warn(`${reason}, skipping`);
+          records.push(
+            skippedRecord(instanceId, execution.action, 'application', reason),
+          );
+          continue;
+        }
+        if (resolution.transition.kind === 'none') {
+          const reason = `Action "${execution.action}" has no handler on Instance "${instanceId}" and no transition on Variant "${resolution.variant}"`;
+          this.#warn(`${reason}, skipping`);
+          records.push(
+            skippedRecord(instanceId, execution.action, 'application', reason),
+          );
+          continue;
+        }
+        if (resolution.transition.kind === 'unknown_target') {
+          const reason = `Action "${execution.action}" has no handler on Instance "${instanceId}" and transitions to unknown Variant "${resolution.transition.target}"`;
+          records.push(
+            skippedRecord(instanceId, execution.action, 'application', reason),
+          );
+          continue;
+        }
+        if (target) {
+          this.#applyTransition(
+            transitions,
+            instanceId,
+            execution.action,
+            resolution.variant,
+            target,
+          );
+        }
         records.push({
           instanceId,
           action: execution.action,
-          result,
-          duration,
-          ...(result.ok ? {} : { errorCategory: 'application' as const }),
+          result: ok(undefined),
+          duration: 0,
         });
-      } catch (error) {
-        const duration = performance.now() - startTime;
+        continue;
+      }
 
-        this.#logger.error(
-          `Action "${execution.action}" failed on instance "${instanceId}":`,
-          error instanceof Error ? error.message : String(error),
-        );
-
-        records.push({
+      const record = await this.#runHandler(
+        instanceId,
+        execution,
+        handler,
+        observe,
+      );
+      records.push(record);
+      if (record.result.ok && target) {
+        this.#applyTransition(
+          transitions,
           instanceId,
-          action: execution.action,
-          result: err(toError(error)),
-          duration,
-          errorCategory: timedOut ? 'timeout' : 'application',
-        });
+          execution.action,
+          resolution.variant,
+          target,
+        );
       }
     }
 
     return records;
+  }
+
+  async #currentRunner(
+    instanceId: InstanceId,
+  ): Promise<AnyActionRunner | undefined> {
+    const runner = this.#getRunnerForInstance(instanceId);
+    if (runner) return runner;
+    const ready = await this.waitForReady(instanceId, this.#readinessTimeoutMs);
+    return ready ? this.#getRunnerForInstance(instanceId) : undefined;
+  }
+
+  // Resolves to the Variant a successful run moves the Instance to, or
+  // undefined when the Action leaves the Variant alone.
+  #transitionTarget(
+    instanceId: InstanceId,
+    action: ActionName,
+    resolution: Extract<ActionVariantResolution, { status: 'available' }>,
+  ): VariantName | undefined {
+    const { transition, variant } = resolution;
+    if (transition.kind === 'unknown_target') {
+      this.#warn(
+        `Action "${action}" on Instance "${instanceId}" transitions to unknown Variant "${transition.target}"; applying no transition`,
+      );
+      return undefined;
+    }
+    if (transition.kind === 'none' || transition.variant === variant) {
+      return undefined;
+    }
+    return transition.variant;
+  }
+
+  #applyTransition(
+    transitions: VariantTransitions,
+    instanceId: InstanceId,
+    action: ActionName,
+    from: VariantName,
+    to: VariantName,
+  ): void {
+    if (transitions.apply(instanceId, from, to)) {
+      this.#logger.debug(
+        `Action "${action}" moved Instance "${instanceId}" from Variant "${from}" to "${to}"`,
+      );
+      return;
+    }
+    this.#logger.debug(
+      `Action "${action}" did not move Instance "${instanceId}" to Variant "${to}": it is no longer in "${from}"`,
+    );
+  }
+
+  async #runHandler(
+    instanceId: InstanceId,
+    execution: ActionExecution,
+    handler: AnyActionRunner[string],
+    observe?: (progress: ActionProgress) => void,
+  ): Promise<ActionRecord> {
+    const startTime = performance.now();
+    let timedOut = false;
+    try {
+      this.#logger.debug(
+        `Executing action "${execution.action}" on instance "${instanceId}"`,
+      );
+
+      observe?.({ instanceId, action: execution.action, phase: 'started' });
+      const handlerResult = handler(execution.params);
+
+      // Handle both sync (Result) and async (Promise<Result>) handlers
+      // without unnecessary Promise wrapping overhead for sync handlers
+      const result = isPromise(handlerResult)
+        ? await this.#withExecutionTimeout(
+            handlerResult,
+            instanceId,
+            execution.action,
+            () => {
+              timedOut = true;
+            },
+          )
+        : handlerResult;
+
+      const duration = performance.now() - startTime;
+
+      this.#logger.debug(
+        `Action "${execution.action}" completed on instance "${instanceId}" (${duration.toFixed(2)}ms)`,
+      );
+
+      return {
+        instanceId,
+        action: execution.action,
+        result,
+        duration,
+        ...(result.ok ? {} : { errorCategory: 'application' as const }),
+      };
+    } catch (error) {
+      const duration = performance.now() - startTime;
+
+      this.#logger.error(
+        `Action "${execution.action}" failed on instance "${instanceId}":`,
+        error instanceof Error ? error.message : String(error),
+      );
+
+      return {
+        instanceId,
+        action: execution.action,
+        result: err(toError(error)),
+        duration,
+        errorCategory: timedOut ? 'timeout' : 'application',
+      };
+    }
   }
 
   #warn(message: string): void {
@@ -522,5 +835,37 @@ export class ActionManager {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+}
+
+function skippedRecord(
+  instanceId: InstanceId,
+  action: ActionName,
+  errorCategory: 'readiness' | 'application',
+  reason: string,
+): ActionRecord {
+  return {
+    instanceId,
+    action,
+    result: ok(undefined),
+    duration: 0,
+    skipped: true,
+    errorCategory,
+    reason,
+  };
+}
+
+function describeUnavailableAction(
+  instanceId: InstanceId,
+  action: ActionName,
+  resolution: Exclude<ActionVariantResolution, { status: 'available' }>,
+): string {
+  switch (resolution.status) {
+    case 'instance_missing':
+      return `Action "${action}" targets Instance "${instanceId}", which is not in the store`;
+    case 'vessel_unknown':
+      return `Action "${action}" cannot be resolved on Variant "${resolution.variant}" of Instance "${instanceId}": Vessel "${resolution.vesselId}" is not registered`;
+    case 'action_not_on_variant':
+      return `Action "${action}" is not defined on Variant "${resolution.variant}" of Instance "${instanceId}"`;
   }
 }

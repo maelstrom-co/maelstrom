@@ -1,4 +1,5 @@
 import type {
+  ActionEffect,
   ChartRequest,
   GridLayout,
   GridPosition,
@@ -50,7 +51,7 @@ type AuthorVesselAction = {
   readonly description: string;
   readonly parameters?: ReadonlyArray<unknown>;
   readonly transitionsTo?: string;
-  readonly idempotent?: boolean;
+  readonly effect?: ActionEffect;
 };
 type AuthorVesselVariant = {
   readonly description?: string;
@@ -80,7 +81,7 @@ export type AuthorVessel = {
 const brandAction = (action: AuthorVesselAction): VesselAction => ({
   name: ActionName(action.name),
   description: action.description,
-  idempotent: action.idempotent ?? false,
+  effect: action.effect ?? 'any',
   // `parameters` is author-typed as `unknown[]`; the schema's element shape
   // (`ActionParameter`) is irrelevant to fixtures that never assert on it.
   ...(action.parameters !== undefined

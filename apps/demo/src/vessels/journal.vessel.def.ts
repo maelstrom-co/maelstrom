@@ -42,7 +42,7 @@ export const journalVessel = defineVessel({
         },
         {
           name: 'openEntry',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Open an existing journal entry so it becomes visible in all entry-variant tiles.',
           parameters: [
@@ -74,7 +74,7 @@ export const journalVessel = defineVessel({
         },
         {
           name: 'openEntry',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Open an existing journal entry so it becomes visible in all entry-variant tiles.',
           parameters: [
@@ -99,7 +99,7 @@ export const journalVessel = defineVessel({
         },
         {
           name: 'backToList',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Return to the journal entries list',
           transitionsTo: 'list',
         },

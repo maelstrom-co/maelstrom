@@ -2,7 +2,7 @@ import { defineVessel } from '@maelstrom-co/protocol';
 
 const setLocationAction = {
   name: 'setLocation',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     'Try to load weather for a city or place without assuming the request succeeds',
   parameters: [
@@ -16,7 +16,7 @@ const setLocationAction = {
 
 const showCompactAction = {
   name: 'showCompact',
-  idempotent: true,
+  effect: 'none',
   description:
     'Shrink weather to a one-line strip with location, temperature and condition',
   transitionsTo: 'compact',
@@ -38,13 +38,13 @@ export const weatherVessel = defineVessel({
         setLocationAction,
         {
           name: 'showHourly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show hourly forecast for today',
           transitionsTo: 'hourly',
         },
         {
           name: 'showWeekly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show weekly forecast',
           transitionsTo: 'weekly',
         },
@@ -63,13 +63,13 @@ export const weatherVessel = defineVessel({
         setLocationAction,
         {
           name: 'showCurrent',
-          idempotent: true,
+          effect: 'none',
           description: 'Show current conditions',
           transitionsTo: 'current',
         },
         {
           name: 'showWeekly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show weekly forecast',
           transitionsTo: 'weekly',
         },
@@ -85,13 +85,13 @@ export const weatherVessel = defineVessel({
         setLocationAction,
         {
           name: 'showCurrent',
-          idempotent: true,
+          effect: 'none',
           description: 'Show current conditions',
           transitionsTo: 'current',
         },
         {
           name: 'showHourly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show hourly forecast',
           transitionsTo: 'hourly',
         },
@@ -107,19 +107,19 @@ export const weatherVessel = defineVessel({
         setLocationAction,
         {
           name: 'showCurrent',
-          idempotent: true,
+          effect: 'none',
           description: 'Show current conditions in detail',
           transitionsTo: 'current',
         },
         {
           name: 'showHourly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show hourly forecast',
           transitionsTo: 'hourly',
         },
         {
           name: 'showWeekly',
-          idempotent: true,
+          effect: 'none',
           description: 'Show weekly forecast',
           transitionsTo: 'weekly',
         },

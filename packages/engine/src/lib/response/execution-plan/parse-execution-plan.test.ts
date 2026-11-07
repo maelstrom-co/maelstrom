@@ -1138,11 +1138,11 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
             name: goCompact,
             description: 'Switch to compact',
             transitionsTo: compact,
-            idempotent: true,
+            effect: 'none',
           },
           {
             name: goPlain,
-            description: 'Switch to compact without declaring idempotence',
+            description: 'Switch to compact without declaring an effect',
             transitionsTo: compact,
           },
           {
@@ -1164,7 +1164,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
                 required: false,
               },
             ],
-            idempotent: true,
+            effect: 'idempotent',
           },
         ],
       },
@@ -1177,7 +1177,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
             name: goList,
             description: 'Switch to full',
             transitionsTo: list,
-            idempotent: true,
+            effect: 'none',
           },
         ],
       },
@@ -1266,7 +1266,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     });
   });
 
-  test('an idempotent Variant transition survives a resize-only turn', () => {
+  test('a no-effect Variant transition survives a resize-only turn', () => {
     // Reshaping a Vessel is exactly what a resize should be able to do.
     const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
       { instanceId: existingInstanceId, action: goCompact },
@@ -1281,7 +1281,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
   });
 
   test('a Variant transition left unmarked is refused on a resize-only turn', () => {
-    // `idempotent` defaults to false: silence costs a reshape, never data.
+    // `effect` defaults to `any`: silence costs a reshape, never data.
     const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
       { instanceId: existingInstanceId, action: goPlain },
     ]);
@@ -1340,8 +1340,8 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     ]);
   });
 
-  test('an idempotent action on an introduced instance survives', () => {
-    // Declared idempotence is the whole gate; where the instance came from
+  test('a no-effect action on an introduced instance survives', () => {
+    // The declared effect is the whole gate. Where the instance came from
     // never enters into it.
     const { plan, skippedActions } = parseWith(
       requestWith([resizeReason]),
