@@ -253,7 +253,7 @@ A runner that outlives variant changes serves every variant, so its handlers mus
 If the engine or a component invokes an action without a registered handler, Maelstrom does not crash the Chart. What happens next depends on the action's `effect`:
 
 - **`effect: 'none'`**: the action needs no handler. Its `transitionsTo` still moves the instance to its target variant.
-- **`'idempotent'` or `'any'`**: the action is reported as skipped and the variant does not change, even when it declares `transitionsTo`. Without this rule, an action such as `selectItem({ id })` with a stale or missing handler would switch to the detail view, select nothing, and still report success. The `ActionRunner` type catches a missing handler at compile time, so this case only appears when the runner is assembled at runtime or registered for the wrong vessel.
+- **`'idempotent'` or `'any'`**: the action is reported as skipped and the variant does not change, even when it declares `transitionsTo`. Without this rule, an action such as `selectItem({ id })` with a stale or missing handler would switch to the detail view, select nothing, and still report success. The `ActionRunner` type catches a missing handler at compile time when the Vessel definition keeps its literal Action names. A definition widened to plain `VesselDefinition`, a runner assembled at runtime, or a runner registered for the wrong vessel gets no compile-time check and can reach this case.
 
 A locally invoked action that is skipped this way reverts its optimistic transition, the same as a failed handler.
 
