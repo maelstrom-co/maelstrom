@@ -825,18 +825,21 @@ describe('createTypeSafeClient', () => {
       { apiKey: KEY, model: TEST_MODEL, logReplies: 'yes' as never },
       /logReplies/,
     ],
-  ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
-    let caught: unknown;
-    try {
-      createTypeSafeClient(options as TypeSafeClientOptions);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
-    expect((caught as Error).message).toMatch(pattern);
-    expect((caught as Error).message).not.toContain(KEY);
-  });
+  ])(
+    'construction rejects %s without echoing the key',
+    (_name, options, pattern) => {
+      let caught: unknown;
+      try {
+        createTypeSafeClient(options as TypeSafeClientOptions);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
+      expect((caught as Error).message).toMatch(pattern);
+      expect((caught as Error).message).not.toContain(KEY);
+    },
+  );
 });
 
 describe('TypeSafe invalid reply reasons', () => {
@@ -914,21 +917,24 @@ describe('TypeSafe invalid reply reasons', () => {
       { reply: withScope({ ...scope(), confidence: 1.5 }) },
       'out_of_range',
     ],
-  ])('%s defers provider_invalid_reply with its reason tag', async (_name, step, reason) => {
-    const { ask, logger, entries } = setup(() => step);
-    const result = await ask('jevActions', evaluation, ctx(logger));
-    expect(isErr(result) && result.error).toEqual({
-      _tag: 'Deferred',
-      reason: 'jevActions/provider_invalid_reply',
-    });
-    expect(
-      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
-    ).toMatchObject({
-      reason: 'jevActions/provider_invalid_reply',
-      detail: `invalid reply (${reason})`,
-      failure: { kind: 'invalid_reply', reason },
-    });
-  });
+  ])(
+    '%s defers provider_invalid_reply with its reason tag',
+    async (_name, step, reason) => {
+      const { ask, logger, entries } = setup(() => step);
+      const result = await ask('jevActions', evaluation, ctx(logger));
+      expect(isErr(result) && result.error).toEqual({
+        _tag: 'Deferred',
+        reason: 'jevActions/provider_invalid_reply',
+      });
+      expect(
+        entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+      ).toMatchObject({
+        reason: 'jevActions/provider_invalid_reply',
+        detail: `invalid reply (${reason})`,
+        failure: { kind: 'invalid_reply', reason },
+      });
+    },
+  );
 });
 
 describe('the TypeSafe key never leaks', () => {

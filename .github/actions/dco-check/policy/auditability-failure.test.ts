@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { commit } from '../fixtures/commit.ts';
 import { auditabilityFailure } from './auditability-failure.ts';
 import type { CommitData } from './commit-data.ts';

@@ -8,6 +8,7 @@ import {
   STAGE_NAME,
 } from '@maelstrom-co/planner-jev/_internal';
 import type { TilingNode } from '@maelstrom-co/protocol';
+
 import type { StageRecord } from '../../core/instrument.js';
 import type { RunRecord } from '../../core/run.js';
 import type { Scenario } from '../../core/scenarios.js';

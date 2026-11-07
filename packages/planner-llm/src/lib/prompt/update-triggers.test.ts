@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { isResizeOnlyBatch } from '@maelstrom-co/engine';
 import type { UpdateReason } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';

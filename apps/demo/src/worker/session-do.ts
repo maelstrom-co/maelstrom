@@ -1,3 +1,15 @@
+import {
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+} from '@maelstrom-co/connectors';
+import { handleEnvelope } from '@maelstrom-co/engine';
+import {
+  decodeClientEnvelope,
+  EngineErrorMessage,
+  encodeEnvelope,
+  isErr,
+  SessionId,
+} from '@maelstrom-co/protocol';
 /**
  * Hosted BYOK transport: one Durable Object per session.
  *
@@ -40,20 +52,9 @@
  * intermittent and unreproducible.
  */
 import { DurableObject } from 'cloudflare:workers';
-import {
-  HEARTBEAT_PING_FRAME,
-  HEARTBEAT_PONG_FRAME,
-} from '@maelstrom-co/connectors';
-import { handleEnvelope } from '@maelstrom-co/engine';
-import {
-  decodeClientEnvelope,
-  EngineErrorMessage,
-  encodeEnvelope,
-  isErr,
-  SessionId,
-} from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
+
 import {
   type AgentTransport,
   openAgentTransport,

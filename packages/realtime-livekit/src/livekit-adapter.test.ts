@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+
 import type { TimedTranscriptFragment } from '@maelstrom-co/client';
 import type {
   AdapterVoiceObservation,
@@ -8,6 +9,7 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
 import type { LocalAudioPreRoll } from '@maelstrom-co/realtime-vad';
+
 import './__tests__/setup.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 
@@ -1732,24 +1734,24 @@ describe('LiveKitAdapter connect', () => {
     expect(adapter.turnControl).toBeDefined();
   });
 
-  test.each([
-    [null],
-    ['automatic'],
-    [1],
-    [[]],
-  ])('runtime vad value %p degrades the connected room to manual with a diagnostic', async (vad) => {
-    const { adapter, events } = makeAdapter(undefined, { vad: vad as never });
+  test.each([[null], ['automatic'], [1], [[]]])(
+    'runtime vad value %p degrades the connected room to manual with a diagnostic',
+    async (vad) => {
+      const { adapter, events } = makeAdapter(undefined, { vad: vad as never });
 
-    await expect(
-      adapter.connect({ tools: [], instructions: '' }),
-    ).resolves.toBeUndefined();
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
 
-    expect(states(events).at(-1)).toBe('connected');
-    const mode = events.find((event) => event.type === 'turn_mode');
-    expect(mode).toMatchObject({ type: 'turn_mode', mode: 'manual' });
-    expect(mode?.type === 'turn_mode' && mode.error).toBeInstanceOf(TypeError);
-    expect(adapter.turnControl).toBeDefined();
-  });
+      expect(states(events).at(-1)).toBe('connected');
+      const mode = events.find((event) => event.type === 'turn_mode');
+      expect(mode).toMatchObject({ type: 'turn_mode', mode: 'manual' });
+      expect(mode?.type === 'turn_mode' && mode.error).toBeInstanceOf(
+        TypeError,
+      );
+      expect(adapter.turnControl).toBeDefined();
+    },
+  );
 
   test('invalid automatic configuration degrades the connected room to manual', async () => {
     const { adapter, events } = makeAdapter(undefined, {
@@ -1814,50 +1816,55 @@ describe('LiveKitAdapter connect', () => {
   test.each([
     ['automatic', false],
     ['manual degradation', true],
-  ])('logically unmutes the generated publication while upstream remains paused in %s mode', async (_mode, failVadStart) => {
-    const order: string[] = [];
-    let upstreamPaused = false;
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    mockPauseUpstream.mockImplementation(async () => {
-      upstreamPaused = true;
-      order.push('pause');
-    });
-    mockReplaceTrack.mockImplementationOnce(async () => {
-      upstreamPaused = false;
-      order.push('replace-resumed');
-    });
-    mockUnmuteLocalMic.mockImplementationOnce(async () => {
-      expect(upstreamPaused).toBe(true);
-      expect(mockGeneratedTrack.enabled).toBe(false);
-      mockGeneratedTrack.enabled = true;
-      mockMicPublication.track.isMuted = false;
-      order.push('unmute');
-    });
-    if (failVadStart) {
-      mockVadStart.mockImplementationOnce(async () => {
-        throw new Error('VAD startup failed');
+  ])(
+    'logically unmutes the generated publication while upstream remains paused in %s mode',
+    async (_mode, failVadStart) => {
+      const order: string[] = [];
+      let upstreamPaused = false;
+      mockCreateLocalAudioPreRoll.mockImplementationOnce(
+        async () => mockBridge,
+      );
+      mockPauseUpstream.mockImplementation(async () => {
+        upstreamPaused = true;
+        order.push('pause');
       });
-    }
-    const { adapter, events } = makeAdapter();
+      mockReplaceTrack.mockImplementationOnce(async () => {
+        upstreamPaused = false;
+        order.push('replace-resumed');
+      });
+      mockUnmuteLocalMic.mockImplementationOnce(async () => {
+        expect(upstreamPaused).toBe(true);
+        expect(mockGeneratedTrack.enabled).toBe(false);
+        mockGeneratedTrack.enabled = true;
+        mockMicPublication.track.isMuted = false;
+        order.push('unmute');
+      });
+      if (failVadStart) {
+        mockVadStart.mockImplementationOnce(async () => {
+          throw new Error('VAD startup failed');
+        });
+      }
+      const { adapter, events } = makeAdapter();
 
-    await adapter.connect({ tools: [], instructions: '' });
+      await adapter.connect({ tools: [], instructions: '' });
 
-    expect(order.slice(0, 4)).toEqual([
-      'pause',
-      'replace-resumed',
-      'pause',
-      'unmute',
-    ]);
-    expect(mockMicPublication.track.isMuted).toBe(false);
-    expect(upstreamPaused).toBe(true);
-    expect(mockGeneratedTrack.enabled).toBe(true);
-    expect(
-      events.filter((event) => event.type === 'turn_mode').at(-1),
-    ).toMatchObject({
-      type: 'turn_mode',
-      mode: failVadStart ? 'manual' : 'automatic',
-    });
-  });
+      expect(order.slice(0, 4)).toEqual([
+        'pause',
+        'replace-resumed',
+        'pause',
+        'unmute',
+      ]);
+      expect(mockMicPublication.track.isMuted).toBe(false);
+      expect(upstreamPaused).toBe(true);
+      expect(mockGeneratedTrack.enabled).toBe(true);
+      expect(
+        events.filter((event) => event.type === 'turn_mode').at(-1),
+      ).toMatchObject({
+        type: 'turn_mode',
+        mode: failVadStart ? 'manual' : 'automatic',
+      });
+    },
+  );
 
   test('does not announce turn mode until generated-track unmute settles', async () => {
     const unmute = deferred<void>();

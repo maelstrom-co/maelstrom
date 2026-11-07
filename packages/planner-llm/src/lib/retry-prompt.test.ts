@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { EngineDiagnostics } from '@maelstrom-co/engine';
 
 import { overflowDiagnostics } from './__test-helpers__/fixtures.js';

@@ -1,14 +1,16 @@
 import { describe, it } from 'bun:test';
+
 import type { ActionParams } from '@maelstrom-co/client';
 import { defineVessel, InstanceId } from '@maelstrom-co/protocol';
+
 import { type TestVessel, testVessel } from './__tests__/test-vessel.fixture';
-import { vessel } from './vessel.js';
 import type {
   ExtractVesselByIdFromEntries,
   TypedVesselProps,
   VariantProps,
   VesselIds,
 } from './vessel-entry-types.js';
+import { vessel } from './vessel.js';
 
 describe('TypedVesselProps', () => {
   it('accepts valid action names and params', () => {

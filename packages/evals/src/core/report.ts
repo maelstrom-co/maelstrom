@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import { pluginOf } from './arms.js';
+import { type GraderValidation, graderGate } from './grader-validate.js';
 import {
   GRADER_DIMENSIONS,
   GRADER_VERSION,
   type GraderDimension,
 } from './grader.js';
-import { type GraderValidation, graderGate } from './grader-validate.js';
 import {
   type JudgeSummary,
   recordJudgeResult,

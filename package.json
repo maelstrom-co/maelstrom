@@ -5,7 +5,10 @@
   "scripts": {
     "audit:public-api-docs": "bun tools/public-api-docs/audit.ts",
     "audit:strip-internal": "bun tools/public-api-docs/strip-internal-comparison.ts",
-    "docs:lint": "bun scripts/lint-docs.ts"
+    "docs:lint": "bun scripts/lint-docs.ts",
+    "format": "nx format:write --all",
+    "format:check": "nx format:check --all",
+    "check": "nx run-many -t lint && nx format:check --all"
   },
   "private": true,
   "engines": {
@@ -59,12 +62,13 @@
     "solid-js": "^1.9.9"
   },
   "devDependencies": {
+    "@astrojs/compiler-rs": "0.5.2",
     "@babel/core": "^7.14.5",
     "@babel/preset-react": "^7.14.5",
-    "@biomejs/biome": "2.4.10",
     "@microsoft/api-extractor": "^7.59.0",
     "@nx/devkit": "24.0.2",
     "@nx/js": "24.0.2",
+    "@nx/oxlint": "24.0.2",
     "@nx/playwright": "24.0.2",
     "@nx/react": "24.0.2",
     "@nx/vite": "24.0.2",
@@ -93,6 +97,8 @@
     "jiti": "2.4.2",
     "jsdom": "^27.3.0",
     "nx": "24.0.2",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "tailwindcss": "^4.2.2",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",
@@ -111,21 +117,6 @@
   "nx": {
     "includedScripts": [],
     "targets": {
-      "check": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "biome check . --error-on-warnings"
-        },
-        "cache": true,
-        "inputs": [
-          "{workspaceRoot}/**/*",
-          {
-            "externalDependencies": [
-              "@biomejs/biome"
-            ]
-          }
-        ]
-      },
       "typecheck": {
         "executor": "nx:run-commands",
         "options": {
@@ -148,7 +139,12 @@
             "bun test scripts",
             "bun test --cwd .github/actions"
           ]
-        }
+        },
+        "inputs": [
+          "{workspaceRoot}/**/*",
+          "^default",
+          "toolchain"
+        ]
       },
       "local-registry": {
         "executor": "@nx/js:verdaccio",
@@ -157,6 +153,104 @@
           "config": ".verdaccio/config.yml",
           "storage": "tmp/local-registry/storage"
         }
+      },
+      "sdk-validation": {
+        "command": "bun --no-install scripts/assert-sdk-validation.ts",
+        "cache": true,
+        "dependsOn": [
+          {
+            "target": "build",
+            "projects": [
+              "@maelstrom-co/client",
+              "@maelstrom-co/connectors",
+              "@maelstrom-co/devtools",
+              "@maelstrom-co/devtools-mcp-server",
+              "@maelstrom-co/devtools-protocol",
+              "@maelstrom-co/engine",
+              "@maelstrom-co/planner-jev",
+              "@maelstrom-co/planner-llm",
+              "@maelstrom-co/protocol",
+              "@maelstrom-co/react",
+              "@maelstrom-co/react-devtools",
+              "@maelstrom-co/realtime",
+              "@maelstrom-co/realtime-livekit",
+              "@maelstrom-co/realtime-livekit-agent",
+              "@maelstrom-co/realtime-livekit-server",
+              "@maelstrom-co/realtime-openai",
+              "@maelstrom-co/realtime-openai-live",
+              "@maelstrom-co/realtime-openai-live-server",
+              "@maelstrom-co/realtime-openai-server",
+              "@maelstrom-co/realtime-protocol",
+              "@maelstrom-co/realtime-vad",
+              "@maelstrom-co/react-realtime",
+              "@maelstrom-co/telemetry"
+            ]
+          }
+        ],
+        "inputs": [
+          "{workspaceRoot}/scripts/assert-sdk-validation.ts",
+          "{workspaceRoot}/packages/client/package.json",
+          "{workspaceRoot}/packages/connectors/package.json",
+          "{workspaceRoot}/packages/devtools/package.json",
+          "{workspaceRoot}/packages/devtools-mcp-server/package.json",
+          "{workspaceRoot}/packages/devtools-protocol/package.json",
+          "{workspaceRoot}/packages/engine/package.json",
+          "{workspaceRoot}/packages/planner-jev/package.json",
+          "{workspaceRoot}/packages/planner-llm/package.json",
+          "{workspaceRoot}/packages/protocol/package.json",
+          "{workspaceRoot}/packages/react/package.json",
+          "{workspaceRoot}/packages/react-devtools/package.json",
+          "{workspaceRoot}/packages/realtime/package.json",
+          "{workspaceRoot}/packages/realtime-livekit/package.json",
+          "{workspaceRoot}/packages/realtime-livekit-agent/package.json",
+          "{workspaceRoot}/packages/realtime-livekit-server/package.json",
+          "{workspaceRoot}/packages/realtime-openai/package.json",
+          "{workspaceRoot}/packages/realtime-openai-live/package.json",
+          "{workspaceRoot}/packages/realtime-openai-live-server/package.json",
+          "{workspaceRoot}/packages/realtime-openai-server/package.json",
+          "{workspaceRoot}/packages/realtime-protocol/package.json",
+          "{workspaceRoot}/packages/realtime-vad/package.json",
+          "{workspaceRoot}/packages/react-realtime/package.json",
+          "{workspaceRoot}/packages/telemetry/package.json",
+          {
+            "dependentTasksOutputFiles": "**/*.js"
+          },
+          "toolchain",
+          "{workspaceRoot}/scripts/lib/**/*.ts"
+        ]
+      },
+      "lint": {
+        "executor": "@nx/oxlint:lint",
+        "cache": true,
+        "options": {
+          "lintFilePatterns": [
+            "scripts",
+            ".github",
+            "tools",
+            "vitest.config.ts"
+          ],
+          "nestedProjectRoots": [
+            "tools/astro-plugin",
+            "tools/evals-langfuse",
+            "tools/evals-offline"
+          ]
+        },
+        "inputs": [
+          "{workspaceRoot}/scripts/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "{workspaceRoot}/.github/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "{workspaceRoot}/tools/**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+          "!{workspaceRoot}/tools/astro-plugin/**/*",
+          "!{workspaceRoot}/tools/evals-langfuse/**/*",
+          "!{workspaceRoot}/tools/evals-offline/**/*",
+          "{workspaceRoot}/vitest.config.ts",
+          "{workspaceRoot}/.oxlintrc.json",
+          "{workspaceRoot}/.gitignore",
+          {
+            "externalDependencies": [
+              "oxlint"
+            ]
+          }
+        ]
       }
     }
   },

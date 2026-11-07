@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { render } from 'solid-js/web';
+
 import { captureImportFileBytes } from './capture-import.js';
 import { createEventFilterControls } from './event-filter-controls.js';
 import { type EventQuery, queryEvents } from './event-query.js';
@@ -41,12 +42,12 @@ import {
 } from './request-overview-view.js';
 import { telemetryView } from './telemetry-view.js';
 import type { Devtools, DevtoolsSnapshot } from './types.js';
-import { VoiceCorrelationHistory } from './voice-timeline.js';
 import {
   createVoiceTimelineControls,
   type VoiceViewState,
 } from './voice-timeline-controls.js';
 import { voiceTimelineView } from './voice-timeline-view.js';
+import { VoiceCorrelationHistory } from './voice-timeline.js';
 
 type Source = 'live' | 'recording' | 'imported';
 const tabs = [
@@ -1150,7 +1151,7 @@ function Panel(tools: Devtools): HTMLElement {
         preferences.eventFilters ?? {},
         Boolean(
           query() ||
-            (preferences.issueCategory && preferences.issueCategory !== 'all'),
+          (preferences.issueCategory && preferences.issueCategory !== 'all'),
         ),
         data.events.filter(
           (event) => selected() === 'all' || event.clientId === selected(),
@@ -1186,8 +1187,7 @@ function Panel(tools: Devtools): HTMLElement {
           requestView &&
           Boolean(
             query() ||
-              (preferences.issueCategory &&
-                preferences.issueCategory !== 'all'),
+            (preferences.issueCategory && preferences.issueCategory !== 'all'),
           ),
         collectionFilter: Boolean(tools.options.filter),
       }),

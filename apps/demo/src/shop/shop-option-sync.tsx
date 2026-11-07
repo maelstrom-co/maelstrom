@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+
 import { withActionOptions } from '../lib/vessel-options';
 import { shopM } from './maelstrom';
 import { useCartStore } from './stores/cart.store';
@@ -41,6 +42,7 @@ export function ShopOptionSync() {
           }),
         ),
       ),
+    // oxlint-disable-next-line react/exhaustive-deps -- The serialized option key tracks value changes without republishing for array identity.
     [orderKey, isProcessing],
   );
 
@@ -56,6 +58,7 @@ export function ShopOptionSync() {
           }),
         ),
       ),
+    // oxlint-disable-next-line react/exhaustive-deps -- The serialized option key tracks value changes without republishing for array identity.
     [cartKey, isProcessing],
   );
 

@@ -1,5 +1,6 @@
 import type { Telemetry, TelemetryAttachment } from '@maelstrom-co/telemetry';
 import { attachTelemetrySource } from '@maelstrom-co/telemetry/integration';
+
 import type { DiagnosticChannel } from './diagnostic-channel.js';
 
 /** Client-owned metadata observation, without connection or content capabilities. */

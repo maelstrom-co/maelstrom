@@ -5,6 +5,7 @@ import type {
   MaelstromRealtimeOpeningOptions,
 } from '@maelstrom-co/react-realtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { makeValidWavBytes } from './__tests__/wav-fixtures';
 import {
   DEMO_GREETING,
@@ -209,26 +210,26 @@ describe('demo voice provider wiring', () => {
     });
   });
 
-  it.each([
-    '0',
-    '1',
-  ])('leaves non-hosted OpenAI server VAD at adapter defaults (browser key=%s)', (browserKeyMode) => {
-    vi.stubEnv('VITE_HOSTED', '0');
-    vi.stubEnv('VITE_BROWSER_KEY_MODE', browserKeyMode);
-    createAdapter('openai');
+  it.each(['0', '1'])(
+    'leaves non-hosted OpenAI server VAD at adapter defaults (browser key=%s)',
+    (browserKeyMode) => {
+      vi.stubEnv('VITE_HOSTED', '0');
+      vi.stubEnv('VITE_BROWSER_KEY_MODE', browserKeyMode);
+      createAdapter('openai');
 
-    expect(state.openAIAdapterOptions).toHaveLength(1);
-    expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
-    expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
-    expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
-    expect(
-      (state.openAIAdapterOptions[0] as OpenAIOptions).transcription,
-    ).toEqual({ model: 'gpt-4o-transcribe' });
-    expect(
-      (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
-    ).toBe(true);
-    expect(state.liveKitAdapterOptions).toHaveLength(0);
-  });
+      expect(state.openAIAdapterOptions).toHaveLength(1);
+      expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
+      expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
+      expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
+      expect(
+        (state.openAIAdapterOptions[0] as OpenAIOptions).transcription,
+      ).toEqual({ model: 'gpt-4o-transcribe' });
+      expect(
+        (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
+      ).toBe(true);
+      expect(state.liveKitAdapterOptions).toHaveLength(0);
+    },
+  );
 
   it('uses immediate server VAD with the hosted legacy greeting interrupter', () => {
     vi.stubEnv('VITE_HOSTED', '1');

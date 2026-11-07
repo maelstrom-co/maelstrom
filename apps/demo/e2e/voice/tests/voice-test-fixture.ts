@@ -1,4 +1,5 @@
 import { test as base } from '@playwright/test';
+
 import { createVoiceTestDriver } from './voice-test-driver.ts';
 
 export const test = base.extend<{
@@ -18,6 +19,7 @@ export const test = base.extend<{
       microphoneSource,
     });
     try {
+      // oxlint-disable-next-line react/rules-of-hooks -- Playwright supplies this callback to publish its fixture.
       await use(driver);
     } finally {
       try {

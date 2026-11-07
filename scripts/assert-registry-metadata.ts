@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
 import { listPublishablePackages } from './lib/workspace-packages.ts';
 
 // Nothing else in the release pipeline reads these fields: `publish-packages`

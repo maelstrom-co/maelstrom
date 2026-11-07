@@ -1,5 +1,6 @@
 import { createOpenaiChat, OPENAI_CHAT_MODELS } from '@tanstack/ai-openai';
 import { afterEach, expect, it, vi } from 'vitest';
+
 import { parsePlaygroundMetadata } from './playground-metadata';
 
 vi.mock('@tanstack/ai-openai', { spy: true });
@@ -11,35 +12,33 @@ afterEach(() => {
   vi.resetModules();
 });
 
-it.each([
-  undefined,
-  '',
-  '   ',
-])('keeps the catalog default when the model override is %j', async (override) => {
-  vi.stubEnv('ENGINE_MODEL', override);
-  vi.resetModules();
-  const {
-    DEFAULT_ENGINE_MODEL,
-    ENGINE_MODEL,
-    createDemoOpenaiChat,
-    engineMetadataFrame,
-  } = await import('./engine-model');
-  expect(OPENAI_CHAT_MODELS).toContain(DEFAULT_ENGINE_MODEL);
-  expect(DEFAULT_ENGINE_MODEL).toBe('gpt-6-luna');
-  const adapter = createDemoOpenaiChat('sk-fixture-not-a-real-key');
-  expect(ENGINE_MODEL).toBe(DEFAULT_ENGINE_MODEL);
-  expect(adapter.model).toBe(DEFAULT_ENGINE_MODEL);
-  expect(parsePlaygroundMetadata(engineMetadataFrame())?.engineModel).toBe(
-    adapter.model,
-  );
-});
+it.each([undefined, '', '   '])(
+  'keeps the catalog default when the model override is %j',
+  async (override) => {
+    vi.stubEnv('ENGINE_MODEL', override);
+    vi.resetModules();
+    const {
+      DEFAULT_ENGINE_MODEL,
+      ENGINE_MODEL,
+      createDemoOpenaiChat,
+      engineMetadataFrame,
+    } = await import('./engine-model');
+    expect(OPENAI_CHAT_MODELS).toContain(DEFAULT_ENGINE_MODEL);
+    expect(DEFAULT_ENGINE_MODEL).toBe('gpt-6-luna');
+    const adapter = createDemoOpenaiChat('sk-fixture-not-a-real-key');
+    expect(ENGINE_MODEL).toBe(DEFAULT_ENGINE_MODEL);
+    expect(adapter.model).toBe(DEFAULT_ENGINE_MODEL);
+    expect(parsePlaygroundMetadata(engineMetadataFrame())?.engineModel).toBe(
+      adapter.model,
+    );
+  },
+);
 
 it('reports the same trimmed override used to construct the adapter', async () => {
   vi.stubEnv('ENGINE_MODEL', ' gpt-4o ');
   vi.resetModules();
-  const { createDemoOpenaiChat, engineMetadataFrame } = await import(
-    './engine-model'
-  );
+  const { createDemoOpenaiChat, engineMetadataFrame } =
+    await import('./engine-model');
   const adapter = createDemoOpenaiChat('sk-fixture-not-a-real-key');
   expect(parsePlaygroundMetadata(engineMetadataFrame())).toEqual({
     type: 'playground.metadata',

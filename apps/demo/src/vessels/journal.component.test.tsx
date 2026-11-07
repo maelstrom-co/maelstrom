@@ -9,6 +9,7 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   __resetActionActivityForTests,
   getActivitySnapshot,
@@ -115,9 +116,8 @@ describe('JournalComponent entry view ruled-paper', () => {
       };
     });
 
-    const { journalActions: mockedJournalActions } = await import(
-      './journal.store'
-    );
+    const { journalActions: mockedJournalActions } =
+      await import('./journal.store');
     mockedJournalActions.openEntry('Sprint kickoff');
     const MockedJournalComponent = (await import('./journal.component'))
       .default;

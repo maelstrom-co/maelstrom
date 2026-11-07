@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { packedIntegrity } from './packed-integrity.ts';
 
 test('a path replaced by a symlink after validation is never hashed', () => {
@@ -81,29 +82,27 @@ test('checksum authority comes from the original file bytes', () => {
   }
 });
 
-test.each([
-  'empty',
-  'oversized',
-  'directory',
-  'symlink',
-])('does not read an %s tarball as checksum authority', (kind) => {
-  const root = mkdtempSync(join(tmpdir(), 'maelstrom-invalid-integrity-'));
-  const tarballPath = join(root, 'package.tgz');
-  try {
-    if (kind === 'directory') mkdirSync(tarballPath);
-    else if (kind === 'symlink') {
-      const target = join(root, 'target.tgz');
-      writeFileSync(target, 'private fixture');
-      symlinkSync(target, tarballPath);
-    } else {
-      writeFileSync(tarballPath, '');
-      if (kind === 'oversized')
-        truncateSync(tarballPath, MAX_PACKED_TARBALL_BYTES + 1);
+test.each(['empty', 'oversized', 'directory', 'symlink'])(
+  'does not read an %s tarball as checksum authority',
+  (kind) => {
+    const root = mkdtempSync(join(tmpdir(), 'maelstrom-invalid-integrity-'));
+    const tarballPath = join(root, 'package.tgz');
+    try {
+      if (kind === 'directory') mkdirSync(tarballPath);
+      else if (kind === 'symlink') {
+        const target = join(root, 'target.tgz');
+        writeFileSync(target, 'private fixture');
+        symlinkSync(target, tarballPath);
+      } else {
+        writeFileSync(tarballPath, '');
+        if (kind === 'oversized')
+          truncateSync(tarballPath, MAX_PACKED_TARBALL_BYTES + 1);
+      }
+      expect(() => packedIntegrity({ tarballPath })).toThrow(
+        'bounded regular file',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
-    expect(() => packedIntegrity({ tarballPath })).toThrow(
-      'bounded regular file',
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+  },
+);

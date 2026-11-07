@@ -4,6 +4,7 @@ import {
   ChartRequestSchema,
   type Vessel,
 } from '@maelstrom-co/protocol';
+
 import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
 import { selectEvaluationCases } from './run-orchestration.js';

@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
 import { unzipSync } from 'fflate';
+
 import { createReactStarter } from './starter-bundle';
 
 const source = resolve(import.meta.dir, '../../starters/react');

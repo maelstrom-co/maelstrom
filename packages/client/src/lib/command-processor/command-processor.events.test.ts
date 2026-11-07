@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createSetLayoutCommand } from '../../../test-utils/command-mocks.js';
-import type { Command } from './command.types.js';
 import type { CommandProcessorEvents } from './command-processor.js';
 import { CommandProcessor } from './command-processor.js';
+import type { Command } from './command.types.js';
 
 type CommandStartEvent = CommandProcessorEvents['command_start'];
 type CommandCompleteEvent = CommandProcessorEvents['command_complete'];

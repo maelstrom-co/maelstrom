@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+
 import type { InstrumentAttributes } from '@maelstrom-co/engine';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
@@ -9,6 +10,7 @@ import type {
   TokenUsage,
 } from '@tanstack/ai';
 import { z } from 'zod';
+
 import {
   makeContext,
   makeInput,

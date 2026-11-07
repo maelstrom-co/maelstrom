@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
@@ -320,37 +321,37 @@ describe('build public assets', () => {
     ).rejects.toThrow(/symlink/i);
   });
 
-  test.each([
-    '.vad-web.backup-interrupted',
-    '.vad-web.stage-interrupted',
-  ])('rejects top-level transaction debris %s before reading or emitting assets', async (transactionDirectory) => {
-    const publicDirectory = await mkdtemp(
-      join(tmpdir(), 'maelstrom-public-transaction-debris-'),
-    );
-    temporaryDirectories.push(publicDirectory);
-    await mkdir(join(publicDirectory, transactionDirectory));
-    await writeFile(join(publicDirectory, 'favicon.ico'), 'icon');
+  test.each(['.vad-web.backup-interrupted', '.vad-web.stage-interrupted'])(
+    'rejects top-level transaction debris %s before reading or emitting assets',
+    async (transactionDirectory) => {
+      const publicDirectory = await mkdtemp(
+        join(tmpdir(), 'maelstrom-public-transaction-debris-'),
+      );
+      temporaryDirectories.push(publicDirectory);
+      await mkdir(join(publicDirectory, transactionDirectory));
+      await writeFile(join(publicDirectory, 'favicon.ico'), 'icon');
 
-    let readPhaseStarted = false;
-    const emitted = [];
-    const plugin = createBuildPublicAssetsPlugin({
-      build: true,
-      publicDirectory,
-      beforeReadAssets() {
-        readPhaseStarted = true;
-      },
-    });
-
-    await expect(
-      plugin.generateBundle.call({
-        emitFile(asset) {
-          emitted.push(asset);
+      let readPhaseStarted = false;
+      const emitted = [];
+      const plugin = createBuildPublicAssetsPlugin({
+        build: true,
+        publicDirectory,
+        beforeReadAssets() {
+          readPhaseStarted = true;
         },
-      }),
-    ).rejects.toThrow(/transaction/i);
-    expect(readPhaseStarted).toBe(false);
-    expect(emitted).toEqual([]);
-  });
+      });
+
+      await expect(
+        plugin.generateBundle.call({
+          emitFile(asset) {
+            emitted.push(asset);
+          },
+        }),
+      ).rejects.toThrow(/transaction/i);
+      expect(readPhaseStarted).toBe(false);
+      expect(emitted).toEqual([]);
+    },
+  );
 
   test('is a no-op outside build mode', async () => {
     const emitted = await generateBuildAssets({
@@ -531,16 +532,15 @@ describe('demo voice asset targets', () => {
     ]);
   });
 
-  test.each([
-    'serve',
-    'dev',
-    'dev-livekit',
-  ])('preserves inferred %s options and prepares assets first', (target) => {
-    expect(demoPackage.nx.targets[target]).toMatchObject({
-      '...': true,
-      dependsOn: ['...', 'prepare-voice-assets'],
-    });
-  });
+  test.each(['serve', 'dev', 'dev-livekit'])(
+    'preserves inferred %s options and prepares assets first',
+    (target) => {
+      expect(demoPackage.nx.targets[target]).toMatchObject({
+        '...': true,
+        dependsOn: ['...', 'prepare-voice-assets'],
+      });
+    },
+  );
 
   test('preserves inherited ordinary-build dependencies without preparing assets', () => {
     expect(demoPackage.nx.targets.build).toMatchObject({

@@ -1,6 +1,7 @@
 import { createMaelstrom } from '@maelstrom-co/react';
 import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
 import { labsEntry } from '../vessels/labs.vessel';

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+
 import type { BargeInPlaybackEvent } from './barge-in-observer.ts';
 import {
   sampleTaskBargeInGate,

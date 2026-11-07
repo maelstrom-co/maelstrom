@@ -1,5 +1,6 @@
 import type { VesselDefinition } from '@maelstrom-co/protocol';
 import type { ComponentType } from 'react';
+
 import type { ChartProps } from './chart/chart.js';
 import type {
   DynamicVesselHandle,

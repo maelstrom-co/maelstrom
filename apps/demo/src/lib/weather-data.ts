@@ -8,6 +8,7 @@ import {
   type LucideIcon,
   Sun,
 } from 'lucide-react';
+
 import { withFetchTimeout } from './fetch-timeout';
 
 export interface LiveWeather {

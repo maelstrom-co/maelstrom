@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   Application,
   DeclarationReflection,
@@ -6,6 +7,7 @@ import {
   ProjectReflection,
   ReflectionKind,
 } from 'typedoc';
+
 import { ModuleIndexRouter } from './typedoc-module-index';
 
 test('module links target publishable indexes without moving package or symbol URLs', async () => {

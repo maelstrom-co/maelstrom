@@ -4,6 +4,7 @@ import {
   validateVessel,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { SHOP_LAYOUT } from '../default-layout';
 import {
   CATALOG_SKUS,
@@ -26,11 +27,12 @@ const SHOP_VESSELS = {
 } as const;
 
 describe('pet-shop vessel definitions', () => {
-  it.each(
-    Object.entries(SHOP_VESSELS),
-  )('%s passes protocol validation', (_id, vessel) => {
-    expect(validateVessel(vessel)).toMatchObject({ valid: true });
-  });
+  it.each(Object.entries(SHOP_VESSELS))(
+    '%s passes protocol validation',
+    (_id, vessel) => {
+      expect(validateVessel(vessel)).toMatchObject({ valid: true });
+    },
+  );
 
   it.each([
     ['orders', 'list', 'showOrderDetails', 'detail'],
@@ -43,11 +45,14 @@ describe('pet-shop vessel definitions', () => {
     ['catalog', 'product', 'backToResults', 'results'],
     ['checkout', 'review', 'placeOrder', 'confirmation'],
     ['checkout', 'confirmation', 'returnToCheckoutReview', 'review'],
-  ] as const)('moves %s from %s to the target variant on %s', (vesselId, variant, action, target) => {
-    expect(declaredAction(vesselId, variant, action)?.transitionsTo).toBe(
-      target,
-    );
-  });
+  ] as const)(
+    'moves %s from %s to the target variant on %s',
+    (vesselId, variant, action, target) => {
+      expect(declaredAction(vesselId, variant, action)?.transitionsTo).toBe(
+        target,
+      );
+    },
+  );
 
   it('keeps the catalog on the product view after addToCart', () => {
     const action = declaredAction('catalog', 'product', 'addToCart');
@@ -78,14 +83,17 @@ describe('pet-shop vessel definitions', () => {
     ['catalog', 'product', 'findSimilarProducts', 'sku', CATALOG_SKUS],
     ['catalog', 'product', 'showProductDetails', 'sku', CATALOG_SKUS],
     ['catalog', 'product', 'addToCart', 'sku', CATALOG_SKUS],
-  ] as const)('offers an enum on %s %s.%s %s', (vesselId, variant, action, parameter, values) => {
-    const declared = declaredAction(
-      vesselId,
-      variant,
-      action,
-    )?.parameters?.find((candidate) => candidate.name === parameter);
-    expect(declared?.enum).toEqual([...values]);
-  });
+  ] as const)(
+    'offers an enum on %s %s.%s %s',
+    (vesselId, variant, action, parameter, values) => {
+      const declared = declaredAction(
+        vesselId,
+        variant,
+        action,
+      )?.parameters?.find((candidate) => candidate.name === parameter);
+      expect(declared?.enum).toEqual([...values]);
+    },
+  );
 
   it('quotes the fixture pricing and customer in the cart and orders descriptions', () => {
     expect(cartVessel.description).toContain(

@@ -12,6 +12,7 @@ import {
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
+
 import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   bindParameterChoices,

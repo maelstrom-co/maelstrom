@@ -2,6 +2,7 @@ import type {
   JevActionPlan,
   JevSelection,
 } from '@maelstrom-co/planner-jev/_internal';
+
 import type { Scenario } from '../../core/scenarios.js';
 import {
   compare,

@@ -2,6 +2,7 @@
 
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import type {
   CommandEventsLike,
   InstancesStoreLike,

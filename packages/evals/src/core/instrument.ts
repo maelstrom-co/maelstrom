@@ -5,6 +5,7 @@ import {
   type Stage,
 } from '@maelstrom-co/engine';
 import { isErr } from '@maelstrom-co/protocol';
+
 import type { ProviderCall } from './plugin.js';
 
 export interface StageRecord {

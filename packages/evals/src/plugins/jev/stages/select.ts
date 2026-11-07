@@ -17,6 +17,7 @@ import {
   selectGatedScreenScope,
 } from '@maelstrom-co/planner-jev/_internal';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
+
 import type { Scenario } from '../../../core/scenarios.js';
 import type {
   Judgement,

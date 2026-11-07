@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render } from '@testing-library/react';
 import { StrictMode, useRef } from 'react';

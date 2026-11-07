@@ -14,6 +14,7 @@ import {
   type UpdateReason,
   type Vessel,
 } from '@maelstrom-co/protocol';
+
 import { demoVessels } from '../fixtures/demo-vessels.js';
 
 /** The default board: calendar, weather and tasks visible in a row; map and journal hidden. */

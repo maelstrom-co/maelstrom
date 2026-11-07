@@ -1,4 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
+
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import {
   createDevtools,
@@ -278,47 +279,48 @@ test('comparison identities survive new activity and eviction without showing a 
   expect(tools.getSnapshot().requestActivity.length).toBeLessThanOrEqual(6);
 });
 
-test.each([
-  'source',
-  'replacement',
-  'app',
-])('comparison state clears when its %s changes', async (change) => {
-  const tools = collector();
-  await clientFor(tools);
-  const capture = JSON.stringify({
-    schemaVersion: 2,
-    capture: {
-      schemaVersion: 1,
-      events: ['a', 'b'].map((app) => ({
-        id: `start-${app}`,
-        sessionId: 'shared',
-        requestId: 'same-request',
-        kind: 'client.request.started',
-        metadata: { clientId: app },
-      })),
-    },
-  });
-  tools.importCapture(capture);
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', 'imported');
-  click('Compare request');
-  expect(
-    shadow.querySelector('[aria-label="Request comparison"]') !== null,
-  ).toBe(true);
-  if (change === 'source') select('Evidence source', 'live');
-  if (change === 'replacement') {
-    click('Close');
+test.each(['source', 'replacement', 'app'])(
+  'comparison state clears when its %s changes',
+  async (change) => {
+    const tools = collector();
+    await clientFor(tools);
+    const capture = JSON.stringify({
+      schemaVersion: 2,
+      capture: {
+        schemaVersion: 1,
+        events: ['a', 'b'].map((app) => ({
+          id: `start-${app}`,
+          sessionId: 'shared',
+          requestId: 'same-request',
+          kind: 'client.request.started',
+          metadata: { clientId: app },
+        })),
+      },
+    });
     tools.importCapture(capture);
-    click('Open Maelstrom Devtools');
-  }
-  if (change === 'app') select('App instance', 'a');
-  expect(shadow.querySelector('[aria-label="Request comparison"]')).toBeNull();
-  expect(
-    Array.from(shadow.querySelectorAll('button')).some(
-      (node) => node.textContent === 'Compare request',
-    ),
-  ).toBe(true);
-});
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', 'imported');
+    click('Compare request');
+    expect(
+      shadow.querySelector('[aria-label="Request comparison"]') !== null,
+    ).toBe(true);
+    if (change === 'source') select('Evidence source', 'live');
+    if (change === 'replacement') {
+      click('Close');
+      tools.importCapture(capture);
+      click('Open Maelstrom Devtools');
+    }
+    if (change === 'app') select('App instance', 'a');
+    expect(
+      shadow.querySelector('[aria-label="Request comparison"]'),
+    ).toBeNull();
+    expect(
+      Array.from(shadow.querySelectorAll('button')).some(
+        (node) => node.textContent === 'Compare request',
+      ),
+    ).toBe(true);
+  },
+);
 
 test('comparison preserves repeated attempts and Actions while inspecting each request’s recorded content', () => {
   const tools = collector();
@@ -552,143 +554,144 @@ test('imported layout evidence remains readable when command metadata is structu
   );
 });
 
-test.each([
-  'before tile',
-  'after tile',
-  'change row',
-])('selecting a layout %s reveals its phase while layout paging preserves the phase page', (selection) => {
-  const tools = collector();
-  const instances = Array.from({ length: 201 }, (_, index) => ({
-    instanceId: `one-${index}`,
-    vesselId: 'counter',
-    variant: 'main',
-  }));
-  const snapshot = {
-    version: 1,
-    instanceCount: instances.length,
-    instances,
-    layoutMode: 'tiling',
-    chartDimensions: { columns: 4, rows: 2 },
-    layout: { type: 'tiling', tree: ['ID:one-0'] },
-  };
-  const identity = { sessionId: 'session', requestId: 'request' };
-  tools.importCapture(
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        events: [
-          {
-            ...identity,
-            id: 'before',
-            kind: 'client.command.started',
-            metadata: { clientId: 'app', command: 'set_layout' },
-            content: { layoutSnapshot: snapshot },
-          },
-          ...Array.from({ length: 205 }, (_, index) => ({
-            ...identity,
-            id: `step-${index}`,
-            kind: 'engine.stage.completed',
-            metadata: {
-              clientId: 'app',
-              stage: `step-${index}`,
-              outcome: 'succeeded',
+test.each(['before tile', 'after tile', 'change row'])(
+  'selecting a layout %s reveals its phase while layout paging preserves the phase page',
+  (selection) => {
+    const tools = collector();
+    const instances = Array.from({ length: 201 }, (_, index) => ({
+      instanceId: `one-${index}`,
+      vesselId: 'counter',
+      variant: 'main',
+    }));
+    const snapshot = {
+      version: 1,
+      instanceCount: instances.length,
+      instances,
+      layoutMode: 'tiling',
+      chartDimensions: { columns: 4, rows: 2 },
+      layout: { type: 'tiling', tree: ['ID:one-0'] },
+    };
+    const identity = { sessionId: 'session', requestId: 'request' };
+    tools.importCapture(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          events: [
+            {
+              ...identity,
+              id: 'before',
+              kind: 'client.command.started',
+              metadata: { clientId: 'app', command: 'set_layout' },
+              content: { layoutSnapshot: snapshot },
             },
-          })),
-          {
-            ...identity,
-            id: 'after',
-            kind: 'client.response.applied',
-            metadata: { clientId: 'app' },
-            content: {
-              layoutSnapshot: {
-                ...snapshot,
-                instances: instances.map((instance) => ({
-                  ...instance,
-                  variant: 'week',
-                })),
+            ...Array.from({ length: 205 }, (_, index) => ({
+              ...identity,
+              id: `step-${index}`,
+              kind: 'engine.stage.completed',
+              metadata: {
+                clientId: 'app',
+                stage: `step-${index}`,
+                outcome: 'succeeded',
+              },
+            })),
+            {
+              ...identity,
+              id: 'after',
+              kind: 'client.response.applied',
+              metadata: { clientId: 'app' },
+              content: {
+                layoutSnapshot: {
+                  ...snapshot,
+                  instances: instances.map((instance) => ({
+                    ...instance,
+                    variant: 'week',
+                  })),
+                },
               },
             },
-          },
-        ],
-      },
-    }),
-  );
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', 'imported');
-  click('Raw JSON');
-  click('After');
-  click('Previous phases');
-  const before = selection === 'before tile';
-  if (before) click('Show more phases');
-  const phases = () =>
-    shadow.querySelector('table[aria-label="Request phases"]')!;
-  const retainedPage = before ? 'step-204' : 'step-0';
-  expect(phases().textContent).toContain(retainedPage);
-  click('More changes');
-  expect(phases().textContent).toContain(retainedPage);
-  const label =
-    selection === 'change row'
-      ? 'one-200: Variant changed'
-      : `${before ? 'Before' : 'After'} Instance one-0: Variant changed`;
-  fireEvent.click(shadow.querySelector(`[aria-label="${label}"]`)!);
-  const selectedPhase = phases().querySelector('button[aria-pressed="true"]');
-  expect(selectedPhase).not.toBeNull();
-  expect(selectedPhase?.textContent).toContain(
-    before ? 'Layout started' : 'Response applied',
-  );
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
-  ).toContain(`"id": "${before ? 'before' : 'after'}"`);
-});
-
-test.each([
-  'same-request',
-  'different-request',
-])('replacement imports clear closed-panel pins even with request identity %s', async (replacementRequest) => {
-  const tools = collector();
-  const file = (version: string, requestId = 'same-request') =>
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        active: false,
-        metadata: {},
-        events: [
-          {
-            id: `event-${version}`,
-            sessionId: 'fixture-session',
-            requestId,
-            kind: 'client.request.started',
-            at: 1,
-            metadata: { clientId: 'same-app', version },
-          },
-        ],
-      },
-    });
-  tools.importCapture(file('before'));
-  const { shadow, click, select } = mount(tools);
-  const reopen = () =>
-    fireEvent.click(
-      shadow.querySelector('[aria-label="Open Maelstrom Devtools"]')!,
+          ],
+        },
+      }),
     );
-  select('Evidence source', 'imported');
-  click('Pin request');
-  click('Close');
-  reopen();
-  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
-    'Unpin request',
-  );
-  click('Close');
-  tools.importCapture(file('after', replacementRequest));
-  reopen();
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
-  ).toContain('after');
-  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
-    'Unpin request',
-  );
-});
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', 'imported');
+    click('Raw JSON');
+    click('After');
+    click('Previous phases');
+    const before = selection === 'before tile';
+    if (before) click('Show more phases');
+    const phases = () =>
+      shadow.querySelector('table[aria-label="Request phases"]')!;
+    const retainedPage = before ? 'step-204' : 'step-0';
+    expect(phases().textContent).toContain(retainedPage);
+    click('More changes');
+    expect(phases().textContent).toContain(retainedPage);
+    const label =
+      selection === 'change row'
+        ? 'one-200: Variant changed'
+        : `${before ? 'Before' : 'After'} Instance one-0: Variant changed`;
+    fireEvent.click(shadow.querySelector(`[aria-label="${label}"]`)!);
+    const selectedPhase = phases().querySelector('button[aria-pressed="true"]');
+    expect(selectedPhase).not.toBeNull();
+    expect(selectedPhase?.textContent).toContain(
+      before ? 'Layout started' : 'Response applied',
+    );
+    expect(
+      shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+        ?.textContent,
+    ).toContain(`"id": "${before ? 'before' : 'after'}"`);
+  },
+);
+
+test.each(['same-request', 'different-request'])(
+  'replacement imports clear closed-panel pins even with request identity %s',
+  async (replacementRequest) => {
+    const tools = collector();
+    const file = (version: string, requestId = 'same-request') =>
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          active: false,
+          metadata: {},
+          events: [
+            {
+              id: `event-${version}`,
+              sessionId: 'fixture-session',
+              requestId,
+              kind: 'client.request.started',
+              at: 1,
+              metadata: { clientId: 'same-app', version },
+            },
+          ],
+        },
+      });
+    tools.importCapture(file('before'));
+    const { shadow, click, select } = mount(tools);
+    const reopen = () =>
+      fireEvent.click(
+        shadow.querySelector('[aria-label="Open Maelstrom Devtools"]')!,
+      );
+    select('Evidence source', 'imported');
+    click('Pin request');
+    click('Close');
+    reopen();
+    expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+      'Unpin request',
+    );
+    click('Close');
+    tools.importCapture(file('after', replacementRequest));
+    reopen();
+    expect(
+      shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+        ?.textContent,
+    ).toContain('after');
+    expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+      'Unpin request',
+    );
+  },
+);
 
 test('structured imported metadata stays readable even when it shadows object conversion methods', () => {
   const tools = collector();
@@ -943,48 +946,46 @@ test.each([
     nextSource: 'imported',
     request: 'before',
   },
-])('starting a recording respects the pinned $source evidence lifetime', async ({
-  source,
-  pinned,
-  nextSource,
-  request,
-}) => {
-  const tools = collector();
-  const { client } = await clientFor(tools);
-  tools.clear();
-  if (source !== 'live') tools.startCapture();
-  client.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'before',
-  );
-  if (source !== 'live') tools.stopCapture();
-  if (source === 'imported') tools.importCapture(tools.exportCapture());
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', source);
-  click('Pin request');
-  click('Recordings');
-  if (source === 'live') click('Start recording');
-  else tools.startCapture();
-  expect(tools.capture.getSnapshot().active).toBe(true);
-  client.diagnostics.emitDiagnostic(
-    'client.request.started',
-    {},
-    undefined,
-    'after',
-  );
-  click('Requests');
-  expect(
-    shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
-      ?.value,
-  ).toBe(nextSource);
-  expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
-    `Request ${request}`,
-  );
-  const pin = shadow.querySelector('[data-focus-key="pin-request"]');
-  expect(pin?.getAttribute('aria-pressed')).toBe(String(pinned));
-});
+])(
+  'starting a recording respects the pinned $source evidence lifetime',
+  async ({ source, pinned, nextSource, request }) => {
+    const tools = collector();
+    const { client } = await clientFor(tools);
+    tools.clear();
+    if (source !== 'live') tools.startCapture();
+    client.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      'before',
+    );
+    if (source !== 'live') tools.stopCapture();
+    if (source === 'imported') tools.importCapture(tools.exportCapture());
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', source);
+    click('Pin request');
+    click('Recordings');
+    if (source === 'live') click('Start recording');
+    else tools.startCapture();
+    expect(tools.capture.getSnapshot().active).toBe(true);
+    client.diagnostics.emitDiagnostic(
+      'client.request.started',
+      {},
+      undefined,
+      'after',
+    );
+    click('Requests');
+    expect(
+      shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
+        ?.value,
+    ).toBe(nextSource);
+    expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
+      `Request ${request}`,
+    );
+    const pin = shadow.querySelector('[data-focus-key="pin-request"]');
+    expect(pin?.getAttribute('aria-pressed')).toBe(String(pinned));
+  },
+);
 
 test('request timings distinguish whole application, command work, and nested Engine durations', async () => {
   const tools = collector();
@@ -1293,64 +1294,64 @@ test('actual Action results reach readiness and application filters without gues
   );
 });
 
-test.each([
-  'close import',
-  'clear recording',
-  'start recording',
-] as const)('automatic source fallback resets filters and selection after %s', async (transition) => {
-  const tools = collector();
-  const { client } = await clientFor(tools);
-  tools.clear();
-  tools.startCapture();
-  client.diagnostics.emitDiagnostic(
-    'client.request.failed',
-    { outcome: 'failed', errorCategory: 'timeout' },
-    undefined,
-    'old-recording',
-  );
-  tools.stopCapture();
-  if (transition === 'close import') tools.importCapture(tools.exportCapture());
-  client.diagnostics.emitDiagnostic(
-    'client.response.applied',
-    { actionFailures: 0, skippedActions: 0 },
-    undefined,
-    'live-success',
-  );
-  const { shadow, select } = mount(tools);
-  select(
-    'Evidence source',
-    transition === 'close import' ? 'imported' : 'recording',
-  );
-  select('Issue category', 'timeout');
-  select('Activity view', 'events');
-  const search = shadow.querySelector<HTMLInputElement>(
-    '[aria-label="Filter diagnostic evidence"]',
-  )!;
-  fireEvent.input(search, { target: { value: 'old-recording' } });
-  expect(
-    shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
-      ?.value,
-  ).toBe(transition === 'close import' ? 'imported' : 'recording');
-  if (transition === 'close import') tools.closeImport();
-  else if (transition === 'clear recording') tools.capture.clear();
-  else tools.startCapture();
-  expect(
-    shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
-      ?.value,
-  ).toBe('live');
-  expect(
-    shadow.querySelector<HTMLSelectElement>('[aria-label="Issue category"]')
-      ?.value,
-  ).toBe('all');
-  expect(
-    shadow.querySelector<HTMLSelectElement>('[aria-label="Activity view"]')
-      ?.value,
-  ).toBe('requests');
-  expect(search.value).toBe('');
-  expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
-    'Request live-success',
-  );
-});
+test.each(['close import', 'clear recording', 'start recording'] as const)(
+  'automatic source fallback resets filters and selection after %s',
+  async (transition) => {
+    const tools = collector();
+    const { client } = await clientFor(tools);
+    tools.clear();
+    tools.startCapture();
+    client.diagnostics.emitDiagnostic(
+      'client.request.failed',
+      { outcome: 'failed', errorCategory: 'timeout' },
+      undefined,
+      'old-recording',
+    );
+    tools.stopCapture();
+    if (transition === 'close import')
+      tools.importCapture(tools.exportCapture());
+    client.diagnostics.emitDiagnostic(
+      'client.response.applied',
+      { actionFailures: 0, skippedActions: 0 },
+      undefined,
+      'live-success',
+    );
+    const { shadow, select } = mount(tools);
+    select(
+      'Evidence source',
+      transition === 'close import' ? 'imported' : 'recording',
+    );
+    select('Issue category', 'timeout');
+    select('Activity view', 'events');
+    const search = shadow.querySelector<HTMLInputElement>(
+      '[aria-label="Filter diagnostic evidence"]',
+    )!;
+    fireEvent.input(search, { target: { value: 'old-recording' } });
+    expect(
+      shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
+        ?.value,
+    ).toBe(transition === 'close import' ? 'imported' : 'recording');
+    if (transition === 'close import') tools.closeImport();
+    else if (transition === 'clear recording') tools.capture.clear();
+    else tools.startCapture();
+    expect(
+      shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
+        ?.value,
+    ).toBe('live');
+    expect(
+      shadow.querySelector<HTMLSelectElement>('[aria-label="Issue category"]')
+        ?.value,
+    ).toBe('all');
+    expect(
+      shadow.querySelector<HTMLSelectElement>('[aria-label="Activity view"]')
+        ?.value,
+    ).toBe('requests');
+    expect(search.value).toBe('');
+    expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
+      'Request live-success',
+    );
+  },
+);
 
 test('partial command failures remain inspectable through the unreported category filter', async () => {
   const tools = collector();
@@ -1404,47 +1405,47 @@ test('uncategorized connection failures stay visible with recording guidance bef
   expect(shadow.querySelector('.list-pane button')).toBeNull();
 });
 
-test.each([
-  'voice.session.error',
-  'engine.error',
-])('recording guidance for %s does not invent an outcome or promise error text', async (kind) => {
-  const tools = collector();
-  const { client } = await clientFor(tools);
-  tools.clear();
-  client.diagnostics.emitDiagnostic(kind, { generation: 1 });
-  const { shadow, select } = mount(tools);
-  select('Activity view', 'events');
-  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
-    'Event details were not recorded.',
-  );
-  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
-    'Failed ·',
-  );
-  tools.startCapture();
-  client.diagnostics.emitDiagnostic(kind, { generation: 2 }, () => ({
-    type: 'session.error',
-    generation: 2,
-  }));
-  tools.stopCapture();
-  select('Evidence source', 'recording');
-  select('Activity view', 'events');
-  const filter = shadow.querySelector<HTMLInputElement>(
-    '[aria-label="Filter diagnostic evidence"]',
-  )!;
-  fireEvent.input(filter, { target: { value: kind } });
-  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
-    'This event has no error message.',
-  );
-  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
-    'were not recorded',
-  );
-  select('Evidence source', 'live');
-  client.diagnostics.emitDiagnostic(kind, { outcome: 'cancelled' });
-  select('Activity view', 'events');
-  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
-    'Start a recording',
-  );
-});
+test.each(['voice.session.error', 'engine.error'])(
+  'recording guidance for %s does not invent an outcome or promise error text',
+  async (kind) => {
+    const tools = collector();
+    const { client } = await clientFor(tools);
+    tools.clear();
+    client.diagnostics.emitDiagnostic(kind, { generation: 1 });
+    const { shadow, select } = mount(tools);
+    select('Activity view', 'events');
+    expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+      'Event details were not recorded.',
+    );
+    expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+      'Failed ·',
+    );
+    tools.startCapture();
+    client.diagnostics.emitDiagnostic(kind, { generation: 2 }, () => ({
+      type: 'session.error',
+      generation: 2,
+    }));
+    tools.stopCapture();
+    select('Evidence source', 'recording');
+    select('Activity view', 'events');
+    const filter = shadow.querySelector<HTMLInputElement>(
+      '[aria-label="Filter diagnostic evidence"]',
+    )!;
+    fireEvent.input(filter, { target: { value: kind } });
+    expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+      'This event has no error message.',
+    );
+    expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+      'were not recorded',
+    );
+    select('Evidence source', 'live');
+    client.diagnostics.emitDiagnostic(kind, { outcome: 'cancelled' });
+    select('Activity view', 'events');
+    expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+      'Start a recording',
+    );
+  },
+);
 
 test('evidence coverage separates retained endpoints from source-wide history loss', async () => {
   const tools = createDevtools({ initialIsOpen: true, maxRequestEvents: 3 });

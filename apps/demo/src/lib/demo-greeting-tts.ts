@@ -1,5 +1,6 @@
 import type { SynthesizeGreeting } from '@maelstrom-co/realtime-openai';
 import type { OpenAIBuiltInVoice } from '@maelstrom-co/realtime-protocol/openai';
+
 import { withFetchTimeout } from './fetch-timeout';
 
 /** One-time spoken greeting text — exact string for TTS and captions. */

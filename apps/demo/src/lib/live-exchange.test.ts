@@ -1,5 +1,6 @@
 import type { LiveExchangeRequest } from '@maelstrom-co/realtime-protocol/openai-live';
 import { describe, expect, it, vi } from 'vitest';
+
 import { createLocalLiveHandler } from '../server/live-session';
 import { createLocalLiveAccess } from '../server/local-live-access';
 import { browserCalendarContext } from './calendar-context';
@@ -42,67 +43,71 @@ const request = (body: unknown = offer, origin = 'http://localhost:3000') =>
   });
 
 describe('demo Live credential boundaries', () => {
-  it.each([
-    true,
-    false,
-  ])('ships direct routing and calendar context through browser-key mode=%s without changing models or tools', async (browserKey) => {
-    const configuredOffer: LiveExchangeRequest = {
-      ...offer,
-      session: {
-        ...offer.session,
-        instructions: 'Preserve conversational safety rules.',
-        delegation: {
-          type: 'responses',
-          responses: {
-            ...offer.session.delegation.responses,
-            instructions: 'Only confirm verified tool results.',
-            tools: [
-              {
-                type: 'function',
-                name: 'update_ui',
-                parameters: { type: 'object' },
-                strict: true,
-              },
-            ],
+  it.each([true, false])(
+    'ships direct routing and calendar context through browser-key mode=%s without changing models or tools',
+    async (browserKey) => {
+      const configuredOffer: LiveExchangeRequest = {
+        ...offer,
+        session: {
+          ...offer.session,
+          instructions: 'Preserve conversational safety rules.',
+          delegation: {
+            type: 'responses',
+            responses: {
+              ...offer.session.delegation.responses,
+              instructions: 'Only confirm verified tool results.',
+              tools: [
+                {
+                  type: 'function',
+                  name: 'update_ui',
+                  parameters: { type: 'object' },
+                  strict: true,
+                },
+              ],
+            },
           },
         },
-      },
-    };
-    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
-      const body = JSON.parse(String(init?.body));
-      const backend = body.session.delegation.responses;
-      expect(body.transport).toEqual(offer.transport);
-      expect(body.session.model).toBe('gpt-live-1');
-      expect(backend.model).toBe('gpt-6-luna');
-      expect(backend.tools).toEqual(
-        configuredOffer.session.delegation.responses.tools,
-      );
-      expect(backend.instructions).toContain(
+      };
+      const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const backend = body.session.delegation.responses;
+        expect(body.transport).toEqual(offer.transport);
+        expect(body.session.model).toBe('gpt-live-1');
+        expect(backend.model).toBe('gpt-6-luna');
+        expect(backend.tools).toEqual(
+          configuredOffer.session.delegation.responses.tools,
+        );
+        expect(backend.instructions).toContain(
+          'Only confirm verified tool results.',
+        );
+        expect(backend.instructions).toContain('call update_ui directly');
+        expect(backend.instructions).toContain(
+          'Do not call get_ui_state or get_capabilities as routine prerequisites',
+        );
+        expect(backend.instructions).toContain(
+          browserCalendarContext().timeZone,
+        );
+        expect(backend.instructions).toContain(
+          'Keep relative date expressions',
+        );
+        expect(body.session.instructions).toContain(
+          'Preserve conversational safety rules.',
+        );
+        expect(body.session.instructions).toContain(
+          'Forward relative date expressions unchanged',
+        );
+        return Response.json(answer, { status: 201 });
+      });
+      await createDemoLiveExchange(
+        browserKey ? () => 'fixture-key' : undefined,
+        fetcher,
+      )(configuredOffer, signal());
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(configuredOffer.session.delegation.responses.instructions).toBe(
         'Only confirm verified tool results.',
       );
-      expect(backend.instructions).toContain('call update_ui directly');
-      expect(backend.instructions).toContain(
-        'Do not call get_ui_state or get_capabilities as routine prerequisites',
-      );
-      expect(backend.instructions).toContain(browserCalendarContext().timeZone);
-      expect(backend.instructions).toContain('Keep relative date expressions');
-      expect(body.session.instructions).toContain(
-        'Preserve conversational safety rules.',
-      );
-      expect(body.session.instructions).toContain(
-        'Forward relative date expressions unchanged',
-      );
-      return Response.json(answer, { status: 201 });
-    });
-    await createDemoLiveExchange(
-      browserKey ? () => 'fixture-key' : undefined,
-      fetcher,
-    )(configuredOffer, signal());
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(configuredOffer.session.delegation.responses.instructions).toBe(
-      'Only confirm verified tool results.',
-    );
-  });
+    },
+  );
   it('distinguishes local host authorization failures from upstream model access errors', async () => {
     const modelDenied = createDemoLiveExchange(
       undefined,
@@ -183,20 +188,21 @@ describe('demo Live credential boundaries', () => {
     await createDemoLiveExchange(undefined, fetcher)(offer, signal());
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
-  it.each([
-    401, 403, 404, 429, 307, 500,
-  ])('does not retry or expose upstream content after status %i', async (status) => {
-    const fetcher = vi.fn<typeof fetch>(
-      async () => new Response('fixture-private-content', { status }),
-    );
-    const error = await createDemoLiveExchange(() => 'fixture-key', fetcher)(
-      offer,
-      signal(),
-    ).catch((error: unknown) => error);
-    expect(error).toMatchObject({ status, code: 'exchange_rejected' });
-    expect(liveErrorMessage(error)).not.toContain('fixture-private-content');
-    expect(fetcher).toHaveBeenCalledTimes(1);
-  });
+  it.each([401, 403, 404, 429, 307, 500])(
+    'does not retry or expose upstream content after status %i',
+    async (status) => {
+      const fetcher = vi.fn<typeof fetch>(
+        async () => new Response('fixture-private-content', { status }),
+      );
+      const error = await createDemoLiveExchange(() => 'fixture-key', fetcher)(
+        offer,
+        signal(),
+      ).catch((error: unknown) => error);
+      expect(error).toMatchObject({ status, code: 'exchange_rejected' });
+      expect(liveErrorMessage(error)).not.toContain('fixture-private-content');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
   it.each([
     'not json',
     JSON.stringify({ session: {}, transport: {} }),

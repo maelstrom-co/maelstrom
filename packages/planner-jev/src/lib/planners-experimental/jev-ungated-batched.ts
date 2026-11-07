@@ -5,13 +5,14 @@ import {
   withFallback,
   withRetry,
 } from '@maelstrom-co/engine';
+
 import { STAGE_NAME } from '../defer.js';
 import { FALLBACK_RETRIES } from '../jev-planner.js';
-import { completeLayoutInline } from '../stages/complete-layout-inline.js';
-import type { JevDeps } from '../stages/stage-deps.js';
 import { actionsBatched } from '../stages-experimental/actions-batched.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import type { JevDeps } from '../stages/stage-deps.js';
 
 /**
  * The stage-library planner with ungated select, state-keyed batched actions, the preset layout and the

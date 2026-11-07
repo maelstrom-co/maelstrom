@@ -1,5 +1,6 @@
 import { createEffect, onCleanup } from 'solid-js';
 import { z } from 'zod';
+
 import { element } from './panel-views.js';
 import {
   createTelemetryDashboard,

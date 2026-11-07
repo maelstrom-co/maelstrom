@@ -12,6 +12,7 @@
 
 import type { Engine } from '@maelstrom-co/engine';
 import { Context, Data, Effect, Layer } from 'effect';
+
 import { createPlaygroundEngine } from '../../server/engine-config';
 import { createDemoOpenaiChat } from '../../server/engine-model';
 import { createRedactingLogger, redact } from '../../server/redact';
@@ -44,6 +45,7 @@ export class EngineFactory extends Context.Service<
 
 export const EngineFactoryLive = Layer.effect(
   EngineFactory,
+  // oxlint-disable-next-line eslint/require-yield -- Effect.gen consumes a generator even when construction has no yielded dependency.
   Effect.gen(function* () {
     const make = Effect.fn('EngineFactory.make')(function* (apiKey: string) {
       return yield* Effect.try({

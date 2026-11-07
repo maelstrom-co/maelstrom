@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+
 import { createPublicDistributions } from './distribution';
 
 const revision = process.argv[2];
@@ -17,7 +18,8 @@ try {
   for (const args of [
     ['install', '--frozen-lockfile', '--ignore-scripts'],
     ['audit'],
-    ['run', 'check'],
+    ['run', 'lint'],
+    ['run', 'format:check'],
     ['run', 'typecheck'],
     ['run', 'test'],
     ['run', 'build'],

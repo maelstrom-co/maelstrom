@@ -2,6 +2,7 @@ import type { TilingTreeNode } from '@maelstrom-co/client';
 import { parseTilingTree } from '@maelstrom-co/client';
 import { type InstanceId, tilingLeafInstanceId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import {
   SHOP_LAYOUT,
   SHOP_NARROW_LAYOUT,

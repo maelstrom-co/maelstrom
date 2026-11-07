@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { isDeepStrictEqual } from 'node:util';
+
 import { validateLoadedCase } from '../../packages/evals/src/adapters/offline-case.js';
 import {
   scoreWeatherActionBackedResponse,

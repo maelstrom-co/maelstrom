@@ -3,6 +3,7 @@ import {
   STAGE_NAME,
   STAGE_NAMES,
 } from '@maelstrom-co/planner-jev/_internal';
+
 import type { ArmSummaryExtension, ReportRow } from '../../core/plugin.js';
 import {
   type ArmSummary,
@@ -169,17 +170,15 @@ export function jevRows(): readonly ReportRow[] {
           : 'n/a';
       },
     },
-    ...STAGE_NAMES.map(
-      (stage): ReportRow => ({
-        label: `${stage} latency p50 / p95 (ms)`,
-        section: 'latency',
-        cell: (s) => {
-          const live = s.latency.stages?.[stage];
-          if (live && live.samples > 0) return spread(live);
-          return s.replayed.includes(stage) ? 'replayed' : 'n/a';
-        },
-      }),
-    ),
+    ...STAGE_NAMES.map((stage): ReportRow => ({
+      label: `${stage} latency p50 / p95 (ms)`,
+      section: 'latency',
+      cell: (s) => {
+        const live = s.latency.stages?.[stage];
+        if (live && live.samples > 0) return spread(live);
+        return s.replayed.includes(stage) ? 'replayed' : 'n/a';
+      },
+    })),
     {
       label: 'Stage call latency p50 / p95 (ms)',
       section: 'latency',

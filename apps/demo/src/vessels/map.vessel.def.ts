@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import { DEMO_LOCATIONS } from '../lib/locations';
 import { withActionOptions } from '../lib/vessel-options';
 

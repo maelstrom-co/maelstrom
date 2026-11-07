@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { defineVessel } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { createElement } from 'react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMaelstrom } from './create-maelstrom.js';

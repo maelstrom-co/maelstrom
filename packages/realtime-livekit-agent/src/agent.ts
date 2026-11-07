@@ -11,6 +11,7 @@
  */
 
 import { fileURLToPath } from 'node:url';
+
 import {
   cli,
   defineAgent,

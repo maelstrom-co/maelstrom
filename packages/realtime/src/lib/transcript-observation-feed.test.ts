@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { TimedTranscriptFragment } from '@maelstrom-co/client';
 
 import { TranscriptObservationFeed } from './transcript-observation-feed.js';

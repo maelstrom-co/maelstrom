@@ -7,6 +7,7 @@ import {
   it,
   spyOn,
 } from 'bun:test';
+
 import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol';
 import {
   InstanceId,
@@ -15,6 +16,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+
 import { resetWarnings } from '../../_testing.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
 import { testVessel } from '../__tests__/test-vessel.fixture.js';

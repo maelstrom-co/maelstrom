@@ -5,13 +5,14 @@ import {
   withFallback,
   withRetry,
 } from '@maelstrom-co/engine';
+
 import { STAGE_NAME } from '../defer.js';
 import { FALLBACK_RETRIES } from '../jev-planner.js';
+import { actionsStepwiseGated } from '../stages-experimental/actions-stepwise-gated.js';
+import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { selectGated } from '../stages/select-gated.js';
 import type { JevDeps } from '../stages/stage-deps.js';
-import { actionsStepwiseGated } from '../stages-experimental/actions-stepwise-gated.js';
-import { layoutPreset } from '../stages-experimental/layout-preset.js';
 
 /**
  * The stage-library planner with gated select, the gated stepwise actions, the preset

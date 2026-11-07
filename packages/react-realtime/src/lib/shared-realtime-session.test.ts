@@ -1,10 +1,12 @@
 import { expect, test } from 'bun:test';
+
 import { SessionId } from '@maelstrom-co/protocol';
 import type {
   GreetingCoordinator,
   RealtimeSession,
   RealtimeSessionMemory,
 } from '@maelstrom-co/realtime';
+
 import {
   type SharedRealtimeSessionBuild,
   SharedRealtimeSessionRegistry,

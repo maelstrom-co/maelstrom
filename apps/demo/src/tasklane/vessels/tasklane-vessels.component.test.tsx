@@ -11,6 +11,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { myPrioritiesVessel } from './my-priorities.vessel.def';
 import { projectPulseVessel } from './project-pulse.vessel.def';
 import { projectTasksVessel } from './project-tasks.vessel.def';
@@ -69,9 +70,8 @@ const TeamLoadComponent = (await import('./team-load.component')).default;
 const TriageInboxComponent = (await import('./triage-inbox.component')).default;
 const ProjectPulseComponent = (await import('./project-pulse.component'))
   .default;
-const { __resetTasklaneActivityForTests, getLatestReceipt } = await import(
-  '../tasklane-activity'
-);
+const { __resetTasklaneActivityForTests, getLatestReceipt } =
+  await import('../tasklane-activity');
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,

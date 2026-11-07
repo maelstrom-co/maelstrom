@@ -1,5 +1,6 @@
 import type { LiveExchangeRequest } from '@maelstrom-co/realtime-protocol/openai-live';
 import { expect, it } from 'vitest';
+
 import { configureDemoLiveOffer } from './live-demo-instructions';
 
 it('does not seed a frozen date into either model of a long-lived Live session', () => {

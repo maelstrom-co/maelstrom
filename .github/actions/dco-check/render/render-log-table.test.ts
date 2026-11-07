@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { commit } from '../fixtures/commit.ts';
 import { renderLogTable } from './render-log-table.ts';
 import { backtickCount } from './test-helpers/backtick-count.ts';

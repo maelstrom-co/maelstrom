@@ -11,6 +11,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
+
 import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import {

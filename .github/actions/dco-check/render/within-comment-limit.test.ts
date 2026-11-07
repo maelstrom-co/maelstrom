@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { withinCommentLimit } from './within-comment-limit.ts';
 
 describe('withinCommentLimit', () => {

@@ -11,10 +11,6 @@
       "command": "tsc -p tools/evals-offline/tsconfig.json --noEmit",
       "dependsOn": ["^build"],
       "cache": false
-    },
-    "check": {
-      "command": "biome check tools/evals-offline --error-on-warnings",
-      "cache": false
     }
   }
 }

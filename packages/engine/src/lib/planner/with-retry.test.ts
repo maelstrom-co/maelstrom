@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { NeedsClarification, Result } from '@maelstrom-co/protocol';
 import {
   ActionName,
@@ -289,20 +290,21 @@ describe('withRetry', () => {
       ['TimeoutError', timeoutError('slow', 5_000)],
       ['ValidationError', validationError('bad', 'prompt')],
       ['HistoryError', historyError.recordTurn('store', new Error('s'))],
-    ] as Array<
-      [string, EngineError]
-    >)('%s from the stage is fatal: no retry', async (_, e) => {
-      const rec = recordingStage([{ error: e }]);
+    ] as Array<[string, EngineError]>)(
+      '%s from the stage is fatal: no retry',
+      async (_, e) => {
+        const rec = recordingStage([{ error: e }]);
 
-      const result = await withRetry(rec.stage, { max: 3 })(
-        makePlanningInput(),
-        rec.ctx,
-      );
+        const result = await withRetry(rec.stage, { max: 3 })(
+          makePlanningInput(),
+          rec.ctx,
+        );
 
-      expect(isErr(result) && result.error).toBe(e);
-      expect(rec.inputs).toHaveLength(1);
-      expect(rec.validations()).toBe(0);
-    });
+        expect(isErr(result) && result.error).toBe(e);
+        expect(rec.inputs).toHaveLength(1);
+        expect(rec.validations()).toBe(0);
+      },
+    );
 
     test('a Deferred from the stage is fatal: no retry', async () => {
       const deferral: StageError = { _tag: 'Deferred', reason: 'unsure' };
@@ -558,17 +560,15 @@ describe('withRetry', () => {
       ]);
     });
 
-    test.each([
-      -1,
-      1.5,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-    ])('max=%p throws at construction', (max) => {
-      const rec = recordingStage([]);
-      expect(() => withRetry(rec.stage, { max })).toThrow(
-        /withRetry: max must be a non-negative integer/,
-      );
-    });
+    test.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      'max=%p throws at construction',
+      (max) => {
+        const rec = recordingStage([]);
+        expect(() => withRetry(rec.stage, { max })).toThrow(
+          /withRetry: max must be a non-negative integer/,
+        );
+      },
+    );
   });
 });
 

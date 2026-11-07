@@ -106,10 +106,11 @@ layer. The boundary test checks package manifests and import restrictions.
 
 A browser package can include Node tooling behind a declared non-root entry point.
 For example, the VAD asset copier and CLI must remain unreachable from the root
-browser export. Server and worker packages declare `noRestrictedImports` in their
-own Biome configs: override paths resolve relative to the extending config, so
-repo-root path patterns do not protect those packages. The boundary test checks
-that each restriction covers the browser packages.
+browser export. Server and worker packages declare `eslint/no-restricted-imports`
+in their own Oxlint configs, which extend the root config. Restrictions cover
+bare browser packages and recursive subpaths. The boundary test checks the
+configuration and runs the linter against forbidden imports and an allowed Node
+import.
 
 ### Runtime turn mode
 

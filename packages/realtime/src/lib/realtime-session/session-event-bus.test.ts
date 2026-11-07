@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { ToolCallId } from '@maelstrom-co/protocol';
+
 import { type SessionEvent, SessionEventBus } from './session-event-bus.js';
 
 describe('SessionEventBus', () => {
@@ -214,13 +216,10 @@ const unexpectedReports: unknown[] = [];
 function reportingBus(): SessionEventBus {
   return new SessionEventBus((error) => unexpectedReports.push(error));
 }
-it.each([
-  'async',
-  'thenable',
-  'getter',
-  'reporter',
-] as const)('optional rejected %s observers cannot terminate the process or delay healthy facts', (mode) => {
-  const probe = `
+it.each(['async', 'thenable', 'getter', 'reporter'] as const)(
+  'optional rejected %s observers cannot terminate the process or delay healthy facts',
+  (mode) => {
+    const probe = `
     import { SessionEventBus } from './session-event-bus.ts';
     const mode = ${JSON.stringify(mode)};
     const bus = new SessionEventBus(mode === 'reporter' ? async () => { throw new Error('reporter rejected'); } : () => {});
@@ -235,10 +234,11 @@ it.each([
     await new Promise(resolve => setTimeout(resolve, 10));
     console.log('healthy');
   `;
-  const child = Bun.spawnSync(
-    [process.execPath, '--no-env-file', '--eval', probe],
-    { cwd: import.meta.dir },
-  );
-  expect(child.exitCode, child.stderr.toString()).toBe(0);
-  expect(child.stdout.toString().trim()).toBe('healthy');
-});
+    const child = Bun.spawnSync(
+      [process.execPath, '--no-env-file', '--eval', probe],
+      { cwd: import.meta.dir },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(child.stdout.toString().trim()).toBe('healthy');
+  },
+);

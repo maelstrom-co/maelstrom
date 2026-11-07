@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { HOME } from '../lib/locations';
 import {
   FALLBACK_WEATHER,

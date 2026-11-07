@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import { releaseChangelog, releaseVersion } from 'nx/release';
+
 import { assertRegistryMetadata } from './assert-registry-metadata.ts';
 import { versionFromTag } from './lib/release-target.ts';
 

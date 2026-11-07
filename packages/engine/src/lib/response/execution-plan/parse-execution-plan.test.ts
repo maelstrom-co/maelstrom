@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   ActionName,
   type ChartRequest,
@@ -10,6 +11,7 @@ import {
   VesselId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+
 import {
   makeGridRequest,
   makeVessel,
@@ -608,27 +610,30 @@ describe('parseExecutionPlan — action parameter validation', () => {
     ['enabled', 1, 'boolean', 'number'],
     ['metadata', null, 'object', 'null'],
     ['metadata', [], 'object', 'array'],
-  ] as const)('rejects an invalid value for %s', (parameter, value, expected, actual) => {
-    const params: Record<string, unknown> = {
-      label: 'Example',
-      count: 2,
-      enabled: true,
-      metadata: {},
-      mode: 'safe',
-      [parameter]: value,
-    };
-    const result = parse({
-      instanceId,
-      action: configure,
-      paramsJson: JSON.stringify(params),
-    });
+  ] as const)(
+    'rejects an invalid value for %s',
+    (parameter, value, expected, actual) => {
+      const params: Record<string, unknown> = {
+        label: 'Example',
+        count: 2,
+        enabled: true,
+        metadata: {},
+        mode: 'safe',
+        [parameter]: value,
+      };
+      const result = parse({
+        instanceId,
+        action: configure,
+        paramsJson: JSON.stringify(params),
+      });
 
-    expect(result.plan).toEqual([]);
-    expect(result.skippedActions[0]).toMatchObject({
-      reason: 'params_validation_failed',
-      issues: [{ kind: 'type_mismatch', parameter, expected, actual }],
-    });
-  });
+      expect(result.plan).toEqual([]);
+      expect(result.skippedActions[0]).toMatchObject({
+        reason: 'params_validation_failed',
+        issues: [{ kind: 'type_mismatch', parameter, expected, actual }],
+      });
+    },
+  );
 
   test('rejects values outside the declared enum', () => {
     const result = parse({
@@ -676,21 +681,21 @@ describe('parseExecutionPlan — action parameter validation', () => {
     });
   });
 
-  test.each([
-    { id: 1 },
-    { id: 2 },
-  ])('accepts a prompt-visible normalized object enum value: %p', (value) => {
-    expect(
-      parse({
-        instanceId,
-        action: normalizedEnum,
-        paramsJson: JSON.stringify({ value }),
-      }),
-    ).toEqual({
-      plan: [{ instanceId, action: normalizedEnum, params: { value } }],
-      skippedActions: [],
-    });
-  });
+  test.each([{ id: 1 }, { id: 2 }])(
+    'accepts a prompt-visible normalized object enum value: %p',
+    (value) => {
+      expect(
+        parse({
+          instanceId,
+          action: normalizedEnum,
+          paramsJson: JSON.stringify({ value }),
+        }),
+      ).toEqual({
+        plan: [{ instanceId, action: normalizedEnum, params: { value } }],
+        skippedActions: [],
+      });
+    },
+  );
 
   test('treats an enum with no prompt-renderable values as unconstrained', () => {
     expect(

@@ -34,12 +34,12 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
-import { completeLayoutInline } from '../stages/complete-layout-inline.js';
-import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
-import type { LayoutStage } from '../stages/stage-types.js';
 import { actionsStepwise } from '../stages-experimental/actions-stepwise.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
+import type { LayoutStage } from '../stages/stage-types.js';
 
 installMockChat();
 

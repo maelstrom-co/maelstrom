@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { search } = vi.hoisted(() => ({ search: vi.fn() }));
 vi.mock('../src/search', () => ({ searchTickets: search }));
 
-import { SearchPanel } from '../src/SearchPanel';
 import { searchTickets } from '../src/search';
+import { SearchPanel } from '../src/SearchPanel';
 
 afterEach(() => {
   cleanup();

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
 import {
   type EngineConnector,
   type IntentQueueOptions,
@@ -18,6 +19,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {

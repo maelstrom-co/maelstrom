@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { DiagnosticCapture } from './capture.js';
 import {
   eventLabel,
@@ -243,13 +244,16 @@ test.each([
   ['client.command.failed', 'skipped'],
   ['client.connection.failed', 'unknown'],
   ['client.connection.failed', 'skipped'],
-] as const)('explicit %s outcome %s stays outside the Failures preset', (kind, outcome) => {
-  const events = panelEvents([event(kind, 'app-a', 'request', { outcome })]);
-  expect(queryEvents(events, { outcome: 'failed' }).matched).toBe(0);
-  expect(
-    queryEvents(events, { outcome, issueCategory: 'unreported' }).matched,
-  ).toBe(1);
-});
+] as const)(
+  'explicit %s outcome %s stays outside the Failures preset',
+  (kind, outcome) => {
+    const events = panelEvents([event(kind, 'app-a', 'request', { outcome })]);
+    expect(queryEvents(events, { outcome: 'failed' }).matched).toBe(0);
+    expect(
+      queryEvents(events, { outcome, issueCategory: 'unreported' }).matched,
+    ).toBe(1);
+  },
+);
 
 test('request comparison leaves missing and push timings unknown and never combines nested server work', () => {
   const requests = groupRequests(
@@ -690,20 +694,21 @@ test('redacted and truncated identities cannot merge unrelated request traces', 
   expect(groupRequests(projected)).toEqual([]);
 });
 
-test.each([
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-])('capture string limit %i cannot invent shared app or request identities', (maxStringCharacters) => {
-  const capture = new DiagnosticCapture(() => null, { maxStringCharacters });
-  capture.start('fixture');
-  for (const suffix of ['first', 'second'])
-    capture.record('event', {
-      requestId: `a-long-distinct-request-${suffix}`,
-      metadata: { clientId: `a-long-distinct-app-${suffix}` },
-    });
-  const evidence = recordingEvidence(JSON.parse(capture.export()));
-  expect(evidence.apps).toEqual([]);
-  expect(groupRequests(evidence.events)).toEqual([]);
-});
+test.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])(
+  'capture string limit %i cannot invent shared app or request identities',
+  (maxStringCharacters) => {
+    const capture = new DiagnosticCapture(() => null, { maxStringCharacters });
+    capture.start('fixture');
+    for (const suffix of ['first', 'second'])
+      capture.record('event', {
+        requestId: `a-long-distinct-request-${suffix}`,
+        metadata: { clientId: `a-long-distinct-app-${suffix}` },
+      });
+    const evidence = recordingEvidence(JSON.parse(capture.export()));
+    expect(evidence.apps).toEqual([]);
+    expect(groupRequests(evidence.events)).toEqual([]);
+  },
+);
 
 test('retained event identities survive buffer eviction without selecting newer evidence', () => {
   const first = event('fixture.first');

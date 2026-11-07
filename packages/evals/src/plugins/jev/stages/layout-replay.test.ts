@@ -18,6 +18,7 @@ import {
   recordedAsk,
 } from '@maelstrom-co/planner-jev/_testing';
 import { isOk, type TilingNode } from '@maelstrom-co/protocol';
+
 import { type Scenario, scenarios } from '../../../core/scenarios.js';
 import { planningInput } from '../../../core/stage-eval.js';
 import { loadStageEvalTurns } from '../fixtures/stage-eval-turns.js';

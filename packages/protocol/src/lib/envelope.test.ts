@@ -27,8 +27,8 @@ import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { MaelstromResponse } from './response.js';
 import { isErr, ok } from './result.js';
-import { SessionId } from './session.js';
 import type { SessionHistoryEntry } from './session-history-entry.js';
+import { SessionId } from './session.js';
 
 // A ChartRequest that passes ChartRequestSchema end-to-end (grid layout matching
 // layoutMode, no instances/vessels to cross-reference).
@@ -192,26 +192,26 @@ describe('ClientEnvelope round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('ServerEnvelope round-trip', () => {
-  test.each([
-    'inserted',
-    'deduped',
-  ] as const)('engine.assistant_message.result (%s)', (outcome) => {
-    const msg = AssistantMessageResultMessage({
-      requestId: MessageId('req-X'),
-      sessionId: SessionId('s-1'),
-      outcome,
-    });
-    const decoded = decodeServerEnvelope(encodeEnvelope(msg));
-    expect(decoded.ok).toBe(true);
-    if (!decoded.ok) throw new Error('expected a decodable server envelope');
-    expect(decoded.value.type).toBe('engine.assistant_message.result');
-    if (decoded.value.type !== 'engine.assistant_message.result') {
-      throw new Error('expected engine.assistant_message.result');
-    }
-    expect(decoded.value.requestId).toBe(MessageId('req-X'));
-    expect(decoded.value.sessionId).toBe(SessionId('s-1'));
-    expect(decoded.value.outcome).toBe(outcome);
-  });
+  test.each(['inserted', 'deduped'] as const)(
+    'engine.assistant_message.result (%s)',
+    (outcome) => {
+      const msg = AssistantMessageResultMessage({
+        requestId: MessageId('req-X'),
+        sessionId: SessionId('s-1'),
+        outcome,
+      });
+      const decoded = decodeServerEnvelope(encodeEnvelope(msg));
+      expect(decoded.ok).toBe(true);
+      if (!decoded.ok) throw new Error('expected a decodable server envelope');
+      expect(decoded.value.type).toBe('engine.assistant_message.result');
+      if (decoded.value.type !== 'engine.assistant_message.result') {
+        throw new Error('expected engine.assistant_message.result');
+      }
+      expect(decoded.value.requestId).toBe(MessageId('req-X'));
+      expect(decoded.value.sessionId).toBe(SessionId('s-1'));
+      expect(decoded.value.outcome).toBe(outcome);
+    },
+  );
 
   test('engine.maelstrom.response', () => {
     const msg = MaelstromResponseMessage({
@@ -367,20 +367,23 @@ describe('decode failures', () => {
     ['empty id', { id: '' }],
     ['empty sessionId', { sessionId: '' }],
     ['non-finite timestamp', { timestamp: Number.POSITIVE_INFINITY }],
-  ])('malformed acknowledged assistant message (%s) → invalid_envelope', (_case, override) => {
-    const decoded = decodeClientEnvelope({
-      type: 'client.assistant_message.acknowledged',
-      sessionId: 's-1',
-      id: 'm-am-ack',
-      timestamp: 1_700_000_000_000,
-      content: 'hello world',
-      ...override,
-    });
-    expect(decoded.ok).toBe(false);
-    if (!decoded.ok) {
-      expect(decoded.error.kind).toBe('invalid_envelope');
-    }
-  });
+  ])(
+    'malformed acknowledged assistant message (%s) → invalid_envelope',
+    (_case, override) => {
+      const decoded = decodeClientEnvelope({
+        type: 'client.assistant_message.acknowledged',
+        sessionId: 's-1',
+        id: 'm-am-ack',
+        timestamp: 1_700_000_000_000,
+        content: 'hello world',
+        ...override,
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) {
+        expect(decoded.error.kind).toBe('invalid_envelope');
+      }
+    },
+  );
 
   test('empty-string requestId → invalid_envelope', () => {
     const decoded = decodeServerEnvelope({

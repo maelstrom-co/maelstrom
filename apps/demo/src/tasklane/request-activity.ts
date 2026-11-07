@@ -3,6 +3,7 @@ import type {
   MaelstromExtensionContext,
 } from '@maelstrom-co/react';
 import { useEffect } from 'react';
+
 import { rememberRequestReferences } from './stores/project-tasks.store';
 import {
   closeRequestWindow,

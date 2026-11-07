@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { resolve } from 'node:path';
+
 import type { ChangelogChange } from 'nx/release/changelog-renderer';
 import { GithubRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/github';
+
 import ReleaseChangelogRenderer, {
   scopeChangesToReleaseProjects,
 } from './release-changelog-renderer.ts';
@@ -91,21 +93,24 @@ describe('release author attribution', () => {
     '21e9f07ceaf98b3326eedf559a08c5c72d265914',
     '135ced15cfaa7391a3cb6570620ba261f1a0221b',
     'bd29917',
-  ])('corrects the known mixed identity on %s without requiring GitHub access', async (hash) => {
-    const renderer = new AuthorRenderer(
-      [
-        {
-          ...change(hash),
-          authors: [{ ...nacho, email: 'xppcoder@gmail.com' }],
-        },
-      ],
-      {},
-    );
-    expect((await renderer.authors()).split('\n')).toContain(
-      '- Nacho Vazquez @NachoVazquez',
-    );
-    expect(renderer.requests).toEqual([]);
-  });
+  ])(
+    'corrects the known mixed identity on %s without requiring GitHub access',
+    async (hash) => {
+      const renderer = new AuthorRenderer(
+        [
+          {
+            ...change(hash),
+            authors: [{ ...nacho, email: 'xppcoder@gmail.com' }],
+          },
+        ],
+        {},
+      );
+      expect((await renderer.authors()).split('\n')).toContain(
+        '- Nacho Vazquez @NachoVazquez',
+      );
+      expect(renderer.requests).toEqual([]);
+    },
+  );
 
   it('preserves Javier’s co-author identity while correcting Nacho’s primary identity', async () => {
     const javier = { name: 'Javier Cabrera', email: 'xppcoder@gmail.com' };
@@ -237,27 +242,26 @@ describe('release author attribution', () => {
     expect((await renderer.authors()).split('\n')).toContain('- Nacho Vazquez');
   });
 
-  it.each([
-    'missing',
-    undefined,
-    'verified',
-  ])('omits a shared-name handle when an identity has no matching account on %s', async (unresolvedHash) => {
-    const changes = [
-      { ...change('verified'), authors: [nacho] },
-      {
-        ...change(unresolvedHash),
-        authors: [{ ...nacho, email: 'other@example.com' }],
-      },
-    ];
-    for (const orderedChanges of [changes, [...changes].reverse()]) {
-      const renderer = new AuthorRenderer(orderedChanges, {
-        verified: attributedCommit,
-      });
-      expect((await renderer.authors()).split('\n')).toContain(
-        '- Nacho Vazquez',
-      );
-    }
-  });
+  it.each(['missing', undefined, 'verified'])(
+    'omits a shared-name handle when an identity has no matching account on %s',
+    async (unresolvedHash) => {
+      const changes = [
+        { ...change('verified'), authors: [nacho] },
+        {
+          ...change(unresolvedHash),
+          authors: [{ ...nacho, email: 'other@example.com' }],
+        },
+      ];
+      for (const orderedChanges of [changes, [...changes].reverse()]) {
+        const renderer = new AuthorRenderer(orderedChanges, {
+          verified: attributedCommit,
+        });
+        expect((await renderer.authors()).split('\n')).toContain(
+          '- Nacho Vazquez',
+        );
+      }
+    },
+  );
 
   it('shows one handle when every identity sharing a name resolves to that account', async () => {
     const otherIdentity = { ...nacho, email: 'other@example.com' };

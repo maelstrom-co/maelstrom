@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { TilingSplitToken } from '@maelstrom-co/protocol';
 import {
   ActionName,
@@ -7,6 +8,7 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import type { SkippedAction } from '../response/execution-plan/index.js';
 import { buildDiagnostics } from '../response/response-processor.js';
 import type {
@@ -15,7 +17,6 @@ import type {
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
 import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
-
 import type { DiagnosticRecords, FullValidatedCandidate } from './candidate.js';
 import { renderRetryDiagnostics } from './retry-diagnostics.js';
 
@@ -477,17 +478,18 @@ describe('buildDiagnostics feedback', () => {
       },
       'instance "dupe" appeared multiple times in layout',
     ],
-  ] satisfies Array<
-    [DroppedLayoutEntry, string]
-  >)('formats DroppedLayoutEntry %p', (drop, expected) => {
-    const out = feedbackOf({
-      skippedActions: [],
-      droppedLayoutEntries: [drop],
-      warnings: [],
-      retryHint: recommendMedium,
-    });
-    expect(out).toContain(`- ${expected}`);
-  });
+  ] satisfies Array<[DroppedLayoutEntry, string]>)(
+    'formats DroppedLayoutEntry %p',
+    (drop, expected) => {
+      const out = feedbackOf({
+        skippedActions: [],
+        droppedLayoutEntries: [drop],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
+      expect(out).toContain(`- ${expected}`);
+    },
+  );
 
   // Pin every non-state_drift SkippedAction formatter.
   test.each([
@@ -569,17 +571,18 @@ describe('buildDiagnostics feedback', () => {
       },
       'Action "setLocation" on instance "weather-main" was refused: it carries parameters and this update was triggered by a chart resize alone, so only actions called with no parameters may run. Omit this specific (instance, action) pair from your next response.',
     ],
-  ] satisfies Array<
-    [SkippedAction, string]
-  >)('formats SkippedAction %p', (skipped, expected) => {
-    const out = feedbackOf({
-      skippedActions: [skipped],
-      droppedLayoutEntries: [],
-      warnings: [],
-      retryHint: recommendMedium,
-    });
-    expect(out).toContain(expected);
-  });
+  ] satisfies Array<[SkippedAction, string]>)(
+    'formats SkippedAction %p',
+    (skipped, expected) => {
+      const out = feedbackOf({
+        skippedActions: [skipped],
+        droppedLayoutEntries: [],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
+      expect(out).toContain(expected);
+    },
+  );
 
   test('action_not_valid with empty validActions formats "(none)"', () => {
     const out = feedbackOf({
@@ -865,19 +868,16 @@ describe('buildDiagnostics feedback', () => {
 
     test('layout warnings past the ceiling are counted, not rendered', () => {
       let rendered = 0;
-      const warnings = Array.from(
-        { length: 200 },
-        (): LayoutWarning => ({
-          kind: 'split_weights_repaired',
-          atTokenIndex: 2,
-          weights: [1, 1],
-          repairReason: 'unreadable',
-          get token(): TilingSplitToken {
-            rendered += 1;
-            return 'V:xyz';
-          },
-        }),
-      );
+      const warnings = Array.from({ length: 200 }, (): LayoutWarning => ({
+        kind: 'split_weights_repaired',
+        atTokenIndex: 2,
+        weights: [1, 1],
+        repairReason: 'unreadable',
+        get token(): TilingSplitToken {
+          rendered += 1;
+          return 'V:xyz';
+        },
+      }));
 
       const section = feedbackOf({
         skippedActions: [],

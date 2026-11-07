@@ -1,5 +1,6 @@
 import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { selectVoiceProvider } from './voice-provider';
 
 interface ConstructedOpenAIAdapter {
@@ -62,9 +63,8 @@ vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
 }));
 
-const { createAdapter, prepareBrowserOpenAIVoice } = await import(
-  './voice-adapter'
-);
+const { createAdapter, prepareBrowserOpenAIVoice } =
+  await import('./voice-adapter');
 
 const sessionId = SessionId('session-1');
 

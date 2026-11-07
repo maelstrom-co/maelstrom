@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import { ActionName, InstanceId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 

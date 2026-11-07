@@ -4,6 +4,7 @@ import {
 } from '@maelstrom-co/client';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { useEffect } from 'react';
+
 import { m } from '../lib/maelstrom';
 import { withActionOptions } from '../lib/vessel-options';
 import { useCalendarStore } from '../vessels/calendar.store';
@@ -145,6 +146,7 @@ export function VesselOptionSync() {
           }),
         ),
       ),
+    // oxlint-disable-next-line react/exhaustive-deps -- The serialized option key tracks value changes without republishing for array identity.
     [entryKey, isProcessing],
   );
 
@@ -158,6 +160,7 @@ export function VesselOptionSync() {
           }),
         ),
       ),
+    // oxlint-disable-next-line react/exhaustive-deps -- The serialized option key tracks value changes without republishing for array identity.
     [eventKey, isProcessing],
   );
 
@@ -175,6 +178,7 @@ export function VesselOptionSync() {
           }),
         ),
       ),
+    // oxlint-disable-next-line react/exhaustive-deps -- The serialized option key tracks value changes without republishing for array identity.
     [taskKey, isProcessing],
   );
 
@@ -198,7 +202,7 @@ function optionKey(values: readonly string[]): string {
 // request-serializer.ts) — this is defence in depth from a component that
 // has no visibility into how the engine renders its output, not the primary
 // fix.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point — a title containing one must be rejected.
+// oxlint-disable-next-line eslint/no-control-regex -- matching control characters is the point — a title containing one must be rejected.
 const UNSAFE_TITLE_CHARS = /[|\r\n\x00-\x1f\x7f]/;
 
 // `'batch_in_flight'` fires whenever a command batch is queued or executing

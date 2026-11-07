@@ -1,14 +1,15 @@
 import { useEffect, useReducer, useState } from 'react';
+
 import './diagram.css';
 import { BeatDetail } from './BeatDetail';
 import { EdgeLayer } from './EdgeLayer';
-import { LoopController } from './LoopController';
 import {
   initialLoopState,
   loopReducer,
   STEPS,
   stepCaption,
 } from './loop-machine';
+import { LoopController } from './LoopController';
 import { NodeLayer } from './NodeLayer';
 import { nodeById } from './nodes';
 import { BANDS, cameraTransform, FRAMING, STAGE } from './stage';
@@ -20,7 +21,7 @@ const AUTO_ADVANCE_MS = 3600;
 
 function Bands() {
   return (
-    // biome-ignore lint/a11y/noAriaHiddenOnFocusable: an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. These bands are purely decorative, so dropping aria-hidden would expose them to screen readers instead of protecting anyone.
+    // oxlint-disable-next-line jsx-a11y/no-aria-hidden-on-focusable -- an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. These bands are purely decorative, so dropping aria-hidden would expose them to screen readers instead of protecting anyone.
     <g className="arch-bands" aria-hidden="true">
       {BANDS.map((band) => (
         <g key={band.zone} className={`arch-band arch-band--${band.zone}`}>

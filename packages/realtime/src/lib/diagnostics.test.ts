@@ -1,4 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
+
 import {
   type DiagnosticObservation,
   type IntentResult,
@@ -12,6 +13,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { createTelemetry, type TelemetryRecord } from '@maelstrom-co/telemetry';
 import { Store } from '@tanstack/store';
+
 import {
   type AdapterDiagnosticObservation,
   type AdapterVoiceObservation,
@@ -299,67 +301,67 @@ test('duplicate voice attachments share a lifetime and reject incompatible polic
   expect(telemetry.enabled).toBe(true);
 });
 
-test.each([
-  'same_generation',
-  'reconnect',
-] as const)('accepted voice results preserve their original owner when call IDs repeat: %s', async (mode) => {
-  const first = pendingIntent();
-  const second = pendingIntent();
-  let submitted = 0;
-  const h = harness({
-    submitIntent: () => (++submitted === 1 ? first.promise : second.promise),
-  });
-  const { records, telemetry } = telemetryFixture();
-  let retire = attachRealtimeTelemetry({
-    session: h.session,
-    telemetry,
-    providerCategory: 'openai-live',
-  });
-  await h.session.connect();
-  const call = {
-    type: 'tool_call' as const,
-    callId: ToolCallId('CANARY_reused'),
-    name: 'update_ui',
-    argumentsJson: '{"intent":"CANARY_intent"}',
-  };
-  h.emit(call);
-  await tick();
-  retire.release();
-  if (mode === 'reconnect') {
-    await h.session.disconnect();
+test.each(['same_generation', 'reconnect'] as const)(
+  'accepted voice results preserve their original owner when call IDs repeat: %s',
+  async (mode) => {
+    const first = pendingIntent();
+    const second = pendingIntent();
+    let submitted = 0;
+    const h = harness({
+      submitIntent: () => (++submitted === 1 ? first.promise : second.promise),
+    });
+    const { records, telemetry } = telemetryFixture();
+    let retire = attachRealtimeTelemetry({
+      session: h.session,
+      telemetry,
+      providerCategory: 'openai-live',
+    });
     await h.session.connect();
-  }
-  retire = attachRealtimeTelemetry({
-    session: h.session,
-    telemetry,
-    providerCategory: 'livekit',
-  });
-  h.emit(call);
-  await tick();
-  first.resolve({});
-  await tick();
-  await telemetry.flush();
-  expect(
-    records
-      .filter((record) => record.attributes.outcome === 'succeeded')
-      .map((record) => record.attributes.provider),
-  ).toEqual(['openai-live']);
-  second.resolve({});
-  await tick();
-  await telemetry.flush();
-  expect(
-    records
-      .filter((record) => record.attributes.outcome === 'succeeded')
-      .map((record) => record.attributes.provider),
-  ).toEqual(['openai-live', 'livekit']);
-  expect(
-    records.filter((record) => record.attributes.outcome === 'started'),
-  ).toHaveLength(2);
-  expect(JSON.stringify(records)).not.toMatch(
-    /CANARY|callId|generation|providerInstanceId/,
-  );
-  retire.release();
-});
+    const call = {
+      type: 'tool_call' as const,
+      callId: ToolCallId('CANARY_reused'),
+      name: 'update_ui',
+      argumentsJson: '{"intent":"CANARY_intent"}',
+    };
+    h.emit(call);
+    await tick();
+    retire.release();
+    if (mode === 'reconnect') {
+      await h.session.disconnect();
+      await h.session.connect();
+    }
+    retire = attachRealtimeTelemetry({
+      session: h.session,
+      telemetry,
+      providerCategory: 'livekit',
+    });
+    h.emit(call);
+    await tick();
+    first.resolve({});
+    await tick();
+    await telemetry.flush();
+    expect(
+      records
+        .filter((record) => record.attributes.outcome === 'succeeded')
+        .map((record) => record.attributes.provider),
+    ).toEqual(['openai-live']);
+    second.resolve({});
+    await tick();
+    await telemetry.flush();
+    expect(
+      records
+        .filter((record) => record.attributes.outcome === 'succeeded')
+        .map((record) => record.attributes.provider),
+    ).toEqual(['openai-live', 'livekit']);
+    expect(
+      records.filter((record) => record.attributes.outcome === 'started'),
+    ).toHaveLength(2);
+    expect(JSON.stringify(records)).not.toMatch(
+      /CANARY|callId|generation|providerInstanceId/,
+    );
+    retire.release();
+  },
+);
 
 test('a full pending-observation budget reports loss without evicting an accepted result or blocking work', async () => {
   const first = pendingIntent();
@@ -1022,36 +1024,36 @@ test('accepted voice outcomes remain visible as refusals after delivery disposal
   });
 });
 
-test.each([
-  'maxPendingTools',
-  'drainTimeoutMs',
-] as const)('enabled %s limits reject invalid values before subscribing', (field) => {
-  const h = harness();
-  const { telemetry } = telemetryFixture();
-  let subscriptions = 0;
-  const subscribe = h.session.events.subscribe;
-  h.session.events.subscribe = (listener) => {
-    subscriptions++;
-    return subscribe(listener);
-  };
-  for (const value of [
-    0,
-    -1,
-    1.5,
-    NaN,
-    Infinity,
-    field === 'maxPendingTools' ? 65_537 : 60_001,
-  ]) {
-    expect(() =>
-      attachRealtimeTelemetry({
-        session: h.session,
-        telemetry,
-        [field]: value,
-      }),
-    ).toThrow(RangeError);
-  }
-  expect(subscriptions).toBe(0);
-});
+test.each(['maxPendingTools', 'drainTimeoutMs'] as const)(
+  'enabled %s limits reject invalid values before subscribing',
+  (field) => {
+    const h = harness();
+    const { telemetry } = telemetryFixture();
+    let subscriptions = 0;
+    const subscribe = h.session.events.subscribe;
+    h.session.events.subscribe = (listener) => {
+      subscriptions++;
+      return subscribe(listener);
+    };
+    for (const value of [
+      0,
+      -1,
+      1.5,
+      NaN,
+      Infinity,
+      field === 'maxPendingTools' ? 65_537 : 60_001,
+    ]) {
+      expect(() =>
+        attachRealtimeTelemetry({
+          session: h.session,
+          telemetry,
+          [field]: value,
+        }),
+      ).toThrow(RangeError);
+    }
+    expect(subscriptions).toBe(0);
+  },
+);
 
 test('legacy diagnostic sources stop reads and publication after capability revocation', async () => {
   const h = harness();

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+
 import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 export interface Subtask {

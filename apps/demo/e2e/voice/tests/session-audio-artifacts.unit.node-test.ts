@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+
 import { sessionAudioArtifacts } from './session-audio-artifacts.ts';
 import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 

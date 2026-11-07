@@ -1,4 +1,5 @@
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
+
 import {
   duration,
   fields,
@@ -14,13 +15,13 @@ import {
   type RenderedView,
   type ViewContext,
 } from './panel-views.js';
-import type { VoiceLaneContext } from './voice-timeline.js';
 import {
   type VoiceTimelineControls,
   type VoiceViewState,
   voiceGenerationLabel,
   voiceLifetimeLabel,
 } from './voice-timeline-controls.js';
+import type { VoiceLaneContext } from './voice-timeline.js';
 
 const unavailableRequestCopy = {
   ambiguous: {

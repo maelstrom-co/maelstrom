@@ -12,6 +12,7 @@ import type {
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
+
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';

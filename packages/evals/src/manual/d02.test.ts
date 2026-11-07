@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
+
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { runD02 } from './d02.js';
 import { type ManualFetch, manualTransport } from './transport.js';

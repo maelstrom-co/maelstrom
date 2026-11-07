@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { AdoptPolicy } from 'alchemy/AdoptPolicy';
 import { AlchemyContext } from 'alchemy/AlchemyContext';
 import * as Apply from 'alchemy/Apply';
@@ -18,19 +19,17 @@ import * as Redacted from 'effect/Redacted';
 
 const accountA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const accountB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-interface Worker
-  extends Resource<
-    'Cloudflare.Worker',
-    { name: string },
-    { workerName: string; accountId: string }
-  > {}
+interface Worker extends Resource<
+  'Cloudflare.Worker',
+  { name: string },
+  { workerName: string; accountId: string }
+> {}
 const Worker = Resource<Worker>('Cloudflare.Worker');
-interface Independent
-  extends Resource<
-    'Probe.Independent',
-    Record<string, never>,
-    { id: string }
-  > {}
+interface Independent extends Resource<
+  'Probe.Independent',
+  Record<string, never>,
+  { id: string }
+> {}
 const Independent = Resource<Independent>('Probe.Independent');
 
 async function scenario(options: {
@@ -332,17 +331,20 @@ describe('Worker account identity across interrupted deployments', () => {
     'stale-destroy',
     'stale-rename',
     'chain',
-  ] as const)('refuses %s in another account before reading or mutating a same-tagged Worker', async (operation) => {
-    const result = await scenario({ operation, switchAccount: true });
-    expect(errorText(result.exit)).toContain('WorkerAccountMismatch');
-    expect(result.reads).toEqual([]);
-    expect(result.writes).toEqual([]);
-    expect(result.deletes).toEqual([]);
-    expect(result.stateWrites).toEqual([]);
-    expect(result.stateDeletes).toEqual([]);
-    expect(result.after).toEqual(result.before);
-    expect(result.previousAfter).toEqual(result.previousBefore);
-  });
+  ] as const)(
+    'refuses %s in another account before reading or mutating a same-tagged Worker',
+    async (operation) => {
+      const result = await scenario({ operation, switchAccount: true });
+      expect(errorText(result.exit)).toContain('WorkerAccountMismatch');
+      expect(result.reads).toEqual([]);
+      expect(result.writes).toEqual([]);
+      expect(result.deletes).toEqual([]);
+      expect(result.stateWrites).toEqual([]);
+      expect(result.stateDeletes).toEqual([]);
+      expect(result.after).toEqual(result.before);
+      expect(result.previousAfter).toEqual(result.previousBefore);
+    },
+  );
 
   test('requires manual recovery when a legacy attribute-free checkpoint has no account', async () => {
     const result = await scenario({ operation: 'legacy' });

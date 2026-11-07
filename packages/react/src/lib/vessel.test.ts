@@ -1,6 +1,7 @@
 import { describe, it } from 'bun:test';
 
 import type { VesselDefinition } from '@maelstrom-co/protocol';
+
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { vessel } from './vessel.js';
 

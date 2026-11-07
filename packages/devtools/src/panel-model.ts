@@ -7,6 +7,7 @@ import {
 } from '@maelstrom-co/protocol';
 import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
+
 import { eventIdentity, identity } from './diagnostic-identity.js';
 import { type EventIssue, eventIssue, eventOutcome } from './event-outcome.js';
 import type { LiveEventKeys } from './live-event-keys.js';

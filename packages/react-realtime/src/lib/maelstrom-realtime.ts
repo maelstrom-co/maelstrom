@@ -65,8 +65,9 @@ export type CreateAdapterContext<Provider = undefined> =
  * Context passed to {@link MaelstromRealtimeBaseOptions.onSession} for one
  * built session.
  */
-export interface RealtimeSessionContext<Provider = undefined>
-  extends RealtimeSessionInit<Provider> {
+export interface RealtimeSessionContext<
+  Provider = undefined,
+> extends RealtimeSessionInit<Provider> {
   /** Orchestrator whose shared session this is. */
   readonly orchestrator: Orchestrator;
   /**
@@ -146,7 +147,7 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly onSession?: (
     session: RealtimeSession,
     context: RealtimeSessionContext<Provider>,
-    // biome-ignore lint/suspicious/noConfusingVoidType: Optional cleanup must accept callbacks with no return statement.
+    // oxlint-disable-next-line typescript/no-invalid-void-type -- Optional cleanup must accept callbacks with no return statement.
   ) => (() => void) | void;
   /** Overrides the deterministic structural-summary fallback. */
   readonly summarize?: SummarizeFn;

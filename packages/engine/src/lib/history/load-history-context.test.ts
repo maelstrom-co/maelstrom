@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import { isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';

@@ -22,6 +22,7 @@ import {
   MessageId,
   toError,
 } from '@maelstrom-co/protocol';
+
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import {

@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
+
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { event, mount, attach } = createVoicePanelHarness();
@@ -162,57 +164,57 @@ test('Overview filters survive request navigation and reset for a replaced impor
   );
 });
 
-test.each([
-  'repeated-receipt',
-  'conflicting-completion',
-])('ambiguous %s keeps observation durations out of the request summary', (kind) => {
-  const events = [
-    event(
-      'one',
-      'client.response.received',
-      { source: 'request', durationMs: 10 },
-      'reused',
-    ),
-  ];
-  if (kind === 'repeated-receipt') {
-    events.push(
+test.each(['repeated-receipt', 'conflicting-completion'])(
+  'ambiguous %s keeps observation durations out of the request summary',
+  (kind) => {
+    const events = [
       event(
-        'two',
+        'one',
         'client.response.received',
-        { source: 'request', durationMs: 99 },
+        { source: 'request', durationMs: 10 },
         'reused',
       ),
+    ];
+    if (kind === 'repeated-receipt') {
+      events.push(
+        event(
+          'two',
+          'client.response.received',
+          { source: 'request', durationMs: 99 },
+          'reused',
+        ),
+      );
+      events.push(
+        event(
+          'end',
+          'client.response.applied',
+          { durationMs: 3, actionFailures: 0, skippedActions: 0 },
+          'reused',
+        ),
+      );
+    } else
+      events.push(
+        event(
+          'end',
+          'client.request.failed',
+          { outcome: 'failed', durationMs: 99 },
+          'reused',
+        ),
+      );
+    const view = importEvents(events);
+    view.click('Overview');
+    view.click('Open request reused from App instance 1');
+    const row = view.shadow.querySelector('.list-pane .row-button');
+    expect(row?.textContent).toContain('Conflicting identity');
+    expect(row?.textContent).not.toContain('99 ms');
+    expect(row?.textContent).not.toContain('10 ms');
+    view.click('Response received');
+    view.click('Raw JSON');
+    expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
+      '"durationMs": 10',
     );
-    events.push(
-      event(
-        'end',
-        'client.response.applied',
-        { durationMs: 3, actionFailures: 0, skippedActions: 0 },
-        'reused',
-      ),
-    );
-  } else
-    events.push(
-      event(
-        'end',
-        'client.request.failed',
-        { outcome: 'failed', durationMs: 99 },
-        'reused',
-      ),
-    );
-  const view = importEvents(events);
-  view.click('Overview');
-  view.click('Open request reused from App instance 1');
-  const row = view.shadow.querySelector('.list-pane .row-button');
-  expect(row?.textContent).toContain('Conflicting identity');
-  expect(row?.textContent).not.toContain('99 ms');
-  expect(row?.textContent).not.toContain('10 ms');
-  view.click('Response received');
-  view.click('Raw JSON');
-  expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
-    '"durationMs": 10',
-  );
-});
+  },
+);
 
 test('discarded push evidence needs no receipt or missing-start warning', () => {
   const view = importEvents([
@@ -248,27 +250,30 @@ test('discarded push evidence needs no receipt or missing-start warning', () => 
 test.each([
   { actionFailures: '[REDACTED]', skippedActions: 1 },
   { actionFailures: 1, skippedActions: '[TRUNCATED]' },
-])('partial terminal counters keep confirmed issues in the Overview and inspector: %j', (counters) => {
-  const view = importEvents([
-    event('applied', 'client.response.applied', counters, 'partial'),
-  ]);
-  view.click('Overview');
-  view.select('Overview outcome', 'applied-with-issues');
-  expect(view.shadow.querySelectorAll('.overview-table tbody tr')).toHaveLength(
-    1,
-  );
-  expect(
-    view.shadow.querySelector('.overview-table tbody')?.textContent,
-  ).toContain('Applied with Action issues');
-  view.click('Open request partial from App instance 1');
-  expect(
-    view.shadow.querySelector('.request-outcome .badge')?.textContent,
-  ).toBe('Applied with Action issues');
-  expect(
-    view.shadow.querySelector('.request-outcome')?.textContent,
-  ).not.toContain('Outcome unknown');
-  expect(view.tools.capture.getSnapshot().count).toBe(0);
-});
+])(
+  'partial terminal counters keep confirmed issues in the Overview and inspector: %j',
+  (counters) => {
+    const view = importEvents([
+      event('applied', 'client.response.applied', counters, 'partial'),
+    ]);
+    view.click('Overview');
+    view.select('Overview outcome', 'applied-with-issues');
+    expect(
+      view.shadow.querySelectorAll('.overview-table tbody tr'),
+    ).toHaveLength(1);
+    expect(
+      view.shadow.querySelector('.overview-table tbody')?.textContent,
+    ).toContain('Applied with Action issues');
+    view.click('Open request partial from App instance 1');
+    expect(
+      view.shadow.querySelector('.request-outcome .badge')?.textContent,
+    ).toBe('Applied with Action issues');
+    expect(
+      view.shadow.querySelector('.request-outcome')?.textContent,
+    ).not.toContain('Outcome unknown');
+    expect(view.tools.capture.getSnapshot().count).toBe(0);
+  },
+);
 
 test('push coverage identifies a retained receipt when the recording includes one', () => {
   const view = importEvents([
@@ -344,24 +349,27 @@ test('unknown producer results stay distinct from failures without blaming Actio
 test.each([
   ['client.response.discarded', 'Discarded'],
   ['client.response.abandoned', 'Abandoned'],
-])('Overview and Requests give %s the same warning presentation', (kind, label) => {
-  const view = importEvents([event('end', kind, {}, 'attention')]);
-  view.click('Overview');
-  const legend = Array.from(
-    view.shadow.querySelectorAll('.overview-outcomes span'),
-  ).find((node) => node.textContent?.startsWith(label));
-  expect(legend?.getAttribute('data-tone')).toBe('warning');
-  view.click('Open request attention from App instance 1');
-  expect(view.shadow.querySelector('.list-pane .badge')?.textContent).toBe(
-    label,
-  );
-  expect(
-    view.shadow.querySelector('.list-pane .badge')?.getAttribute('data-tone'),
-  ).toBe('warning');
-  expect(
-    view.shadow.querySelector('.request-outcome')?.getAttribute('data-tone'),
-  ).toBe('warning');
-});
+])(
+  'Overview and Requests give %s the same warning presentation',
+  (kind, label) => {
+    const view = importEvents([event('end', kind, {}, 'attention')]);
+    view.click('Overview');
+    const legend = Array.from(
+      view.shadow.querySelectorAll('.overview-outcomes span'),
+    ).find((node) => node.textContent?.startsWith(label));
+    expect(legend?.getAttribute('data-tone')).toBe('warning');
+    view.click('Open request attention from App instance 1');
+    expect(view.shadow.querySelector('.list-pane .badge')?.textContent).toBe(
+      label,
+    );
+    expect(
+      view.shadow.querySelector('.list-pane .badge')?.getAttribute('data-tone'),
+    ).toBe('warning');
+    expect(
+      view.shadow.querySelector('.request-outcome')?.getAttribute('data-tone'),
+    ).toBe('warning');
+  },
+);
 
 test('source round trips outside Overview reset its filters rather than reviving stale scope', () => {
   const view = importEvents([

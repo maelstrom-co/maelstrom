@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { Effect } from 'effect';
+
 import { WaitlistRepository } from './waitlist-repository';
 import { makeWaitlistRepositoryTestLayer } from './waitlist-repository.test-layer';
 

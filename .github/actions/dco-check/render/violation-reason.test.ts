@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { commit } from '../fixtures/commit.ts';
 import { violationReason } from './violation-reason.ts';
 

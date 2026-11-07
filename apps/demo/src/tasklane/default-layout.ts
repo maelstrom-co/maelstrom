@@ -5,6 +5,7 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
 

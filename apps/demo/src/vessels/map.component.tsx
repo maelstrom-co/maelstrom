@@ -1,9 +1,11 @@
-import * as maplibregl from 'maplibre-gl';
-import { useEffect, useRef } from 'react';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+
+import 'maplibre-gl/dist/maplibre-gl.css';
+import * as maplibregl from 'maplibre-gl';
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { useEffect, useRef } from 'react';
+
 import { VesselCard } from '../components/vessel-card';
 import { ACCENT_HEX, VESSEL_ACCENTS } from '../lib/design-tokens';
 import {

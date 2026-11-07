@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { isOk } from '@maelstrom-co/protocol';
+
 import {
   type Conversation,
   conversation,
@@ -217,23 +218,22 @@ describe('readGateAnswers', () => {
     expect(isOk(at) && at.value.needsActions.answer).toBe('yes');
   });
 
-  test.each([
-    'generatedContent',
-    'spatial',
-    'dependsOnScreen',
-  ] as const)('%s answers yes at the shared threshold and no just below it', (gate) => {
-    expect(GATE_THRESHOLD).toBe(0.5);
-    const below = readGateAnswers(
-      gateReply({ ...GATES, [`gate/${gate}`]: 0.49 }),
-      makeContext(input),
-    );
-    const at = readGateAnswers(
-      gateReply({ ...GATES, [`gate/${gate}`]: 0.5 }),
-      makeContext(input),
-    );
-    expect(isOk(below) && below.value[gate].answer).toBe('no');
-    expect(isOk(at) && at.value[gate].answer).toBe('yes');
-  });
+  test.each(['generatedContent', 'spatial', 'dependsOnScreen'] as const)(
+    '%s answers yes at the shared threshold and no just below it',
+    (gate) => {
+      expect(GATE_THRESHOLD).toBe(0.5);
+      const below = readGateAnswers(
+        gateReply({ ...GATES, [`gate/${gate}`]: 0.49 }),
+        makeContext(input),
+      );
+      const at = readGateAnswers(
+        gateReply({ ...GATES, [`gate/${gate}`]: 0.5 }),
+        makeContext(input),
+      );
+      expect(isOk(below) && below.value[gate].answer).toBe('no');
+      expect(isOk(at) && at.value[gate].answer).toBe('yes');
+    },
+  );
 
   test('defers when a gate has no answer', () => {
     const { 'gate/spatial': _spatial, ...partial } = GATES;

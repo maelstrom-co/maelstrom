@@ -15,11 +15,7 @@
  * import from those entry points, not this barrel, to pull one in.
  */
 
-export type {
-  MintFailure,
-  MintFailureReason,
-  MintFetch,
-} from './lib/mint.ts';
+export type { MintFailure, MintFailureReason, MintFetch } from './lib/mint.ts';
 export { MINT_FAILURE_REASONS, mintFailureHttpStatus } from './lib/mint.ts';
 export type { TokenGrant } from './lib/token-grant.ts';
 export type { UnixSeconds } from './lib/unix-seconds.ts';

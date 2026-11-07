@@ -23,8 +23,8 @@ import type {
   Selection2,
 } from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
-import { actionsStepwise } from './actions-stepwise.js';
 import { actionsStepwiseGated } from './actions-stepwise-gated.js';
+import { actionsStepwise } from './actions-stepwise.js';
 
 const TOKYO: Conversation = {
   actions: [

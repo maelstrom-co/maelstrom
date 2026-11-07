@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+
 import { findLocationByFuzzyName } from '../lib/locations';
 import { getMapSnapshot, mapActions } from './map.store';
 

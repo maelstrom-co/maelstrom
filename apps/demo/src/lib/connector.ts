@@ -3,6 +3,7 @@ import {
   WebSocketConnector,
 } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
+
 // A wire literal both sides must agree on byte-for-byte, so it is imported
 // rather than restated here. playground-frames.ts is browser-safe (it pulls
 // only @maelstrom-co/client and @maelstrom-co/protocol) despite living under

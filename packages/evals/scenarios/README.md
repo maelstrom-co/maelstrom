@@ -57,7 +57,8 @@ requests and expectations remain data-driven.
 ```sh
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/core/scenario-registry.test.ts
 bun --no-env-file --conditions=@maelstrom-co/source tools/evals-offline/inventory-cli.ts
-bunx nx run-many -t test,typecheck,check -p @maelstrom-co/evals,evals-offline --skip-nx-cache
+bunx nx run-many -t test,typecheck,lint -p @maelstrom-co/evals,evals-offline --skip-nx-cache
+bunx nx format:check --all
 ```
 
 The inventory's JSON-source classification derives from the same loaded manifest:

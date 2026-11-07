@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { Config } from '../config/config.ts';
 import { capturedLog } from '../fixtures/captured-log.ts';
 import type { GraphqlRequest } from './graphql-request.ts';

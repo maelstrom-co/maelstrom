@@ -89,7 +89,17 @@
         "command": "bun test",
         "options": {
           "cwd": "{projectRoot}"
-        }
+        },
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/packages/*/package.json",
+          "{workspaceRoot}/packages/*/.oxlintrc.json",
+          "{workspaceRoot}/.oxlintrc.json",
+          "{workspaceRoot}/packages/*/src/**/*"
+        ]
       }
     }
   }

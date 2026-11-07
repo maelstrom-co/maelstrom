@@ -8,6 +8,7 @@ import {
   Sun,
 } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
+
 import { fakeFetch } from './__tests__/fake-fetch';
 import {
   FALLBACK_WEATHER,

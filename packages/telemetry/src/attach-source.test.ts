@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { attachTelemetrySource } from './attach-source.js';
 import { createTelemetry } from './telemetry.js';
 
@@ -24,57 +26,56 @@ test('an attached producer counts refused facts after delivery is disposed', () 
   expect(releases).toBe(1);
 });
 
-test.each([
-  'start',
-  'release',
-  'rejected-release',
-] as const)('a failed %s reports source loss and fences leaked callbacks', async (mode) => {
-  const records: import('./types.js').TelemetryRecord[] = [];
-  const telemetry = createTelemetry({
-    sink: (batch) => {
-      records.push(...batch);
-    },
-  });
-  const owner = {};
-  let stale!: Parameters<Parameters<typeof attachTelemetrySource>[3]>[0];
-  const release = attachTelemetrySource(
-    owner,
-    telemetry,
-    'client',
-    (observer) => {
-      stale = observer;
-      if (mode === 'start') throw new Error('CANARY_start');
-      return () => {
-        if (mode === 'release') throw new Error('CANARY_release');
-        return Promise.reject(new Error('CANARY_rejected_release'));
-      };
-    },
-  );
-  release.release();
-  await Promise.resolve();
-  await Promise.resolve();
-  stale('client.request.started', {});
-  const replacement = attachTelemetrySource(
-    owner,
-    telemetry,
-    'client',
-    (observer) => {
-      observer('client.request.started', {});
-      return () => {};
-    },
-  );
-  try {
-    await telemetry.flush();
-    expect(records.map((record) => record.attributes)).toEqual([
-      { operation: 'telemetry.source', outcome: 'discarded' },
-      { operation: 'client.request', outcome: 'started' },
-    ]);
-    expect(JSON.stringify(records)).not.toContain('CANARY');
-  } finally {
-    replacement.release();
-    telemetry.dispose();
-  }
-});
+test.each(['start', 'release', 'rejected-release'] as const)(
+  'a failed %s reports source loss and fences leaked callbacks',
+  async (mode) => {
+    const records: import('./types.js').TelemetryRecord[] = [];
+    const telemetry = createTelemetry({
+      sink: (batch) => {
+        records.push(...batch);
+      },
+    });
+    const owner = {};
+    let stale!: Parameters<Parameters<typeof attachTelemetrySource>[3]>[0];
+    const release = attachTelemetrySource(
+      owner,
+      telemetry,
+      'client',
+      (observer) => {
+        stale = observer;
+        if (mode === 'start') throw new Error('CANARY_start');
+        return () => {
+          if (mode === 'release') throw new Error('CANARY_release');
+          return Promise.reject(new Error('CANARY_rejected_release'));
+        };
+      },
+    );
+    release.release();
+    await Promise.resolve();
+    await Promise.resolve();
+    stale('client.request.started', {});
+    const replacement = attachTelemetrySource(
+      owner,
+      telemetry,
+      'client',
+      (observer) => {
+        observer('client.request.started', {});
+        return () => {};
+      },
+    );
+    try {
+      await telemetry.flush();
+      expect(records.map((record) => record.attributes)).toEqual([
+        { operation: 'telemetry.source', outcome: 'discarded' },
+        { operation: 'client.request', outcome: 'started' },
+      ]);
+      expect(JSON.stringify(records)).not.toContain('CANARY');
+    } finally {
+      replacement.release();
+      telemetry.dispose();
+    }
+  },
+);
 
 test('shared retirement completes only after the final release and accepted source work', async () => {
   const telemetry = createTelemetry({ sink: () => {} });

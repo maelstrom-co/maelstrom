@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
+
 import { MessageId } from '@maelstrom-co/protocol';
+
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { runD14 } from './d14.js';
 import { type ManualFetch, manualTransport } from './transport.js';

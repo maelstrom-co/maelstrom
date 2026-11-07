@@ -168,7 +168,10 @@
           "{projectRoot}/e2e/**/*",
           "{projectRoot}/tsconfig.json",
           "{projectRoot}/tsconfig.e2e.json",
-          "{projectRoot}/starters/**/*"
+          "{projectRoot}/starters/**/*",
+          "default",
+          "^default",
+          "toolchain"
         ]
       },
       "infra-typecheck": {
@@ -186,25 +189,6 @@
           "{workspaceRoot}/package.json",
           "{workspaceRoot}/bun.lock"
         ]
-      },
-      "check-links": {
-        "executor": "nx:run-commands",
-        "cache": true,
-        "dependsOn": [
-          "build"
-        ],
-        "inputs": [
-          "{workspaceRoot}/scripts/assert-docs-links.ts",
-          "{workspaceRoot}/scripts/lib/docs-links.ts",
-          {
-            "dependentTasksOutputFiles": "**/*",
-            "transitive": false
-          }
-        ],
-        "options": {
-          "cwd": "{workspaceRoot}",
-          "command": "bun scripts/assert-docs-links.ts"
-        }
       },
       "e2e": {
         "dependsOn": [
@@ -233,11 +217,31 @@
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",
-          "{workspaceRoot}/docs/architecture.md"
+          "{workspaceRoot}/docs/architecture.md",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/LICENSE",
+          "{workspaceRoot}/.oxlintrc.json",
+          "{workspaceRoot}/packages/evals/cases/**/*"
         ],
         "options": {
           "cwd": "{projectRoot}"
         }
+      },
+      "links-check": {
+        "command": "bun scripts/assert-docs-links.ts",
+        "cache": true,
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "{workspaceRoot}/scripts/assert-docs-links.ts",
+          "{workspaceRoot}/scripts/lib/docs-links.ts",
+          {
+            "dependentTasksOutputFiles": "**/*"
+          },
+          "toolchain"
+        ]
       }
     }
   }

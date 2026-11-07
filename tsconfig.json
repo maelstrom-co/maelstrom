@@ -16,9 +16,6 @@
       "path": "./packages/client"
     },
     {
-      "path": "./tools/biome-plugin"
-    },
-    {
       "path": "./packages/react"
     },
     {

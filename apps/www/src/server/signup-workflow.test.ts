@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { Effect, Layer } from 'effect';
+
 import { SignupWorkflow } from './signup-workflow';
 import {
   TurnstileRejected,
@@ -178,20 +180,23 @@ describe('signup workflow', () => {
     ['E_RATE_LIMIT_EXCEEDED', 'markRetryable:E_RATE_LIMIT_EXCEEDED'],
     ['E_INTERNAL_SERVER_ERROR', 'markUnknown:E_INTERNAL_SERVER_ERROR'],
     ['totally-unclassified', 'markUnknown:unclassified'],
-  ] as const)('classifies %s into the matching disposition', async (code, expectedEvent) => {
-    const h = harness({ sendThrows: { code } });
-    const claimed = await claimedIn(h);
-    h.events.length = 0;
-    // Delivery must never reject outward — waitUntil cannot log rejections.
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const workflow = yield* SignupWorkflow;
-        yield* workflow.deliver(claimed);
-      }).pipe(Effect.provide(h.layer)),
-    );
-    expect(h.events[0]).toBe('send:user@example.com');
-    expect(h.events[1]).toBe(expectedEvent);
-  });
+  ] as const)(
+    'classifies %s into the matching disposition',
+    async (code, expectedEvent) => {
+      const h = harness({ sendThrows: { code } });
+      const claimed = await claimedIn(h);
+      h.events.length = 0;
+      // Delivery must never reject outward — waitUntil cannot log rejections.
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const workflow = yield* SignupWorkflow;
+          yield* workflow.deliver(claimed);
+        }).pipe(Effect.provide(h.layer)),
+      );
+      expect(h.events[0]).toBe('send:user@example.com');
+      expect(h.events[1]).toBe(expectedEvent);
+    },
+  );
 
   test('a failed state transition still resolves delivery', async () => {
     const h = harness({ markAcceptedThrows: true });

@@ -1,5 +1,6 @@
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useRef, useState } from 'react';
+
 import { playgroundKeyStore } from '../lib/playground-key-store';
 
 export interface KeyDrawerProps {
@@ -118,11 +119,7 @@ export function KeyDrawer({
     // Deps deliberately narrowed to [isOpen]: handleClose is recreated every
     // render but is stable in intent (always clears apiKey + calls onClose),
     // so tracking it would just thrash the listener on unrelated re-renders.
-    // (No biome-ignore here — Biome's React domain detection doesn't fire on
-    // this app's "react": "catalog:" dependency, so useExhaustiveDependencies
-    // never flags this effect, and a suppression for a rule that isn't
-    // firing is itself flagged as an unused suppression under
-    // --error-on-warnings.)
+    // oxlint-disable-next-line react/exhaustive-deps -- The listener follows drawer visibility; its close operation has stable intent.
   }, [isOpen]);
 
   if (!isOpen) return null;

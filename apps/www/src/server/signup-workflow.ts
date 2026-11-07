@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import * as Result from 'effect/Result';
+
 import { buildWaitlistConfirmationEmail } from '../lib/waitlist-confirmation-email';
 import { createWaitlistToken, hashWaitlistToken } from '../lib/waitlist-token';
 import type {

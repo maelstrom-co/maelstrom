@@ -4,6 +4,7 @@ import { isErr, isOk } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import type { LiveWeather } from '../lib/weather-data';
 import type { WeatherState } from './weather.store';
 import type { weatherVessel } from './weather.vessel';
@@ -38,9 +39,8 @@ vi.mock('./weather.store', async (importOriginal) => {
   };
 });
 
-const { default: WeatherComponent, weatherActionRunner } = await import(
-  './weather.component'
-);
+const { default: WeatherComponent, weatherActionRunner } =
+  await import('./weather.component');
 
 function props(
   variant: 'current' | 'hourly' | 'weekly' | 'compact',
@@ -74,16 +74,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('weather variants', () => {
-  it.each([
-    'current',
-    'hourly',
-    'weekly',
-  ] as const)('renders the dynamic city, country, and metric units in %s', (variant) => {
-    const { container } = render(<WeatherComponent {...props(variant)} />);
-    expect(container.textContent).toContain('Paris, France');
-    expect(container.textContent).toContain('C');
-    if (variant === 'current') expect(container.textContent).toContain('km/h');
-  });
+  it.each(['current', 'hourly', 'weekly'] as const)(
+    'renders the dynamic city, country, and metric units in %s',
+    (variant) => {
+      const { container } = render(<WeatherComponent {...props(variant)} />);
+      expect(container.textContent).toContain('Paris, France');
+      expect(container.textContent).toContain('C');
+      if (variant === 'current')
+        expect(container.textContent).toContain('km/h');
+    },
+  );
 
   it('renders Fahrenheit and mph for a US location', () => {
     storeState = {
@@ -130,30 +130,29 @@ describe('weather variants', () => {
     ).toBeTruthy();
   });
 
-  it.each([
-    'current',
-    'hourly',
-    'weekly',
-  ] as const)('shows loading and error notices without replacing the prior %s view', (variant) => {
-    storeState = {
-      ...storeState,
-      loadingLocation: 'Tokyo',
-      error: 'Could not load weather for "Tokyo".',
-    };
-    const { container } = render(<WeatherComponent {...props(variant)} />);
-    expect(container.textContent).toContain('Loading weather for Tokyo');
-    expect(container.textContent).toContain(
-      'Could not load weather for "Tokyo".',
-    );
-    expect(container.textContent).toContain('Paris, France');
-    expect(container.textContent).toContain(
-      variant === 'weekly' ? '20°' : '18°',
-    );
-    const status = container.querySelector('[role="status"]');
-    const alert = container.querySelector('[role="alert"]');
-    expect(status?.textContent).toContain('Loading weather for Tokyo');
-    expect(status?.contains(alert)).toBe(false);
-  });
+  it.each(['current', 'hourly', 'weekly'] as const)(
+    'shows loading and error notices without replacing the prior %s view',
+    (variant) => {
+      storeState = {
+        ...storeState,
+        loadingLocation: 'Tokyo',
+        error: 'Could not load weather for "Tokyo".',
+      };
+      const { container } = render(<WeatherComponent {...props(variant)} />);
+      expect(container.textContent).toContain('Loading weather for Tokyo');
+      expect(container.textContent).toContain(
+        'Could not load weather for "Tokyo".',
+      );
+      expect(container.textContent).toContain('Paris, France');
+      expect(container.textContent).toContain(
+        variant === 'weekly' ? '20°' : '18°',
+      );
+      const status = container.querySelector('[role="status"]');
+      const alert = container.querySelector('[role="alert"]');
+      expect(status?.textContent).toContain('Loading weather for Tokyo');
+      expect(status?.contains(alert)).toBe(false);
+    },
+  );
 
   it('keeps an empty status region mounted before loading starts', () => {
     const { getByRole } = render(<WeatherComponent {...props('current')} />);
@@ -306,15 +305,15 @@ describe('weatherActionRunner', () => {
     expect(setLocation).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'A\u200cB',
-    'A\u200dB',
-  ])('allows Unicode join controls in location names: %s', async (location) => {
-    setLocation.mockResolvedValue(undefined);
+  it.each(['A\u200cB', 'A\u200dB'])(
+    'allows Unicode join controls in location names: %s',
+    async (location) => {
+      setLocation.mockResolvedValue(undefined);
 
-    const result = await weatherActionRunner.setLocation({ location });
+      const result = await weatherActionRunner.setLocation({ location });
 
-    expect(isOk(result)).toBe(true);
-    expect(setLocation).toHaveBeenCalledWith(location);
-  });
+      expect(isOk(result)).toBe(true);
+      expect(setLocation).toHaveBeenCalledWith(location);
+    },
+  );
 });

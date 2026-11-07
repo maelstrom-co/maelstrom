@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+
 import type {
   Instrument,
   InstrumentAttributes,
@@ -300,60 +301,61 @@ describe('llmPlanner', () => {
     test.each([
       ['grid', makeGridRequest()],
       ['tiling', makeTilingRequest()],
-    ] as Array<
-      [string, ChartRequest]
-    >)('%s: createEngine sends one chat() call built from the request', async (_, request) => {
-      const prompt: PromptOptions = {
-        vars: { assistantName: 'Aria' },
-        user: { chartState: { append: 'Keep it tidy.' } },
-      };
-      const modelOptions = { max_output_tokens: 1234 };
-      const mode = request.context.layoutMode;
-      mockChat.mockResolvedValue(
-        mode === 'grid'
-          ? buildGridResponse()
-          : {
-              userMessage: 'ok',
-              rationale: 'r',
-              executionPlan: [],
-              layout: request.layout,
+    ] as Array<[string, ChartRequest]>)(
+      '%s: createEngine sends one chat() call built from the request',
+      async (_, request) => {
+        const prompt: PromptOptions = {
+          vars: { assistantName: 'Aria' },
+          user: { chartState: { append: 'Keep it tidy.' } },
+        };
+        const modelOptions = { max_output_tokens: 1234 };
+        const mode = request.context.layoutMode;
+        mockChat.mockResolvedValue(
+          mode === 'grid'
+            ? buildGridResponse()
+            : {
+                userMessage: 'ok',
+                rationale: 'r',
+                executionPlan: [],
+                layout: request.layout,
+              },
+        );
+
+        const engine = createEngine({
+          planner: llmPlanner({ adapter: dummyAdapter, prompt, modelOptions }),
+          logger: silentLogger,
+        });
+        const result = await engine.handle(
+          ChartRequestMessage({
+            sessionId: SessionId('session-1'),
+            id: MessageId('req-1'),
+            request,
+          }),
+        );
+
+        expect(isOk(result)).toBe(true);
+        expect(comparableChatCalls()).toEqual([
+          {
+            adapter: {
+              kind: dummyAdapter.kind,
+              name: dummyAdapter.name,
+              model: dummyAdapter.model,
             },
-      );
-
-      const engine = createEngine({
-        planner: llmPlanner({ adapter: dummyAdapter, prompt, modelOptions }),
-        logger: silentLogger,
-      });
-      const result = await engine.handle(
-        ChartRequestMessage({
-          sessionId: SessionId('session-1'),
-          id: MessageId('req-1'),
-          request,
-        }),
-      );
-
-      expect(isOk(result)).toBe(true);
-      expect(comparableChatCalls()).toEqual([
-        {
-          adapter: {
-            kind: dummyAdapter.kind,
-            name: dummyAdapter.name,
-            model: dummyAdapter.model,
+            threadId: 'session-1',
+            messages: [
+              { role: 'user', content: buildUserPrompt(request, prompt) },
+            ],
+            systemPrompts: [buildSystemPrompt(mode, prompt)],
+            outputSchema: convertOutputSchema(
+              mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
+            ),
+            stream: false,
+            debug: false,
+            modelOptions,
           },
-          threadId: 'session-1',
-          messages: [
-            { role: 'user', content: buildUserPrompt(request, prompt) },
-          ],
-          systemPrompts: [buildSystemPrompt(mode, prompt)],
-          outputSchema: convertOutputSchema(
-            mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
-          ),
-          stream: false,
-          debug: false,
-          modelOptions,
-        },
-      ]);
-    });
+        ]);
+      },
+    );
 
     test('an Engine retry resends the system prompt with the retry prompt built from the first diagnostics', async () => {
       const request = makeGridRequest();

@@ -1,4 +1,5 @@
 import { Data, Effect } from 'effect';
+
 import { readLimitedBody } from '../lib/read-limited-body';
 import { validateWaitlistEmail } from '../lib/waitlist';
 

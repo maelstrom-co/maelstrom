@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import guard from './trial-guard';
 
 test('plan-only tools cannot mutate and alternate path syntax cannot bypass consumer boundaries', async () => {

@@ -2,7 +2,6 @@ import { isInstanceIdNode } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type { SkippedAction } from '../../response/execution-plan/index.js';
-
 import type { HealedLayout, RetryHint } from './healed-layout.js';
 
 interface DeriveRetryHintInput {

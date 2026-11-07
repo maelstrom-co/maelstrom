@@ -19,6 +19,7 @@ import {
   MetadataObservers,
   operationalKinds,
 } from '@maelstrom-co/telemetry/integration';
+
 import type { Engine } from './engine.js';
 import { handleEnvelope } from './envelope-handler.js';
 import { operationalOutcome, thrownOutcome } from './operational-outcome.js';

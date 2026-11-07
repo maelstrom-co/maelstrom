@@ -9,10 +9,7 @@ export type {
   ActionRunner,
   VariantNames,
 } from '@maelstrom-co/client';
-export {
-  HttpConnector,
-  WebSocketConnector,
-} from '@maelstrom-co/client';
+export { HttpConnector, WebSocketConnector } from '@maelstrom-co/client';
 
 export { defineVessel } from '@maelstrom-co/protocol';
 export type { ChartProps } from './lib/chart/chart.js';

@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse, relative } from 'node:path';
+
 import { browserVadAssetNamesForModel } from './vad-asset-manifest.js';
 import { copyBrowserVadAssets } from './vad-assets.js';
 
@@ -128,36 +129,36 @@ describe('copyBrowserVadAssets', () => {
     expect(await readFile(sentinel, 'utf8')).toBe('keep');
   });
 
-  test.each([
-    '..',
-    '../..',
-  ])('rejects resolved ancestor %s without replacing it', async (outputDir) => {
-    const root = await createTempDirectory();
-    const cwd = join(root, 'parent', 'workdir');
-    const resolvedOutputDir = join(cwd, outputDir);
-    const sentinel = join(resolvedOutputDir, 'keep.txt');
-    await mkdir(cwd, { recursive: true });
-    await writeFile(sentinel, 'keep');
-    const originalDirectory = await lstat(resolvedOutputDir);
-    const previousCwd = process.cwd();
-    process.chdir(cwd);
+  test.each(['..', '../..'])(
+    'rejects resolved ancestor %s without replacing it',
+    async (outputDir) => {
+      const root = await createTempDirectory();
+      const cwd = join(root, 'parent', 'workdir');
+      const resolvedOutputDir = join(cwd, outputDir);
+      const sentinel = join(resolvedOutputDir, 'keep.txt');
+      await mkdir(cwd, { recursive: true });
+      await writeFile(sentinel, 'keep');
+      const originalDirectory = await lstat(resolvedOutputDir);
+      const previousCwd = process.cwd();
+      process.chdir(cwd);
 
-    let error: unknown;
-    try {
-      await copyBrowserVadAssets({ outputDir });
-    } catch (caught) {
-      error = caught;
-    } finally {
-      process.chdir(previousCwd);
-    }
+      let error: unknown;
+      try {
+        await copyBrowserVadAssets({ outputDir });
+      } catch (caught) {
+        error = caught;
+      } finally {
+        process.chdir(previousCwd);
+      }
 
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe(
-      'outputDir must be a dedicated child directory',
-    );
-    expect((await lstat(resolvedOutputDir)).ino).toBe(originalDirectory.ino);
-    expect(await readFile(sentinel, 'utf8')).toBe('keep');
-  });
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        'outputDir must be a dedicated child directory',
+      );
+      expect((await lstat(resolvedOutputDir)).ino).toBe(originalDirectory.ino);
+      expect(await readFile(sentinel, 'utf8')).toBe('keep');
+    },
+  );
 
   test('replaces stale destination files only after the complete manifest is staged', async () => {
     const root = await createTempDirectory();
@@ -244,26 +245,26 @@ describe('copyBrowserVadAssets', () => {
     expect((await lstat(outputDir)).isDirectory()).toBe(true);
   });
 
-  test.each([
-    'backup',
-    'stage',
-  ])('rejects a stale helper-owned %s artifact before mutating the destination', async (kind) => {
-    const root = await createTempDirectory();
-    const outputDir = join(root, 'vad-web');
-    const artifactName = `.vad-web.${kind}-123e4567-e89b-42d3-a456-426614174000`;
-    await mkdir(outputDir);
-    await writeFile(join(outputDir, 'prior.txt'), 'prior');
-    await mkdir(join(root, artifactName));
+  test.each(['backup', 'stage'])(
+    'rejects a stale helper-owned %s artifact before mutating the destination',
+    async (kind) => {
+      const root = await createTempDirectory();
+      const outputDir = join(root, 'vad-web');
+      const artifactName = `.vad-web.${kind}-123e4567-e89b-42d3-a456-426614174000`;
+      await mkdir(outputDir);
+      await writeFile(join(outputDir, 'prior.txt'), 'prior');
+      await mkdir(join(root, artifactName));
 
-    await expect(copyBrowserVadAssets({ outputDir })).rejects.toThrow(
-      'stale browser VAD asset transaction artifact',
-    );
+      await expect(copyBrowserVadAssets({ outputDir })).rejects.toThrow(
+        'stale browser VAD asset transaction artifact',
+      );
 
-    expect(await readdir(outputDir)).toEqual(['prior.txt']);
-    expect((await readdir(root)).sort()).toEqual(
-      [artifactName, 'vad-web'].sort(),
-    );
-  });
+      expect(await readdir(outputDir)).toEqual(['prior.txt']);
+      expect((await readdir(root)).sort()).toEqual(
+        [artifactName, 'vad-web'].sort(),
+      );
+    },
+  );
 
   test('ignores sibling names outside the helper-owned transaction format', async () => {
     const root = await createTempDirectory();

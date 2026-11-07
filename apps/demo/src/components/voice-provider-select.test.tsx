@@ -14,6 +14,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import {
   clearPlaygroundKey,
@@ -120,52 +121,54 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([
-  'remove',
-  'replace',
-] as const)('keeps the new selection after a key %s retires a pending owner', async (mode) => {
-  render(<HomePage />);
-  const old = fixtures.adapters[0]!;
-  let release!: () => void;
-  const pending = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  old.close = () => pending;
-  fireEvent.change(screen.getByLabelText('Voice provider'), {
-    target: { value: 'realtime' },
-  });
-  expect(screen.getByLabelText('Voice provider').hasAttribute('disabled')).toBe(
-    true,
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'API key' }));
-  if (mode === 'remove') {
-    fireEvent.click(screen.getByRole('button', { name: /remove key/i }));
+it.each(['remove', 'replace'] as const)(
+  'keeps the new selection after a key %s retires a pending owner',
+  async (mode) => {
+    render(<HomePage />);
+    const old = fixtures.adapters[0]!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    old.close = () => pending;
     fireEvent.change(screen.getByLabelText('Voice provider'), {
       target: { value: 'realtime' },
     });
-    fireEvent.change(screen.getByLabelText('Voice provider'), {
-      target: { value: 'live' },
+    expect(
+      screen.getByLabelText('Voice provider').hasAttribute('disabled'),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'API key' }));
+    if (mode === 'remove') {
+      fireEvent.click(screen.getByRole('button', { name: /remove key/i }));
+      fireEvent.change(screen.getByLabelText('Voice provider'), {
+        target: { value: 'realtime' },
+      });
+      fireEvent.change(screen.getByLabelText('Voice provider'), {
+        target: { value: 'live' },
+      });
+    } else {
+      fireEvent.change(screen.getByLabelText('API key'), {
+        target: { value: 'fixture-replacement-key-1234567890' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(fixtures.adapters).toHaveLength(2));
+    }
+    expect(voiceProviderStore.state.provider).toBe('live');
+    const currentCount = fixtures.adapters.length;
+    await act(async () => {
+      release();
+      await pending;
     });
-  } else {
-    fireEvent.change(screen.getByLabelText('API key'), {
-      target: { value: 'fixture-replacement-key-1234567890' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(fixtures.adapters).toHaveLength(2));
-  }
-  expect(voiceProviderStore.state.provider).toBe('live');
-  const currentCount = fixtures.adapters.length;
-  await act(async () => {
-    release();
-    await pending;
-  });
-  expect(voiceProviderStore.state.provider).toBe('live');
-  expect(
-    screen.getByRole('option', { name: 'GPT-Live', selected: true }),
-  ).toBeDefined();
-  expect(fixtures.adapters).toHaveLength(currentCount);
-  expect(fixtures.adapters.every((adapter) => adapter.starts === 0)).toBe(true);
-});
+    expect(voiceProviderStore.state.provider).toBe('live');
+    expect(
+      screen.getByRole('option', { name: 'GPT-Live', selected: true }),
+    ).toBeDefined();
+    expect(fixtures.adapters).toHaveLength(currentCount);
+    expect(fixtures.adapters.every((adapter) => adapter.starts === 0)).toBe(
+      true,
+    );
+  },
+);
 
 it('shows actionable switch failure without changing the selected mode and allows retry', async () => {
   render(<HomePage />);

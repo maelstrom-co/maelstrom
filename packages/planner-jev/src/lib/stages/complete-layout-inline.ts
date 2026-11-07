@@ -16,6 +16,7 @@ import {
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
+
 import {
   type Completion,
   outputSchema,

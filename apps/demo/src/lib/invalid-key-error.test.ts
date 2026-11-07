@@ -2,6 +2,7 @@ import { WireEngineError } from '@maelstrom-co/client';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
 import { describe, expect, it } from 'vitest';
+
 import { isInvalidKeyError, isLiveInvalidKeyError } from './invalid-key-error';
 
 describe('isInvalidKeyError', () => {

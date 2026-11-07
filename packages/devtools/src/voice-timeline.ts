@@ -421,12 +421,12 @@ export function voiceTimeline(
           ownershipSessions.size > 1 ||
           Boolean(
             target &&
-              (target.ambiguous ||
-                target.sessions.size > 1 ||
-                (target.sessions.size > 0 &&
-                  [...ownershipSessions].some(
-                    (session) => !target.sessions.has(session),
-                  ))),
+            (target.ambiguous ||
+              target.sessions.size > 1 ||
+              (target.sessions.size > 0 &&
+                [...ownershipSessions].some(
+                  (session) => !target.sessions.has(session),
+                ))),
           );
         const confirmed = lane.groupingDisabled
           ? Boolean(

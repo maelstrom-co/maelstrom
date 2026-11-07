@@ -2,7 +2,9 @@ import { lstatSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+
 import { z } from 'zod';
+
 import { loadPlannerScenario } from './planner-case.js';
 import {
   readScenarioSnapshot,

@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+
 import dts from 'unplugin-dts/vite';
 import { defineConfig } from 'vite';
 export default defineConfig({

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
+
 import { buildWaitlistInvitationEmail } from './waitlist-invitation-email';
 
 describe('waitlist invitation email', () => {

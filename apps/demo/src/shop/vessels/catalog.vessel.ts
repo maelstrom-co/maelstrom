@@ -1,4 +1,5 @@
 import { vessel } from '@maelstrom-co/react';
+
 import { CatalogSkeleton } from './catalog.skeleton';
 import { catalogVessel } from './catalog.vessel.def';
 

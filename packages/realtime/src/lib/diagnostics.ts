@@ -9,6 +9,7 @@ import {
   attachTelemetrySource,
   operationalKinds,
 } from '@maelstrom-co/telemetry/integration';
+
 import type { RealtimeProviderAdapter } from './realtime-session/provider-adapter.types.js';
 import type { RealtimeSession } from './realtime-session/realtime-session.js';
 import {

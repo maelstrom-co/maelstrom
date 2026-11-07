@@ -1,5 +1,6 @@
 import { SessionId } from '@maelstrom-co/protocol';
 import { describe, expect, it, vi } from 'vitest';
+
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';

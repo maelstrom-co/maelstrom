@@ -79,8 +79,7 @@ interface AutomaticModeDegradationOptions {
 }
 
 /** Finisher inputs after the degrading generation's room has been resolved. */
-interface FinishAutomaticModeDegradationOptions
-  extends AutomaticModeDegradationOptions {
+interface FinishAutomaticModeDegradationOptions extends AutomaticModeDegradationOptions {
   /** LiveKit room owned by the degrading connection generation. */
   readonly room: Room;
 }

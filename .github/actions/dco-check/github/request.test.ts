@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { createRequest } from './request.ts';
+
 import { RequestError } from './request-error.ts';
+import { createRequest } from './request.ts';
 
 const TOKEN = 'ghs_token';
 const URL = 'https://api.github.com/repos/o/r/pulls/7/commits';

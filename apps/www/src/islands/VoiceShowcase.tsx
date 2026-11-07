@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ScrollArea } from './ScrollArea';
 
 interface TranscriptLine {

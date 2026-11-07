@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { ResponseArbiter } from './response-arbiter.js';
 
 function harness(options: { readonly throwOn?: string } = {}) {
@@ -148,6 +149,7 @@ test('failed cancel and clear report errors without duplicating decisions', () =
 
 test('synchronous re-entrant output during cancel emits one clear', () => {
   const commands: object[] = [];
+  // oxlint-disable-next-line eslint/prefer-const -- Construction installs callbacks that close over this binding before assignment completes.
   let arbiter: ResponseArbiter;
   arbiter = new ResponseArbiter({
     send: (command) => {
@@ -170,6 +172,7 @@ test('synchronous re-entrant output during cancel emits one clear', () => {
 
 test('failed create closes before notifying re-entrant error work', () => {
   const commands: object[] = [];
+  // oxlint-disable-next-line eslint/prefer-const -- Construction installs callbacks that close over this binding before assignment completes.
   let arbiter: ResponseArbiter;
   arbiter = new ResponseArbiter({
     send: (command) => {
@@ -185,6 +188,7 @@ test('failed create closes before notifying re-entrant error work', () => {
 
 test('synchronous re-entrant completion during cancel preserves one clear decision', () => {
   const commands: object[] = [];
+  // oxlint-disable-next-line eslint/prefer-const -- Construction installs callbacks that close over this binding before assignment completes.
   let arbiter: ResponseArbiter;
   arbiter = new ResponseArbiter({
     send: (command) => {

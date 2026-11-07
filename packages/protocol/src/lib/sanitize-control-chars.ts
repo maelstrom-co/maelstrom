@@ -1,7 +1,7 @@
 // JSON.stringify escapes U+0000-U+001F but leaves U+007F, U+0085 (NEL) and
 // U+2028/U+2029 (line and paragraph separator) raw, and the last three read
 // as line breaks to many tokenizers.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control and line-break characters is the point -- they must not survive into text a language model reads.
+// oxlint-disable-next-line eslint/no-control-regex -- matching control and line-break characters is the point -- they must not survive into text a language model reads.
 const CONTROL_AND_LINE_SEPARATOR_CHARS = /[\x00-\x1f\x7f\u0085\u2028\u2029]/g;
 
 /**

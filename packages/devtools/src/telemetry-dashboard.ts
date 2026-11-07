@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '@maelstrom-co/telemetry';
+
 import { button, element } from './panel-views.js';
 
 const number = new Intl.NumberFormat('en-US');

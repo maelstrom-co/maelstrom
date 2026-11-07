@@ -1,5 +1,6 @@
 import type { Telemetry, TelemetryAttachment } from '@maelstrom-co/telemetry';
 import { attachTelemetrySource } from '@maelstrom-co/telemetry/integration';
+
 import type { EngineMetadataObserver } from './diagnostics.js';
 
 /** Server-local observation capability of an Engine lifetime. */

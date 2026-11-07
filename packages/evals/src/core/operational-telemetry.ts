@@ -3,6 +3,7 @@ import {
   type TelemetryAttachment,
   type TelemetryOptions,
 } from '@maelstrom-co/telemetry';
+
 import {
   type OperationalGroup,
   type OperationalTelemetry,

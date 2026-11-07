@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   apiTokenCredentials,
   Credentials,
@@ -28,21 +29,19 @@ const ownerTags = [
   'alchemy:stage:probe',
   'alchemy:id:Website',
 ];
-interface ProbeWorker
-  extends Resource<
-    'Cloudflare.Worker',
-    Cloudflare.Worker['Props'],
-    Cloudflare.Worker['Attributes'],
-    Cloudflare.Worker['Binding']
-  > {}
+interface ProbeWorker extends Resource<
+  'Cloudflare.Worker',
+  Cloudflare.Worker['Props'],
+  Cloudflare.Worker['Attributes'],
+  Cloudflare.Worker['Binding']
+> {}
 const Worker = Resource<ProbeWorker>(Cloudflare.Worker.Type);
-interface Binding
-  extends Resource<
-    'Probe.Binding',
-    Record<string, never>,
-    { id: string },
-    { worker: string }
-  > {}
+interface Binding extends Resource<
+  'Probe.Binding',
+  Record<string, never>,
+  { id: string },
+  { worker: string }
+> {}
 const Binding = Resource<Binding>('Probe.Binding');
 
 interface FixtureOptions {
@@ -404,19 +403,20 @@ describe('the installed Cloudflare Worker precreate ownership guard', () => {
         'alchemy:id:Other',
       ],
     },
-  ])('refuses mismatched ownership before returning attributes', async ({
-    tags,
-  }) => {
-    const result = await precreate(tags);
-    expect(failure(result.exit)).toMatchObject({
-      _tag: 'OwnedBySomeoneElse',
-      logicalId: 'Website',
-    });
-    expect(result.requests).toHaveLength(1);
-    expect(result.requests.every((request) => request.method === 'GET')).toBe(
-      true,
-    );
-  });
+  ])(
+    'refuses mismatched ownership before returning attributes',
+    async ({ tags }) => {
+      const result = await precreate(tags);
+      expect(failure(result.exit)).toMatchObject({
+        _tag: 'OwnedBySomeoneElse',
+        logicalId: 'Website',
+      });
+      expect(result.requests).toHaveLength(1);
+      expect(result.requests.every((request) => request.method === 'GET')).toBe(
+        true,
+      );
+    },
+  );
 
   test('reuses a Worker with this stack, stage, and logical ID', async () => {
     const result = await precreate(ownerTags);
@@ -440,50 +440,50 @@ describe('the installed Cloudflare Worker precreate ownership guard', () => {
     expect(result.requests[0]?.method).toBe('GET');
   });
 
-  test.each([
-    false,
-    true,
-  ])('tolerates missing versions only with trusted attributes (%s)', async (trusted) => {
-    const owned = await precreate(ownerTags);
-    if (!Exit.isSuccess(owned.exit))
-      throw new Error('The owned fixture must return attributes');
-    const attributes = owned.exit.value;
-    const { services, requests } = fixture([], {
-      noVersions: true,
-      normalOwned: true,
-    });
-    const program = Effect.gen(function* () {
-      const provider = yield* Provider.Provider<Cloudflare.Worker>(
-        Cloudflare.Worker.Type,
-      );
-      if (!provider.read)
-        return yield* Effect.die('Worker provider must implement read');
-      return yield* provider.read({
-        id: 'Website',
-        fqn: 'Website',
-        instanceId: 'probe-instance',
-        olds: { name: 'existing-worker', workersDev: false },
-        output: trusted ? attributes : undefined,
+  test.each([false, true])(
+    'tolerates missing versions only with trusted attributes (%s)',
+    async (trusted) => {
+      const owned = await precreate(ownerTags);
+      if (!Exit.isSuccess(owned.exit))
+        throw new Error('The owned fixture must return attributes');
+      const attributes = owned.exit.value;
+      const { services, requests } = fixture([], {
+        noVersions: true,
+        normalOwned: true,
       });
-    });
-    const exit = await Effect.runPromise(
-      program.pipe(
-        Effect.exit,
-        Effect.provide(
-          Cloudflare.LiveWorkerProvider().pipe(Layer.provide(services)),
+      const program = Effect.gen(function* () {
+        const provider = yield* Provider.Provider<Cloudflare.Worker>(
+          Cloudflare.Worker.Type,
+        );
+        if (!provider.read)
+          return yield* Effect.die('Worker provider must implement read');
+        return yield* provider.read({
+          id: 'Website',
+          fqn: 'Website',
+          instanceId: 'probe-instance',
+          olds: { name: 'existing-worker', workersDev: false },
+          output: trusted ? attributes : undefined,
+        });
+      });
+      const exit = await Effect.runPromise(
+        program.pipe(
+          Effect.exit,
+          Effect.provide(
+            Cloudflare.LiveWorkerProvider().pipe(Layer.provide(services)),
+          ),
+          Effect.provide(services),
+          Effect.scoped,
         ),
-        Effect.provide(services),
-        Effect.scoped,
-      ),
-    );
-    if (trusted) {
-      expect(Exit.isSuccess(exit)).toBe(true);
-      if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined();
-    } else {
-      expect(failure(exit)).toMatchObject({ _tag: 'WorkerHasNoVersions' });
-    }
-    expect(requests.every((request) => request.method === 'GET')).toBe(true);
-  });
+      );
+      if (trusted) {
+        expect(Exit.isSuccess(exit)).toBe(true);
+        if (Exit.isSuccess(exit)) expect(exit.value).toBeUndefined();
+      } else {
+        expect(failure(exit)).toMatchObject({ _tag: 'WorkerHasNoVersions' });
+      }
+      expect(requests.every((request) => request.method === 'GET')).toBe(true);
+    },
+  );
 
   test('checks ownership before returning a dispatch-namespace stub', async () => {
     const result = await precreate([], { namespace: 'dispatch' });
@@ -525,23 +525,23 @@ describe('the installed Cloudflare Worker precreate ownership guard', () => {
     });
   });
 
-  test.each([
-    'name',
-    'namespace',
-  ] as const)('rejects an unresolved cyclic %s before any API request', async (unresolved) => {
-    const result = await cyclicApply({ unresolved });
-    expect(failure(result.exit)).toMatchObject({
-      _tag: 'UnresolvedWorkerIdentity',
-    });
-    expect(failure(result.retry)).toMatchObject({
-      _tag: 'UnresolvedWorkerIdentity',
-    });
-    expect(result.initialRequests).toEqual([]);
-    expect(result.requests).toEqual([]);
-    expect(result.requests.every((request) => request.method === 'GET')).toBe(
-      true,
-    );
-  });
+  test.each(['name', 'namespace'] as const)(
+    'rejects an unresolved cyclic %s before any API request',
+    async (unresolved) => {
+      const result = await cyclicApply({ unresolved });
+      expect(failure(result.exit)).toMatchObject({
+        _tag: 'UnresolvedWorkerIdentity',
+      });
+      expect(failure(result.retry)).toMatchObject({
+        _tag: 'UnresolvedWorkerIdentity',
+      });
+      expect(result.initialRequests).toEqual([]);
+      expect(result.requests).toEqual([]);
+      expect(result.requests.every((request) => request.method === 'GET')).toBe(
+        true,
+      );
+    },
+  );
 
   test('does not recover a rejected dispatch identity from an owned normal Worker on retry', async () => {
     const result = await cyclicApply({
@@ -604,13 +604,13 @@ describe('the installed Cloudflare Worker precreate ownership guard', () => {
     );
   });
 
-  test.each([
-    'version',
-    'preview',
-  ] as const)('preserves delegated %s precreation with an unresolved local name', async (delegated) => {
-    const result = await cyclicApply({ delegated, unresolved: 'name' });
-    expect(Exit.isSuccess(result.exit)).toBe(true);
-    expect(result.reconciliations).toHaveLength(1);
-    expect(result.requests).toEqual([]);
-  });
+  test.each(['version', 'preview'] as const)(
+    'preserves delegated %s precreation with an unresolved local name',
+    async (delegated) => {
+      const result = await cyclicApply({ delegated, unresolved: 'name' });
+      expect(Exit.isSuccess(result.exit)).toBe(true);
+      expect(result.reconciliations).toHaveLength(1);
+      expect(result.requests).toEqual([]);
+    },
+  );
 });

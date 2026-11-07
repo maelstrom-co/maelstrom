@@ -1,4 +1,5 @@
 import { vessel } from '@maelstrom-co/react';
+
 import { MapSkeleton } from './map.skeleton';
 import { mapVessel } from './map.vessel.def';
 

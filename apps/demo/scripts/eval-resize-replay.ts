@@ -97,6 +97,7 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { createGeminiChat, type GeminiTextModel } from '@tanstack/ai-gemini';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
+
 import { calendarVessel } from '../src/vessels/calendar.vessel.def';
 import { journalVessel } from '../src/vessels/journal.vessel.def';
 import { mapVessel } from '../src/vessels/map.vessel.def';

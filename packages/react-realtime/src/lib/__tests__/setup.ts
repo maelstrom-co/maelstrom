@@ -1,4 +1,5 @@
 import { afterEach, beforeEach } from 'bun:test';
+
 import { Window } from 'happy-dom';
 
 const originalDocument = globalThis.document;
