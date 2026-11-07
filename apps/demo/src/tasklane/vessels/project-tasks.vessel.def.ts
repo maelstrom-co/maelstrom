@@ -68,7 +68,7 @@ const PROJECT_TASK_ACTIONS = [
   },
   {
     name: 'updateTask',
-    idempotent: true,
+    effect: 'idempotent',
     description:
       "Change a task's title or description. Pass only the fields that change.",
     parameters: [
@@ -89,7 +89,7 @@ const PROJECT_TASK_ACTIONS = [
   },
   {
     name: 'setParent',
-    idempotent: true,
+    effect: 'idempotent',
     description: `Move a task under a parent task to group it, or pass ${NO_PARENT} to make it top level. A task cannot go under itself or its own children.`,
     parameters: [
       { name: 'task', type: 'string', description: TASK_REFERENCE },
@@ -103,7 +103,7 @@ const PROJECT_TASK_ACTIONS = [
   ASSIGN_TASK_ACTION,
   {
     name: 'setUrgency',
-    idempotent: true,
+    effect: 'idempotent',
     description: "Set a task's urgency. This is not the same as my priorities.",
     parameters: [
       { name: 'task', type: 'string', description: TASK_REFERENCE },
@@ -117,7 +117,7 @@ const PROJECT_TASK_ACTIONS = [
   },
   {
     name: 'setStatus',
-    idempotent: true,
+    effect: 'idempotent',
     description:
       'Move a task to todo, doing (in progress) or done. Use it when the user starts, finishes or reopens a task.',
     parameters: [
