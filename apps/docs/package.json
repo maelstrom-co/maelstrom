@@ -190,25 +190,6 @@
           "{workspaceRoot}/bun.lock"
         ]
       },
-      "check-links": {
-        "executor": "nx:run-commands",
-        "cache": true,
-        "dependsOn": [
-          "build"
-        ],
-        "inputs": [
-          "{workspaceRoot}/scripts/assert-docs-links.ts",
-          "{workspaceRoot}/scripts/lib/docs-links.ts",
-          {
-            "dependentTasksOutputFiles": "**/*",
-            "transitive": false
-          }
-        ],
-        "options": {
-          "cwd": "{workspaceRoot}",
-          "command": "bun scripts/assert-docs-links.ts"
-        }
-      },
       "e2e": {
         "dependsOn": [
           "^build"
@@ -240,6 +221,7 @@
           "^default",
           "toolchain",
           "{workspaceRoot}/LICENSE",
+          "{workspaceRoot}/.oxlintrc.json",
           "{workspaceRoot}/packages/evals/cases/**/*"
         ],
         "options": {

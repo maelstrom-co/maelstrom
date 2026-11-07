@@ -56,7 +56,8 @@ preserve word boundaries and numeric-only text through formatting.
 - The two PostHog components retain the provider's initialization snippet. Three
   syntax-style rules are disabled for those files.
 - Fixed slots in the website's presentation grids retain positional keys. The
-  array-index rule is disabled only for the listed presentation components.
+  array-index rule is disabled only for the listed presentation components,
+  stateless receipt fragments, and feedback paragraphs replaced as one snapshot.
 - React dependencies that intentionally use session epochs, serialized option
   keys, or stable refs carry local suppressions with their reasons. Suppressions
   for dependency arrays must appear immediately above the array's line.
@@ -76,7 +77,8 @@ and browser behavior independently of the workspace.
 
 ## CI selection and artifacts
 
-CI checks formatting once, then selects affected tasks. SDK validation declares
+The verification job checks formatting once. Pull requests select affected tasks;
+pushes to main run all targets. SDK validation declares
 its package builds and
 reads their JavaScript outputs. Docs link validation declares the docs build and
 reads the complete output. These prerequisites restore or produce artifacts even
@@ -86,4 +88,6 @@ Tests and typechecks cache their source inputs and runtime versions. Structural
 suites declare files outside their import graph explicitly; root structural tests
 conservatively cover the whole workspace. Explicit uncached evaluation-tool targets retain their policy. The standalone starter
 check remains uncached because it also checks current dependency advisories.
-Browser installation remains unconditional because that check runs browser tests.
+The e2e job selects affected browser suites and runs the starter check when docs
+change. The verification job also installs Chromium when docs unit tests need it.
+Both jobs cache browser binaries and install the required system libraries.
