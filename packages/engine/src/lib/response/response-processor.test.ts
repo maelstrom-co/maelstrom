@@ -32,6 +32,7 @@ import {
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import type { ReplylessCandidate } from '../planner/candidate.js';
+import { finalVariants } from './execution-plan/final-variants.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
 // Discriminates an author response on its layout shape so each branch brands
@@ -3308,6 +3309,81 @@ describe('processResponse pre-action Layout Variant', () => {
       }),
     ]);
     expect(response.diagnostics.warnings).toEqual([]);
+  });
+
+  test('a toggle executable from both Variants restores the request Variant so the Instance ends on the Layout Variant', () => {
+    const togglePanelVessel: AuthorVessel = {
+      id: 'panel',
+      name: 'Panel',
+      description: 'Panel that toggles between two Variants',
+      defaultVariant: 'collapsed',
+      variants: {
+        collapsed: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'toggle',
+              description: 'Expand',
+              transitionsTo: 'expanded',
+            },
+          ],
+        },
+        expanded: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'toggle',
+              description: 'Collapse',
+              transitionsTo: 'collapsed',
+            },
+          ],
+        },
+      },
+    };
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'panel-main', vesselId: 'panel', variant: 'collapsed' },
+      ],
+      vessels: [togglePanelVessel],
+    });
+
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'expand the panel',
+        executionPlan: [{ instanceId: 'panel-main', action: 'toggle' }],
+        layout: {
+          tree: ['panel-main'],
+          instances: [
+            {
+              instanceId: 'panel-main',
+              vesselId: 'panel',
+              variant: 'expanded',
+            },
+          ],
+        },
+      },
+      request,
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('collapsed'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('toggle'),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+    if (response.layout.type !== 'tiling') throw new Error('expected tiling');
+    const replay = finalVariants(
+      response.layout.instances,
+      response.executionPlan,
+      request.vessels,
+    );
+    expect(isOk(replay) && replay.value.get(InstanceId('panel-main'))).toBe(
+      VariantName('expanded'),
+    );
   });
 
   test('an existing Instance declared with an inherited Variant name is dropped instead of throwing', () => {
