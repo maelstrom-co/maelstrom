@@ -240,7 +240,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
-          for runtime_file in scripts/preview-lifecycle.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+          for runtime_file in scripts/preview-lifecycle.ts scripts/alchemy-version.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
             test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
@@ -281,7 +281,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
-          for runtime_file in scripts/preview-lifecycle.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+          for runtime_file in scripts/preview-lifecycle.ts scripts/alchemy-version.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
             test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"

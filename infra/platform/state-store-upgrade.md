@@ -9,7 +9,7 @@ starting a separate production run.
 - Merge the maintenance workflow PR into `main` after its review and merge approval.
   GitHub requires the workflow on the default branch before manual dispatch.
 - Keep upgrade PR #413 open and unmerged, with passing CI and no `deploy-preview` label.
-  Review its entire exact head for execution with account credentials.
+  Pin its revision before reviewing code for execution with account credentials.
 - Use a repository administrator or maintainer account with the GitHub CLI.
 - Verify that the `preview` and `production` environments contain their existing
   Cloudflare account ID and API token secrets. Tokens need Worker and Secrets
@@ -22,6 +22,20 @@ starting a separate production run.
 The workflow executes reviewed candidate code with Cloudflare credentials.
 `--dry-run` prevents Alchemy's apply phase; it does not sandbox module side effects.
 The source acknowledgement covers the entire candidate program.
+
+## Pin and review the candidate
+
+Capture the candidate revision before reviewing it:
+
+```sh
+upgrade_sha=$(gh pr view 413 --repo maelstrom-co/maelstrom --json headRefOid --jq .headRefOid)
+```
+
+Review that exact commit, including its infrastructure program, dependencies,
+and build hooks. Use the captured `upgrade_sha` for every dispatch and merge
+check. If the PR head changes, capture and review the new revision before
+repeating verification. A current-head check cannot prove which revision an
+operator reviewed.
 
 ## Pause callers
 
@@ -54,12 +68,6 @@ Production and playground workflows check the installed version before deploymen
 An older PR must update its dependencies before it can deploy again.
 
 ## Verify preview
-
-Read the reviewed candidate's exact revision:
-
-```sh
-upgrade_sha=$(gh pr view 413 --repo maelstrom-co/maelstrom --json headRefOid --jq .headRefOid)
-```
 
 Dispatch preview and approve its existing environment gate:
 
@@ -119,9 +127,21 @@ before their respective applies.
 
 ## Resume callers
 
-Request separate merge approval for #413 after both verification runs pass.
-Merge the approved upgrade and wait for successful CI on the new `main` revision.
-Keep `ALCHEMY_REQUIRED_VERSION=2.0.0-beta.85` and update every outside caller.
+Freeze unrelated `main` merges during the maintenance window. After both
+verification runs pass, confirm that the current PR head still equals
+`upgrade_sha` and that `main` still matches the production receipt's `controlSha`.
+If either changed, rebase and review the candidate, then repeat preview and
+production verification before requesting merge approval.
+
+Request separate merge approval for that exact #413 head. Use a head-matched
+merge after approval. Before enabling any caller, compare the merged commit's
+Git tree with the verified candidate's tree; commit SHAs may differ after a
+squash merge. If the trees differ, keep callers disabled and prepare a reviewed
+follow-up candidate for another verification cycle. Do not treat verification
+of the old tree as permission to deploy the changed tree.
+
+Wait for successful CI on the verified merged revision. Keep
+`ALCHEMY_REQUIRED_VERSION=2.0.0-beta.85` and update every outside caller.
 Do not rerun jobs pinned to older revisions.
 
 Re-enable the five paused workflows:
