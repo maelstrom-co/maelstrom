@@ -5,6 +5,7 @@ import {
   panelEvents,
   requestCounterparts,
 } from './panel-model.js';
+import { isIncompleteSourceEvent } from './request-counterparts.js';
 
 function trace(
   id: string,
@@ -100,4 +101,38 @@ test('missing or redacted operation fields and source loss cannot establish an u
   expect(requestCounterparts(a, partial).get(a.events[1]!.key)).toBe(
     'incomplete',
   );
+});
+
+test('run-owned diagnostics do not make request comparison evidence incomplete', () => {
+  const comparedKinds = new Set(['engine.stage.completed']);
+  const [requestOwned, runOwned] = panelEvents([
+    {
+      id: 'request-owned',
+      sessionId: 'session',
+      requestId: 'a',
+      kind: 'engine.stage.completed',
+      metadata: { clientId: 'app' },
+    },
+    {
+      id: 'run-owned',
+      sessionId: 'session',
+      runId: 'run-1',
+      kind: 'engine.stage.completed',
+      metadata: { clientId: 'app' },
+    },
+  ]);
+  expect(isIncompleteSourceEvent(requestOwned!, comparedKinds)).toBe(false);
+  expect(isIncompleteSourceEvent(runOwned!, comparedKinds)).toBe(false);
+});
+
+test('an engine event with neither requestId nor runId still makes request comparison evidence incomplete', () => {
+  const [unassigned] = panelEvents([
+    {
+      id: 'unassigned',
+      sessionId: 'session',
+      kind: 'engine.stage.completed',
+      metadata: { clientId: 'app' },
+    },
+  ]);
+  expect(isIncompleteSourceEvent(unassigned!, new Set())).toBe(true);
 });

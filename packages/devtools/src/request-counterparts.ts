@@ -58,3 +58,20 @@ export function requestCounterparts(
     }),
   );
 }
+
+export function isIncompleteSourceEvent(
+  event: PanelEvent,
+  comparedKinds: ReadonlySet<string>,
+): boolean {
+  if (event.requestId && event.clientId) return false;
+  if (isRunOwned(event)) return false;
+  return (
+    comparedKinds.has(event.kind) ||
+    event.raw.requestId !== undefined ||
+    /^(?:client\.(?:request|response|command|action)|engine)\./.test(event.kind)
+  );
+}
+
+function isRunOwned(event: PanelEvent): boolean {
+  return !event.requestId && event.raw.runId !== undefined;
+}
