@@ -21,10 +21,11 @@ export interface CommandProcessorOptions {
   /**
    * Looks up a registered Vessel definition. With it, each Action of an
    * `execute_actions` command resolves against its Instance's Variant at that
-   * Action's turn, and its `transitionsTo` applies after the handler succeeds
-   * (a transition with no handler applies on its own, as long as the
-   * Instance has a registered action runner). Without it, handlers are looked
-   * up by Action name alone and no Variant changes.
+   * Action's turn, and its `transitionsTo` applies after the handler succeeds.
+   * An Action declared `effect: 'none'` with no handler applies its transition
+   * on its own, as long as the Instance has a registered action runner. Any
+   * other Action without a handler is skipped and changes no Variant. Without
+   * it, handlers are looked up by Action name alone and no Variant changes.
    */
   resolveVessel?: (vesselId: VesselId) => VesselDefinition | undefined;
 }

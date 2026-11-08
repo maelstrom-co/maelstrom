@@ -37,7 +37,7 @@ export const ActionEffectSchema = z.enum(['none', 'idempotent', 'any']);
  *
  * `effect` parses to an explicit {@link ActionEffect}, `'any'` when omitted,
  * so consumers never branch on `undefined`. An Action with effect `'none'`
- * must declare `transitionsTo` and no parameters; see
+ * must declare `transitionsTo` and no parameters. See
  * {@link VesselActionDefinition.effect}. An Action that still declares the
  * removed `idempotent` flag fails to parse with a migration message.
  */
@@ -287,6 +287,8 @@ export interface VesselActionDefinition {
    *   that needs nothing from the application, such as showing a week view.
    *   It must declare `transitionsTo` and no parameters, and it is safe to
    *   run again.
+   *   Engine-planned Actions still need a registered runner for the
+   *   Instance, and an empty `useActions(id, {})` is enough.
    * - `'idempotent'`: a handler is required, and running the Action again
    *   with the same parameters leaves the Vessel where one run would, such as
    *   opening an item that may already be open.

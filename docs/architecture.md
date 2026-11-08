@@ -76,6 +76,7 @@ Actions are transitions in the state machine:
 | `description`   | What this action does (for LLM)               |
 | `parameters`    | Optional parameters for the action            |
 | `transitionsTo` | Target variant (undefined if no state change). The client applies it for local and Engine Actions alike |
+| `effect`        | What the Action does beyond its transition: `none`, `idempotent` or `any` (the default). Only `none` runs without a handler, and only `none` and `idempotent` may run on a resize-only turn |
 
 #### Benefits of state machines
 
@@ -281,7 +282,7 @@ The protocol only defines message shapes. Transport is a separate concern:
 The client applies the response in this order:
 
 1. **Apply `layout` first**: Establish the response's Instances and geometry. Each Instance takes its Layout Variant, which is its Variant before any Action runs.
-2. **Run `executionPlan` Actions**: Execute the accepted Actions after the layout exists. Actions for one Instance run in plan order. Each resolves against the Instance's Variant at its turn, runs its handler, and then applies its `transitionsTo` if the handler succeeded. The transition is a compare-and-set against the Variant before the Action, so a newer write wins. A pure transition needs no handler, but the Instance still needs a registered action runner (in React, the Vessel calls `useActions`). When no runner registers within the readiness timeout, its Actions are skipped and no transition applies. No `vessel_mutation` request follows an Engine transition, because the Engine already planned it.
+2. **Run `executionPlan` Actions**: Execute the accepted Actions after the layout exists. Actions for one Instance run in plan order. Each resolves against the Instance's Variant at its turn, runs its handler, and then applies its `transitionsTo` if the handler succeeded. The transition is a compare-and-set against the Variant before the Action, so a newer write wins. Only an Action declared `effect: 'none'` may run without a handler: its transition applies on its own. Any other Action without a handler is skipped and applies no transition, so a missing handler never reports success. The Instance still needs a registered action runner (in React, the Vessel calls `useActions` once per Instance). When no runner registers within the readiness timeout, its Actions are skipped and no transition applies. No `vessel_mutation` request follows an Engine transition, because the Engine already planned it.
 
 This order matters because:
 

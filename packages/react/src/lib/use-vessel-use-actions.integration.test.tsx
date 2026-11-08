@@ -56,7 +56,14 @@ const orderVessel = defineVessel({
     detail: {
       props: { view: 'detail' as const, orderId: '' },
       minSize: { width: 3, height: 3 },
-      actions: [{ name: 'close', description: 'Close', transitionsTo: 'list' }],
+      actions: [
+        {
+          name: 'close',
+          description: 'Close',
+          transitionsTo: 'list',
+          effect: 'none',
+        },
+      ],
     },
   },
 });
@@ -221,5 +228,115 @@ describe('useVessel + useActions integration', () => {
     expect(props.variantProps.variant).toBe('detail');
     expect(viewDetailHandler).toHaveBeenCalledTimes(1);
     expect(viewDetailHandler).toHaveBeenCalledWith({ orderId: 'order-1' });
+  });
+});
+
+// `showDetails` only switches the view. `selectItem` lives on `detail`, so an
+// Engine plan reaches it only after `showDetails` has moved the Instance.
+const inboxVessel = defineVessel({
+  id: 'inbox',
+  name: 'Inbox',
+  description: 'Items with a list and a detail view',
+  defaultVariant: 'list',
+  variants: {
+    list: {
+      props: { view: 'list' as const },
+      minSize: { width: 2, height: 2 },
+      actions: [
+        {
+          name: 'showDetails',
+          description: 'Detail view',
+          transitionsTo: 'detail',
+          effect: 'none',
+        },
+      ],
+    },
+    detail: {
+      props: { view: 'detail' as const },
+      minSize: { width: 2, height: 2 },
+      actions: [
+        {
+          name: 'selectItem',
+          description: 'Open one item',
+          parameters: [
+            {
+              name: 'id',
+              type: 'string' as const,
+              description: 'Item id',
+              required: true as const,
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+describe('Instance-lived action runner', () => {
+  it('handles an Action that an Engine plan runs right after a transition', async () => {
+    const selectItem = mock((_params: { id: string }) => ok(undefined));
+    const runner: ActionRunner<typeof inboxVessel> = { selectItem };
+    const m = createMaelstrom({ vessels: [vessel(inboxVessel, () => null)] });
+    const inboxInstance: VesselInstance = {
+      instanceId: InstanceId('inbox-1'),
+      vesselId: VesselId('inbox'),
+      variant: VariantName('list'),
+      position: { column: 0, row: 0 },
+      size: { width: 2, height: 2 },
+    };
+    const connector = createMockConnector({
+      process: async () =>
+        makeResponse(
+          [inboxInstance],
+          [
+            { instanceId: 'inbox-1', action: 'showDetails' },
+            {
+              instanceId: 'inbox-1',
+              action: 'selectItem',
+              params: { id: 'item-7' },
+            },
+          ],
+        ),
+    });
+
+    function ListView() {
+      return <p>list</p>;
+    }
+    function DetailView() {
+      return <p>detail</p>;
+    }
+    let state: { processIntent: (i: string) => Promise<void> } | undefined;
+    let variant: string | undefined;
+    function InboxVessel() {
+      state = m.useMaelstrom();
+      const props = m.useVessel('inbox', 'inbox-1');
+      m.useActions('inbox', 'inbox-1', runner);
+      variant = props?.variantProps.variant;
+      if (!props) return null;
+      return props.variantProps.variant === 'detail' ? (
+        <DetailView />
+      ) : (
+        <ListView />
+      );
+    }
+
+    const view = await act(async () =>
+      render(
+        <m.Provider connector={connector}>
+          <InboxVessel />
+        </m.Provider>,
+      ),
+    );
+
+    assertDefined(state);
+    const stateAfterMount = state;
+    await act(async () => {
+      await stateAfterMount.processIntent('open item 7');
+    });
+
+    expect(selectItem).toHaveBeenCalledTimes(1);
+    expect(selectItem).toHaveBeenCalledWith({ id: 'item-7' });
+    expect(variant).toBe('detail');
+    expect(view.getByText('detail')).toBeTruthy();
   });
 });
