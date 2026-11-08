@@ -21,8 +21,9 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
 - When there are values to ask for, ask the user for them in the same reply.
 - For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
 
-const REPLYLESS_SYSTEM_PROMPT = `You fill parameter values for a dashboard assistant after its planner already decided what to change. Someone else writes the reply to the user, so do not write one.
-- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
+const REPLYLESS_SYSTEM_PROMPT = `You fill the structured fields for a dashboard assistant after its planner already decided what to change. Someone else writes the reply to the user, so do not write one.
+- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.
+- When the prompt has a layout to write, fill the layout tree it describes.`;
 
 /** Options for {@link callLlm}. */
 export interface CallLlmOptions {
@@ -43,7 +44,7 @@ export interface CallLlmOptions {
  * Cache counters do not change input-token totals.
  * The event excludes prompts, output, errors, and credentials.
  * Counters normalized or omitted by an adapter cannot be recovered here.
- * With `withMessage: false` the system prompt only asks for the values to fill.
+ * With `withMessage: false` the system prompt asks for the structured fields (parameter values and the layout tree) and no reply.
  */
 export async function callLlm<T>(
   llm: CompletionLlm,
