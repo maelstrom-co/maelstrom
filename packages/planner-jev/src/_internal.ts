@@ -28,6 +28,7 @@ export {
   type ComposedPairsStageOverrides,
 } from './lib/planners/jev-composed-pairs.js';
 export {
+  asReplyRequiredPlanner,
   buildJevStagePlanner,
   createStageDeps,
   type JevStages,

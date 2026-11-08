@@ -4,6 +4,7 @@ import {
   type PlannerCandidate,
   type PlanningInput,
   pipeline,
+  type ReplylessCandidate,
   type Retryable,
   type Stage,
   withFallback,
@@ -25,6 +26,20 @@ import type {
 
 /** How many times the fallback is re-run when validation recommends a retry. */
 export const FALLBACK_RETRIES = 1;
+
+/**
+ * Types a Jev planner whose completion stage may omit `userMessage` as a
+ * reply-required {@link Planner}, so the builders keep their strict type.
+ * The completion stages omit `userMessage` only when the request sets
+ * `skipReply: true`, which a caller that needs a strict `Planner` never
+ * sends. The Engine still validates every candidate against its request, so
+ * a replyless candidate is never shipped unchecked. Returns `planner` itself.
+ */
+export function asReplyRequiredPlanner(
+  planner: Stage<PlanningInput, ReplylessCandidate>,
+): Planner {
+  return planner as Planner;
+}
 
 /** The provider-neutral options {@link createStageDeps} validates, shaped like `JevPlannerOptions`. */
 export interface StageDepsOptions {
@@ -94,23 +109,19 @@ export function buildJevStagePlanner<Selected extends Selection2>(
   stages: JevStages<Selected>,
   deps: JevDeps,
 ): Planner {
-  return withFallback(
-    pipeline(
-      named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
-      named(
-        STAGE_NAME.jevActions,
-        keepingGates<Selected>(stages.actions(deps.ask)),
+  return asReplyRequiredPlanner(
+    withFallback(
+      pipeline(
+        named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
+        named(
+          STAGE_NAME.jevActions,
+          keepingGates<Selected>(stages.actions(deps.ask)),
+        ),
+        named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
+        named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
       ),
-      named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
-      named(
-        STAGE_NAME.llmComplete,
-        // A completion stage may ship a candidate without `userMessage` on a
-        // `skipReply: true` request; the builder keeps its strict `Planner`
-        // type until its public types widen to replyless candidates.
-        stages.complete(deps.llm) as Stage<LayoutDecision, PlannerCandidate>,
-      ),
+      withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
     ),
-    withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
 }
 

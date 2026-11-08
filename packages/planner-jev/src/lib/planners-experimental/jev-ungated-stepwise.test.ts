@@ -2,10 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   createEngine,
-  type Planner,
   type PlannerCandidate,
   type PlanningInput,
   pipeline,
+  type ReplylessCandidate,
   type Retryable,
   type Stage,
   withFallback,
@@ -39,7 +39,7 @@ import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
-import type { LayoutDecision, LayoutStage } from '../stages/stage-types.js';
+import type { LayoutStage } from '../stages/stage-types.js';
 
 installMockChat();
 
@@ -95,7 +95,9 @@ async function run(request: ChartRequest, script: Script) {
 }
 
 /** The jev-ungated-stepwise-preset-inline stages, with the layout stage handing the tree to the LLM. */
-function handOffPlanner(deps: JevDeps): Planner {
+function handOffPlanner(
+  deps: JevDeps,
+): Stage<PlanningInput, ReplylessCandidate> {
   const live = layoutPreset(deps.ask);
   const handOff: LayoutStage = async (plan, ctx) => {
     const result = await live(plan, ctx);
@@ -108,8 +110,7 @@ function handOffPlanner(deps: JevDeps): Planner {
       selectUngated(deps.ask),
       actionsStepwise(deps.ask),
       handOff,
-      // Replyless only on a `skipReply: true` request, which this test never sends.
-      completeLayoutInline(deps.llm) as Stage<LayoutDecision, PlannerCandidate>,
+      completeLayoutInline(deps.llm),
     ),
     withRetry(deps.fallback, { max: 1 }),
   );
