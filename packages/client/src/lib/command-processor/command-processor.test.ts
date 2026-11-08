@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
 import {
+  ActionName,
   type GridLayout,
   InstanceId,
+  ok,
   type Result,
   type TilingLayout,
   tilingLeafInstanceId,
@@ -12,9 +14,15 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 
 import {
+  calendarMain,
+  calendarViewsVessel,
+  createCalendarLayout,
+} from '../../../test-utils/calendar-vessel.js';
+import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
+import type { BatchExecutionResult } from './action-runner.types.js';
 import {
   CommandProcessor,
   type CommandProcessorEvents,
@@ -598,3 +606,94 @@ function tilingLayout(tree: TilingLayout['tree']): TilingLayout {
     })),
   };
 }
+
+describe('CommandProcessor Engine Action transitions', () => {
+  function createCalendarProcessor(withVesselResolution: boolean) {
+    return new CommandProcessor({
+      defaultActionWaitTimeoutMs: 0,
+      ...(withVesselResolution
+        ? {
+            resolveVessel: (vesselId: VesselId) =>
+              vesselId === calendarViewsVessel.id
+                ? calendarViewsVessel
+                : undefined,
+          }
+        : {}),
+    });
+  }
+
+  function variantOf(processor: CommandProcessor) {
+    return processor.store.state.instances.get(calendarMain)?.variant;
+  }
+
+  it('moves the store Variant for an execute_actions command', async () => {
+    const processor = createCalendarProcessor(true);
+    processor.registerRunner(calendarMain, {});
+    processor.setLayout(createCalendarLayout('day'));
+    processor.executeActions([
+      { instanceId: calendarMain, action: ActionName('showWeek') },
+    ]);
+    await processor.waitForIdle();
+
+    expect(variantOf(processor)).toBe(VariantName('week'));
+    processor.dispose();
+  });
+
+  it('moves the store Variant of an Instance laid out in a grid', async () => {
+    const processor = createCalendarProcessor(true);
+    processor.registerRunner(calendarMain, {});
+    processor.setLayout(createCalendarLayout('day'));
+    processor.setLayout({
+      type: 'grid',
+      positions: [
+        {
+          instanceId: calendarMain,
+          position: { column: 0, row: 0 },
+          size: { width: 2, height: 2 },
+        },
+      ],
+    });
+    processor.executeActions([
+      { instanceId: calendarMain, action: ActionName('showWeek') },
+    ]);
+    await processor.waitForIdle();
+
+    expect(processor.store.state.layout?.type).toBe('grid');
+    expect(variantOf(processor)).toBe(VariantName('week'));
+    processor.dispose();
+  });
+
+  it('never applies a transition for runLocalAction', async () => {
+    const processor = createCalendarProcessor(true);
+    processor.registerRunner(calendarMain, { showWeek: () => ok(undefined) });
+    processor.setLayout(createCalendarLayout('day'));
+    await processor.waitForIdle();
+
+    const outcome = await processor.runLocalAction({
+      instanceId: calendarMain,
+      action: ActionName('showWeek'),
+    });
+
+    expect(outcome).toBe('succeeded');
+    expect(variantOf(processor)).toBe(VariantName('day'));
+    processor.dispose();
+  });
+
+  it('keeps the flat handler lookup without resolveVessel', async () => {
+    const processor = createCalendarProcessor(false);
+    processor.registerRunner(calendarMain, {});
+    processor.setLayout(createCalendarLayout('day'));
+    const completed: BatchExecutionResult[] = [];
+    processor.events.on('actions_completed', ({ result }) => {
+      completed.push(result);
+    });
+    processor.executeActions([
+      { instanceId: calendarMain, action: ActionName('showWeek') },
+    ]);
+    await processor.waitForIdle();
+
+    expect(completed[0]?.skippedCount).toBe(1);
+    expect(variantOf(processor)).toBe(VariantName('day'));
+    processor.dispose();
+  });
+});

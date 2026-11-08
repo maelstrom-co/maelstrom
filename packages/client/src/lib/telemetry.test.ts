@@ -18,6 +18,7 @@ import { createMockConnector } from '../../test-utils/connector-mocks.js';
 import {
   createMockEmptyResponse,
   createMockResponse,
+  createMockResponseVessel,
 } from '../../test-utils/mocks.js';
 import type { ActionResult } from './command-processor/action-result.js';
 import { WireEngineError } from './connection-manager/connector.types.js';
@@ -170,7 +171,10 @@ test('local telemetry preserves atomic settlement without activating remote diag
       },
     },
   );
-  const client = new Orchestrator(connector, { layoutMode: 'grid' });
+  const client = new Orchestrator(connector, {
+    layoutMode: 'grid',
+    vessels: [createMockResponseVessel('CANARY_action')],
+  });
   const records: TelemetryRecord[] = [];
   const telemetry = createTelemetry({
     sink: (batch) => {

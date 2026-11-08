@@ -75,11 +75,11 @@ Actions are transitions in the state machine:
 | `name`          | Action identifier                             |
 | `description`   | What this action does (for LLM)               |
 | `parameters`    | Optional parameters for the action            |
-| `transitionsTo` | Target variant (undefined if no state change) |
+| `transitionsTo` | Target variant (undefined if no state change). The client applies it for local and Engine Actions alike |
 
 #### Benefits of state machines
 
-Variants and Actions describe the choices available to the configured Planner. For example, it can request an Action that collapses a Calendar to make room for Weather. The Engine validates each requested Action against the Vessel definition before including it in the client's `executionPlan`.
+Variants and Actions describe the choices available to the configured Planner. For example, it can request an Action that collapses a Calendar to make room for Weather. The Engine validates each requested Action against the Vessel definition before including it in the client's `executionPlan`. It checks each Action against the Variant the Instance will have at that Action's turn, starting from the Layout Variant and following earlier transitions in the plan.
 
 ---
 
@@ -91,7 +91,7 @@ The Chart arranges Instances within its container. It supports tiling, the defau
 
 A tiling layout divides the container with a tree of horizontal (`H`) and vertical (`V`) splits. Horizontal splits divide height; vertical splits divide width. Each leaf identifies a visible Instance or an empty region. The client calculates each region's size from the tree and the container dimensions.
 
-The layout also carries an `instances` array with the identity and Variant of every retained Instance. The tree controls visibility: an Instance listed in `instances` but omitted from the tree remains retained and hidden. Removing it from `instances` removes it from the client's Instance map.
+The layout also carries an `instances` array with the identity and Variant of every retained Instance. Each Variant is the one the Instance has before the Execution Plan runs. A transition Action in the plan then moves it. The tree controls visibility: an Instance listed in `instances` but omitted from the tree remains retained and hidden. Removing it from `instances` removes it from the client's Instance map.
 
 This separation lets the Planner change which Instances are visible while retaining their identities for later layouts. See [Grid vs Tiling Layout](https://docs.maelstrom-ai.co/understanding/grid-vs-tiling/) for split examples and weights.
 
@@ -156,7 +156,7 @@ Illustrative grid-mode request payload, with Vessel definitions omitted:
 }
 ```
 
-The `instances` array describes current Instance identity and variant. The `layout` carries current geometry: grid positions in grid mode, or a split tree plus retained Instance metadata in tiling mode. Update reasons can include:
+The `instances` array describes current Instance identity and variant. It reflects the client store after every applied transition, whether a local Action or an Engine Action applied it. The `layout` carries current geometry: grid positions in grid mode, or a split tree plus retained Instance metadata in tiling mode. Update reasons can include:
 
 - `user_intent`: Explicit user request
 - `chart_resize`: The Chart container was resized, with previous and current dimensions
@@ -280,8 +280,8 @@ The protocol only defines message shapes. Transport is a separate concern:
 
 The client applies the response in this order:
 
-1. **Apply `layout` first**: Establish the response's Instances and geometry.
-2. **Run `executionPlan` Actions**: Execute the accepted Actions after the layout exists.
+1. **Apply `layout` first**: Establish the response's Instances and geometry. Each Instance takes its Layout Variant, which is its Variant before any Action runs.
+2. **Run `executionPlan` Actions**: Execute the accepted Actions after the layout exists. Actions for one Instance run in plan order. Each resolves against the Instance's Variant at its turn, runs its handler, and then applies its `transitionsTo` if the handler succeeded. The transition is a compare-and-set against the Variant before the Action, so a newer write wins. A pure transition needs no handler, but the Instance still needs a registered action runner (in React, the Vessel calls `useActions`). When no runner registers within the readiness timeout, its Actions are skipped and no transition applies. No `vessel_mutation` request follows an Engine transition, because the Engine already planned it.
 
 This order matters because:
 
@@ -330,7 +330,7 @@ If the Planner returns an invalid grid position or an inconsistent tiling entry,
 
 ### Invalid Actions
 
-If the Planner requests an Action that does not exist or is unavailable in the current Variant, the Engine skips it. It records a diagnostic explaining why and continues with the remaining valid Actions.
+If the Planner requests an Action that does not exist or is unavailable in the current Variant, the Engine skips it. The current Variant is the one the Instance has at that Action's turn. It records a diagnostic explaining why and continues with the remaining valid Actions.
 
 ### Malformed Responses
 

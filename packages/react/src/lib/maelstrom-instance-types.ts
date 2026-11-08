@@ -81,8 +81,9 @@ export interface MaelstromInstanceCore<
    * Returns null when the instance doesn't exist or belongs to a different vessel type.
    *
    * variantProps is a discriminated union narrowable via `variantProps.variant`.
-   * executeAction triggers an optimistic local variant transition (if transitionsTo is set),
-   * then dispatches to registered action runners via CommandProcessor.
+   * executeAction moves the store Variant to the action's `transitionsTo` (if set) before the
+   * handler runs, then dispatches to registered action runners via CommandProcessor. If the
+   * handler fails, the Variant reverts unless a newer change already replaced it.
    *
    * @example
    * const props = m.useVessel('calendar', instanceId);
@@ -100,6 +101,13 @@ export interface MaelstromInstanceCore<
    *
    * Pass a stable runner reference (defined outside the component or wrapped in useMemo)
    * to prevent unnecessary re-registrations on each render.
+   *
+   * For Engine-planned actions the handler runs while the instance is still in its
+   * pre-action Variant, and the action's `transitionsTo` applies after the handler succeeds.
+   * An Engine action with `transitionsTo` and no handler still transitions, but only once
+   * this hook has registered a runner for the instance. A Vessel that only transitions must
+   * still call `useActions`, with an empty handler map if it has no side effects. Otherwise
+   * its Engine actions are skipped after the readiness timeout and its Variant does not change.
    *
    * @example
    * m.useActions('calendar', instanceId, {
