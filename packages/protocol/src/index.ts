@@ -176,6 +176,7 @@ export { toError } from './lib/to-error.ts';
 export { ToolCallId, ToolCallIdSchema } from './lib/tool-call-id.ts';
 export { VariantName } from './lib/variant-name.ts';
 export type {
+  ActionEffect,
   ActionParameter,
   ValidationIssue,
   Vessel,
@@ -187,6 +188,7 @@ export type {
   VesselVariantDefinition,
 } from './lib/vessel.ts';
 export {
+  ActionEffectSchema,
   ActionParameterSchema,
   defineVessel,
   VesselActionSchema,

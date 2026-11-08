@@ -10,7 +10,7 @@ export const TASK_REFERENCE =
 // identical Action definition.
 export const ADD_TO_MY_PRIORITIES_ACTION = {
   name: 'addToMyPriorities',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     "Put a task in Chris's personal priorities list, at the end or at a position. A task already in the list moves to the position. Urgency is unchanged.",
   parameters: [
@@ -27,7 +27,7 @@ export const ADD_TO_MY_PRIORITIES_ACTION = {
 
 export const REMOVE_FROM_MY_PRIORITIES_ACTION = {
   name: 'removeFromMyPriorities',
-  idempotent: true,
+  effect: 'idempotent',
   description:
     "Take a task out of Chris's personal priorities list. The task itself stays.",
   parameters: [{ name: 'task', type: 'string', description: TASK_REFERENCE }],
@@ -35,7 +35,7 @@ export const REMOVE_FROM_MY_PRIORITIES_ACTION = {
 
 export const ASSIGN_TASK_ACTION = {
   name: 'assignTask',
-  idempotent: true,
+  effect: 'idempotent',
   description: 'Assign a task to a team member, or unassign it.',
   parameters: [
     { name: 'task', type: 'string', description: TASK_REFERENCE },
@@ -50,7 +50,7 @@ export const ASSIGN_TASK_ACTION = {
 
 export const FILTER_BY_ASSIGNEE_ACTION = {
   name: 'filterByAssignee',
-  idempotent: true,
+  effect: 'idempotent',
   description: `Show only one team member's tasks on the board, or pass ${EVERYONE} to show every task again. It changes only what the board shows, never the tasks.`,
   parameters: [
     {

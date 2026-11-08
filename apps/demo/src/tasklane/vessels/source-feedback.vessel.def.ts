@@ -18,7 +18,7 @@ export const sourceFeedbackVessel = defineVessel({
       actions: [
         {
           name: 'replaceFeedback',
-          idempotent: true,
+          effect: 'idempotent',
           description: `Replace the feedback text with new text. Text over ${FEEDBACK_CHARACTER_LIMIT} characters is truncated.`,
           parameters: [
             {
