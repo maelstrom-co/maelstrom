@@ -492,3 +492,66 @@ describe('llmComplete', () => {
     expect(errorTagOf(result)).toBe('CancellationError');
   });
 });
+
+describe('llmComplete with skipReply', () => {
+  test('without pending slots makes no call and ships no userMessage', async () => {
+    const { result } = await run(
+      completionPlan(skipping(makeRequest('hide the tasks'), true)),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    expect(isOk(result)).toBe(true);
+    expect(candidateOf(result)).not.toHaveProperty('userMessage');
+  });
+
+  test('with a pending slot fills it without asking for a reply', async () => {
+    mockChat.mockResolvedValue({ params: { p0: 'Tokyo' } });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('weather for the capital of Japan'), true),
+        { actions: [planned('weather-main/setLocation', {}, [LOCATION])] },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'params',
+    ]);
+    const candidate = candidateOf(result);
+    expect(candidate).not.toHaveProperty('userMessage');
+    expect(candidate.executionPlan).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Tokyo"}',
+      },
+    ]);
+    const systemPrompt = chatCall().systemPrompts.join('\n');
+    expect(systemPrompt).toContain('do not write one');
+    expect(systemPrompt).not.toContain('You write the reply');
+    expect(chatPrompt()).not.toMatch(/reply/i);
+  });
+
+  test('false behaves exactly like an absent flag', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Tokyo' } });
+    const plan = (request: ChartRequest) =>
+      completionPlan(request, {
+        actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+      });
+    const absent = await run(plan(makeRequest('weather for Tokyo')));
+    const explicit = await run(
+      plan(skipping(makeRequest('weather for Tokyo'), false)),
+    );
+    expect(candidateOf(explicit.result)).toEqual(candidateOf(absent.result));
+    expect(candidateOf(explicit.result).userMessage).toBe('ok');
+    expect(Object.keys(chatCall(1).outputSchema.properties ?? {})).toEqual([
+      'userMessage',
+      'params',
+    ]);
+    expect(chatCall(1).outputSchema).toEqual(chatCall(0).outputSchema);
+    expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
+    expect(chatPrompt(1)).toBe(chatPrompt(0));
+  });
+});
+
+function skipping(request: ChartRequest, skipReply: boolean): ChartRequest {
+  return { ...request, skipReply };
+}

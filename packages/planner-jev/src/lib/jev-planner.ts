@@ -20,7 +20,7 @@ import { jevLayout } from './stages/jev-layout.js';
 import { llmComplete } from './stages/llm-complete.js';
 import { selectGatedScreenScope } from './stages/select-gated-screen-scope.js';
 import { createJevDeps, type JevDeps } from './stages/stage-deps.js';
-import type { JevSelection } from './types.js';
+import type { JevLayoutPlan, JevSelection } from './types.js';
 
 export { FALLBACK_RETRIES };
 
@@ -84,7 +84,13 @@ export function buildJevPlanner(
       named(STAGE_NAME.jevSelect, select(deps.ask)),
       named(STAGE_NAME.jevActions, jevActions(deps.ask)),
       named(STAGE_NAME.jevLayout, jevLayout(deps.ask)),
-      named(STAGE_NAME.llmComplete, llmComplete(deps.llm)),
+      named(
+        STAGE_NAME.llmComplete,
+        // Only a `skipReply: true` request gets a candidate without
+        // `userMessage`; the builder keeps its strict `Planner` type until its
+        // public types widen to replyless candidates.
+        llmComplete(deps.llm) as Stage<JevLayoutPlan, PlannerCandidate>,
+      ),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

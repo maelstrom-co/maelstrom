@@ -1,8 +1,15 @@
-import type { PlannerCandidate, Stage } from '@maelstrom-co/engine';
+import type { ReplylessCandidate, Stage } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import { outputSchema, parseFill, type Slot } from '../completion-schema.js';
+import { completionMode } from '../completion-mode.js';
+import {
+  type Completion,
+  outputSchema,
+  parseFill,
+  type ReplylessCompletion,
+  type Slot,
+} from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { callLlm } from '../llm-call.js';
@@ -30,10 +37,14 @@ export interface LlmCompleteOptions {
  * so a flawed Jev plan falls back instead of shipping healed. Provider
  * failures and cancellation are real errors: the fallback uses the same
  * provider.
+ *
+ * On a request with `skipReply: true` the candidate has no `userMessage`:
+ * the call only fills parameters, and with none to fill it is not made.
+ * Otherwise the candidate always carries the reply.
  */
 export function llmComplete(
   options: LlmCompleteOptions,
-): Stage<JevLayoutPlan, PlannerCandidate> {
+): Stage<JevLayoutPlan, ReplylessCandidate> {
   return async (layoutPlan, ctx) => {
     const { plan } = layoutPlan;
     const input = plan.selection.input;
@@ -43,14 +54,28 @@ export function llmComplete(
       )
       .map((slot, index) => ({ ...slot, key: `p${index}` }));
 
-    const completion = await callLlm(
-      options,
-      buildPrompt(layoutPlan, slots),
-      outputSchema(slots),
-      input.history,
-      ctx,
-    );
+    const mode = completionMode({
+      skipReply: input.request.skipReply,
+      slotCount: slots.length,
+      layoutHandOff: false,
+    });
+    const withMessage = mode === 'full';
+    const completion =
+      mode === 'skip'
+        ? ok<Completion | ReplylessCompletion>({})
+        : await callLlm(
+            options,
+            buildPrompt(layoutPlan, slots),
+            outputSchema(slots, undefined, { withMessage }),
+            input.history,
+            ctx,
+            { withMessage },
+          );
     if (isErr(completion)) return completion;
+    const userMessage =
+      'userMessage' in completion.value
+        ? completion.value.userMessage
+        : undefined;
 
     const filled = new Map<Slot, unknown>();
     for (const slot of slots) {
@@ -78,9 +103,9 @@ export function llmComplete(
     );
     if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
-    const candidate: PlannerCandidate = {
+    const candidate: ReplylessCandidate = {
       type: 'plan',
-      userMessage: completion.value.userMessage,
+      ...(userMessage !== undefined && { userMessage }),
       rationale: rationale(layoutPlan),
       executionPlan: declared.value.actions.map((action) => {
         const params: Record<string, unknown> = { ...action.params };
