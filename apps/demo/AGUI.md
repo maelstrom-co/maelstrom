@@ -1,4 +1,8 @@
-# AG-UI in the demo
+# Historical AG-UI integration in the original demo
+
+This integration has been removed from `apps/demo`. Use the [dedicated AG-UI demo](../agui-demo/) for current development.
+
+The notes below describe the [recorded implementation at revision `36d9f602`](https://github.com/maelstrom-co/maelstrom/tree/36d9f60269e274477de35507660b8a053421890b/apps/demo). Its source and tests remain available at that revision. The [historical walkthrough evidence](../agui-workspace-poc/walkthrough/pr344/EVIDENCE.md) also remains available. Instructions below apply only to that revision.
 
 Select **Workspace → AG-UI** to use the experimental adapter with the normal demo's typed input, Chart, Vessels, and native voice. The [demo README](./README.md) covers startup and key entry. The protocol package owns the [wire contract](../../packages/agui-protocol/CONTRACT.md), including private ingress, correlation, settlement, and recovery limits.
 

@@ -95,15 +95,6 @@
       "path": "../../packages/devtools/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/agui/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/agui-server/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/agui-protocol/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/protocol/tsconfig.lib.json"
     },
     {
