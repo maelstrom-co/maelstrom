@@ -30,7 +30,16 @@ source, or marked "unmeasured".
   `gpt-4.1-nano` shut down on 2026-10-23, Workers AI LoRA is open beta with most LoRA bases
   retiring on 2026-11-20, and Cloudflare's Clef RL fine-tuning is design-partner only.
 
-**Shortlist:** Clef-flash, OpenAI Decisions API (`gpt-6-luna`), Clef (27B). See
+- We already benchmarked the OpenAI Decisions API in MAE-832 (planner-jev Decisions client on
+  main, run 2026-10-08, 155 scenarios times 3 repeats). It was faster (provider call p50 193
+  against 281 ms) but much less accurate (selection 52.3% against 86.5% for Jev 1.13.0, overall
+  pass 44.9% against 75.2%) and refused some calls. It drops off the shortlist. It stays on a
+  periodic re-bench, since the model may improve.
+- Jev itself has a newer model, `jev-1.14.0` (released mid October 2026, same listed price, image
+  input, a new `box` question type, opt-in long context). We pin `jev-1.13.0`. Benchmarking
+  1.14.0 against 1.13.0 comes before any switch to another provider.
+
+**Shortlist:** Clef-flash, Clef (27B), and an embedding router for route choice only. See
 [Shortlist](#shortlist-top-3).
 
 ## The bar: what Jev does today
@@ -93,7 +102,7 @@ published figure with its source, or "unmeasured". "Struct" is structured output
 | 1 | Clef-flash `@cf/cloudflare/clef-flash` (9B, Qwen3.5-9B backbone) | Cloudflare Workers AI | `env.AI.run` binding / Workers AI REST. TanStack `@tanstack/ai-cloudflare` documents only `typesafe/jev` as decider ID, so a thin custom decider is likely | Vendor: median 38.8 ms, p95 122.4 ms (launch post, method not described). Ours: unmeasured | $0.038 input, output free (cut from $0.090 on 2026-10-09) | `choice`, `score`, `noul` questions, 1 to 64 per request, per-option probabilities | 24,576 hosted (cut from 64K with the price drop) | Weights Apache 2.0. Hosted, no beta label on model page | Drop-in shape. Our ten-question request fits the 64-question and 24K limits. Vendor table shows a weak CLINC150+OOS score (66.77 against Jev 89.27), which matters for hand-off detection. Covered in depth by MAE-849 |
 | 2 | Clef `@cf/cloudflare/clef` (27B, Qwen3.8-27B backbone) | Cloudflare Workers AI | Same as Clef-flash | Vendor: launch median 209.3 ms, p95 238.6 ms. After 2026-10-09 speedup: about 152 ms median at about 800 tokens, 305 ms at about 3,400 tokens. Ours: unmeasured | $0.24 input, output free | Same as Clef-flash | 65,536 | Weights Apache 2.0. Hosted | Drop-in shape. Vendor accuracy at or above Jev on most listed suites, CLINC150+OOS 97.43. Likely near Jev latency for our prompt size, so the win is accuracy and cost, not speed |
 | 3 | Clef-omni `@cf/cloudflare/clef-omni` (30B MoE, 3B active) | Cloudflare Workers AI | Same as Clef-flash | Vendor: about 20 ms for text requests (changelog 2026-10-09). Ours: unmeasured | $0.15 input, output free | Same question types, plus audio and video input | 64,000 | Model page links an HF license, terms not stated on page | Drop-in shape. Fastest claimed, but no published accuracy table. Worth a run next to Clef-flash |
-| 4 | OpenAI Decisions API, `gpt-6-luna` | OpenAI | `fetch` or `openai` JS SDK over HTTPS from both. TanStack `openaiDecider('gpt-6-luna')` in `@tanstack/ai-openai` | Vendor: "about 10x faster than the Responses API", no absolute figure. Ours: unmeasured | $0.10 input ($0.01 cached), output free | `predicate`, `choice`, `score`. Choice returns `choice`, `probabilities`, `confidence`. Up to 400 questions | Not stated on the guide page (Luna chat is 1.05M) | GA 2026-10-22. US and EU regional processing, ZDR for eligible customers | Near drop-in: request field is `input` not `state`, and `predicate` replaces `noul`. Demo already holds an OpenAI key and adapter. Can refuse a question (billed). Strongest non-Cloudflare option |
+| 4 | OpenAI Decisions API, `gpt-6-luna` | OpenAI | `fetch` or `openai` JS SDK over HTTPS from both. TanStack `openaiDecider('gpt-6-luna')` in `@tanstack/ai-openai` | Vendor: "about 10x faster than the Responses API", no absolute figure. Ours (MAE-832, 2026-10-08): provider call p50 193 ms against Jev 1.13.0's 281 ms, but selection accuracy 52.3% against 86.5% | $0.10 input ($0.01 cached), output free | `predicate`, `choice`, `score`. Choice returns `choice`, `probabilities`, `confidence`. Up to 400 questions | Not stated on the guide page (Luna chat is 1.05M) | GA 2026-10-22. US and EU regional processing, ZDR for eligible customers | Near drop-in: request field is `input` not `state`, and `predicate` replaces `noul`. Demo already holds an OpenAI key and adapter. Can refuse a question (billed). Ruled out for now by the MAE-832 accuracy gap, re-bench periodically |
 | 5 | Jev through a gateway (Cloudflare AI Gateway `typesafe/jev`, OpenRouter `~typesafe/jev-latest`, Vercel `typesafe-ai/jev`) | TypeSafe via gateway | Cloudflare: `env.AI` binding with gateway / REST. Others: HTTPS | Jev's own: our 233 to 319 ms. Gateway overhead unmeasured | Jev $42 per billion input tokens (typesafe.ai) plus any gateway fee | Same as Jev | Jev 32K (Clef launch post) | Jev in early access | Not a replacement model. Listed because it could remove the separate TypeSafe key and put Jev behind the same binding as Clef for A/B tests |
 | 6 | Clairic `@cf/cloudflare/clairic` | Cloudflare Workers AI | Binding / REST | No claim | $0.10 input, output free | Typed `fields` (text, date, number, list, estimate), not choices | 65,536 | Preview | Not a fit for picks. Could extract a free number (maxFatPercent) or text span (query) that the light tier now hands off, as a second call |
 | 7 | GLiNER2.5-Decide hosted API (agent.fastino.ai) | Fastino | HTTPS from both | Vendor (self-hosted bench): p50 38.3 ms on V100, 167.3 ms on CPU, short docs | Hosted price not published | Label sets at call time, typed decisions. Jev request shape not confirmed | Not stated (tested to 1,024 tokens) | Weights Apache 2.0. Hosted API exists, terms not found | Encoder classifier (340M). Fast, but vendor bench does not compare against hosted Jev and fact resolution across ten questions is unproven |
@@ -184,15 +193,22 @@ chat LLMs, 5 embedding or classifier approaches, 5 fine-tuning paths, 3 other ap
    is $42 per billion), output free, Apache 2.0 weights. Vendor median 38.8 ms against Jev's 524 ms in the
    same table. Risk: weak out-of-scope intent score in Cloudflare's own table, and the hosted
    context dropped to 24K. MAE-849 owns its benchmark.
-2. **OpenAI Decisions API with `gpt-6-luna`.** GA, same multiple-choice-with-probabilities
-   model, up to 400 questions, $0.10 input and no output charge, plain HTTPS from both
-   runtimes, and a ready `openaiDecider` in TanStack AI. The demo already depends on OpenAI.
-   Risk: no absolute latency published, so the 250 ms bar is untested, input costs more than
-   twice Jev's, and refusals are billed.
-3. **Clef (27B, Workers AI).** The accuracy hedge for Clef-flash: same binding and shape,
+2. **Clef (27B, Workers AI).** The accuracy hedge for Clef-flash: same binding and shape,
    vendor scores at or above Jev on most suites (CLINC150+OOS 97.43), about 152 ms median at
    about 800 tokens after the 2026-10-09 speedup, $0.24 input. If Clef-flash misses hand-offs,
    this is the next step without changing code.
+3. **Embedding router (Workers AI `bge-m3` or `qwen3-embedding-0.6b`), route choice only.**
+   Nearest-example matching for the two-way `ui_only` against `needs_tools` route. Cheap and
+   fast through the existing binding, but it cannot do the light tier's multi-question pick.
+
+Dropped from the shortlist: **OpenAI Decisions API (`gpt-6-luna`).** Same request shape and
+GA, but already measured in MAE-832 against Jev 1.13.0: faster (193 against 281 ms provider
+call p50), selection accuracy 52.3% against 86.5%, overall pass 44.9% against 75.2%, and some
+refused calls. It often hid instances the user asked to keep. Re-bench it periodically on the
+same eval, since the model may improve.
+
+Not a replacement but a prerequisite: **Jev 1.14.0.** Bench it against our pinned 1.13.0 first.
+Any replacement should be judged against the better Jev.
 
 Why not a chat LLM in the top 3: every chat candidate loses the calibrated confidence the
 light tier gates on, needs the questions folded into one schema, and has no published TTFT.
@@ -210,9 +226,12 @@ Measure from both the Worker and the local server, since binding and HTTPS paths
 1. **MAE-849 (exists): Clef-flash against Jev.** Add Clef-omni as an extra arm, since it
    shares the binding and claims about 20 ms. Question: does Clef-flash or Clef-omni match
    13/13 with no wrong light answers at a lower median than Jev?
-2. **OpenAI Decisions API (`gpt-6-luna`) against Jev for the light tier and router.**
-   Question: does the Decisions API match Jev's accuracy under Jev's 250 ms median, called from
-   the Worker and the local server?
+2. **Periodic re-bench of the OpenAI Decisions API against Jev.** Already measured once in
+   MAE-832 (52.3% against 86.5% selection accuracy). Question: has the Decisions API closed the
+   accuracy gap on the MAE-832 eval (`packages/evals`, suite `all`) and on the light-tier set?
+6. **Jev 1.14.0 against Jev 1.13.0.** Question: does 1.14.0 match or beat 1.13.0 on accuracy
+   and latency on the MAE-832 eval and the light-tier set, so we can move the pin before 1.13.0
+   is deprecated?
 3. **Clef (27B) as the accuracy fallback for Clef-flash.** Could fold into MAE-849 if it
    stays small. Question: does Clef fix any hand-off misses Clef-flash makes while staying
    under 300 ms on our prompt size?
@@ -282,6 +301,11 @@ OpenAI:
 - Decisions GA announcement (2026-10-22, OpenAI staff post):
   https://community.openai.com/t/decisions-api-is-now-generally-available-with-new-updates/1408934
 - Models: https://developers.openai.com/api/docs/models
+- Internal: MAE-832 Decisions against Jev results (planner-jev `openai-decisions-client.ts` on main,
+  eval branch `ktrz/mae-832-decisions-evals`, commit `a1fb43d7`, run 2026-10-08).
+- Jev 1.14.0 listing (release date, context, price): https://openrouter.ai/models/typesafe/jev-1.14
+- Jev 1.14.0 availability: https://netlify.com/changelog/typesafe-jev-1-14-0-ai-gateway
+  (feature and deprecation details come from secondary coverage, check docs.typesafe.ai).
 - Structured outputs: https://developers.openai.com/api/docs/guides/structured-outputs
 - Supervised fine-tuning (wind-down notice):
   https://developers.openai.com/api/docs/guides/supervised-fine-tuning
