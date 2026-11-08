@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { PlannerCandidate, PlanningInput } from '@maelstrom-co/engine';
 import { isOk, type MaelstromResponse, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
@@ -189,6 +190,52 @@ test('the run record keeps the same keys for a baseline and a staged turn', asyn
     'turnMs',
     'userMessage',
   ]);
+});
+
+test("skipReply sends every arm's request with skipReply: true and marks its records", async () => {
+  const requests: PlanningInput['request'][] = [];
+  const records = await run(
+    {
+      candidate: (input) => {
+        requests.push(input.request);
+        return TOKYO_CANDIDATE;
+      },
+    },
+    ['quoted-location'],
+    { skipReply: true },
+  );
+  expect(requests.map((request) => request.skipReply)).toEqual([true, true]);
+  expect(records.map((record) => record.skipReply)).toEqual([true, true]);
+  expect(records.map((record) => record.score?.pass)).toEqual([true, true]);
+});
+
+test('without skipReply the request and the record carry no skipReply', async () => {
+  const requests: PlanningInput['request'][] = [];
+  const records = await run(
+    {
+      candidate: (input) => {
+        requests.push(input.request);
+        return TOKYO_CANDIDATE;
+      },
+    },
+    ['quoted-location'],
+  );
+  expect(requests).toHaveLength(2);
+  expect(requests.every((request) => !('skipReply' in request))).toBe(true);
+  expect(records.every((record) => !('skipReply' in record))).toBe(true);
+});
+
+test("under skipReply the Engine refuses a replyless candidate, recorded as the turn's error", async () => {
+  const { userMessage: _userMessage, ...replyless } = TOKYO_CANDIDATE;
+  const [record] = await run(
+    { candidate: () => replyless as PlannerCandidate },
+    ['quoted-location'],
+    { arms: ['fake'], skipReply: true },
+  );
+  expect(record?.skipReply).toBe(true);
+  expect(record?.error?.tag).toBe('ValidationError');
+  expect(record?.error?.message).toContain('skipReply');
+  expect(record?.score).toBe(undefined);
 });
 
 test('a deferral runs the counted fallback and is recorded with its stage and reason', async () => {
