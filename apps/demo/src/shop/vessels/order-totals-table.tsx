@@ -11,31 +11,42 @@ export function OrderTotalsTable({ totals, className }: OrderTotalsTableProps) {
     <div
       className={cn(
         className ?? 'mt-3',
-        'pt-2 border-t border-[var(--line)] text-xs text-[var(--color-ink-3)] space-y-0.5',
+        'pt-2 border-t border-[var(--line)] text-xs text-[var(--color-ink-3)] space-y-0.5 tabular-nums',
       )}
     >
-      <div className="flex justify-between">
-        <span>Subtotal</span>
-        <span className="tabular-nums">
-          {formatCents(totals.subtotalCents)}
-        </span>
-      </div>
-      <div className="flex justify-between">
-        <span>Shipping</span>
-        <span className="tabular-nums">
-          {totals.shippingCents === 0
+      <TotalsRow label="Subtotal" value={formatCents(totals.subtotalCents)} />
+      <TotalsRow
+        label="Shipping"
+        value={
+          totals.shippingCents === 0
             ? 'Free'
-            : formatCents(totals.shippingCents)}
-        </span>
-      </div>
-      <div className="flex justify-between">
-        <span>Tax</span>
-        <span className="tabular-nums">{formatCents(totals.taxCents)}</span>
-      </div>
-      <div className="flex justify-between text-sm font-semibold text-[var(--color-ink)]">
-        <span>Total</span>
-        <span className="tabular-nums">{formatCents(totals.totalCents)}</span>
-      </div>
+            : formatCents(totals.shippingCents)
+        }
+      />
+      <TotalsRow label="Tax" value={formatCents(totals.taxCents)} />
+      <TotalsRow label="Total" value={formatCents(totals.totalCents)} strong />
+    </div>
+  );
+}
+
+function TotalsRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'grid grid-cols-[1fr_auto] gap-x-4',
+        strong && 'text-sm font-bold text-[var(--color-ink)]',
+      )}
+    >
+      <span>{label}</span>
+      <span className="text-right">{value}</span>
     </div>
   );
 }

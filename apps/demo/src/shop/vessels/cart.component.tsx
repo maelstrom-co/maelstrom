@@ -62,7 +62,7 @@ export default function CartComponent({
           </p>
         </div>
       ) : (
-        <div className="flex-1 space-y-2 overflow-y-auto">
+        <div className="flex-1 min-h-0 space-y-2 overflow-auto">
           {lines.map((line) => {
             const product = productBySku(line.sku);
             return (
@@ -117,7 +117,9 @@ export default function CartComponent({
           })}
         </div>
       )}
-      <OrderTotalsTable totals={totals} />
+      {lines.length > 0 ? (
+        <OrderTotalsTable totals={totals} className="mt-2 shrink-0" />
+      ) : null}
     </VesselCard>
   );
 }

@@ -10,7 +10,7 @@ vi.mock('../maelstrom', () => ({
 
 const { __resetCartStoreForTests, cartActions } =
   await import('../stores/cart.store');
-const { __resetCheckoutStoreForTests } =
+const { __resetCheckoutStoreForTests, checkoutActions } =
   await import('../stores/checkout.store');
 const CheckoutComponent = (await import('./checkout.component')).default;
 const { CheckoutSkeleton } = await import('./checkout.skeleton');
@@ -39,6 +39,15 @@ describe('checkout vessel copy', () => {
     const view = render(<CheckoutComponent {...props('review')} />);
     expect(view.getAllByText(/^\d+× /)).toHaveLength(2);
     expect(view.getByText('and 1 more')).toBeTruthy();
+  });
+
+  it('shows total and demo note on the confirmation variant', () => {
+    cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
+    checkoutActions.placeOrder();
+    const view = render(<CheckoutComponent {...props('confirmation')} />);
+    expect(view.getByText('Order placed')).toBeTruthy();
+    expect(view.getByText('Total')).toBeTruthy();
+    expect(view.getByText(/Demo order, nothing charged/)).toBeTruthy();
   });
 
   it('shows a friendly loading label on the skeleton', () => {

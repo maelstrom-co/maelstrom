@@ -404,3 +404,185 @@
     animation: none;
   }
 }
+
+/* Chrome type: shop name and eyebrows are sentence-case Nunito, not mono caps. */
+.shop-app .eyebrow {
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shop-app .eyebrow::before {
+  background: var(--color-brand);
+  box-shadow: none;
+}
+
+.shop-app .demo-brand h1 {
+  color: var(--color-ink);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.shop-app .demo-brand h1::before {
+  display: none;
+}
+
+.shop-app .demo-nav a {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Buttons: terracotta, no blue glow. */
+.shop-app .btn-primary {
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: none;
+}
+
+.shop-app .btn-primary:hover:not(:disabled) {
+  background: var(--color-brand-2);
+  box-shadow: none;
+}
+
+.shop-app .btn-ghost {
+  border: 1px solid var(--line-2);
+  background: #fff;
+  color: var(--color-ink);
+  backdrop-filter: none;
+}
+
+.shop-app .btn-ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--color-bg-2);
+}
+
+/* Keyless preview cards match the vessel card chassis. */
+.shop-app .preview-card {
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shop-shadow);
+}
+
+.shop-app .preview-card-heading {
+  color: var(--color-ink-3);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.shop-app .preview-card-heading > span:first-child {
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shop-app .preview-card-heading i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.shop-app .preview-card .font-mono {
+  font-family: inherit;
+}
+
+/* Dock borders: soft warm line instead of the dark default. */
+.shop-app .shop-dock,
+.shop-app .keyless-input {
+  border-top: 1px solid var(--line-2);
+  background: #fff;
+}
+
+/* Vessel accent dots: the shared accents are blue, cyan and neon green.
+   VesselCard exposes no per-vessel hook, so match the inline --accent hex
+   (values pinned by tests) and recolour the dot only. */
+.shop-app .vessel-card[style*="#0091ff" i] .vessel-card-dot {
+  background: #d97742;
+}
+
+.shop-app .vessel-card[style*="#00c2ff" i] .vessel-card-dot {
+  background: #7a9e7e;
+}
+
+.shop-app .vessel-card[style*="#f5a524" i] .vessel-card-dot {
+  background: #d9a441;
+}
+
+.shop-app .vessel-card[style*="#2bd46b" i] .vessel-card-dot {
+  background: #8fa7c4;
+}
+
+/* API key dialog: white card, warm ink, terracotta actions. */
+.shop-app [aria-labelledby="key-drawer-heading"] {
+  background: rgba(43, 36, 32, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] .surface {
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 50px -20px rgba(76, 52, 30, 0.35);
+  backdrop-filter: none;
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] h2 {
+  color: var(--color-ink);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] label {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] p:not(.eyebrow) {
+  color: var(--color-ink-2);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] p[role="alert"],
+.shop-app [aria-labelledby="key-drawer-heading"] #playground-api-key-hint {
+  color: var(--color-pink);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] a {
+  color: var(--color-brand-2);
+  text-underline-offset: 2px;
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] a:hover {
+  color: var(--color-brand);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] input {
+  border-color: var(--line-strong) !important;
+  background: #fff !important;
+  color: var(--color-ink);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] input::placeholder {
+  color: var(--color-ink-3);
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] input:focus,
+.shop-app [aria-labelledby="key-drawer-heading"] input:focus-visible {
+  border-color: var(--color-brand) !important;
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+.shop-app [aria-labelledby="key-drawer-heading"] button:focus-visible,
+.shop-app [aria-labelledby="key-drawer-heading"] a:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}

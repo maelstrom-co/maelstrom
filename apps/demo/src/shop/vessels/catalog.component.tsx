@@ -106,7 +106,7 @@ export default function CatalogComponent({
             <button
               type="button"
               onClick={() => executeAction('addToCart', { sku: product.sku })}
-              className="mt-3 w-full rounded-md bg-[var(--color-brand)] px-3 py-2 text-sm font-bold text-white hover:bg-[var(--color-brand-2)]"
+              className="mt-3 w-full shrink-0 rounded-md bg-[var(--color-brand)] px-3 py-2 text-sm font-bold text-white hover:bg-[var(--color-brand-2)]"
             >
               Add to basket
             </button>
@@ -184,27 +184,27 @@ function ProductDetail({ product }: { product: Product }) {
     ['Protein', `${product.proteinPercent}%`],
   ];
   return (
-    <div className="flex-1 flex gap-3 overflow-y-auto">
+    <div className="flex-1 min-h-0 flex gap-3 overflow-y-auto">
       <ProductImage product={product} size="hero" className="shrink-0" />
-      <div className="min-w-0 flex-1 flex flex-col gap-2">
+      <div className="min-w-0 flex-1 flex flex-col gap-1.5">
         <div className="text-[15px] font-bold text-[var(--color-ink)]">
           {product.name}
         </div>
         <div className="text-[16px] font-bold tabular-nums text-[var(--color-ink)]">
           {formatCents(product.priceCents)}
         </div>
-        <p className="text-[13px] text-[var(--color-ink-2)] line-clamp-3">
+        <p className="shrink-0 text-[13px] leading-snug text-[var(--color-ink-2)] line-clamp-3">
           {product.description}
         </p>
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
           {facts.map(([label, value, mono]) => (
             <div key={label} className="contents">
-              <dt className="text-[var(--color-ink-3)]">{label}</dt>
+              <dt className="text-[var(--color-ink-3)] truncate">{label}</dt>
               <dd
                 className={
                   mono
-                    ? 'font-mono text-[11px] text-[var(--color-ink-3)]'
-                    : 'text-[var(--color-ink-2)]'
+                    ? 'truncate whitespace-nowrap font-mono text-[11px] text-[var(--color-ink-3)]'
+                    : 'truncate text-[var(--color-ink-2)]'
                 }
               >
                 {value}

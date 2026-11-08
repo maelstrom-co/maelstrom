@@ -6,7 +6,7 @@ import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 import { shopM } from '../maelstrom';
 import { cartTotals, useCartStore } from '../stores/cart.store';
 import { checkoutActions, useCheckoutStore } from '../stores/checkout.store';
-import { CUSTOMER, formatAddress } from '../stores/fixtures';
+import { CUSTOMER, formatAddress, formatCents } from '../stores/fixtures';
 import type { checkoutVessel } from './checkout.vessel';
 import { OrderTotalsTable } from './order-totals-table';
 
@@ -43,18 +43,28 @@ export default function CheckoutComponent({
         meta="All set"
       >
         {lastConfirmation ? (
-          <div className="flex-1 flex flex-col items-center gap-1 overflow-y-auto text-center">
+          <div className="flex-1 min-h-0 flex flex-col items-center gap-1 overflow-auto text-center">
             <div
               aria-hidden="true"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-green)] text-base font-bold text-white"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-green)] text-sm font-bold text-white"
             >
               ✓
             </div>
-            <div className="text-base font-bold text-[var(--color-ink)]">
+            <div className="text-base font-bold leading-tight text-[var(--color-ink)]">
               Order placed
             </div>
             <div className="text-[13px] text-[var(--color-ink-2)]">
               Order <span>{lastConfirmation.order.id}</span> on its way
+            </div>
+            <div className="flex w-full justify-between border-t border-[var(--line)] pt-1 text-sm font-semibold text-[var(--color-ink)]">
+              <span>Total</span>
+              <span className="tabular-nums">
+                {formatCents(lastConfirmation.order.totals.totalCents)}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--color-ink-3)]">
+              Demo order, nothing charged ({lastConfirmation.paymentMethod} on
+              file)
             </div>
             <ul className="text-sm text-[var(--color-ink-2)] space-y-0.5">
               {lastConfirmation.order.items.map((item) => (
@@ -66,11 +76,6 @@ export default function CheckoutComponent({
             <div className="text-xs text-[var(--color-ink-3)]">
               Ships to {lastConfirmation.shipTo}
             </div>
-            <div className="text-xs text-[var(--color-ink-3)]">
-              Demo order, nothing charged ({lastConfirmation.paymentMethod} on
-              file)
-            </div>
-            <OrderTotalsTable totals={lastConfirmation.order.totals} />
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-ink-3)]">
@@ -80,7 +85,7 @@ export default function CheckoutComponent({
         <button
           type="button"
           onClick={() => executeAction('returnToCheckoutReview')}
-          className="self-start mt-2 text-xs text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+          className="self-start mt-2 shrink-0 text-xs text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
         >
           ← Back to checkout
         </button>
@@ -97,7 +102,7 @@ export default function CheckoutComponent({
       label="Checkout"
       meta="Checkout"
     >
-      <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-auto">
         <section>
           <h3 className="text-xs font-bold text-[var(--color-ink-3)] mb-1">
             What's in the box
@@ -135,13 +140,13 @@ export default function CheckoutComponent({
             </p>
           </section>
         </div>
+        <OrderTotalsTable totals={cartTotals(lines)} className="mt-0" />
       </div>
-      <OrderTotalsTable totals={cartTotals(lines)} />
       <button
         type="button"
         disabled={lines.length === 0}
         onClick={() => executeAction('placeOrder')}
-        className="mt-3 w-full rounded-md bg-[var(--color-brand)] px-3 py-2 text-sm font-bold text-white tabular-nums disabled:opacity-40"
+        className="mt-3 w-full shrink-0 rounded-md bg-[var(--color-brand)] px-3 py-2 text-sm font-bold text-white tabular-nums disabled:opacity-40"
       >
         Place order
       </button>

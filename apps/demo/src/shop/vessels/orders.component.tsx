@@ -112,42 +112,44 @@ export default function OrdersComponent({
 
 function OrderDetail({ order }: { order: Order }) {
   return (
-    <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
+    <div className="flex-1 min-h-0 flex flex-col gap-2">
       <div className="flex items-center justify-between text-xs text-ink-3">
         <span>Placed {order.placedOn}</span>
         <StatusBadge status={order.status} />
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-ink-3 text-left">
-            <th className="font-normal pb-1">Item</th>
-            <th className="font-normal pb-1 text-right">Qty</th>
-            <th className="font-normal pb-1 text-right">Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {order.items.map((item) => (
-            <tr key={item.sku} className="align-middle">
-              <td className="py-1 pr-2">
-                <div className="flex items-center gap-2">
-                  <ItemThumb sku={item.sku} />
-                  <div className="min-w-0">
-                    <div className="text-ink">{item.name}</div>
-                    <div className="text-xs text-ink-3">{item.sku}</div>
-                  </div>
-                </div>
-              </td>
-              <td className="py-1 text-right tabular-nums text-ink-2">
-                {item.quantity}
-              </td>
-              <td className="py-1 text-right tabular-nums text-ink-2">
-                {formatCents(item.unitPriceCents)}
-              </td>
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-ink-3 text-left">
+              <th className="font-normal pb-1">Item</th>
+              <th className="font-normal pb-1 pl-3 text-right">Qty</th>
+              <th className="font-normal pb-1 pl-4 text-right">Price</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <OrderTotalsTable totals={order.totals} className="mt-auto" />
+          </thead>
+          <tbody>
+            {order.items.map((item) => (
+              <tr key={item.sku} className="align-middle">
+                <td className="py-1 pr-2">
+                  <div className="flex items-center gap-2">
+                    <ItemThumb sku={item.sku} />
+                    <div className="min-w-0">
+                      <div className="text-ink">{item.name}</div>
+                      <div className="text-xs text-ink-3">{item.sku}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="py-1 pl-3 text-right tabular-nums text-ink-3 whitespace-nowrap">
+                  ×{item.quantity}
+                </td>
+                <td className="py-1 pl-4 text-right tabular-nums text-ink-2 whitespace-nowrap">
+                  {formatCents(item.unitPriceCents)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <OrderTotalsTable totals={order.totals} className="shrink-0" />
     </div>
   );
 }
