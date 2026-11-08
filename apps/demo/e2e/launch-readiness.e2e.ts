@@ -251,7 +251,7 @@ test('keeps the shop tab title separate from Dayline', async ({
   test.skip(testInfo.project.name === 'mobile', 'Title is viewport-neutral');
   await page.goto('/shop');
   await expect(
-    page.getByRole('heading', { name: 'Maelstrom Pet Shop' }),
+    page.getByRole('heading', { name: 'Corner Paws' }),
   ).toBeVisible();
   await expect(page).toHaveTitle('Maelstrom Demo');
 });

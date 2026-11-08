@@ -386,6 +386,14 @@ describe('ShopPage chrome', () => {
     expect(switchProvider).toHaveBeenCalledWith('realtime');
   });
 
+  it('renders the unwired progress slot in the dock', async () => {
+    const h = await renderShop();
+
+    const slot = h.view.getByTestId('shop-progress-slot');
+    expect(slot.textContent).toContain('Ready when you are');
+    expect(slot.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('renders DevTools without the debug query', async () => {
     const h = await renderShop();
 
@@ -413,7 +421,7 @@ async function renderShop() {
       fireEvent.change(input(), { target: { value: text } }),
     send: () =>
       act(async () => {
-        fireEvent.click(view.getByRole('button', { name: 'Send' }));
+        fireEvent.click(view.getByRole('button', { name: 'Ask' }));
       }),
   };
 }

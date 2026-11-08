@@ -40,39 +40,47 @@ export default function CheckoutComponent({
       <VesselCard
         accent={VESSEL_ACCENTS.checkout}
         label="Checkout"
-        meta="Confirmed"
+        meta="All set"
       >
         {lastConfirmation ? (
-          <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
-            <div className="text-base text-ink">Order placed</div>
-            <div className="text-sm font-mono text-ink-2">
-              {lastConfirmation.order.id}
+          <div className="flex-1 flex flex-col items-center gap-1 overflow-y-auto text-center">
+            <div
+              aria-hidden="true"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-green)] text-base font-bold text-white"
+            >
+              ✓
             </div>
-            <ul className="text-sm text-ink-2 space-y-0.5">
+            <div className="text-base font-bold text-[var(--color-ink)]">
+              Order placed
+            </div>
+            <div className="text-[13px] text-[var(--color-ink-2)]">
+              Order <span>{lastConfirmation.order.id}</span> on its way
+            </div>
+            <ul className="text-sm text-[var(--color-ink-2)] space-y-0.5">
               {lastConfirmation.order.items.map((item) => (
                 <li key={item.sku}>
                   {item.quantity}× {item.name}
                 </li>
               ))}
             </ul>
-            <div className="text-xs text-ink-3">
+            <div className="text-xs text-[var(--color-ink-3)]">
               Ships to {lastConfirmation.shipTo}
             </div>
-            <div className="text-xs text-ink-3">
+            <div className="text-xs text-[var(--color-ink-3)]">
               Demo order, nothing charged ({lastConfirmation.paymentMethod} on
               file)
             </div>
             <OrderTotalsTable totals={lastConfirmation.order.totals} />
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-ink-3">
+          <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-ink-3)]">
             No order has been placed yet.
           </div>
         )}
         <button
           type="button"
           onClick={() => executeAction('returnToCheckoutReview')}
-          className="self-start mt-2 text-xs font-mono text-ink-3 hover:text-ink"
+          className="self-start mt-2 text-xs text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
         >
           ← Back to checkout
         </button>
@@ -80,45 +88,65 @@ export default function CheckoutComponent({
     );
   }
 
+  const visibleLines = lines.slice(0, MAX_VISIBLE_LINES);
+  const hiddenCount = lines.length - visibleLines.length;
+
   return (
-    <VesselCard accent={VESSEL_ACCENTS.checkout} label="Checkout" meta="Review">
+    <VesselCard
+      accent={VESSEL_ACCENTS.checkout}
+      label="Checkout"
+      meta="Checkout"
+    >
       <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
         <section>
-          <h3 className="text-xs text-ink-3 mb-1">Items</h3>
+          <h3 className="text-xs font-bold text-[var(--color-ink-3)] mb-1">
+            What's in the box
+          </h3>
           {lines.length === 0 ? (
-            <p className="text-sm text-ink-3">Cart is empty.</p>
+            <p className="text-sm text-[var(--color-ink-3)]">Cart is empty.</p>
           ) : (
-            <ul className="text-sm text-ink-2 space-y-0.5">
-              {lines.map((line) => (
+            <ul className="text-sm text-[var(--color-ink-2)] space-y-0.5">
+              {visibleLines.map((line) => (
                 <li key={line.sku}>
                   {line.quantity}× {line.name}
                 </li>
               ))}
+              {hiddenCount > 0 && <li>and {hiddenCount} more</li>}
             </ul>
           )}
         </section>
-        <section>
-          <h3 className="text-xs text-ink-3 mb-1">Ship to</h3>
-          <p className="text-sm text-ink-2">
-            {CUSTOMER.shippingAddress.name}
-            <br />
-            {formatAddress(CUSTOMER.shippingAddress)}
-          </p>
-        </section>
-        <section>
-          <h3 className="text-xs text-ink-3 mb-1">Payment</h3>
-          <p className="text-sm text-ink-2">{CUSTOMER.paymentMethod.label}</p>
-        </section>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <section>
+            <h3 className="font-bold text-[var(--color-ink-3)] mb-1">
+              Shipping to
+            </h3>
+            <p className="text-[var(--color-ink-2)]">
+              {CUSTOMER.shippingAddress.name}
+              <br />
+              {formatAddress(CUSTOMER.shippingAddress)}
+            </p>
+          </section>
+          <section>
+            <h3 className="font-bold text-[var(--color-ink-3)] mb-1">
+              Paying with
+            </h3>
+            <p className="text-[var(--color-ink-2)]">
+              {CUSTOMER.paymentMethod.label}
+            </p>
+          </section>
+        </div>
       </div>
       <OrderTotalsTable totals={cartTotals(lines)} />
       <button
         type="button"
         disabled={lines.length === 0}
         onClick={() => executeAction('placeOrder')}
-        className="mt-3 rounded-md bg-white/10 px-3 py-2 text-sm text-ink hover:bg-white/15 disabled:opacity-40"
+        className="mt-3 w-full rounded-md bg-[var(--color-brand)] px-3 py-2 text-sm font-bold text-white tabular-nums disabled:opacity-40"
       >
         Place order
       </button>
     </VesselCard>
   );
 }
+
+const MAX_VISIBLE_LINES = 2;

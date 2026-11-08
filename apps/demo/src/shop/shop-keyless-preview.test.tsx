@@ -29,6 +29,15 @@ function optionLabels(picker: HTMLElement): (string | null)[] {
   );
 }
 
+describe('ShopKeylessPreview copy', () => {
+  it('greets visitors in plain shop language', () => {
+    const { getByText, queryByText } = renderPreview();
+    expect(getByText('Have a look around')).toBeTruthy();
+    expect(queryByText('Pet shop preview')).toBeNull();
+    expect(getByText('Your basket is empty.')).toBeTruthy();
+  });
+});
+
 describe('ShopKeylessPreview voice picker', () => {
   it('offers only GPT-Live and OpenAI Realtime', () => {
     const { getByRole } = renderPreview();

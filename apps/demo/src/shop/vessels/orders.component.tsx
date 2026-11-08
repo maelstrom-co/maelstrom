@@ -4,7 +4,8 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../../components/vessel-card';
 import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 import { shopM } from '../maelstrom';
-import { formatCents, type Order } from '../stores/fixtures';
+import { ProductImage } from '../product-image';
+import { formatCents, type Order, productBySku } from '../stores/fixtures';
 import {
   getOrdersSnapshot,
   ordersActions,
@@ -44,23 +45,25 @@ export default function OrdersComponent({
     return (
       <VesselCard
         accent={VESSEL_ACCENTS.orders}
-        label="Orders"
-        meta={order ? order.id : 'Detail'}
+        label="Your orders"
+        meta={order ? order.id : 'Order details'}
       >
         <button
           type="button"
           onClick={() => executeAction('backToOrderList')}
-          className="self-start text-xs font-mono text-ink-3 hover:text-ink mb-2"
+          className="self-start text-xs text-ink-3 hover:text-ink mb-2"
         >
-          ← All orders
+          ← All your orders
         </button>
         {order ? (
           <OrderDetail order={order} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
-            <div className="text-sm text-ink">No order selected.</div>
+            <div className="text-sm text-ink">
+              Pick an order to see what was in it.
+            </div>
             <div className="text-xs text-ink-3 max-w-xs">
-              Ask to open an order by id, or the most recent one.
+              Ask for your last order or one by number.
             </div>
           </div>
         )}
@@ -71,8 +74,8 @@ export default function OrdersComponent({
   return (
     <VesselCard
       accent={VESSEL_ACCENTS.orders}
-      label="Orders"
-      meta={`${orders.length} past`}
+      label="Your orders"
+      meta={`${orders.length} past ${orders.length === 1 ? 'order' : 'orders'}`}
     >
       <div className="flex-1 space-y-2 overflow-y-auto">
         {orders.map((order) => (
@@ -82,22 +85,21 @@ export default function OrdersComponent({
             onClick={() =>
               executeAction('showOrderDetails', { orderId: order.id })
             }
-            className="w-full text-left rounded-md border border-white/5 px-3 py-2 hover:bg-white/5"
+            className="shop-row-hover w-full text-left rounded-[10px] bg-[var(--shop-chip-bg)] px-3 py-2 flex flex-col gap-1"
           >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-mono text-ink-2">{order.id}</span>
-              <span className="text-xs font-mono text-ink-3">
-                {order.placedOn}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-ink">
+                Order {order.id} · {order.placedOn}
               </span>
+              <StatusBadge status={order.status} />
             </div>
-            <div className="text-sm text-ink truncate">
-              {order.items
-                .map((item) => `${item.quantity}× ${item.name}`)
-                .join(', ')}
-            </div>
-            <div className="flex justify-between text-xs text-ink-3">
-              <span>{order.status}</span>
-              <span className="font-mono">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm text-ink-2 truncate min-w-0">
+                {order.items
+                  .map((item) => `${item.quantity}× ${item.name}`)
+                  .join(', ')}
+              </span>
+              <span className="text-sm font-bold text-ink tabular-nums shrink-0">
                 {formatCents(order.totals.totalCents)}
               </span>
             </div>
@@ -111,9 +113,9 @@ export default function OrdersComponent({
 function OrderDetail({ order }: { order: Order }) {
   return (
     <div className="flex-1 flex flex-col gap-3 overflow-y-auto">
-      <div className="flex justify-between text-xs text-ink-3">
+      <div className="flex items-center justify-between text-xs text-ink-3">
         <span>Placed {order.placedOn}</span>
-        <span>{order.status}</span>
+        <StatusBadge status={order.status} />
       </div>
       <table className="w-full text-sm">
         <thead>
@@ -125,15 +127,20 @@ function OrderDetail({ order }: { order: Order }) {
         </thead>
         <tbody>
           {order.items.map((item) => (
-            <tr key={item.sku} className="align-top">
+            <tr key={item.sku} className="align-middle">
               <td className="py-1 pr-2">
-                <div className="text-ink">{item.name}</div>
-                <div className="text-xs font-mono text-ink-3">{item.sku}</div>
+                <div className="flex items-center gap-2">
+                  <ItemThumb sku={item.sku} />
+                  <div className="min-w-0">
+                    <div className="text-ink">{item.name}</div>
+                    <div className="text-xs text-ink-3">{item.sku}</div>
+                  </div>
+                </div>
               </td>
-              <td className="py-1 text-right font-mono text-ink-2">
+              <td className="py-1 text-right tabular-nums text-ink-2">
                 {item.quantity}
               </td>
-              <td className="py-1 text-right font-mono text-ink-2">
+              <td className="py-1 text-right tabular-nums text-ink-2">
                 {formatCents(item.unitPriceCents)}
               </td>
             </tr>
@@ -143,6 +150,41 @@ function OrderDetail({ order }: { order: Order }) {
       <OrderTotalsTable totals={order.totals} className="mt-auto" />
     </div>
   );
+}
+
+const STATUS_DISPLAY = {
+  delivered: {
+    label: 'Delivered',
+    style: {
+      color: 'var(--color-green)',
+      background: 'color-mix(in srgb, var(--color-green) 15%, transparent)',
+    },
+  },
+  processing: {
+    label: 'On its way',
+    style: {
+      color: 'var(--color-amber)',
+      background: 'color-mix(in srgb, var(--color-amber) 18%, transparent)',
+    },
+  },
+} as const;
+
+function StatusBadge({ status }: { status: Order['status'] }) {
+  const { label, style } = STATUS_DISPLAY[status];
+  return (
+    <span
+      className="rounded-full px-2 py-0.5 text-xs font-semibold shrink-0"
+      style={style}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ItemThumb({ sku }: { sku: string }) {
+  const product = productBySku(sku);
+  if (!product) return null;
+  return <ProductImage product={product} size="thumb" className="shrink-0" />;
 }
 
 function noMatchError(orderId: string): Error {

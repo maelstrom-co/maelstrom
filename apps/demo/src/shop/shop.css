@@ -1,3 +1,167 @@
+@import "@fontsource/nunito/400.css";
+@import "@fontsource/nunito/600.css";
+@import "@fontsource/nunito/700.css";
+
+/* Corner Paws theme: a warm, light palette scoped to /shop so the home demo
+   keeps its dark look. Unlayered rules here beat the shared @layer components
+   recipes and Tailwind utilities. */
+.shop-app {
+  --color-bg: #fbf6ee;
+  --color-bg-1: #fff;
+  --color-bg-2: #f3ebdd;
+  --color-ink: #2b2420;
+  --color-ink-2: #5c524b;
+  --color-ink-3: #8a7f76;
+  --color-brand: #d97742;
+  --color-brand-2: #b85f2e;
+  --color-brand-3: #7a9e7e;
+  --color-green: #4f8a5b;
+  --color-amber: #d9a441;
+  --color-pink: #c9534f;
+  --line: rgba(43, 36, 32, 0.08);
+  --line-2: rgba(43, 36, 32, 0.12);
+  --line-strong: rgba(43, 36, 32, 0.2);
+  --shop-shadow: 0 6px 20px -12px rgba(76, 52, 30, 0.25);
+  --shop-chip-bg: #f3ebdd;
+  --shop-thumb-bg: #f7efe3;
+  --shop-dog: #e8c9a6;
+  --shop-cat: #cfdad0;
+  --shop-wet: #d6a79c;
+  min-height: 100dvh;
+  background:
+    radial-gradient(900px 500px at 80% -200px, #f6e3cf 0%, transparent 60%),
+    var(--color-bg);
+  color: var(--color-ink);
+  font-family: "Nunito", var(--font-sans);
+  font-feature-settings: normal;
+}
+
+.shop-app .shop-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--shop-chip-bg);
+  color: var(--color-ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shop-app .shop-row-hover:hover {
+  background: var(--color-bg-2);
+}
+
+/* Vessel cards: CSS override of the shared glass chassis, no fork. */
+.shop-app .vessel-card {
+  --edge: transparent;
+  --glow: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: #fff;
+  backdrop-filter: none;
+  box-shadow: var(--shop-shadow);
+}
+
+.shop-app .vessel-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shop-shadow);
+}
+
+.shop-app .vessel-card-edge {
+  display: none;
+}
+
+.shop-app .vessel-card-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.shop-app .vessel-card-dot + span {
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.shop-app .vessel-card-dot + span + span,
+.shop-app .vessel-card [class*="font-mono"].text-ink-3 {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--color-ink-3);
+}
+
+.shop-app [data-flash="true"] {
+  border-radius: 16px;
+}
+
+/* Header status pill: same chip look as the voice pill, sentence case. */
+.shop-app .status-pill {
+  border: 1px solid var(--line);
+  background: var(--shop-chip-bg);
+  color: var(--color-ink-2);
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shop-app .status-pill > span:first-child:empty {
+  width: 8px;
+  height: 8px;
+}
+
+/* Voice orb: white disc with a state-coloured border and soft ring. */
+@keyframes shop-orb-connecting-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(217, 119, 66, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(217, 119, 66, 0.18);
+  }
+}
+
+.shop-app .voice-orb {
+  border: 2px solid var(--line-strong);
+  background: #fff;
+}
+
+.shop-app .voice-orb[data-state="idle"] {
+  border-color: var(--color-ink-3);
+  box-shadow: none;
+}
+
+.shop-app .voice-orb[data-state="connecting"] {
+  border-color: var(--color-brand);
+  animation: shop-orb-connecting-pulse 1.2s ease-in-out infinite;
+}
+
+.shop-app .voice-orb[data-state="connected"],
+.shop-app .voice-orb[data-state="listening"] {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 6px rgba(217, 119, 66, 0.25);
+}
+
+.shop-app .voice-orb[data-state="thinking"] {
+  border-color: var(--color-brand-3);
+  box-shadow: none;
+}
+
+.shop-app .voice-orb[data-state="speaking"] {
+  border-color: var(--color-green);
+  box-shadow: none;
+}
+
+.shop-app .voice-orb[data-state="error"] {
+  border-color: var(--color-pink);
+  box-shadow: none;
+}
+
 /* Every size in the dock is fixed: a dock that grows with a caption or a
    status word would resize the Chart host and start a chart_resize request.
    The devtools launcher is fixed over the viewport's bottom-right corner, so
@@ -67,7 +231,7 @@
   -webkit-line-clamp: 2;
 }
 
-.shop-app .shop-caption-line[data-faded='true'] {
+.shop-app .shop-caption-line[data-faded="true"] {
   opacity: 0;
 }
 
@@ -88,9 +252,13 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--line);
   border-radius: 999px;
+  background: var(--shop-chip-bg);
   color: var(--color-ink-2);
+  font-family: inherit;
   font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -107,12 +275,12 @@
   opacity: 0.5;
 }
 
-.shop-app .shop-voice-pill[data-state='connected'],
-.shop-app .shop-voice-pill[data-state='listening'] {
+.shop-app .shop-voice-pill[data-state="connected"],
+.shop-app .shop-voice-pill[data-state="listening"] {
   color: var(--color-brand-2);
 }
 
-.shop-app .shop-voice-pill[data-state='error'] {
+.shop-app .shop-voice-pill[data-state="error"] {
   color: var(--color-pink);
 }
 
@@ -149,25 +317,36 @@
     order: -1;
   }
 
+  /* 144px of content: input 44, slot 24, voice corner 60, two 8px gaps. The
+     orb spans both corner rows so the caption shrinks to one line. */
   .shop-app .shop-voice-corner {
     width: 100%;
-    height: 88px;
-    grid-template-rows: 36px 44px;
+    height: 60px;
+    flex: 0 0 auto;
+    order: 2;
+    grid-template-rows: 24px 36px;
   }
 
   .shop-app .shop-caption {
-    grid-column: 1 / -1;
+    height: 24px;
   }
 
-  .shop-app .shop-voice-orb-wrap {
-    grid-row: 2;
+  .shop-app .shop-caption-line {
+    -webkit-line-clamp: 1;
   }
 
-  .shop-app .shop-voice-status {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 2px;
+  .shop-app .shop-progress-slot {
+    width: 100%;
+    height: 24px;
+    flex: 0 0 auto;
+    order: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .shop-app .shop-progress-track {
+    flex: 1;
   }
 }
 
@@ -189,8 +368,39 @@
   }
 }
 
+/* progress slot */
+/* Unwired: it holds the dock's third column until a progress source exists. */
+.shop-app .shop-progress-slot {
+  display: flex;
+  width: 220px;
+  height: 72px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.shop-app .shop-progress-caption {
+  overflow: hidden;
+  color: var(--color-ink-3);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.shop-app .shop-progress-track {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--shop-chip-bg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shop-app .shop-caption-line {
     transition: none;
+  }
+
+  .shop-app .voice-orb[data-state="connecting"] {
+    animation: none;
   }
 }

@@ -8,9 +8,9 @@ export function ShopHeader({ children }: Readonly<{ children: ReactNode }>) {
     >
       <div className="demo-header-row flex items-center justify-between gap-4">
         <div className="demo-brand">
-          <h1 className="eyebrow">Maelstrom Pet Shop</h1>
-          <p className="text-sm text-ink-2 mt-1">
-            Orders, catalog, cart and checkout
+          <h1 className="eyebrow">Corner Paws</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-ink-2)' }}>
+            Pet food & treats · powered by Maelstrom
           </p>
         </div>
         <nav className="demo-nav" aria-label="Shop links">

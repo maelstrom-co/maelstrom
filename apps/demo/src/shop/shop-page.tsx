@@ -330,7 +330,7 @@ function ShopWorkspace({
           <button
             type="button"
             onClick={onRequireKey}
-            className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
+            className="status-pill flex items-center gap-2 rounded-full px-3 py-1 text-sm"
           >
             API key
           </button>
@@ -353,12 +353,28 @@ function ShopWorkspace({
           intent={intent}
           onIntentChange={changeDraft}
           onSubmit={submit}
-          submitLabel="Send"
+          submitLabel="Ask"
         />
+        {/* Unwired pending a progress source. */}
+        <div
+          className="shop-progress-slot"
+          aria-hidden="true"
+          data-testid="shop-progress-slot"
+        >
+          <span className="shop-progress-caption">Ready when you are</span>
+          <span className="shop-progress-track" />
+        </div>
       </footer>
     </div>
   );
 }
+
+const STATUS_LABELS = {
+  connected: 'Assistant ready',
+  connecting: 'Opening the shop…',
+  error: 'Assistant offline',
+  disconnected: 'Assistant offline',
+} as const;
 
 function ConnectionStatus() {
   const { connectionStatus } = shopM.useMaelstrom();
@@ -366,11 +382,11 @@ function ConnectionStatus() {
 
   return (
     <div
-      className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
+      className="status-pill flex items-center gap-2 rounded-full px-3 py-1 text-sm"
       role="status"
       aria-label={
         connectionStatus === 'error'
-          ? 'Shop connection failed. Reload to retry.'
+          ? 'Shop assistant offline. Reload to retry.'
           : `Connection status: ${connectionStatus}`
       }
     >
@@ -379,7 +395,7 @@ function ConnectionStatus() {
         className="h-1.5 w-1.5 rounded-full"
         style={{ background: color, boxShadow: `0 0 8px ${color}` }}
       />
-      {connectionStatus === 'error' ? 'Error: reload' : connectionStatus}
+      {STATUS_LABELS[connectionStatus]}
     </div>
   );
 }

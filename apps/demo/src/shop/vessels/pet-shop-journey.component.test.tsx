@@ -244,7 +244,7 @@ describe('pet-shop vessels by hand', () => {
       }),
     ).toMatchObject({ ok: true });
 
-    fireEvent.click(catalog.getByRole('button', { name: 'Add to cart' }));
+    fireEvent.click(catalog.getByRole('button', { name: 'Add to basket' }));
     expect(catalogProps.executeAction).toHaveBeenCalledWith('addToCart', {
       sku: 'DOG-DRY-SUMMIT-HW-30',
     });

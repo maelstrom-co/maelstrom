@@ -46,13 +46,13 @@ export function ShopKeylessPreview({
 
       <main className="keyless-main">
         <div className="keyless-intro">
-          <p className="eyebrow">Pet shop preview</p>
-          <h2>Reorder pet food by asking for it.</h2>
+          <p className="eyebrow">Have a look around</p>
+          <h2>Reorder pet food just by asking.</h2>
           <p>
-            Add an OpenAI API key to let Maelstrom bring in the catalog,
-            checkout and order details as you ask. Type or speak, for example
+            Add an API key and the shop will bring up the products, checkout and
+            your past orders as you ask. Type or speak, for example
             &ldquo;reorder my dog food but with less fat&rdquo;. The key stays
-            in this tab's memory and is never persisted.
+            in this tab's memory and is never saved.
           </p>
           <button
             type="button"
@@ -92,14 +92,14 @@ export function ShopKeylessPreview({
             <div className="preview-card-heading">
               <span>
                 <i className="bg-amber" />
-                Cart
+                Basket
               </span>
               <span>
                 {itemCount} item{itemCount === 1 ? '' : 's'}
               </span>
             </div>
             {lines.length === 0 ? (
-              <p className="text-sm text-ink-3">Your cart is empty.</p>
+              <p className="text-sm text-ink-3">Your basket is empty.</p>
             ) : (
               <ul className="grid gap-3 text-sm">
                 {lines.map((line) => (

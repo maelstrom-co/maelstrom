@@ -3,12 +3,16 @@ import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 
 export function OrdersSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent={VESSEL_ACCENTS.orders} label="Orders" meta="Loading...">
+    <VesselCard
+      accent={VESSEL_ACCENTS.orders}
+      label="Your orders"
+      meta="Just a moment…"
+    >
       <div className="flex-1 space-y-3 animate-pulse">
         {Array.from({ length: 4 }, (_, i) => (
           <div
             key={i}
-            className="h-4 bg-white/5 rounded"
+            className="h-4 bg-[var(--shop-chip-bg)] rounded"
             style={{ width: `${55 + i * 10}%` }}
           />
         ))}

@@ -6,13 +6,13 @@ export function CheckoutSkeleton(_props: { vesselId: string }) {
     <VesselCard
       accent={VESSEL_ACCENTS.checkout}
       label="Checkout"
-      meta="Loading..."
+      meta="Just a moment…"
     >
       <div className="flex-1 space-y-3 animate-pulse">
         {Array.from({ length: 4 }, (_, i) => (
           <div
             key={i}
-            className="h-4 bg-white/5 rounded"
+            className="h-4 bg-[var(--shop-chip-bg)] rounded"
             style={{ width: `${55 + i * 10}%` }}
           />
         ))}

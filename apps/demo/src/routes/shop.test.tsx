@@ -203,9 +203,7 @@ describe('/shop without a key', () => {
     const { ShopPage } = await import('../shop/shop-page');
     render(<ShopPage />);
 
-    expect(
-      screen.getByRole('heading', { name: 'Maelstrom Pet Shop' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Corner Paws' })).toBeTruthy();
     expect(
       screen.queryByRole('heading', { name: 'Maelstrom Demo' }),
     ).toBeNull();
@@ -215,7 +213,7 @@ describe('/shop without a key', () => {
         .getAttribute('href'),
     ).toBe('/');
     expect(screen.getByText('ORD-10455')).toBeTruthy();
-    expect(screen.getByText('Your cart is empty.')).toBeTruthy();
+    expect(screen.getByText('Your basket is empty.')).toBeTruthy();
     expect(screen.getByRole('status', { name: /key required/i })).toBeTruthy();
 
     expect(screen.queryByText('Sample app')).toBeNull();
@@ -258,7 +256,7 @@ describe('/shop without a key', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('status', { name: 'Voice status' }).textContent,
-      ).toBe('Listening'),
+      ).toBe('Listening…'),
     );
     expect(
       realtimeInstance(must(FakeRealtimeSession.instances.at(-1)))
@@ -311,9 +309,7 @@ describe('/shop with a key', () => {
     const { ShopPage } = await import('../shop/shop-page');
     render(<ShopPage />);
 
-    expect(
-      screen.getByRole('heading', { name: 'Maelstrom Pet Shop' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Corner Paws' })).toBeTruthy();
     expect(
       screen
         .getByRole('link', { name: 'Back to the main demo' })
@@ -392,7 +388,7 @@ describe('/shop with a key', () => {
     expect(screen.getByText('Invalid API key.')).toBeTruthy();
     expect(
       screen.getByRole('status', { name: 'Voice status' }).textContent,
-    ).toBe('Voice error');
+    ).toBe('Voice unavailable');
   });
 
   it('offers the shop examples as intent suggestions', async () => {
@@ -431,7 +427,7 @@ describe('/shop with a key', () => {
       SHOP_VESSEL_IDS,
     );
     await waitFor(() =>
-      expect(instance(CATALOG)?.textContent).toContain('Full catalog'),
+      expect(instance(CATALOG)?.textContent).toContain('Everything in stock'),
     );
   });
 
@@ -479,7 +475,9 @@ describe('/shop with a key', () => {
         { timeout: 2000 },
       ),
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Add to cart' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Add to basket' }),
+    );
     await waitFor(() =>
       expect(instance(CART)?.textContent).toContain(
         'Summit Trail Healthy Weight Chicken & Barley',
@@ -503,7 +501,7 @@ describe('/shop with a key', () => {
       expect(checkout.textContent).toContain('ORD-10456');
       expect(checkout.textContent).toContain('Demo order, nothing charged');
     });
-    expect(instance(CART)?.textContent).toContain('Your cart is empty');
+    expect(instance(CART)?.textContent).toContain('Your basket is empty');
   });
 
   it('publishes real order ids and cart SKUs as action options', async () => {
@@ -619,7 +617,7 @@ async function submitTypedIntent(intent: string): Promise<void> {
     target: { value: intent },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
   });
 }
 

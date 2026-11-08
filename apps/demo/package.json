@@ -249,14 +249,16 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/nunito": "^5.3.0",
     "@maelstrom-co/client": "workspace:*",
-    "@maelstrom-co/telemetry": "workspace:*",
     "@maelstrom-co/connectors": "workspace:*",
+    "@maelstrom-co/devtools": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/planner-jev": "workspace:*",
     "@maelstrom-co/planner-llm": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/react-devtools": "workspace:*",
     "@maelstrom-co/react-realtime": "workspace:*",
     "@maelstrom-co/realtime": "workspace:*",
     "@maelstrom-co/realtime-livekit": "workspace:*",
@@ -268,6 +270,7 @@
     "@maelstrom-co/realtime-openai-server": "workspace:*",
     "@maelstrom-co/realtime-protocol": "workspace:*",
     "@maelstrom-co/realtime-vad": "workspace:*",
+    "@maelstrom-co/telemetry": "workspace:*",
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-gemini": "catalog:",
     "@tanstack/ai-openai": "catalog:",
@@ -285,9 +288,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",
-    "zod": "catalog:",
-    "@maelstrom-co/react-devtools": "workspace:*",
-    "@maelstrom-co/devtools": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:",

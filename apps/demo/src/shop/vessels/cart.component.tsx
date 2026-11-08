@@ -4,13 +4,14 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../../components/vessel-card';
 import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 import { shopM } from '../maelstrom';
+import { ProductImage } from '../product-image';
 import {
   cartActions,
   cartResultToAction,
   cartTotals,
   useCartStore,
 } from '../stores/cart.store';
-import { formatCents } from '../stores/fixtures';
+import { formatCents, productBySku } from '../stores/fixtures';
 import type { cartVessel } from './cart.vessel';
 import { OrderTotalsTable } from './order-totals-table';
 
@@ -48,62 +49,72 @@ export default function CartComponent({
   return (
     <VesselCard
       accent={VESSEL_ACCENTS.cart}
-      label="Cart"
+      label="Your basket"
       meta={`${itemCount} item${itemCount === 1 ? '' : 's'}`}
     >
       {lines.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center gap-1">
-          <p className="text-sm text-ink-3">Your cart is empty</p>
-          <p className="text-xs font-mono text-ink-3">
-            Try: &ldquo;Add the healthy weight dog food to my cart&rdquo;
+          <p className="text-sm text-[var(--color-ink-2)]">
+            Your basket is empty.
+          </p>
+          <p className="text-xs text-[var(--color-ink-3)]">
+            Try saying &quot;Add the healthy weight dog food to my basket&quot;
           </p>
         </div>
       ) : (
         <div className="flex-1 space-y-2 overflow-y-auto">
-          {lines.map((line) => (
-            <div key={line.sku} className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-ink truncate">{line.name}</div>
-                <div className="text-xs font-mono text-ink-3">
-                  {line.sku} · {formatCents(line.unitPriceCents)} each
+          {lines.map((line) => {
+            const product = productBySku(line.sku);
+            return (
+              <div key={line.sku} className="flex items-center gap-2">
+                {product ? (
+                  <ProductImage product={product} size="thumb" />
+                ) : null}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-[var(--color-ink)] truncate">
+                    {line.name}
+                  </div>
+                  <div className="text-xs text-[var(--color-ink-3)]">
+                    {formatCents(line.unitPriceCents)} each
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <button
+                    type="button"
+                    aria-label={`Decrease ${line.name}`}
+                    onClick={() =>
+                      executeAction('updateCartQuantity', {
+                        sku: line.sku,
+                        quantity: line.quantity - 1,
+                      })
+                    }
+                    className="shop-chip shop-row-hover justify-center size-6 cursor-pointer"
+                  >
+                    −
+                  </button>
+                  <span className="w-5 text-center tabular-nums text-[var(--color-ink)]">
+                    {line.quantity}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Increase ${line.name}`}
+                    onClick={() =>
+                      executeAction('updateCartQuantity', {
+                        sku: line.sku,
+                        quantity: line.quantity + 1,
+                      })
+                    }
+                    className="shop-chip shop-row-hover justify-center size-6 cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="w-16 text-right text-[14px] font-semibold tabular-nums text-[var(--color-ink)]">
+                  {formatCents(line.quantity * line.unitPriceCents)}
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-xs font-mono">
-                <button
-                  type="button"
-                  aria-label={`Decrease ${line.name}`}
-                  onClick={() =>
-                    executeAction('updateCartQuantity', {
-                      sku: line.sku,
-                      quantity: line.quantity - 1,
-                    })
-                  }
-                  className="px-1.5 rounded bg-white/5 hover:bg-white/10"
-                >
-                  −
-                </button>
-                <span className="w-5 text-center text-ink">
-                  {line.quantity}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Increase ${line.name}`}
-                  onClick={() =>
-                    executeAction('updateCartQuantity', {
-                      sku: line.sku,
-                      quantity: line.quantity + 1,
-                    })
-                  }
-                  className="px-1.5 rounded bg-white/5 hover:bg-white/10"
-                >
-                  +
-                </button>
-              </div>
-              <div className="w-16 text-right text-sm font-mono text-ink-2">
-                {formatCents(line.quantity * line.unitPriceCents)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <OrderTotalsTable totals={totals} />

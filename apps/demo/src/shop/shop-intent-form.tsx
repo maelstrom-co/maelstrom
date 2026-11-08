@@ -6,7 +6,7 @@ export const SHOP_INTENT_EXAMPLES = [
   'check out',
 ] as const;
 
-export const SHOP_INTENT_PLACEHOLDER = 'Tell Maelstrom what you need...';
+export const SHOP_INTENT_PLACEHOLDER = 'What can we get for your pet today?';
 
 export function ShopIntentForm({
   intent,

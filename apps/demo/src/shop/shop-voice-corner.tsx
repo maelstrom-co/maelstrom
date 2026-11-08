@@ -13,16 +13,16 @@ export function voicePillLabel(state: VoiceSessionState): string {
     case 'idle':
       return 'Tap to talk';
     case 'connecting':
-      return 'Connecting';
+      return 'One moment…';
     case 'connected':
     case 'listening':
-      return 'Listening';
+      return 'Listening…';
     case 'thinking':
-      return 'Thinking';
+      return 'Checking the shelves…';
     case 'speaking':
       return 'Speaking';
     case 'error':
-      return 'Voice error';
+      return 'Voice unavailable';
   }
 }
 

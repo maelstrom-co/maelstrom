@@ -117,12 +117,12 @@ describe('ShopVoiceCorner', () => {
 
   it.each([
     ['idle', 'Tap to talk'],
-    ['connecting', 'Connecting'],
-    ['connected', 'Listening'],
-    ['listening', 'Listening'],
-    ['thinking', 'Thinking'],
+    ['connecting', 'One moment…'],
+    ['connected', 'Listening…'],
+    ['listening', 'Listening…'],
+    ['thinking', 'Checking the shelves…'],
     ['speaking', 'Speaking'],
-    ['error', 'Voice error'],
+    ['error', 'Voice unavailable'],
   ] as const)('shows %s as "%s"', (state, label) => {
     const { getByRole } = renderCorner(state);
     expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
@@ -191,7 +191,7 @@ describe('ShopVoiceCorner playback recovery', () => {
       const { getByRole, queryByRole } = renderLive('listening');
       expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
       expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
-        'Listening',
+        'Listening…',
       );
     },
   );

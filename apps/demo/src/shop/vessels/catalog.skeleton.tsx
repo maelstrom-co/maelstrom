@@ -5,14 +5,14 @@ export function CatalogSkeleton(_props: { vesselId: string }) {
   return (
     <VesselCard
       accent={VESSEL_ACCENTS.catalog}
-      label="Catalog"
-      meta="Loading..."
+      label="Shop"
+      meta="Just a moment…"
     >
       <div className="flex-1 space-y-3 animate-pulse">
         {Array.from({ length: 4 }, (_, i) => (
           <div
             key={i}
-            className="h-4 bg-white/5 rounded"
+            className="h-4 bg-[var(--shop-chip-bg)] rounded"
             style={{ width: `${55 + i * 10}%` }}
           />
         ))}
