@@ -1,8 +1,3 @@
-import { readWorkspaceRun } from '@maelstrom-co/agui-protocol';
-import {
-  AguiWorkspaceSession,
-  rejectWorkspaceRun,
-} from '@maelstrom-co/agui-server';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
@@ -26,7 +21,7 @@ import {
  * owned by the Effect services under `./session/`:
  *
  *   - `Connections` holds keys per connection, tracks rehello declines, and
- *     reserves one native frame and one workspace frame per socket during rehello.
+ *     reserves one frame per socket during rehello.
  *   - `Engines` owns the object-scoped engine cache and its last-socket
  *     teardown rule.
  *   - `EngineFactory` is the typed-error boundary: a failed engine build can
@@ -103,7 +98,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #agents = new WeakMap<WebSocket, AgentTransport>();
   readonly #closed = new WeakSet<WebSocket>();
   readonly #epochs = new WeakMap<WebSocket, object>();
-  readonly #workspaces = new WeakMap<WebSocket, AguiWorkspaceSession>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -158,13 +152,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   #closeConnection(ws: WebSocket): void {
     this.#closed.add(ws);
     this.#epochs.delete(ws);
-    try {
-      this.#workspaces.get(ws)?.close();
-    } catch {
-      console.error('[session-do] Workspace retirement checkpoint failed');
-    } finally {
-      this.#workspaces.delete(ws);
-    }
     this.#agents.get(ws)?.connection.close();
     this.#agents.delete(ws);
   }
@@ -220,32 +207,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const dispatched = yield* Effect.tryPromise({
         try: () =>
           dispatchFrame(raw, {
-            workspace: {
-              active: () =>
-                this.#workspaces.has(ws) ||
-                connections.markerOf(ws)?.workspace !== undefined,
-              session: (threadId) => {
-                const connection = connections.markerOf(ws);
-                if (connection?.sessionId !== threadId)
-                  throw new Error('Workspace session mismatch');
-                let workspace = this.#workspaces.get(ws);
-                if (!workspace) {
-                  workspace = new AguiWorkspaceSession(
-                    threadId,
-                    connection.workspace,
-                    (checkpoint) => {
-                      ws.serializeAttachment({
-                        ...connection,
-                        workspace: checkpoint,
-                      });
-                    },
-                  );
-                  this.#workspaces.set(ws, workspace);
-                }
-                return workspace;
-              },
-              send: (event) => this.#send(ws, JSON.stringify(event), key),
-            },
             helloReceived: key !== null,
             getEngine: () =>
               key ? Effect.runPromise(engines.forApiKey(key)) : null,
@@ -336,14 +297,12 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             );
           } catch {
             this.#closeConnection(ws);
-            ws.close(1008, 'Session checkpoint rejected');
+            ws.close(1008, 'Session marker rejected');
             yield* this.#teardown(ws);
             return;
           }
-          for (const pending of connections.takePending(ws)) {
-            if (connections.retired(ws)) return;
-            yield* this.#onMessage(ws, pending);
-          }
+          const pending = connections.takePending(ws);
+          if (pending !== undefined) yield* this.#onMessage(ws, pending);
           return;
         }
         case 'hello-declined': {
@@ -357,16 +316,12 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           // request to die on the client's correlator timeout with no
           // diagnostic at all.
           connections.markDecline(ws);
-          for (const pending of connections.takePending(ws))
-            this.#replyPreHello(ws, pending);
+          const pending = connections.takePending(ws);
+          if (pending !== undefined) this.#replyPreHello(ws, pending);
           return;
         }
         case 'rehello': {
-          const buffered = connections.bufferPending(
-            ws,
-            raw,
-            readWorkspaceRun(raw) ? 'workspace' : 'native',
-          );
+          const buffered = connections.bufferPending(ws, raw);
           if (buffered === 'full') {
             this.#replyError(ws, raw, REAUTHENTICATING_ERROR, key);
           } else if (buffered === 'first') {
@@ -401,15 +356,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    * close for traffic that isn't even a protocol envelope.
    */
   #replyPreHello(ws: WebSocket, raw: string): void {
-    const input = readWorkspaceRun(raw);
-    if (input) {
-      rejectWorkspaceRun(
-        input,
-        (event) => this.#send(ws, JSON.stringify(event), null),
-        'No API key set — open the key drawer to add one.',
-      );
-      return;
-    }
     const outcome = resolvePreHelloDispatch(raw);
     if (outcome.kind === 'close') {
       ws.close(1002, 'expected playground.hello as the first frame');
@@ -431,13 +377,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   }
 
   #replyError(ws: WebSocket, raw: string, message: string, key: string | null) {
-    const input = readWorkspaceRun(raw);
-    if (input)
-      rejectWorkspaceRun(
-        input,
-        (event) => this.#send(ws, JSON.stringify(event), key),
-        message,
-      );
-    else this.#send(ws, encodeEngineErrorReply(raw, message), key);
+    this.#send(ws, encodeEngineErrorReply(raw, message), key);
   }
 }

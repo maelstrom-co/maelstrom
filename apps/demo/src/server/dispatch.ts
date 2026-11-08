@@ -8,15 +8,6 @@
  */
 
 import {
-  MAX_WORKSPACE_FRAME_BYTES,
-  WORKSPACE_RUN,
-  WorkspaceRunSchema,
-} from '@maelstrom-co/agui-protocol';
-import {
-  type AguiWorkspaceSession,
-  rejectWorkspaceRun,
-} from '@maelstrom-co/agui-server';
-import {
   type Engine,
   handleEnvelope,
   recoverCorrelation,
@@ -34,12 +25,9 @@ import {
   resolvePreHelloDispatch,
 } from './playground-frames';
 
+const MAX_FRAME_BYTES = 1_048_576;
+
 export interface DispatchContext {
-  readonly workspace?: {
-    readonly active: () => boolean;
-    readonly session: (threadId: string) => AguiWorkspaceSession;
-    readonly send: (event: unknown) => void;
-  };
   /** Optional development frame handler on the existing connection. */
   readonly handle?: (engine: Engine, raw: unknown) => Promise<string | null>;
   /** Whether this connection has completed a handshake in the current lifetime. */
@@ -101,7 +89,7 @@ export async function dispatchFrame(
 ): Promise<DispatchResult> {
   if (
     typeof raw === 'string' &&
-    new TextEncoder().encode(raw).byteLength > MAX_WORKSPACE_FRAME_BYTES
+    new TextEncoder().encode(raw).byteLength > MAX_FRAME_BYTES
   ) {
     return { kind: 'close', code: 1009, reason: 'Workspace frame too large' };
   }
@@ -119,59 +107,6 @@ export async function dispatchFrame(
     return { kind: 'hello', frame: decision.frame };
   }
   if (decision.kind === 'hello-declined') return { kind: 'hello-declined' };
-
-  if (
-    ctx.workspace?.active() &&
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    'type' in parsed &&
-    parsed.type === 'chart_request'
-  ) {
-    return {
-      kind: 'close',
-      code: 1008,
-      reason: 'Workspace protocol changed on an active connection',
-    };
-  }
-
-  if (
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    'type' in parsed &&
-    parsed.type === WORKSPACE_RUN
-  ) {
-    const input = WorkspaceRunSchema.safeParse(
-      'input' in parsed ? parsed.input : undefined,
-    );
-    if (!ctx.workspace || !input.success) {
-      return {
-        kind: 'close',
-        code: 1008,
-        reason: 'Invalid AG-UI workspace input',
-      };
-    }
-    if (!ctx.helloReceived) {
-      if (ctx.wasHelloed) return { kind: 'rehello' };
-      rejectWorkspaceRun(
-        input.data,
-        ctx.workspace.send,
-        'No API key set — open the key drawer to add one.',
-      );
-      return { kind: 'none' };
-    }
-    try {
-      await ctx.workspace
-        .session(input.data.threadId)
-        .run(input.data, ctx.getEngine, ctx.workspace.send);
-    } catch {
-      return {
-        kind: 'close',
-        code: 1008,
-        reason: 'AG-UI workspace session rejected',
-      };
-    }
-    return { kind: 'none' };
-  }
 
   if (decision.kind === 'hello-rejected') {
     // Checked before the keyless-visitor path below, because both present

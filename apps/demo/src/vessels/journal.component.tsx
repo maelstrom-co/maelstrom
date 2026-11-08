@@ -1,6 +1,6 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { useContext, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { VesselCard } from '../components/vessel-card';
 import {
@@ -9,7 +9,6 @@ import {
   recordFailure,
   recordUnchanged,
 } from '../lib/action-activity';
-import { AguiWriteGuard } from '../lib/agui-context';
 import { ACCENT_HEX, accentAlpha, VESSEL_ACCENTS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
@@ -30,7 +29,6 @@ export default function JournalComponent({
   executeAction,
 }: TypedVesselProps<typeof journalVessel>) {
   const { entries, activeEntryId } = useJournalStore();
-  const writeGuard = useContext(AguiWriteGuard);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   // Unsaved text lives here, per entry, so switching rows or entries keeps it
   // until the user saves or cancels.
@@ -76,8 +74,6 @@ export default function JournalComponent({
 
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
-      if (writeGuard && !writeGuard('createEntry'))
-        return err(new Error('Experimental write retired'));
       const { entry } = journalActions.createEntry(title);
       recordChange(
         `Created journal entry "${entry.title}"`,
@@ -91,10 +87,6 @@ export default function JournalComponent({
       return ok(undefined);
     },
     writeContent: async ({ text }) => {
-      if (writeGuard && !writeGuard('writeContent'))
-        return err(
-          new Error('Observed Journal selection changed or write retired'),
-        );
       const result = journalActions.writeContent(text);
       if (!result.ok) {
         recordFailure(
