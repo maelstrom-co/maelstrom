@@ -7,9 +7,9 @@ describe('completionMode without skipReply', () => {
     for (const slotCount of [0, 2]) {
       for (const layoutHandOff of [false, true]) {
         test(`is full for skipReply ${skipReply}, ${slotCount} slots, hand-off ${layoutHandOff}`, () => {
-          expect(
-            completionMode({ skipReply, slotCount, layoutHandOff }),
-          ).toBe('full');
+          expect(completionMode({ skipReply, slotCount, layoutHandOff })).toBe(
+            'full',
+          );
         });
       }
     }
