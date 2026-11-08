@@ -15,7 +15,11 @@ import {
   totals,
 } from '../../core/report.js';
 import { PLANNER_RATIO, type Ratio, ratio } from '../../core/stats.js';
-import type { JevRunRecord, RecordedAnswer } from './record.js';
+import {
+  type JevRunRecord,
+  nothingToFill,
+  type RecordedAnswer,
+} from './record.js';
 
 /** How often a yes/no gate answered wrongly. */
 export interface GateErrors {
@@ -46,6 +50,12 @@ export type JevSummaryFields = {
   };
   /** Filled stated_elsewhere slots over all such slots. */
   readonly fill: Ratio;
+  /**
+   * Loop-driven turns whose completion stage made no LLM call, over
+   * loop-driven turns that ran the completion stage live. Absent when no
+   * such turn ran.
+   */
+  readonly skipReplyNothingToFill?: Ratio;
 };
 
 /** TypeSafe usage of one arm, merged into its summary's `tokens`. */
@@ -86,8 +96,18 @@ export function jevSummary(
   const calls = records.flatMap((record) => record.jevCalls ?? []);
   const jev = tokenTotals(calls);
   const gates = gateSummary(records);
+  const loopDriven = records.flatMap((record) => {
+    const nothing = nothingToFill(record);
+    return nothing === undefined ? [] : [nothing];
+  });
   return {
     ...(gates && { gates }),
+    ...(loopDriven.length > 0 && {
+      skipReplyNothingToFill: {
+        count: loopDriven.filter(Boolean).length,
+        total: loopDriven.length,
+      },
+    }),
     arrangementReachedLayout: {
       count: ruled.filter((record) =>
         (record.stages ?? []).some(
@@ -143,6 +163,15 @@ export function jevRows(): readonly ReportRow[] {
       cell: (s) => {
         const { fill } = jev(s);
         return fill ? ratio(fill, PLANNER_RATIO) : 'n/a';
+      },
+    },
+    {
+      label: 'skipReply nothing-to-fill rate',
+      cell: (s) => {
+        const { skipReplyNothingToFill } = jev(s);
+        return skipReplyNothingToFill
+          ? ratio(skipReplyNothingToFill, PLANNER_RATIO)
+          : 'n/a';
       },
     },
     {

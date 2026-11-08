@@ -36,7 +36,11 @@ import { selectScenarios } from '../../core/scenarios.js';
 import { demoLlmPlanner, llmPlugin } from '../llm/plugin.js';
 import { type JevArm, jevDeps } from './arms.js';
 import { jevPlugin, jevPluginWith } from './plugin.js';
-import type { JevRunRecord, LayoutStageOutput } from './record.js';
+import {
+  type JevRunRecord,
+  type LayoutStageOutput,
+  nothingToFill,
+} from './record.js';
 import {
   type TypeSafeSettings,
   typesafeSettings,
@@ -468,6 +472,40 @@ test('a layout stage that hands the tree to the LLM is scored on the shipped res
     source: 'llm',
     tree: undefined,
   });
+});
+
+test('a loop-driven turn with nothing left to fill runs the completion stage without a completion call', async () => {
+  mockProvider();
+  const records = await run(tokyo, ['quoted-location'], {
+    arms: (jev, typesafe) => {
+      const arm = handOffArm(typesafe);
+      return [
+        ...resolveArms(
+          [jev],
+          ['jev-poc', 'jev-ungated-stepwise-preset-inline'],
+        ),
+        { arm, plugin: { ...jev, arms: [arm] } },
+      ];
+    },
+    skipReply: true,
+  });
+  const byArm = Object.fromEntries(
+    records.map((record) => [record.arm, record]),
+  );
+  for (const arm of ['jev-poc', 'jev-ungated-stepwise-preset-inline']) {
+    expect(byArm[arm]?.skipReply).toBe(true);
+    expect(byArm[arm]?.stages?.map((stage) => stage.stage)).toContain(
+      STAGE_NAME.llmComplete,
+    );
+    expect(byArm[arm]?.llmCalls?.some((call) => call.role === 'complete')).toBe(
+      false,
+    );
+    expect(nothingToFill(byArm[arm] as JevRunRecord)).toBe(true);
+  }
+  expect(
+    byArm['jev-hand-off']?.llmCalls?.some((call) => call.role === 'complete'),
+  ).toBe(true);
+  expect(nothingToFill(byArm['jev-hand-off'] as JevRunRecord)).toBe(false);
 });
 
 /** The stage-library pipeline, its layout stage dropping the tree so the completion call writes it. */

@@ -169,6 +169,61 @@ describe('the Jev summary fields', () => {
   });
 });
 
+describe('the skipReply nothing-to-fill rate', () => {
+  const completion = { stage: 'llmComplete', ms: 1, outcome: 'ok' } as const;
+  const records: RunRecord[] = [
+    record({ scenarioId: 'skipped', skipReply: true, stages: [completion] }),
+    record({
+      scenarioId: 'filled',
+      skipReply: true,
+      stages: [completion],
+      llmCalls: [{ role: 'complete', latencyMs: 30 }],
+    }),
+    record({
+      scenarioId: 'composed',
+      arm: 'jev-composed-pairs-screen-scope',
+      kind: 'jev',
+      skipReply: true,
+      stages: [
+        { ...completion, outcome: 'error', errorTag: 'ValidationError' },
+      ],
+    }),
+    record({
+      scenarioId: 'deferred-early',
+      skipReply: true,
+      stages: [{ stage: 'jevSelect', ms: 1, outcome: 'deferred' }],
+    }),
+    record({ scenarioId: 'replying', stages: [completion] }),
+  ];
+
+  test('counts loop-driven turns whose completion stage made no call', () => {
+    expect(jevOf(records)?.skipReplyNothingToFill).toEqual({
+      count: 1,
+      total: 2,
+    });
+    const composed = summarize(records, plugins).find(
+      (s) => s.arm === 'jev-composed-pairs-screen-scope' && s.suite === 'all',
+    ) as JevArmSummary | undefined;
+    expect(composed?.skipReplyNothingToFill).toEqual({ count: 1, total: 1 });
+  });
+
+  test('renders the rate, n/a without loop-driven turns', () => {
+    const markdown = renderMarkdown(
+      summarize(records, plugins),
+      {},
+      { plugins },
+    );
+    expect(markdown).toContain(
+      '| skipReply nothing-to-fill rate | 1/2 (50.0%) | 1/1 (100.0%) |',
+    );
+    const loopless = [record({ scenarioId: 'replying', stages: [completion] })];
+    expect(jevOf(loopless)?.skipReplyNothingToFill).toBe(undefined);
+    expect(
+      renderMarkdown(summarize(loopless, plugins), {}, { plugins }),
+    ).toContain('| skipReply nothing-to-fill rate | n/a |');
+  });
+});
+
 describe('gate errors', () => {
   const gate = (question: string, choice: 'yes' | 'no') => ({
     stage: 'jevSelect' as const,
