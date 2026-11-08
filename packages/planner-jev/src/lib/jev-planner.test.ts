@@ -290,6 +290,24 @@ describe('jevPlanner through createEngine', () => {
     ).toBe('llmComplete/param_unfilled');
   });
 
+  test('a deferring stage hands the fallback a request that keeps skipReply', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'x', params: { p0: null } });
+    const { fallback } = await run(
+      { ...makeRequest('weather for the capital of Japan'), skipReply: true },
+      talk({
+        actions: [
+          {
+            pick: 'weather-main/setLocation',
+            params: { location: 'stated_elsewhere' },
+          },
+        ],
+        layout: 'preserve',
+      }),
+    );
+    expect(fallback.inputs).toHaveLength(1);
+    expect(fallback.inputs[0]?.request.skipReply).toBe(true);
+  });
+
   test('a transition to a larger variant ships the pre-action variant and the action, sized for the larger one', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened Monday.' });
     const request = makeRequest('open the journal entry "Monday"');
