@@ -1,0 +1,2033 @@
+{
+  "meta": {
+    "model": "jev-1.13.0",
+    "repeats": 3,
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "timeoutMs": 5000,
+    "casesFile": "/Users/chris/projects/maelstrom.git/research-jev-1-14-vs-1-13/docs/research/jev-1-14-vs-1-13/router-cases.json",
+    "caseCount": 33,
+    "source": "apps/demo/src/server/agent-session.ts:299-345 @ febb09121b26f24c777cefe458b19b0fc349c6f8 (ktrz/composed-planner-prototype)",
+    "startedAt": "2026-11-08T08:28:41.896Z",
+    "finishedAt": "2026-11-08T08:28:58.634Z",
+    "aborted": null
+  },
+  "summary": {
+    "calls": 99,
+    "errors": 0,
+    "accuracy": {
+      "correct": 90,
+      "total": 99,
+      "rate": 0.9090909090909091
+    },
+    "accuracyExcludingBorderline": {
+      "correct": 81,
+      "total": 81,
+      "rate": 1
+    },
+    "accuracyBorderlineOnly": {
+      "correct": 9,
+      "total": 18,
+      "rate": 0.5
+    },
+    "confusion": {
+      "ui_only": {
+        "ui_only": 45,
+        "needs_tools": 6,
+        "error": 0
+      },
+      "needs_tools": {
+        "ui_only": 3,
+        "needs_tools": 45,
+        "error": 0
+      }
+    },
+    "latencyMs": {
+      "p50": 163.41154199999983,
+      "p95": 198.04087499999878,
+      "max": 323.560917
+    },
+    "unstableCases": []
+  },
+  "calls": [
+    {
+      "caseId": "live-reorder-lower-fat-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 323.560917,
+      "inputTokens": 439,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "live-last-order-cheaper-alternatives",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 181.79766700000005,
+      "inputTokens": 428,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-order-history",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.84,
+      "probabilities": {
+        "ui_only": 0.92,
+        "needs_tools": 0.08
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 175.25429099999997,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-last-order",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 148.274542,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whats-in-cart",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 169.86241700000005,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-catalog-bigger",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 172.79783399999997,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 168.96629200000007,
+      "inputTokens": 427,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whole-catalog",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.62,
+      "probabilities": {
+        "ui_only": 0.81,
+        "needs_tools": 0.19
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 209.39625,
+      "inputTokens": 455,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-orders-list",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 168.80695800000012,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-results",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.99,
+        "needs_tools": 0.01
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.68312500000002,
+      "inputTokens": 499,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-orders",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 156.86191700000018,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-cart",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 165.4575420000001,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-dismiss-confirmation",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.94,
+      "probabilities": {
+        "ui_only": 0.97,
+        "needs_tools": 0.03
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 161.85766699999976,
+      "inputTokens": 457,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-shrink-cart",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 182.80033300000014,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-show-catalog-only",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.94,
+      "probabilities": {
+        "ui_only": 0.97,
+        "needs_tools": 0.03
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 160.06304199999977,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-usual-kibble",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 160.24333300000035,
+      "inputTokens": 433,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-place-order",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 170.21900000000005,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-compare-price-per-kilo",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 175.30654100000038,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-recommend-indoor-cat",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 147.52083299999958,
+      "inputTokens": 438,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-the-first-one",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 162.32562499999995,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-that-one-instead",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 214.1348750000002,
+      "inputTokens": 496,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-cat-spend-last-three",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 184.35075000000006,
+      "inputTokens": 432,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-find-and-add-salmon-wet",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 189.75204200000007,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-remove-and-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 161.1882910000004,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-order-it-again",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 143.04874999999993,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-grain-free-question",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.84,
+      "probabilities": {
+        "ui_only": 0.08,
+        "needs_tools": 0.92
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 188.03762499999993,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-better-for-labrador",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 197.72158300000046,
+      "inputTokens": 454,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-take-me-to-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.84,
+      "probabilities": {
+        "ui_only": 0.08,
+        "needs_tools": 0.92
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 159.7731249999997,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-all-dog-food",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.84,
+      "probabilities": {
+        "ui_only": 0.92,
+        "needs_tools": 0.08
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 150.0405409999994,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-low-fat-filter",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.44,
+      "probabilities": {
+        "ui_only": 0.28,
+        "needs_tools": 0.72
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 157.8383329999997,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-what-did-i-order-last-time",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.58,
+      "probabilities": {
+        "ui_only": 0.79,
+        "needs_tools": 0.21
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 164.08374999999978,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-empty-cart",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": false,
+      "confidence": 0.2,
+      "probabilities": {
+        "ui_only": 0.6,
+        "needs_tools": 0.4
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 168.2727500000001,
+      "inputTokens": 422,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-open-march-order",
+      "model": "jev-1.13.0",
+      "repeat": 1,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.74,
+      "probabilities": {
+        "ui_only": 0.13,
+        "needs_tools": 0.87
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 155.12675000000036,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "live-reorder-lower-fat-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 165.3376249999992,
+      "inputTokens": 439,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "live-last-order-cheaper-alternatives",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 163.8533749999997,
+      "inputTokens": 428,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-order-history",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.86,
+      "probabilities": {
+        "ui_only": 0.93,
+        "needs_tools": 0.07
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 315.36212500000056,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-last-order",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.01716599999963,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whats-in-cart",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 163.9690840000003,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-catalog-bigger",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 156.92691700000069,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 174.00900000000001,
+      "inputTokens": 427,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whole-catalog",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.64,
+      "probabilities": {
+        "ui_only": 0.82,
+        "needs_tools": 0.18
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 147.64387499999975,
+      "inputTokens": 455,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-orders-list",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 172.68758399999933,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-results",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.99,
+        "needs_tools": 0.01
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 169.67925000000014,
+      "inputTokens": 499,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-orders",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 153.91391699999986,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-cart",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 143.9792499999994,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-dismiss-confirmation",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.94,
+      "probabilities": {
+        "ui_only": 0.97,
+        "needs_tools": 0.03
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 189.6956250000003,
+      "inputTokens": 457,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-shrink-cart",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.06945800000085,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-show-catalog-only",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 147.3851250000007,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-usual-kibble",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 150.83104099999946,
+      "inputTokens": 433,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-place-order",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 149.03412500000013,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-compare-price-per-kilo",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 197.70470800000112,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-recommend-indoor-cat",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 157.3573749999996,
+      "inputTokens": 438,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-the-first-one",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 152.20325000000048,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-that-one-instead",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 157.23604199999863,
+      "inputTokens": 496,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-cat-spend-last-three",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 172.13783299999886,
+      "inputTokens": 432,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-find-and-add-salmon-wet",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 157.71237500000097,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-remove-and-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 165.4530419999992,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-order-it-again",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 156.3643749999992,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-grain-free-question",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.84,
+      "probabilities": {
+        "ui_only": 0.08,
+        "needs_tools": 0.92
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 156.81854099999873,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-better-for-labrador",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 196.9851669999989,
+      "inputTokens": 454,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-take-me-to-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.82,
+      "probabilities": {
+        "ui_only": 0.09,
+        "needs_tools": 0.91
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 160.15091700000085,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-all-dog-food",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.82,
+      "probabilities": {
+        "ui_only": 0.91,
+        "needs_tools": 0.09
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 158.5961669999997,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-low-fat-filter",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.46,
+      "probabilities": {
+        "ui_only": 0.27,
+        "needs_tools": 0.73
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 155.22912499999984,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-what-did-i-order-last-time",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.52,
+      "probabilities": {
+        "ui_only": 0.76,
+        "needs_tools": 0.24
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 163.41154199999983,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-empty-cart",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": false,
+      "confidence": 0.14,
+      "probabilities": {
+        "ui_only": 0.57,
+        "needs_tools": 0.43
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.26491700000042,
+      "inputTokens": 422,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-open-march-order",
+      "model": "jev-1.13.0",
+      "repeat": 2,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.74,
+      "probabilities": {
+        "ui_only": 0.13,
+        "needs_tools": 0.87
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 157.04412499999853,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "live-reorder-lower-fat-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 163.0799590000006,
+      "inputTokens": 439,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "live-last-order-cheaper-alternatives",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 138.7368750000005,
+      "inputTokens": 428,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-order-history",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.82,
+      "probabilities": {
+        "ui_only": 0.91,
+        "needs_tools": 0.09
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 175.70774999999958,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-last-order",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 167.01016600000003,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whats-in-cart",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 198.04087499999878,
+      "inputTokens": 426,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-catalog-bigger",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 190.72220800000105,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 152.24770799999897,
+      "inputTokens": 427,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-whole-catalog",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.66,
+      "probabilities": {
+        "ui_only": 0.83,
+        "needs_tools": 0.17
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 181.73183299999982,
+      "inputTokens": 455,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-orders-list",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 163.71004100000027,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-back-to-results",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.99,
+        "needs_tools": 0.01
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 156.10545900000034,
+      "inputTokens": 499,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-hide-orders",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.64025000000038,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-open-cart",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 184.47550000000047,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-dismiss-confirmation",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.94,
+      "probabilities": {
+        "ui_only": 0.97,
+        "needs_tools": 0.03
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 191.51416700000118,
+      "inputTokens": 457,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-shrink-cart",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 1,
+        "needs_tools": 0
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 182.8027089999996,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "ui-show-catalog-only",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": false,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.92,
+      "probabilities": {
+        "ui_only": 0.96,
+        "needs_tools": 0.04
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.34983300000022,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-usual-kibble",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 158.13245800000004,
+      "inputTokens": 433,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-place-order",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 174.42083400000047,
+      "inputTokens": 458,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-compare-price-per-kilo",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 167.9651670000003,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-recommend-indoor-cat",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 149.21066600000086,
+      "inputTokens": 438,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-add-the-first-one",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 147.11962500000118,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-that-one-instead",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 144.81370799999968,
+      "inputTokens": 496,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-cat-spend-last-three",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.98,
+      "probabilities": {
+        "ui_only": 0.01,
+        "needs_tools": 0.99
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 164.7579999999998,
+      "inputTokens": 432,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-find-and-add-salmon-wet",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 147.71470799999952,
+      "inputTokens": 434,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-remove-and-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 168.65966599999956,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-order-it-again",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 145.71199999999953,
+      "inputTokens": 473,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-grain-free-question",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.82,
+      "probabilities": {
+        "ui_only": 0.09,
+        "needs_tools": 0.91
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 150.41933299999982,
+      "inputTokens": 429,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "tools-better-for-labrador",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": false,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 1,
+      "probabilities": {
+        "ui_only": 0,
+        "needs_tools": 1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 166.56787500000064,
+      "inputTokens": 454,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-take-me-to-checkout",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.82,
+      "probabilities": {
+        "ui_only": 0.09,
+        "needs_tools": 0.91
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 152.9783750000006,
+      "inputTokens": 423,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-all-dog-food",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.8,
+      "probabilities": {
+        "ui_only": 0.9,
+        "needs_tools": 0.1
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 154.50824999999895,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-low-fat-filter",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": false,
+      "confidence": 0.34,
+      "probabilities": {
+        "ui_only": 0.33,
+        "needs_tools": 0.67
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 190.31754199999887,
+      "inputTokens": 430,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-what-did-i-order-last-time",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "ui_only",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": true,
+      "confidence": 0.5,
+      "probabilities": {
+        "ui_only": 0.75,
+        "needs_tools": 0.25
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 164.95516599999974,
+      "inputTokens": 425,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-empty-cart",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "ui_only",
+      "correct": false,
+      "confidence": 0.22,
+      "probabilities": {
+        "ui_only": 0.61,
+        "needs_tools": 0.39
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 191.92045900000085,
+      "inputTokens": 422,
+      "outputTokens": 34,
+      "error": null
+    },
+    {
+      "caseId": "borderline-open-march-order",
+      "model": "jev-1.13.0",
+      "repeat": 3,
+      "expected": "needs_tools",
+      "borderline": true,
+      "route": "needs_tools",
+      "correct": true,
+      "confidence": 0.8,
+      "probabilities": {
+        "ui_only": 0.1,
+        "needs_tools": 0.9
+      },
+      "echoedModel": "jev-1.13.0",
+      "httpStatus": 200,
+      "wallMs": 174.84700000000157,
+      "inputTokens": 447,
+      "outputTokens": 34,
+      "error": null
+    }
+  ]
+}

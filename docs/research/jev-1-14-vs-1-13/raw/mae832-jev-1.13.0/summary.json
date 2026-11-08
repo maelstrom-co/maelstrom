@@ -1,0 +1,633 @@
+{
+  "meta": {
+    "suite": "all",
+    "arms": "jev-poc",
+    "repeats": 3,
+    "scenarios": 155,
+    "llmModel": "gpt-5.6-luna",
+    "jevModel": "jev-1.13.0",
+    "date": "2026-11-08T08:03:53.248Z"
+  },
+  "summaries": [
+    {
+      "arm": "jev-poc",
+      "kind": "jev-poc",
+      "suite": "development",
+      "runs": 291,
+      "judge": {
+        "scored": 0,
+        "failed": 0,
+        "notRun": 291,
+        "reasons": {
+          "disabled": 291
+        },
+        "means": []
+      },
+      "overall": {
+        "count": 195,
+        "total": 258
+      },
+      "arrangement": {
+        "count": 90,
+        "total": 96
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 84,
+        "controls": 24
+      },
+      "replayed": [],
+      "decisive": {
+        "pass": {
+          "count": 121,
+          "total": 167
+        },
+        "wins": 0,
+        "losses": 0,
+        "paired": 0
+      },
+      "expectedDeferrals": {
+        "count": 24,
+        "total": 33
+      },
+      "fallbacks": {
+        "total": {
+          "count": 123,
+          "total": 291
+        },
+        "byReason": {
+          "jevSelect/scope_ambiguous": 12,
+          "jevActions/action_unsupported": 67,
+          "jevSelect/scope_unsupported": 24,
+          "jevActions/action_limit": 11,
+          "jevLayout/no_feasible_layout": 6,
+          "jevLayout/layout_unavailable": 3
+        },
+        "byStage": {
+          "jevSelect": 36,
+          "jevActions": 78,
+          "jevLayout": 9
+        },
+        "providerByStage": {}
+      },
+      "arrangementReachedLayout": {
+        "count": 34,
+        "total": 96
+      },
+      "stages": {
+        "selection": {
+          "count": 201,
+          "total": 237
+        },
+        "actions": {
+          "count": 156,
+          "total": 170
+        },
+        "layout": {
+          "count": 134,
+          "total": 167
+        }
+      },
+      "fill": {
+        "count": 12,
+        "total": 12
+      },
+      "latency": {
+        "turn": {
+          "p50": 2665.2213749999937,
+          "p95": 4792.808875000046,
+          "samples": 291
+        },
+        "stages": {
+          "jevSelect": {
+            "p50": 208.55616600002395,
+            "p95": 266.5978339999565,
+            "samples": 291
+          },
+          "jevActions": {
+            "p50": 365.24820799999725,
+            "p95": 1317.4735000000219,
+            "samples": 255
+          },
+          "jevLayout": {
+            "p50": 170.23187499999767,
+            "p95": 215.19266700001026,
+            "samples": 177
+          },
+          "llmComplete": {
+            "p50": 1258.0068339998834,
+            "p95": 2090.157292000018,
+            "samples": 168
+          }
+        },
+        "llmCall": {
+          "fallback": {
+            "p50": 2908.71554200002,
+            "p95": 5112.839582999994,
+            "samples": 123
+          },
+          "complete": {
+            "p50": 1256.1999159997795,
+            "p95": 2089.4282090000343,
+            "samples": 168
+          }
+        },
+        "jevCall": {
+          "p50": 181.94129199999952,
+          "p95": 239.7885000000024,
+          "samples": 1086
+        }
+      },
+      "tokens": {
+        "llm": {
+          "calls": 291,
+          "withoutUsage": 0,
+          "input": 720667,
+          "output": 42340,
+          "cacheRead": {
+            "total": 593531,
+            "reportedCalls": 122,
+            "missingCalls": 169
+          },
+          "cacheWrite": {
+            "total": 82441,
+            "reportedCalls": 42,
+            "missingCalls": 249
+          },
+          "cost": {
+            "total": 0,
+            "reportedCalls": 0,
+            "missingCalls": 291
+          },
+          "byRole": {
+            "fallback": {
+              "calls": 123,
+              "withoutUsage": 0,
+              "input": 676341,
+              "output": 35903,
+              "cacheRead": {
+                "total": 593531,
+                "reportedCalls": 122,
+                "missingCalls": 1
+              },
+              "cacheWrite": {
+                "total": 82441,
+                "reportedCalls": 42,
+                "missingCalls": 81
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 123
+              }
+            },
+            "complete": {
+              "calls": 168,
+              "withoutUsage": 0,
+              "input": 44326,
+              "output": 6437,
+              "cacheRead": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 168
+              },
+              "cacheWrite": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 168
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 168
+              }
+            }
+          }
+        },
+        "jev": {
+          "calls": 1086,
+          "withoutUsage": 0,
+          "input": 3348510,
+          "output": 396099,
+          "perTurn": {
+            "input": 11506.907216494845,
+            "output": 1361.1649484536083
+          }
+        }
+      }
+    },
+    {
+      "arm": "jev-poc",
+      "kind": "jev-poc",
+      "suite": "holdout",
+      "runs": 174,
+      "judge": {
+        "scored": 0,
+        "failed": 0,
+        "notRun": 174,
+        "reasons": {
+          "disabled": 174
+        },
+        "means": []
+      },
+      "overall": {
+        "count": 124,
+        "total": 150
+      },
+      "arrangement": {
+        "count": 82,
+        "total": 87
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 78,
+        "controls": 12
+      },
+      "replayed": [],
+      "decisive": {
+        "pass": {
+          "count": 58,
+          "total": 78
+        },
+        "wins": 0,
+        "losses": 0,
+        "paired": 0
+      },
+      "expectedDeferrals": {
+        "count": 21,
+        "total": 24
+      },
+      "fallbacks": {
+        "total": {
+          "count": 96,
+          "total": 174
+        },
+        "byReason": {
+          "jevLayout/layout_unavailable": 5,
+          "jevSelect/scope_unsupported": 13,
+          "jevActions/action_unsupported": 69,
+          "jevActions/action_limit": 3,
+          "jevSelect/scope_ambiguous": 6
+        },
+        "byStage": {
+          "jevLayout": 5,
+          "jevSelect": 19,
+          "jevActions": 72
+        },
+        "providerByStage": {}
+      },
+      "arrangementReachedLayout": {
+        "count": 20,
+        "total": 87
+      },
+      "stages": {
+        "selection": {
+          "count": 135,
+          "total": 149
+        },
+        "actions": {
+          "count": 77,
+          "total": 83
+        },
+        "layout": {
+          "count": 64,
+          "total": 78
+        }
+      },
+      "fill": {
+        "count": 3,
+        "total": 3
+      },
+      "latency": {
+        "turn": {
+          "p50": 3023.843125000014,
+          "p95": 4854.264749999973,
+          "samples": 174
+        },
+        "stages": {
+          "jevSelect": {
+            "p50": 209.97166700009257,
+            "p95": 259.6961669999873,
+            "samples": 174
+          },
+          "jevActions": {
+            "p50": 204.20108299993444,
+            "p95": 881.3757920000935,
+            "samples": 155
+          },
+          "jevLayout": {
+            "p50": 174.5885409999173,
+            "p95": 227.8367080000462,
+            "samples": 83
+          },
+          "llmComplete": {
+            "p50": 1288.954832999967,
+            "p95": 2455.699874999933,
+            "samples": 78
+          }
+        },
+        "llmCall": {
+          "fallback": {
+            "p50": 3068.758416000055,
+            "p95": 5337.89208400005,
+            "samples": 96
+          },
+          "complete": {
+            "p50": 1284.843915999867,
+            "p95": 2453.1330840000883,
+            "samples": 78
+          }
+        },
+        "jevCall": {
+          "p50": 188.30954199994449,
+          "p95": 241.32116699998733,
+          "samples": 573
+        }
+      },
+      "tokens": {
+        "llm": {
+          "calls": 174,
+          "withoutUsage": 0,
+          "input": 549302,
+          "output": 31661,
+          "cacheRead": {
+            "total": 466615,
+            "reportedCalls": 96,
+            "missingCalls": 78
+          },
+          "cacheWrite": {
+            "total": 62403,
+            "reportedCalls": 33,
+            "missingCalls": 141
+          },
+          "cost": {
+            "total": 0,
+            "reportedCalls": 0,
+            "missingCalls": 174
+          },
+          "byRole": {
+            "fallback": {
+              "calls": 96,
+              "withoutUsage": 0,
+              "input": 529306,
+              "output": 28677,
+              "cacheRead": {
+                "total": 466615,
+                "reportedCalls": 96,
+                "missingCalls": 0
+              },
+              "cacheWrite": {
+                "total": 62403,
+                "reportedCalls": 33,
+                "missingCalls": 63
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 96
+              }
+            },
+            "complete": {
+              "calls": 78,
+              "withoutUsage": 0,
+              "input": 19996,
+              "output": 2984,
+              "cacheRead": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 78
+              },
+              "cacheWrite": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 78
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 78
+              }
+            }
+          }
+        },
+        "jev": {
+          "calls": 573,
+          "withoutUsage": 0,
+          "input": 1869842,
+          "output": 205941,
+          "perTurn": {
+            "input": 10746.218390804597,
+            "output": 1183.5689655172414
+          }
+        }
+      }
+    },
+    {
+      "arm": "jev-poc",
+      "kind": "jev-poc",
+      "suite": "all",
+      "runs": 465,
+      "judge": {
+        "scored": 0,
+        "failed": 0,
+        "notRun": 465,
+        "reasons": {
+          "disabled": 465
+        },
+        "means": []
+      },
+      "overall": {
+        "count": 319,
+        "total": 408
+      },
+      "arrangement": {
+        "count": 172,
+        "total": 183
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 162,
+        "controls": 36
+      },
+      "replayed": [],
+      "decisive": {
+        "pass": {
+          "count": 179,
+          "total": 245
+        },
+        "wins": 0,
+        "losses": 0,
+        "paired": 0
+      },
+      "expectedDeferrals": {
+        "count": 45,
+        "total": 57
+      },
+      "fallbacks": {
+        "total": {
+          "count": 219,
+          "total": 465
+        },
+        "byReason": {
+          "jevSelect/scope_ambiguous": 18,
+          "jevActions/action_unsupported": 136,
+          "jevSelect/scope_unsupported": 37,
+          "jevActions/action_limit": 14,
+          "jevLayout/no_feasible_layout": 6,
+          "jevLayout/layout_unavailable": 8
+        },
+        "byStage": {
+          "jevSelect": 55,
+          "jevActions": 150,
+          "jevLayout": 14
+        },
+        "providerByStage": {}
+      },
+      "arrangementReachedLayout": {
+        "count": 54,
+        "total": 183
+      },
+      "stages": {
+        "selection": {
+          "count": 336,
+          "total": 386
+        },
+        "actions": {
+          "count": 233,
+          "total": 253
+        },
+        "layout": {
+          "count": 198,
+          "total": 245
+        }
+      },
+      "fill": {
+        "count": 15,
+        "total": 15
+      },
+      "latency": {
+        "turn": {
+          "p50": 2776.727792000165,
+          "p95": 4792.808875000046,
+          "samples": 465
+        },
+        "stages": {
+          "jevSelect": {
+            "p50": 209.2654169999878,
+            "p95": 262.3096670000814,
+            "samples": 465
+          },
+          "jevActions": {
+            "p50": 293.4583749999292,
+            "p95": 1176.4501670000027,
+            "samples": 410
+          },
+          "jevLayout": {
+            "p50": 172.28854199999478,
+            "p95": 220.10337500000605,
+            "samples": 260
+          },
+          "llmComplete": {
+            "p50": 1270.6270830000285,
+            "p95": 2161.8777080000145,
+            "samples": 246
+          }
+        },
+        "llmCall": {
+          "fallback": {
+            "p50": 3009.3925840000156,
+            "p95": 5337.89208400005,
+            "samples": 219
+          },
+          "complete": {
+            "p50": 1267.5355829999316,
+            "p95": 2160.7033749999246,
+            "samples": 246
+          }
+        },
+        "jevCall": {
+          "p50": 184.2565420000028,
+          "p95": 240.5806670000311,
+          "samples": 1659
+        }
+      },
+      "tokens": {
+        "llm": {
+          "calls": 465,
+          "withoutUsage": 0,
+          "input": 1269969,
+          "output": 74001,
+          "cacheRead": {
+            "total": 1060146,
+            "reportedCalls": 218,
+            "missingCalls": 247
+          },
+          "cacheWrite": {
+            "total": 144844,
+            "reportedCalls": 75,
+            "missingCalls": 390
+          },
+          "cost": {
+            "total": 0,
+            "reportedCalls": 0,
+            "missingCalls": 465
+          },
+          "byRole": {
+            "fallback": {
+              "calls": 219,
+              "withoutUsage": 0,
+              "input": 1205647,
+              "output": 64580,
+              "cacheRead": {
+                "total": 1060146,
+                "reportedCalls": 218,
+                "missingCalls": 1
+              },
+              "cacheWrite": {
+                "total": 144844,
+                "reportedCalls": 75,
+                "missingCalls": 144
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 219
+              }
+            },
+            "complete": {
+              "calls": 246,
+              "withoutUsage": 0,
+              "input": 64322,
+              "output": 9421,
+              "cacheRead": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 246
+              },
+              "cacheWrite": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 246
+              },
+              "cost": {
+                "total": 0,
+                "reportedCalls": 0,
+                "missingCalls": 246
+              }
+            }
+          }
+        },
+        "jev": {
+          "calls": 1659,
+          "withoutUsage": 0,
+          "input": 5218352,
+          "output": 602040,
+          "perTurn": {
+            "input": 11222.262365591398,
+            "output": 1294.7096774193549
+          }
+        }
+      }
+    }
+  ]
+}

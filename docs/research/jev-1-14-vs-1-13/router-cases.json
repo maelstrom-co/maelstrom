@@ -1,0 +1,279 @@
+{
+  "about": "Labeled replay set for the agent-loop router (ui_only vs needs_tools) on the /shop pet-food demo. Labels follow UI_ONLY_DESCRIPTION and NEEDS_TOOLS_DESCRIPTION in apps/demo/src/server/agent-session.ts (prototype branch ktrz/composed-planner-prototype @ febb09121b26f24c777cefe458b19b0fc349c6f8). recentConversation matches #recentText(): at most the last 4 plain user/assistant text messages before the latest request, each mapped to `${role}: ${content}`, with tool messages and [screen] notes dropped. Customer: Sam Rivera, dog Biscuit (adult Labrador), cat Miso (indoor adult). Cases marked borderline are honest judgment calls, scored separately.",
+  "cases": [
+    {
+      "id": "live-reorder-lower-fat-checkout",
+      "recentConversation": [],
+      "latestRequest": "Reorder my dog's usual food, but something lower in fat this time, and check out.",
+      "expected": "needs_tools",
+      "note": "Live MAE-826 journey prompt. Several steps, past-order lookup, comparison, cart and checkout."
+    },
+    {
+      "id": "live-last-order-cheaper-alternatives",
+      "recentConversation": [],
+      "latestRequest": "Show my last order and also find cheaper alternatives.",
+      "expected": "needs_tools",
+      "note": "Live two-part prompt. Second half needs the order's products and a price comparison."
+    },
+    {
+      "id": "ui-order-history",
+      "recentConversation": [],
+      "latestRequest": "Can you pull up my order history?",
+      "expected": "ui_only",
+      "note": "Paraphrase of the 'show my past orders' example. One screen change."
+    },
+    {
+      "id": "ui-open-last-order",
+      "recentConversation": [],
+      "latestRequest": "Open my last order.",
+      "expected": "ui_only",
+      "note": "Paraphrase of the 'open my most recent order' example (showMostRecentOrder)."
+    },
+    {
+      "id": "ui-whats-in-cart",
+      "recentConversation": [],
+      "latestRequest": "What's in my cart right now?",
+      "expected": "ui_only",
+      "note": "Showing the cart answers it. Matches the 'show the cart' example."
+    },
+    {
+      "id": "ui-catalog-bigger",
+      "recentConversation": [],
+      "latestRequest": "Give the catalog more room, it's too cramped.",
+      "expected": "ui_only",
+      "note": "Layout change, paraphrase of 'make the catalog bigger'."
+    },
+    {
+      "id": "ui-hide-checkout",
+      "recentConversation": [],
+      "latestRequest": "Get rid of the checkout panel for now.",
+      "expected": "ui_only",
+      "note": "Paraphrase of the 'hide checkout' example."
+    },
+    {
+      "id": "ui-whole-catalog",
+      "recentConversation": [
+        "user: Show me salmon wet food for my cat.",
+        "assistant: Here are the salmon wet foods for cats."
+      ],
+      "latestRequest": "Clear that and just show me everything you sell.",
+      "expected": "ui_only",
+      "note": "clearSearch, one screen change. 'that' refers to the screen filter, not to a data result."
+    },
+    {
+      "id": "ui-back-to-orders-list",
+      "recentConversation": [
+        "user: Open my most recent order.",
+        "assistant: Here's your most recent order, ORD-10482."
+      ],
+      "latestRequest": "Go back to the list of all my orders.",
+      "expected": "ui_only",
+      "note": "Navigation back to the orders list view."
+    },
+    {
+      "id": "ui-back-to-results",
+      "recentConversation": [
+        "user: Find lower-fat dry food for Biscuit.",
+        "assistant: Here are lower-fat dry foods similar to Biscuit's usual Summit Trail Adult.",
+        "user: Open the Northpaw Lean one.",
+        "assistant: Here are the details for Northpaw Lean Adult, 10% fat."
+      ],
+      "latestRequest": "Close the details and go back to the results.",
+      "expected": "ui_only",
+      "note": "Multi-turn. Navigation within the catalog, no data lookup."
+    },
+    {
+      "id": "ui-hide-orders",
+      "recentConversation": [],
+      "latestRequest": "Hide my orders, I don't need them on screen.",
+      "expected": "ui_only",
+      "note": "Layout change like 'hide checkout'."
+    },
+    {
+      "id": "ui-open-cart",
+      "recentConversation": [
+        "user: Show my past orders.",
+        "assistant: Here are your past orders, newest first."
+      ],
+      "latestRequest": "Now show me the cart.",
+      "expected": "ui_only",
+      "note": "Multi-turn. 'show the cart' example after an unrelated turn."
+    },
+    {
+      "id": "ui-dismiss-confirmation",
+      "recentConversation": [
+        "user: Place the order.",
+        "assistant: Your order ORD-10490 is placed. Total $64.98."
+      ],
+      "latestRequest": "Okay, dismiss the confirmation.",
+      "expected": "ui_only",
+      "note": "Multi-turn. returnToCheckoutReview, one screen change."
+    },
+    {
+      "id": "ui-shrink-cart",
+      "recentConversation": [],
+      "latestRequest": "Make the cart smaller.",
+      "expected": "ui_only",
+      "note": "Layout change, mirror of 'make the catalog bigger'."
+    },
+    {
+      "id": "ui-show-catalog-only",
+      "recentConversation": [],
+      "latestRequest": "Show the food catalog.",
+      "expected": "ui_only",
+      "note": "Bring one existing view on screen."
+    },
+    {
+      "id": "tools-add-usual-kibble",
+      "recentConversation": [],
+      "latestRequest": "Add two bags of Biscuit's usual kibble to my cart.",
+      "expected": "needs_tools",
+      "note": "Past-order lookup for the SKU, then adding to cart."
+    },
+    {
+      "id": "tools-place-order",
+      "recentConversation": [
+        "user: Show the cart.",
+        "assistant: Here's your cart: one bag of Summit Trail Healthy Weight, $64.98."
+      ],
+      "latestRequest": "Looks good, place the order.",
+      "expected": "needs_tools",
+      "note": "Placing an order is listed under needs_tools."
+    },
+    {
+      "id": "tools-compare-price-per-kilo",
+      "recentConversation": [],
+      "latestRequest": "Which is cheaper per kilo, Summit Trail Healthy Weight or Northpaw Lean?",
+      "expected": "needs_tools",
+      "note": "Comparison over product data."
+    },
+    {
+      "id": "tools-recommend-indoor-cat",
+      "recentConversation": [],
+      "latestRequest": "What would you recommend for Miso? She's an indoor cat and getting a bit chubby.",
+      "expected": "needs_tools",
+      "note": "Recommendation."
+    },
+    {
+      "id": "tools-add-the-first-one",
+      "recentConversation": [
+        "user: Find something like Biscuit's usual food but lower in fat.",
+        "assistant: Here are lower-fat options: Northpaw Lean Adult at 10% fat and Summit Trail Healthy Weight at 11%."
+      ],
+      "latestRequest": "Add the first one.",
+      "expected": "needs_tools",
+      "note": "Multi-turn. Reference to an earlier result plus adding to cart."
+    },
+    {
+      "id": "tools-that-one-instead",
+      "recentConversation": [
+        "user: Add Summit Trail Healthy Weight to my cart.",
+        "assistant: Added one bag of Summit Trail Healthy Weight to your cart.",
+        "user: How does Northpaw Lean compare?",
+        "assistant: Northpaw Lean has 10% fat against 11%, and costs $3 less per bag."
+      ],
+      "latestRequest": "Swap it for that one then.",
+      "expected": "needs_tools",
+      "note": "Multi-turn. 'it' and 'that one' refer to earlier results, and the cart changes."
+    },
+    {
+      "id": "tools-cat-spend-last-three",
+      "recentConversation": [],
+      "latestRequest": "How much did I spend on cat food over my last three orders?",
+      "expected": "needs_tools",
+      "note": "Lookup over several orders and arithmetic."
+    },
+    {
+      "id": "tools-find-and-add-salmon-wet",
+      "recentConversation": [],
+      "latestRequest": "Find a salmon wet food for Miso and put a case in the cart.",
+      "expected": "needs_tools",
+      "note": "Search then add to cart, several steps."
+    },
+    {
+      "id": "tools-remove-and-checkout",
+      "recentConversation": [],
+      "latestRequest": "Take the cat food out of my cart and check out.",
+      "expected": "needs_tools",
+      "note": "Cart change plus placing the order."
+    },
+    {
+      "id": "tools-order-it-again",
+      "recentConversation": [
+        "user: Open my most recent order.",
+        "assistant: Here's your most recent order, ORD-10482: Summit Trail Adult 30 lb and Whiskerly Indoor Salmon wet, 12 cans."
+      ],
+      "latestRequest": "Order it again.",
+      "expected": "needs_tools",
+      "note": "Multi-turn. 'it' refers to an earlier result, then cart and order."
+    },
+    {
+      "id": "tools-grain-free-question",
+      "recentConversation": [],
+      "latestRequest": "Is the dog food I bought last time grain-free?",
+      "expected": "needs_tools",
+      "note": "Look up the last order's product and reason over its description."
+    },
+    {
+      "id": "tools-better-for-labrador",
+      "recentConversation": [
+        "user: Show me dry dog food.",
+        "assistant: Here are the dry dog foods."
+      ],
+      "latestRequest": "Which of these is best for a Labrador that needs to lose weight?",
+      "expected": "needs_tools",
+      "note": "Multi-turn. Recommendation over the results already on screen."
+    },
+    {
+      "id": "borderline-take-me-to-checkout",
+      "recentConversation": [],
+      "latestRequest": "Take me to checkout.",
+      "expected": "ui_only",
+      "borderline": true,
+      "note": "Navigation only, no order placed, so one screen change. But NEEDS_TOOLS_DESCRIPTION lists 'checkout', which can be read as this. In the MAE-826 trial the loop treated a similar phrase as a request to finish the purchase."
+    },
+    {
+      "id": "borderline-all-dog-food",
+      "recentConversation": [],
+      "latestRequest": "Show me all the dog food.",
+      "expected": "ui_only",
+      "borderline": true,
+      "note": "One catalog search with species=dog, which the UI can do itself. Arguably a data lookup, which the descriptions put under needs_tools."
+    },
+    {
+      "id": "borderline-low-fat-filter",
+      "recentConversation": [],
+      "latestRequest": "Show dry dog food with under 12% fat.",
+      "expected": "ui_only",
+      "borderline": true,
+      "note": "One searchProducts call with species, foodType and maxFatPercent filters, a single screen change. The fat criterion reads like 'reasoning over data'."
+    },
+    {
+      "id": "borderline-what-did-i-order-last-time",
+      "recentConversation": [],
+      "latestRequest": "What did I order last time?",
+      "expected": "ui_only",
+      "borderline": true,
+      "note": "showMostRecentOrder is documented as the quickest way to answer this, so opening the order is enough. Phrased as a question, so a model may want a spoken answer from data."
+    },
+    {
+      "id": "borderline-empty-cart",
+      "recentConversation": [],
+      "latestRequest": "Empty my cart.",
+      "expected": "needs_tools",
+      "borderline": true,
+      "note": "One cart action (clearCart), but it changes data like 'adding to cart' does, and the composed Planner hands side effects off. Neither description names it."
+    },
+    {
+      "id": "borderline-open-march-order",
+      "recentConversation": [
+        "user: Show my past orders.",
+        "assistant: Here are your past orders, newest first."
+      ],
+      "latestRequest": "Open the one from March.",
+      "expected": "needs_tools",
+      "borderline": true,
+      "note": "Multi-turn. 'the one' refers to an earlier result and needs the order id looked up by date, but the result is a single screen change."
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+[r1] live-reorder-lower-fat-checkout          needs_tools ok     324 ms conf=1.00
+[r1] live-last-order-cheaper-alternatives     needs_tools ok     182 ms conf=1.00
+[r1] ui-order-history                         ui_only     ok     175 ms conf=0.84
+[r1] ui-open-last-order                       ui_only     ok     148 ms conf=0.92
+[r1] ui-whats-in-cart                         ui_only     ok     170 ms conf=0.92
+[r1] ui-catalog-bigger                        ui_only     ok     173 ms conf=1.00
+[r1] ui-hide-checkout                         ui_only     ok     169 ms conf=1.00
+[r1] ui-whole-catalog                         ui_only     ok     209 ms conf=0.62
+[r1] ui-back-to-orders-list                   ui_only     ok     169 ms conf=1.00
+[r1] ui-back-to-results                       ui_only     ok     155 ms conf=0.98
+[r1] ui-hide-orders                           ui_only     ok     157 ms conf=1.00
+[r1] ui-open-cart                             ui_only     ok     165 ms conf=1.00
+[r1] ui-dismiss-confirmation                  ui_only     ok     162 ms conf=0.94
+[r1] ui-shrink-cart                           ui_only     ok     183 ms conf=1.00
+[r1] ui-show-catalog-only                     ui_only     ok     160 ms conf=0.94
+[r1] tools-add-usual-kibble                   needs_tools ok     160 ms conf=1.00
+[r1] tools-place-order                        needs_tools ok     170 ms conf=1.00
+[r1] tools-compare-price-per-kilo             needs_tools ok     175 ms conf=1.00
+[r1] tools-recommend-indoor-cat               needs_tools ok     148 ms conf=1.00
+[r1] tools-add-the-first-one                  needs_tools ok     162 ms conf=0.98
+[r1] tools-that-one-instead                   needs_tools ok     214 ms conf=1.00
+[r1] tools-cat-spend-last-three               needs_tools ok     184 ms conf=0.98
+[r1] tools-find-and-add-salmon-wet            needs_tools ok     190 ms conf=1.00
+[r1] tools-remove-and-checkout                needs_tools ok     161 ms conf=1.00
+[r1] tools-order-it-again                     needs_tools ok     143 ms conf=1.00
+[r1] tools-grain-free-question                needs_tools ok     188 ms conf=0.84
+[r1] tools-better-for-labrador                needs_tools ok     198 ms conf=1.00
+[r1] borderline-take-me-to-checkout           needs_tools MISS   160 ms conf=0.84
+[r1] borderline-all-dog-food                  ui_only     ok     150 ms conf=0.84
+[r1] borderline-low-fat-filter                needs_tools MISS   158 ms conf=0.44
+[r1] borderline-what-did-i-order-last-time    ui_only     ok     164 ms conf=0.58
+[r1] borderline-empty-cart                    ui_only     MISS   168 ms conf=0.20
+[r1] borderline-open-march-order              needs_tools ok     155 ms conf=0.74
+[r2] live-reorder-lower-fat-checkout          needs_tools ok     165 ms conf=1.00
+[r2] live-last-order-cheaper-alternatives     needs_tools ok     164 ms conf=1.00
+[r2] ui-order-history                         ui_only     ok     315 ms conf=0.86
+[r2] ui-open-last-order                       ui_only     ok     154 ms conf=0.92
+[r2] ui-whats-in-cart                         ui_only     ok     164 ms conf=0.92
+[r2] ui-catalog-bigger                        ui_only     ok     157 ms conf=1.00
+[r2] ui-hide-checkout                         ui_only     ok     174 ms conf=1.00
+[r2] ui-whole-catalog                         ui_only     ok     148 ms conf=0.64
+[r2] ui-back-to-orders-list                   ui_only     ok     173 ms conf=1.00
+[r2] ui-back-to-results                       ui_only     ok     170 ms conf=0.98
+[r2] ui-hide-orders                           ui_only     ok     154 ms conf=1.00
+[r2] ui-open-cart                             ui_only     ok     144 ms conf=1.00
+[r2] ui-dismiss-confirmation                  ui_only     ok     190 ms conf=0.94
+[r2] ui-shrink-cart                           ui_only     ok     154 ms conf=1.00
+[r2] ui-show-catalog-only                     ui_only     ok     147 ms conf=0.92
+[r2] tools-add-usual-kibble                   needs_tools ok     151 ms conf=1.00
+[r2] tools-place-order                        needs_tools ok     149 ms conf=1.00
+[r2] tools-compare-price-per-kilo             needs_tools ok     198 ms conf=1.00
+[r2] tools-recommend-indoor-cat               needs_tools ok     157 ms conf=1.00
+[r2] tools-add-the-first-one                  needs_tools ok     152 ms conf=0.98
+[r2] tools-that-one-instead                   needs_tools ok     157 ms conf=1.00
+[r2] tools-cat-spend-last-three               needs_tools ok     172 ms conf=0.98
+[r2] tools-find-and-add-salmon-wet            needs_tools ok     158 ms conf=1.00
+[r2] tools-remove-and-checkout                needs_tools ok     165 ms conf=1.00
+[r2] tools-order-it-again                     needs_tools ok     156 ms conf=1.00
+[r2] tools-grain-free-question                needs_tools ok     157 ms conf=0.84
+[r2] tools-better-for-labrador                needs_tools ok     197 ms conf=1.00
+[r2] borderline-take-me-to-checkout           needs_tools MISS   160 ms conf=0.82
+[r2] borderline-all-dog-food                  ui_only     ok     159 ms conf=0.82
+[r2] borderline-low-fat-filter                needs_tools MISS   155 ms conf=0.46
+[r2] borderline-what-did-i-order-last-time    ui_only     ok     163 ms conf=0.52
+[r2] borderline-empty-cart                    ui_only     MISS   154 ms conf=0.14
+[r2] borderline-open-march-order              needs_tools ok     157 ms conf=0.74
+[r3] live-reorder-lower-fat-checkout          needs_tools ok     163 ms conf=1.00
+[r3] live-last-order-cheaper-alternatives     needs_tools ok     139 ms conf=1.00
+[r3] ui-order-history                         ui_only     ok     176 ms conf=0.82
+[r3] ui-open-last-order                       ui_only     ok     167 ms conf=0.92
+[r3] ui-whats-in-cart                         ui_only     ok     198 ms conf=0.92
+[r3] ui-catalog-bigger                        ui_only     ok     191 ms conf=1.00
+[r3] ui-hide-checkout                         ui_only     ok     152 ms conf=1.00
+[r3] ui-whole-catalog                         ui_only     ok     182 ms conf=0.66
+[r3] ui-back-to-orders-list                   ui_only     ok     164 ms conf=1.00
+[r3] ui-back-to-results                       ui_only     ok     156 ms conf=0.98
+[r3] ui-hide-orders                           ui_only     ok     155 ms conf=1.00
+[r3] ui-open-cart                             ui_only     ok     184 ms conf=1.00
+[r3] ui-dismiss-confirmation                  ui_only     ok     192 ms conf=0.94
+[r3] ui-shrink-cart                           ui_only     ok     183 ms conf=1.00
+[r3] ui-show-catalog-only                     ui_only     ok     154 ms conf=0.92
+[r3] tools-add-usual-kibble                   needs_tools ok     158 ms conf=1.00
+[r3] tools-place-order                        needs_tools ok     174 ms conf=1.00
+[r3] tools-compare-price-per-kilo             needs_tools ok     168 ms conf=1.00
+[r3] tools-recommend-indoor-cat               needs_tools ok     149 ms conf=1.00
+[r3] tools-add-the-first-one                  needs_tools ok     147 ms conf=0.98
+[r3] tools-that-one-instead                   needs_tools ok     145 ms conf=1.00
+[r3] tools-cat-spend-last-three               needs_tools ok     165 ms conf=0.98
+[r3] tools-find-and-add-salmon-wet            needs_tools ok     148 ms conf=1.00
+[r3] tools-remove-and-checkout                needs_tools ok     169 ms conf=1.00
+[r3] tools-order-it-again                     needs_tools ok     146 ms conf=1.00
+[r3] tools-grain-free-question                needs_tools ok     150 ms conf=0.82
+[r3] tools-better-for-labrador                needs_tools ok     167 ms conf=1.00
+[r3] borderline-take-me-to-checkout           needs_tools MISS   153 ms conf=0.82
+[r3] borderline-all-dog-food                  ui_only     ok     155 ms conf=0.80
+[r3] borderline-low-fat-filter                needs_tools MISS   190 ms conf=0.34
+[r3] borderline-what-did-i-order-last-time    ui_only     ok     165 ms conf=0.50
+[r3] borderline-empty-cart                    ui_only     MISS   192 ms conf=0.22
+[r3] borderline-open-march-order              needs_tools ok     175 ms conf=0.80
+
+== jev-1.13.0, 99 calls, 0 errors
+accuracy overall:             90/99 (90.9%)
+accuracy excluding borderline: 81/81 (100.0%)
+accuracy borderline only:     9/18 (50.0%)
+confusion (expected -> chosen):
+  ui_only     -> ui_only 45, needs_tools 6, error 0
+  needs_tools -> ui_only 3, needs_tools 45, error 0
+latency (answered calls): p50 163 ms, p95 198 ms, max 324 ms
+
+wrote docs/research/jev-1-14-vs-1-13/raw/router-jev-1.13.0.json
