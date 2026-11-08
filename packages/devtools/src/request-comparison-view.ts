@@ -13,7 +13,7 @@ import type {
   RequestComparisonSelection,
   ViewContext,
 } from './panel-views.js';
-import { isIncompleteSourceEvent } from './request-counterparts.js';
+import { isComparisonSourceIncomplete } from './request-counterparts.js';
 
 function empty(message: string): HTMLElement {
   return element('p', message, 'empty');
@@ -186,23 +186,10 @@ export function requestComparisonView(
     context.issueCategory,
     context.clientId,
   ];
-  const sourceEvents = [
-    ...context.evidence.events,
-    ...(context.evidence.requestEvents ?? []),
-  ];
-  const comparedKinds = new Set(
-    [requests.a, requests.b].flatMap((request) =>
-      (request?.events ?? []).map((event) => event.kind),
-    ),
-  );
-  const sourceIncomplete = Boolean(
-    context.evidence.unreadableEvents ||
-    context.evidence.droppedRequestEvents ||
-    context.evidence.dropped ||
-    context.evidence.omittedRequestEvents ||
-    context.evidence.omitted ||
-    sourceEvents.some((event) => isIncompleteSourceEvent(event, comparedKinds)),
-  );
+  const sourceIncomplete = isComparisonSourceIncomplete(context.evidence, [
+    requests.a,
+    requests.b,
+  ]);
   signature.push(sourceIncomplete);
   for (const side of ['a', 'b'] as const) {
     const slot = selection[side],
