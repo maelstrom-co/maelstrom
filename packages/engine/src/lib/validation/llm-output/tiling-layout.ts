@@ -20,6 +20,10 @@ import type {
 } from './healed-layout.js';
 import { parseTree } from './tiling-layout/parse-tree.js';
 import { pruneAst } from './tiling-layout/prune-ast.js';
+import {
+  type ActionAcceptance,
+  restorePreActionVariants,
+} from './tiling-layout/restore-pre-action-variants.js';
 
 /**
  * Recovery rules:
@@ -40,10 +44,21 @@ import { pruneAst } from './tiling-layout/prune-ast.js';
  * - Malformed split weights → warning, repaired in place. Nothing is dropped,
  *   because a split's arity is exactly what could not be read.
  * - missing rationale → warning, response accepted as-is.
+ * - Existing Instance declared in the Variant that the Actions the Engine
+ *   accepts from its request Variant lead to, when replaying them from the
+ *   Layout Variant accepts no Action that reading drops → warning, the
+ *   Variant is reset to the request Variant and the accepted Actions are
+ *   kept. Rejected Actions keep their skip diagnostics. The Layout holds
+ *   each Instance's Variant before the Execution Plan runs, because the
+ *   client applies the Layout first.
+ * - Existing Instance whose Layout Variant changes directly while an Action
+ *   the Engine accepts from the Layout Variant transitions to another
+ *   Variant → warning only, Layout and Actions kept as declared.
  */
 export function healTilingLayout(
   response: TilingResponse,
   request: ChartRequest,
+  acceptance: ActionAcceptance,
 ): HealedTilingLayout {
   const droppedEntries: DroppedLayoutEntry[] = [];
   const warnings: LayoutWarning[] = [];
@@ -54,7 +69,7 @@ export function healTilingLayout(
   for (const vessel of request.vessels) vesselById.set(vessel.id, vessel);
 
   const tracker = seenInstancesTracker(droppedEntries);
-  const healedInstances: HealedTilingInstance[] = [];
+  const declaredInstances: HealedTilingInstance[] = [];
   for (const instance of response.layout.instances) {
     const instanceId = instance.instanceId;
 
@@ -69,7 +84,7 @@ export function healTilingLayout(
       });
       continue;
     }
-    if (!(instance.variant in vessel.variants)) {
+    if (!Object.hasOwn(vessel.variants, instance.variant)) {
       droppedEntries.push({
         reason: 'unknown_variant',
         instanceId,
@@ -77,13 +92,22 @@ export function healTilingLayout(
       });
       continue;
     }
-    healedInstances.push({
+    declaredInstances.push({
       instanceId,
       vesselId: instance.vesselId,
       variant: instance.variant,
     });
     tracker.markSeen(instanceId);
   }
+
+  const restored = restorePreActionVariants(
+    declaredInstances,
+    response.executionPlan,
+    request,
+    acceptance,
+  );
+  const healedInstances = restored.instances;
+  warnings.push(...restored.warnings);
 
   const treeTokens = withDuplicateLeavesBlanked(
     response.layout.tree,

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  type MaelstromResponse,
+  VariantName,
+} from '@maelstrom-co/protocol';
 
 import { type Expectation, type Scenario, scenarios } from './scenarios.js';
 import { scoreLayout, scoreResponse } from './score.js';
@@ -130,7 +134,142 @@ describe('scoreResponse', () => {
     ).toBe(true);
   });
 
-  test('passes a variant the shipped execution plan transitions to', () => {
+  test('passes a transition Action replayed from the pre-action Layout Variant', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'weather-main': 'current' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    );
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('fails a double switch: a Layout Variant change plus a transition Action to another Variant', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'weather-main': 'hourly' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    );
+    expect(score).toEqual({
+      pass: false,
+      failures: [
+        'Variant of weather-main switches twice: the layout moves it from current to hourly, then showWeekly transitions it to weekly',
+      ],
+    });
+  });
+
+  test('fails a double switch alongside the expected Actions', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'calendar-main': 'day' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'showWeek' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures).toContain(
+      'Variant of calendar-main switches twice: the layout moves it from month to day, then showWeek transitions it to week',
+    );
+    expect(score.failures.join()).not.toContain('does not simulate');
+  });
+
+  test('passes a direct switch that no Action transitions to', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'calendar-main': 'week' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    );
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('fails a double switch resolved on the Layout Variant when the request Variant offers the Action without a transition', () => {
+    const variant = scenario('variant');
+    const fromWeek: Scenario = {
+      ...variant,
+      request: {
+        ...variant.request,
+        instances: variant.request.instances.map((instance) =>
+          instance.instanceId === 'calendar-main'
+            ? { ...instance, variant: VariantName('week') }
+            : instance,
+        ),
+      },
+    };
+    const score = scoreResponse(
+      fromWeek,
+      response(fromWeek, {
+        variants: { 'calendar-main': 'month' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'addEvent' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.failures).toContain(
+      'Variant of calendar-main switches twice: the layout moves it from week to month, then addEvent transitions it to day',
+    );
+  });
+
+  test('does not report a double switch for an Action offered only on the request Variant', () => {
+    const variant = scenario('variant');
+    const month = VariantName('month');
+    const withAgendaOnMonth: Scenario = {
+      ...variant,
+      request: {
+        ...variant.request,
+        vessels: variant.request.vessels.map((vessel) =>
+          vessel.id === 'calendar'
+            ? {
+                ...vessel,
+                variants: {
+                  ...vessel.variants,
+                  [month]: {
+                    ...vessel.variants[month],
+                    actions: [
+                      ...(vessel.variants[month]?.actions ?? []),
+                      {
+                        name: ActionName('openAgenda'),
+                        description: 'Agenda in the day view',
+                        effect: 'any',
+                        transitionsTo: VariantName('day'),
+                      },
+                    ],
+                  },
+                },
+              }
+            : vessel,
+        ),
+      },
+    };
+    const score = scoreResponse(
+      withAgendaOnMonth,
+      response(withAgendaOnMonth, {
+        variants: { 'calendar-main': 'week' },
+        actions: [
+          { instanceId: 'calendar-main', action: 'openAgenda' },
+          { instanceId: 'weather-main', action: 'showWeekly' },
+        ],
+      }),
+    );
+    expect(score.failures.join()).not.toContain('switches twice');
+    expect(score.failures.join()).toContain(
+      'Execution plan does not simulate: openAgenda on calendar-main (action_not_valid)',
+    );
+  });
+
+  test('fails a Layout that already declares the transition target, which only an unhealed response can carry', () => {
     const variant = scenario('variant');
     const score = scoreResponse(
       variant,
@@ -139,18 +278,9 @@ describe('scoreResponse', () => {
         actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
       }),
     );
-    expect(score).toEqual({ pass: true, failures: [] });
-  });
-
-  test('fails a variant no shipped action transitions to', () => {
-    const variant = scenario('variant');
-    const score = scoreResponse(
-      variant,
-      response(variant, { variants: { 'weather-main': 'weekly' } }),
-    );
     expect(score.pass).toBe(false);
-    expect(score.failures.join()).toContain(
-      'Variant of weather-main is weekly, but the execution plan leaves it current',
+    expect(score.failures).toContain(
+      'Execution plan does not simulate: showWeekly on weather-main (action_not_valid)',
     );
   });
 

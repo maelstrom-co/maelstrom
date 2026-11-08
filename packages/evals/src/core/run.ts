@@ -54,6 +54,7 @@ import {
   type Phase,
   type PlannerEvalPlugin,
 } from './plugin.js';
+import { postActionInstances } from './post-action-instances.js';
 import {
   type ReplaySource,
   replayedStages,
@@ -120,7 +121,7 @@ export interface RunRecord {
   readonly tree?: readonly unknown[];
   /** The shipped execution plan; absent from records written before the grader. */
   readonly executionPlan?: readonly ActionExecution[];
-  /** Every retained instance the shipped layout declares; absent from records written before the grader. */
+  /** Every retained instance the shipped layout declares, in the variant the shipped execution plan leaves it in; absent from records written before the grader. */
   readonly instances?: readonly VesselInstanceSnapshot[];
   /** The judge's verdict on the shipped response (`--grader`), with its own calls. */
   readonly grader?: GraderRecord;
@@ -342,7 +343,11 @@ export async function grade(
           userMessage: response.userMessage,
           executionPlan: response.executionPlan,
           tree: layout.tree,
-          instances: layout.instances,
+          instances: postActionInstances(
+            layout.instances,
+            response.executionPlan,
+            scenario.request.vessels,
+          ),
         },
       },
       { logger },
@@ -710,7 +715,11 @@ function base(
         turn.response.layout.type === 'tiling' ? turn.response.layout.tree : [],
       executionPlan: turn.response.executionPlan,
       ...(turn.response.layout.type === 'tiling' && {
-        instances: turn.response.layout.instances,
+        instances: postActionInstances(
+          turn.response.layout.instances,
+          turn.response.executionPlan,
+          scenario.request.vessels,
+        ),
       }),
     }),
     ...(turn.error && { error: turn.error }),

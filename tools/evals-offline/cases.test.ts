@@ -2417,6 +2417,7 @@ test('scripted variant candidate JSON drives shipped evidence while expectations
   expect(failed.records[0].value).toEqual(missingAction.data);
   expect(failed.provenance).not.toBe(baseline.provenance);
   const healable = structuredClone(original);
+  healable.data.candidate.layout.instances[1].variant = 'current';
   healable.data.candidate.executionPlan.push({
     instanceId: 'weather-main',
     action: 'inventedAction',

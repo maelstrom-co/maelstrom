@@ -29,6 +29,10 @@ import {
   labsStateResetSubsetInputsSchema,
 } from '../adapters/legacy-labs-state-reset-subset.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import {
+  carriedForwardChartState,
+  postActionLayout,
+} from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -180,13 +184,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForwardChartState(previous, initial.vessels)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent }],
@@ -258,13 +256,14 @@ export function scoreD33Turns(
       ...instance,
       variant: VariantName(variant),
     }));
+    const shipped = postActionLayout(turn.response, initial.vessels);
     if (
-      !isDeepStrictEqual(turn.response.layout, {
+      !isDeepStrictEqual(shipped, {
         ...initial.layout,
         instances,
       }) ||
-      turn.response.layout.type !== 'tiling' ||
-      !isDeepStrictEqual(turn.response.layout.instances, instances)
+      shipped.type !== 'tiling' ||
+      !isDeepStrictEqual(shipped.instances, instances)
     )
       failures.push(
         `Chart layout/Instance snapshot mismatch at turn ${index + 1}`,

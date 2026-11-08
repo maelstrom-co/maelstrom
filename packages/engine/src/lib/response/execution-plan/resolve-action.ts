@@ -79,14 +79,14 @@ export function resolveAction(
     return err({ kind: 'no_simulated_variant' });
   }
 
-  const variantDef = vessel.variants[currentVariant];
-  if (!variantDef) {
+  if (!Object.hasOwn(vessel.variants, currentVariant)) {
     return err({
       kind: 'variant_not_on_vessel',
       vesselId: vessel.id,
       variant: currentVariant,
     });
   }
+  const variantDef = vessel.variants[currentVariant];
 
   const actionDef = variantDef.actions.find((a) => a.name === item.action);
   if (!actionDef) {

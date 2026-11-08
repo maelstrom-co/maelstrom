@@ -352,6 +352,56 @@ describe('diagnostic feedback content', () => {
     );
   });
 
+  test('a restored pre-action Variant tells the model to keep the current Variant in the layout', () => {
+    const feedback = renderRetryDiagnostics(
+      [],
+      [],
+      [
+        {
+          kind: 'pre_action_variant_restored',
+          instanceId: InstanceId('calendar-main'),
+          declaredVariant: VariantName('week'),
+          restoredVariant: VariantName('day'),
+        },
+      ],
+    );
+
+    expect(feedback).toContain('Layout repairs:');
+    expect(feedback).toContain('"calendar-main"');
+    expect(feedback).toContain('"week"');
+    expect(feedback).toContain('"day"');
+    expect(feedback).toContain('keep its current variant');
+  });
+
+  test('a layout and transition conflict renders as a quality note that never asks for a retry', () => {
+    const warning: LayoutWarning = {
+      kind: 'layout_variant_and_action_transition_conflict',
+      instanceId: InstanceId('calendar-main'),
+      requestVariant: VariantName('day'),
+      layoutVariant: VariantName('month'),
+      actionName: ActionName('showWeek'),
+      actionTarget: VariantName('week'),
+    };
+    const feedback = renderRetryDiagnostics([], [], [warning]);
+
+    expect(feedback).toContain('Response quality:');
+    expect(feedback).not.toContain('Layout repairs:');
+    expect(feedback).toContain('"showWeek"');
+    expect(feedback).toContain('"month"');
+    expect(feedback).toContain('"week"');
+    expect(
+      deriveRetryHint({
+        healedLayoutSize: 1,
+        requestInstanceCount: 1,
+        proposedActionCount: 1,
+        acceptedActionCount: 1,
+        skippedActions: [],
+        droppedLayoutCount: 0,
+        warningCount: 1,
+      }),
+    ).toEqual({ severity: 'low', recommend: false });
+  });
+
   test('feedback mixes per-instance drops with the tree advisory', () => {
     // Mixed-drop coverage: a future refactor that early-returns on hitting
     // a tree drop would silently strip per-instance drops; this test would
