@@ -1,5 +1,5 @@
-import { identity } from './diagnostic-identity.js';
-import type { PanelEvent, RequestTrace } from './panel-model.js';
+import { identity, identityAvailability } from './diagnostic-identity.js';
+import type { PanelEvent, PanelEvidence, RequestTrace } from './panel-model.js';
 
 export type RequestCounterpart =
   | 'unmatched'
@@ -56,5 +56,58 @@ export function requestCounterparts(
               : 'unmatched';
       return [event.key, counterpart];
     }),
+  );
+}
+
+/**
+ * True when the retained source evidence cannot support a complete comparison
+ * of the given requests. Dropped, omitted or unreadable events count, as does
+ * any source event that could belong to a compared request but is unassigned.
+ */
+export function isComparisonSourceIncomplete(
+  evidence: PanelEvidence,
+  requests: readonly (RequestTrace | undefined)[],
+): boolean {
+  const comparedKinds = new Set(
+    requests.flatMap((request) =>
+      (request?.events ?? []).map((event) => event.kind),
+    ),
+  );
+  return Boolean(
+    evidence.unreadableEvents ||
+    evidence.droppedRequestEvents ||
+    evidence.dropped ||
+    evidence.omittedRequestEvents ||
+    evidence.omitted ||
+    [...evidence.events, ...(evidence.requestEvents ?? [])].some((event) =>
+      isIncompleteSourceEvent(event, comparedKinds),
+    ),
+  );
+}
+
+/**
+ * True when a source event could belong to a request comparison but lacks a
+ * usable requestId or clientId, so the comparison cannot be treated as
+ * complete. Run-owned diagnostics, which report a runId and no requestId, are
+ * exempt because they never belong to a request. An event that reports a
+ * requestId, even a redacted one, is not run-owned and stays unassigned.
+ */
+export function isIncompleteSourceEvent(
+  event: PanelEvent,
+  comparedKinds: ReadonlySet<string>,
+): boolean {
+  if (event.requestId && event.clientId) return false;
+  if (isRunOwned(event)) return false;
+  return (
+    comparedKinds.has(event.kind) ||
+    event.raw.requestId !== undefined ||
+    /^(?:client\.(?:request|response|command|action)|engine)\./.test(event.kind)
+  );
+}
+
+function isRunOwned(event: PanelEvent): boolean {
+  return (
+    identityAvailability(event.raw.requestId) === 'not-reported' &&
+    identityAvailability(event.raw.runId) !== 'not-reported'
   );
 }
