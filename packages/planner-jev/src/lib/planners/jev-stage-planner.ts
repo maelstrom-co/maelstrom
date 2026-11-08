@@ -102,7 +102,13 @@ export function buildJevStagePlanner<Selected extends Selection2>(
         keepingGates<Selected>(stages.actions(deps.ask)),
       ),
       named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
-      named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
+      named(
+        STAGE_NAME.llmComplete,
+        // A completion stage may ship a candidate without `userMessage` on a
+        // `skipReply: true` request; the builder keeps its strict `Planner`
+        // type until its public types widen to replyless candidates.
+        stages.complete(deps.llm) as Stage<LayoutDecision, PlannerCandidate>,
+      ),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

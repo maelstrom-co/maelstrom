@@ -39,7 +39,7 @@ import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
-import type { LayoutStage } from '../stages/stage-types.js';
+import type { LayoutDecision, LayoutStage } from '../stages/stage-types.js';
 
 installMockChat();
 
@@ -108,7 +108,8 @@ function handOffPlanner(deps: JevDeps): Planner {
       selectUngated(deps.ask),
       actionsStepwise(deps.ask),
       handOff,
-      completeLayoutInline(deps.llm),
+      // Replyless only on a `skipReply: true` request, which this test never sends.
+      completeLayoutInline(deps.llm) as Stage<LayoutDecision, PlannerCandidate>,
     ),
     withRetry(deps.fallback, { max: 1 }),
   );

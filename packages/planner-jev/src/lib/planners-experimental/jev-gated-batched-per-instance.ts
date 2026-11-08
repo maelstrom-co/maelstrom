@@ -1,7 +1,9 @@
 import {
   named,
   type Planner,
+  type PlannerCandidate,
   pipeline,
+  type Stage,
   withFallback,
   withRetry,
 } from '@maelstrom-co/engine';
@@ -13,6 +15,7 @@ import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instanc
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { selectGated } from '../stages/select-gated.js';
 import type { JevDeps } from '../stages/stage-deps.js';
+import type { LayoutDecision } from '../stages/stage-types.js';
 
 /**
  * The stage-library planner with gated select, per-instance batched actions, the preset layout and the
@@ -24,7 +27,15 @@ export function buildJevGatedBatchedPerInstancePlanner(deps: JevDeps): Planner {
       named(STAGE_NAME.jevSelect, selectGated(deps.ask)),
       named(STAGE_NAME.jevActions, actionsBatchedPerInstance(deps.ask)),
       named(STAGE_NAME.jevLayout, layoutPreset(deps.ask)),
-      named(STAGE_NAME.llmComplete, completeLayoutInline(deps.llm)),
+      named(
+        STAGE_NAME.llmComplete,
+        // Replyless only on a `skipReply: true` request; the planner keeps its
+        // strict `Planner` type until the builder types widen.
+        completeLayoutInline(deps.llm) as Stage<
+          LayoutDecision,
+          PlannerCandidate
+        >,
+      ),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

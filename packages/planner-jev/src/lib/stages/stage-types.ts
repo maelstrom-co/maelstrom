@@ -1,6 +1,6 @@
 import type {
-  PlannerCandidate,
   PlanningInput,
+  ReplylessCandidate,
   Stage,
 } from '@maelstrom-co/engine';
 import type { TilingNode } from '@maelstrom-co/protocol';
@@ -81,4 +81,4 @@ export interface LayoutDecision {
 export type SelectStage = Stage<PlanningInput, Selection2>;
 export type ActionsStage = Stage<Selection2, ActionPlan2>;
 export type LayoutStage = Stage<ActionPlan2, LayoutDecision>;
-export type CompleteStage = Stage<LayoutDecision, PlannerCandidate>;
+export type CompleteStage = Stage<LayoutDecision, ReplylessCandidate>;

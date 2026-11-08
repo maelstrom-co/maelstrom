@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { PlannerCandidate, ValidateCandidate } from '@maelstrom-co/engine';
-import { err, isOk, MessageId, ok } from '@maelstrom-co/protocol';
+import {
+  type ChartRequest,
+  err,
+  isOk,
+  MessageId,
+  ok,
+} from '@maelstrom-co/protocol';
 
 import {
   acceptAll,
@@ -433,3 +439,93 @@ describe('completeLayoutInline repeated actions', () => {
     expect(dropped).toEqual([]);
   });
 });
+
+describe('completeLayoutInline with skipReply', () => {
+  test('with a tree and no pending slots makes no call and ships no userMessage', async () => {
+    const result = await run(
+      decisionOf(
+        completionPlan(skipping(makeRequest('hide the tasks'), true), {
+          decisions: { 'tasks-main': 'hide' },
+        }),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(plain(result.value)).not.toHaveProperty('userMessage');
+  });
+
+  test('on a hand-off asks for layout.tree without a reply and ships that tree', async () => {
+    const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
+    mockChat.mockResolvedValue({ layout: { tree } });
+    const result = await run(
+      handOff(
+        completionPlan(skipping(makeRequest('hide the tasks'), true), {
+          decisions: { 'tasks-main': 'hide' },
+        }),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'layout',
+    ]);
+    expect(chatCall().systemPrompts.join('\n')).toContain('do not write one');
+    expect(chatPrompt()).toContain('## Layout to write');
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(plain(result.value)).not.toHaveProperty('userMessage');
+    expect(plain(result.value.layout)).toMatchObject({ tree });
+  });
+
+  test('with a tree and a pending slot fills it without asking for a reply', async () => {
+    mockChat.mockResolvedValue({ params: { p0: 'Tokyo' } });
+    const result = await run(
+      decisionOf(
+        completionPlan(
+          skipping(makeRequest('weather for the capital of Japan'), true),
+          { actions: [planned('weather-main/setLocation', {}, [LOCATION])] },
+        ),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'params',
+    ]);
+    expect(chatPrompt()).not.toMatch(/reply/i);
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(plain(result.value)).not.toHaveProperty('userMessage');
+    expect(plain(result.value.executionPlan)).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Tokyo"}',
+      },
+    ]);
+  });
+
+  test('false behaves exactly like an absent flag', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Tokyo' } });
+    const decision = (request: ChartRequest) =>
+      decisionOf(
+        completionPlan(request, {
+          actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+        }),
+      );
+    const absent = await run(decision(makeRequest('weather for Tokyo')));
+    const explicit = await run(
+      decision(skipping(makeRequest('weather for Tokyo'), false)),
+    );
+    expect(plain(explicit)).toEqual(plain(absent));
+    if (!isOk(explicit)) throw new Error(`deferred: ${deferralOf(explicit)}`);
+    expect(explicit.value.userMessage).toBe('ok');
+    expect(Object.keys(chatCall(1).outputSchema.properties ?? {})).toEqual([
+      'userMessage',
+      'params',
+    ]);
+    expect(chatCall(1).outputSchema).toEqual(chatCall(0).outputSchema);
+    expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
+    expect(chatPrompt(1)).toBe(chatPrompt(0));
+  });
+});
+
+function skipping(request: ChartRequest, skipReply: boolean): ChartRequest {
+  return { ...request, skipReply };
+}

@@ -3,12 +3,20 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { named, pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
+import {
+  named,
+  pipeline,
+  type PlannerCandidate,
+  type Stage,
+  withFallback,
+  withRetry,
+} from '@maelstrom-co/engine';
 import {
   actionsStepwise,
   completeLayoutInline,
   FALLBACK_RETRIES,
   type JevCall,
+  type LayoutDecision,
   type LayoutStage,
   layoutPreset,
   STAGE_NAME,
@@ -488,7 +496,14 @@ const handOffArm = (typesafe: TypeSafeSettings): JevArm => ({
         named(STAGE_NAME.jevSelect, selectUngated(jev.ask)),
         named(STAGE_NAME.jevActions, actionsStepwise(jev.ask)),
         named(STAGE_NAME.jevLayout, handOff),
-        named(STAGE_NAME.llmComplete, completeLayoutInline(jev.llm)),
+        named(
+          STAGE_NAME.llmComplete,
+          // Replyless only on a `skipReply: true` request, which no scenario sends.
+          completeLayoutInline(jev.llm) as Stage<
+            LayoutDecision,
+            PlannerCandidate
+          >,
+        ),
       ),
       withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
     );
