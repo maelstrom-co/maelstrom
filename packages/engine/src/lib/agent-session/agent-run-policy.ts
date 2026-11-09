@@ -74,7 +74,7 @@ export interface AgentRunPolicy {
   /**
    * The run's own controller. Pass it to `chat()`. The policy aborts it when
    * the caller's signal aborts, when the deadline passes and when it refuses
-   * a model turn. The adapter wrapper must refuse to call the provider when
+   * a model turn or a retried provider call. The adapter wrapper must refuse to call the provider when
    * its request signal is already aborted, because aborting in `onConfig`
    * does not stop that turn's adapter call.
    */
@@ -96,6 +96,15 @@ export interface AgentRunPolicy {
    * {@link abortController}.
    */
   beforeModelTurn(): Promise<boolean>;
+  /**
+   * Runs before each provider call. The first call of a model turn is
+   * admitted, because {@link beforeModelTurn} already checked it. A later
+   * call in the same turn is a `chat()` retry, which skips `onConfig`, so it
+   * is refused when an ending is latched, the deadline passed or the token
+   * budget is spent or unknown. A refusal latches its ending and aborts
+   * {@link abortController}. A retry never counts a turn.
+   */
+  beforeProviderCall(): boolean;
   /**
    * Decides after a tool phase whether another model turn may start. When
    * the last turn requested no tools the run is completing, so nothing is
@@ -162,6 +171,7 @@ export function createAgentRunPolicy(
   let finishedAt: number | undefined;
   let cancelDeadline: (() => void) | undefined;
   let turnsStarted = 0;
+  let turnCallPending = false;
   let toolCallsAdmitted = 0;
   let toolCallsReserved = 0;
   let reservedTurn = 0;
@@ -273,8 +283,18 @@ export function createAgentRunPolicy(
       if (gate !== undefined) await awaitGate(gate, turn);
       if (ending !== undefined) return refuseTurn();
       turnsStarted = turn;
+      turnCallPending = true;
       requestedThisTurn = new Set();
       return true;
+    },
+    beforeProviderCall() {
+      if (turnCallPending) {
+        turnCallPending = false;
+        return true;
+      }
+      if (ending !== undefined) return refuseTurn();
+      const refusal = elapsedOrTokenRefusal();
+      return refusal === undefined ? true : refuseTurn(refusal);
     },
     shouldStartNextTurn({ requestedTools }) {
       if (ending !== undefined) return false;

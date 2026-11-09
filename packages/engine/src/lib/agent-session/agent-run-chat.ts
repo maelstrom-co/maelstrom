@@ -200,11 +200,12 @@ function startChat(
   calls: ToolCallTracker,
   instrumentation: AgentRunChatInstrumentation,
 ): AsyncIterable<StreamChunk> {
-  const adapter = refusingAbortedCalls(
+  const adapter = admittingProviderCalls(
     withUsage(input.adapter, 'agent', (call) => {
       policy.recordProviderCall(call);
       instrumentation.onProviderCall?.(call);
     }),
+    policy,
   );
   const policyMiddleware = createAgentRunPolicyMiddleware(policy, {
     registry: input.registry,
@@ -531,7 +532,10 @@ function* endingEvents(
   }
 }
 
-function refusingAbortedCalls(adapter: AnyTextAdapter): AnyTextAdapter {
+function admittingProviderCalls(
+  adapter: AnyTextAdapter,
+  policy: AgentRunPolicy,
+): AnyTextAdapter {
   return new Proxy(adapter, {
     get(target, property) {
       const value: unknown = Reflect.get(target, property, target);
@@ -539,7 +543,9 @@ function refusingAbortedCalls(adapter: AnyTextAdapter): AnyTextAdapter {
         return value;
       }
       return (options: TextOptions) =>
-        isAborted(options.request) ? NO_CHUNKS : value.call(target, options);
+        isAborted(options.request) || !policy.beforeProviderCall()
+          ? NO_CHUNKS
+          : value.call(target, options);
     },
   });
 }

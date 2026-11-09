@@ -335,6 +335,47 @@ describe('usage before tools', () => {
   });
 });
 
+describe('provider calls within a turn', () => {
+  test('the first call of a turn is admitted and a retry is refused once the ledger meets the cap', async () => {
+    const run = setup({ budgets: { ...roomyBudgets, maxTokens: 10 } });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+
+    expect(run.policy.beforeProviderCall()).toBe(true);
+    run.policy.recordProviderCall(call({ inputTokens: 8, outputTokens: 4 }));
+
+    expect(run.policy.beforeProviderCall()).toBe(false);
+    expect(run.policy.ending).toEqual({ reason: 'budget', limit: 'tokens' });
+    expect(run.policy.abortController.signal.aborted).toBe(true);
+    expect(run.policy.metrics().metrics.turns).toBe(1);
+  });
+
+  test('a retry under the cap is admitted without counting a turn', async () => {
+    const run = setup({ budgets: { ...roomyBudgets, maxTokens: 10 } });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+
+    expect(run.policy.beforeProviderCall()).toBe(true);
+    run.policy.recordProviderCall(call({ inputTokens: 2, outputTokens: 1 }));
+
+    expect(run.policy.beforeProviderCall()).toBe(true);
+    expect(run.policy.ending).toBeUndefined();
+    expect(run.policy.metrics().metrics.turns).toBe(1);
+  });
+
+  test('a retry past the deadline is refused with the elapsed limit', async () => {
+    const run = setup({ budgets: { ...roomyBudgets, maxElapsedMs: 100 } });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+    expect(run.policy.beforeProviderCall()).toBe(true);
+
+    run.time.advanceWithoutFiring(100);
+
+    expect(run.policy.beforeProviderCall()).toBe(false);
+    expect(run.policy.ending).toEqual({ reason: 'budget', limit: 'elapsed' });
+  });
+});
+
 describe('deadline', () => {
   test('a tool at 99 ms runs and one at the 100 ms deadline is refused', async () => {
     const run = setup({ budgets: { ...roomyBudgets, maxElapsedMs: 100 } });

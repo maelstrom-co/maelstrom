@@ -239,6 +239,64 @@ describe('runAgent on chat()', () => {
     expect(totalOf(finished)).toBe(8);
   });
 
+  test('a rate-limited attempt whose usage reaches the token cap is not retried', async () => {
+    const model = scriptedAdapter([
+      failingTurn({
+        message: 'slow down',
+        usage: usage(8, 4),
+        retryAfterMs: 0,
+      }),
+      textTurn(['Hello.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: orderTools().registry,
+          budgets: { ...testBudgets, maxTokens: 10 },
+          retry: { maxRetries: 1, maxWaitMs: 0 },
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    const finished = lastEvent(events);
+    expect(model.requests).toHaveLength(1);
+    expect(finished).toMatchObject({ reason: 'budget', limit: 'tokens' });
+    expect(finished.metrics.turns).toBe(1);
+    expect(totalOf(finished)).toBe(12);
+  });
+
+  test('a rate-limited attempt under the token cap is retried and completes', async () => {
+    const model = scriptedAdapter([
+      failingTurn({
+        message: 'slow down',
+        usage: usage(2, 1),
+        retryAfterMs: 0,
+      }),
+      textTurn(['Hello.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: orderTools().registry,
+          budgets: { ...testBudgets, maxTokens: 10 },
+          retry: { maxRetries: 1, maxWaitMs: 0 },
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    const finished = lastEvent(events);
+    expect(model.requests).toHaveLength(2);
+    expect(finished).toMatchObject({ reason: 'completed', reply: 'Hello.' });
+    expect(finished.metrics.turns).toBe(1);
+    expect(totalOf(finished)).toBe(8);
+  });
+
   test('a rate-limited attempt without usage does not block tools under a token cap', async () => {
     const model = scriptedAdapter([
       failingTurn({ message: 'slow down', retryAfterMs: 0 }),
