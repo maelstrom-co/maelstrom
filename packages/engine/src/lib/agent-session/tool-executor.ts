@@ -194,8 +194,12 @@ function dispatchByLocus(
 }
 
 function toolFailureSummary(name: string, error: unknown): string {
-  if (error instanceof ToolError && isNonBlank(error.message)) {
-    return error.message;
+  try {
+    if (error instanceof ToolError && isNonBlank(error.message)) {
+      return error.message;
+    }
+  } catch {
+    // A hostile thrown value (revoked Proxy, throwing trap or getter) must not escape the catch path.
   }
   return `${name} failed`;
 }

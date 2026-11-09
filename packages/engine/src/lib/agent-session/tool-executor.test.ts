@@ -350,6 +350,66 @@ describe('failures', () => {
       'SENTINEL',
     );
   });
+
+  test.each([
+    [
+      'a revoked Proxy',
+      () => {
+        const { proxy, revoke } = Proxy.revocable({}, {});
+        revoke();
+        return proxy;
+      },
+    ],
+    [
+      'a Proxy whose getPrototypeOf trap throws',
+      () =>
+        new Proxy(
+          {},
+          {
+            getPrototypeOf() {
+              throw new Error('trap exploded');
+            },
+          },
+        ),
+    ],
+    [
+      'a ToolError-shaped object whose message getter throws',
+      () =>
+        Object.create(ToolError.prototype, {
+          message: {
+            get() {
+              throw new Error('getter exploded');
+            },
+          },
+        }),
+    ],
+  ])(
+    'a tool throwing %s still resolves to "<tool> failed"',
+    async (_label, makeThrown) => {
+      const thrown: unknown = makeThrown();
+      const entry = entryFor({
+        execute: async () => {
+          throw thrown;
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? undefined : result.code).toBe('tool_failed');
+      expect(result.summary).toBe('latest_order failed');
+      expect(result.ok ? undefined : result.cause).toBe(thrown);
+      expect(toModelToolPayload(result)).toEqual({
+        ok: false,
+        error: 'latest_order failed',
+      });
+    },
+  );
 });
 
 describe('cancellation', () => {
