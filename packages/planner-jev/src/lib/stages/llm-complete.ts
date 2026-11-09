@@ -69,7 +69,7 @@ export function llmComplete(
         ? ok<Completion | ReplylessCompletion>({})
         : await callLlm(
             options,
-            buildPrompt(layoutPlan, slots),
+            buildPrompt(layoutPlan, slots, withMessage),
             outputSchema(slots, undefined, { withMessage }),
             input.history,
             ctx,
@@ -147,6 +147,7 @@ export function llmComplete(
 function buildPrompt(
   layoutPlan: JevLayoutPlan,
   slots: readonly Slot[],
+  includeAsks: boolean,
 ): string {
   const { plan } = layoutPlan;
   const { request } = plan.selection.input;
@@ -167,7 +168,7 @@ function buildPrompt(
       'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
       ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
-  if (plan.asks.length > 0 && request.skipReply !== true)
+  if (includeAsks && plan.asks.length > 0)
     lines.push(
       '',
       '## Ask the user',

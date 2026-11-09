@@ -81,7 +81,12 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
         ? ok<Completion | ReplylessCompletion>({})
         : await callLlm(
             llm,
-            buildPrompt(decision, slots, handOff ? visible : undefined),
+            buildPrompt(
+              decision,
+              slots,
+              handOff ? visible : undefined,
+              withMessage,
+            ),
             outputSchema(slots, handOff ? { layout: LAYOUT_SCHEMA } : {}, {
               withMessage,
             }),
@@ -306,16 +311,12 @@ function buildPrompt(
   decision: LayoutDecision,
   slots: readonly Slot[],
   handOffInstances: readonly VesselInstanceSnapshot[] | undefined,
+  includeAsks: boolean,
 ): string {
   const label = handOffInstances
     ? 'you write it, see Layout to write'
     : layoutLabel(decision);
-  const base = buildMessagePrompt(
-    decision,
-    slots,
-    label,
-    decision.plan.selection.input.request.skipReply !== true,
-  );
+  const base = buildMessagePrompt(decision, slots, label, includeAsks);
   return handOffInstances
     ? [base, '', ...layoutSection(decision, handOffInstances)].join('\n')
     : base;
