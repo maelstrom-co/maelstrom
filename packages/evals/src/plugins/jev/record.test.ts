@@ -43,13 +43,25 @@ describe('nothingToFill', () => {
         { stage: 'jevSelect', ms: 1, outcome: 'ok' },
         { stage: 'jevActions', ms: 1, outcome: 'ok' },
         { stage: 'jevLayout', ms: 1, outcome: 'ok' },
-        { ...completion, outcome: 'error', errorTag: 'ValidationError' },
+        completion,
       ],
     } as const;
     expect(nothingToFill(record(composed))).toBe(true);
     expect(
       nothingToFill(record({ ...composed, llmCalls: [completeCall] })),
     ).toBe(false);
+  });
+
+  test('leaves out a turn whose completion stage ended in error', () => {
+    expect(
+      nothingToFill(
+        record({
+          stages: [
+            { ...completion, outcome: 'error', errorTag: 'ValidationError' },
+          ],
+        }),
+      ),
+    ).toBe(undefined);
   });
 
   test('leaves out a turn without skipReply', () => {

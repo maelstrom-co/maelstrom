@@ -184,6 +184,20 @@ describe('the skipReply nothing-to-fill rate', () => {
       arm: 'jev-composed-pairs-screen-scope',
       kind: 'jev',
       skipReply: true,
+      stages: [completion],
+    }),
+    record({
+      scenarioId: 'composed-errored',
+      arm: 'jev-composed-pairs-screen-scope',
+      kind: 'jev',
+      skipReply: true,
+      stages: [
+        { ...completion, outcome: 'error', errorTag: 'ValidationError' },
+      ],
+    }),
+    record({
+      scenarioId: 'errored',
+      skipReply: true,
       stages: [
         { ...completion, outcome: 'error', errorTag: 'ValidationError' },
       ],
@@ -196,7 +210,7 @@ describe('the skipReply nothing-to-fill rate', () => {
     record({ scenarioId: 'replying', stages: [completion] }),
   ];
 
-  test('counts loop-driven turns whose completion stage made no call', () => {
+  test('counts loop-driven turns whose completion stage made no call, leaving out errored stages', () => {
     expect(jevOf(records)?.skipReplyNothingToFill).toEqual({
       count: 1,
       total: 2,
