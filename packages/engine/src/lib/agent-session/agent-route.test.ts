@@ -994,6 +994,7 @@ describe('agent route through the Engine handle', () => {
           plannerCalls += 1;
           return Promise.resolve(
             ok({
+              type: 'plan',
               userMessage: 'Your calendar is visible.',
               rationale: '',
               executionPlan: [],
