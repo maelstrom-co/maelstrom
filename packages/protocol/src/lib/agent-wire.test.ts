@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ActionName } from './action-name.js';
-import { ChangeId, RunId } from './agent-ids.js';
+import { CallId, ChangeId, RunId } from './agent-ids.js';
 import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
@@ -134,6 +134,29 @@ const eventFixtures: {
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('change-1'),
     error: 'unknown changeId',
+  },
+  started: {
+    type: 'started',
+    version: AGENT_WIRE_VERSION,
+    runId: RunId('run-1'),
+  },
+  tool_call: {
+    type: 'tool_call',
+    version: AGENT_WIRE_VERSION,
+    runId: RunId('run-1'),
+    turnId: 'turn-1',
+    callId: CallId('call-1'),
+    name: 'find_vessel',
+  },
+  tool_result: {
+    type: 'tool_result',
+    version: AGENT_WIRE_VERSION,
+    runId: RunId('run-1'),
+    turnId: 'turn-1',
+    callId: CallId('call-1'),
+    name: 'find_vessel',
+    ok: true,
+    summary: 'Found 2 vessels',
   },
 };
 
@@ -360,6 +383,70 @@ describe('AgentEvent round-trip', () => {
       };
       expect(roundTrip(AgentEventSchema, value)).toEqual(value);
     }
+  });
+
+  test('tool_call and tool_result reject an empty or whitespace callId and an empty turnId or name', () => {
+    for (const fixture of [
+      eventFixtures.tool_call,
+      eventFixtures.tool_result,
+    ]) {
+      for (const [field, bad] of [
+        ['callId', ''],
+        ['callId', '  '],
+        ['turnId', ''],
+        ['name', ''],
+      ] as const) {
+        const result = AgentEventSchema.safeParse({ ...fixture, [field]: bad });
+        expect(result.success).toBe(false);
+        if (!result.success)
+          expect(result.error.issues[0]?.path).toEqual([field]);
+      }
+    }
+  });
+
+  test('tool_result round-trips with ok true and ok false', () => {
+    for (const ok of [true, false]) {
+      const value = { ...eventFixtures.tool_result, ok };
+      expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+    }
+  });
+
+  test('tool_result rejects an empty summary and a summary over 200 characters', () => {
+    for (const summary of ['', 'a'.repeat(201)]) {
+      const result = AgentEventSchema.safeParse({
+        ...eventFixtures.tool_result,
+        summary,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success)
+        expect(result.error.issues[0]?.path).toEqual(['summary']);
+    }
+    const atLimit = { ...eventFixtures.tool_result, summary: 'a'.repeat(200) };
+    expect(roundTrip(AgentEventSchema, atLimit)).toEqual(atLimit);
+  });
+
+  test('tool_call carries no arguments and strips a supplied args field', () => {
+    expect(roundTrip(AgentEventSchema, eventFixtures.tool_call)).toEqual(
+      eventFixtures.tool_call,
+    );
+    const result = AgentEventSchema.safeParse({
+      ...eventFixtures.tool_call,
+      args: { query: 'calendar' },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(eventFixtures.tool_call);
+  });
+
+  test('finished with reason budget still decodes unchanged under version 1', () => {
+    expect(AGENT_WIRE_VERSION).toBe(1);
+    const value = {
+      ...eventFixtures.finished,
+      ok: false,
+      reason: 'budget',
+      error: 'turn budget exhausted',
+      code: 'budget_exhausted',
+    };
+    expect(roundTrip(AgentEventSchema, value)).toEqual(value);
   });
 
   test('rejects negative or fractional metrics', () => {
