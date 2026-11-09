@@ -110,6 +110,34 @@ test('an untyped caller without summarize is rejected', () => {
   );
 });
 
+test.each([
+  ['missing', undefined],
+  ['non-function', 'run'],
+])('an untyped caller with %s execute is rejected', (_label, execute) => {
+  const untyped = { ...echoTool, execute } as unknown as ServerTool<
+    { text: string },
+    { text: string }
+  >;
+  expect(() => createToolRegistry([untyped])).toThrow(
+    'Server tool "echo" must define execute',
+  );
+});
+
+test.each([
+  ['input', undefined],
+  ['input', { parse: () => ({}) }],
+  ['output', undefined],
+  ['output', { safeParseAsync: 'yes' }],
+])('an untyped caller with %s %p is rejected', (field, schema) => {
+  const untyped = { ...echoTool, [field]: schema } as unknown as ServerTool<
+    { text: string },
+    { text: string }
+  >;
+  expect(() => createToolRegistry([untyped])).toThrow(
+    `Server tool "echo" must define ${field} as a schema with safeParseAsync`,
+  );
+});
+
 test('serverTool without summarize fails typecheck', () => {
   const declare = () =>
     // @ts-expect-error summarize is required

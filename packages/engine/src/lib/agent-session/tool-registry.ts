@@ -50,8 +50,10 @@ export interface ToolRegistry {
 /**
  * Builds a registry from tool declarations.
  * @throws When a name is not a string, is duplicated or does not match
- * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` is missing, or when `locus`,
- * `sideEffect` or `approval` (after defaults) is not an allowed value.
+ * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` or `execute` is not a function,
+ * when `input` or `output` is not a schema with a `safeParseAsync` function,
+ * or when `locus`, `sideEffect` or `approval` (after defaults) is not an
+ * allowed value.
  */
 export function createToolRegistry(
   tools: readonly RegistrableServerTool[],
@@ -74,6 +76,11 @@ export function createToolRegistry(
     if (typeof tool.summarize !== 'function') {
       throw new Error(`Server tool "${tool.name}" must define summarize`);
     }
+    if (typeof tool.execute !== 'function') {
+      throw new Error(`Server tool "${tool.name}" must define execute`);
+    }
+    assertSchema(tool.name, 'input', tool.input);
+    assertSchema(tool.name, 'output', tool.output);
     byName.set(tool.name, {
       tool,
       locus: allowedValue(tool.name, 'locus', tool.locus, TOOL_LOCI),
@@ -110,4 +117,17 @@ function allowedValue<T extends string>(
     );
   }
   return value as T;
+}
+
+function assertSchema(toolName: string, field: string, schema: unknown): void {
+  if (
+    typeof schema !== 'object' ||
+    schema === null ||
+    typeof (schema as { safeParseAsync?: unknown }).safeParseAsync !==
+      'function'
+  ) {
+    throw new Error(
+      `Server tool "${toolName}" must define ${field} as a schema with safeParseAsync`,
+    );
+  }
 }
