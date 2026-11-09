@@ -6,10 +6,22 @@ export type {
   NormalizedActionParameterEnumValue,
 } from './lib/action-parameter-enum.js';
 export { buildActionParameterEnumSnapshot } from './lib/action-parameter-enum.js';
+// Agent Session
 export type {
+  AgentBudgetResolver,
+  AgentConfig,
   AgentConnection,
+  AgentModelFactory,
+  AgentRunBudgets,
+  AgentRunContext,
   OpenConnectionOptions,
+  ServerTool,
+  ServerToolContext,
+  ToolApproval,
+  ToolLocus,
+  ToolSideEffect,
 } from './lib/agent-session/index.js';
+export { serverTool, ToolError } from './lib/agent-session/index.js';
 // Config
 export type { EngineConfig } from './lib/config.js';
 export { resolveConfig } from './lib/config.js';

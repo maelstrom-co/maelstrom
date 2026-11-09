@@ -66,13 +66,32 @@ export type ServerToolDefinition<Input, Output> = Omit<
  * model and the user. Any other thrown error is replaced by a generic message.
  */
 export class ToolError extends Error {
+  /** @param message User-safe text the model and the user see as the failed call's summary. */
   constructor(message: string) {
     super(message);
     this.name = 'ToolError';
   }
 }
 
-/** Declares a Server Tool, inferring input and output types and applying defaults. */
+/**
+ * Declares a Server Tool, inferring input and output types and applying
+ * defaults: `locus` `server`, `sideEffect` `non_idempotent` and `approval`
+ * `never`. Register it through the `tools` field of the Engine `agent`
+ * config.
+ *
+ * @example
+ * ```ts
+ * const latestOrder = serverTool({
+ *   name: 'latest_order',
+ *   description: 'Returns the latest order of the signed-in user',
+ *   input: z.object({}),
+ *   output: z.object({ orderId: z.string() }),
+ *   sideEffect: 'read_only',
+ *   execute: (_input, ctx) => orders.latestFor(ctx.user, ctx.signal),
+ *   summarize: (order) => `Order ${order.orderId}`,
+ * });
+ * ```
+ */
 export function serverTool<Input, Output>(
   definition: ServerToolDefinition<Input, Output>,
 ): ServerTool<Input, Output> {
