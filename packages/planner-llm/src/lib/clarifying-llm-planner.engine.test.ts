@@ -120,7 +120,7 @@ const validClarificationPartials = {
   },
   tiling: {
     layout: {
-      tree: ['ID:calendar-main'],
+      tree: ['V', 'ID:calendar-main', null],
       instances: [
         { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
       ],

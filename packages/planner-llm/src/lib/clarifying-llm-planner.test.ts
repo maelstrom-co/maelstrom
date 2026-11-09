@@ -85,6 +85,19 @@ const replylessOutputs = {
   },
 } as const;
 
+const changedLayouts = {
+  grid: {
+    positions: [
+      {
+        instanceId: 'calendar-main',
+        position: { row: 2, column: 3 },
+        size: { width: 6, height: 4 },
+      },
+    ],
+  },
+  tiling: replylessOutputs.tiling.layout,
+} as const;
+
 const partialExecutionPlan = [
   {
     instanceId: 'calendar-main',
@@ -174,9 +187,10 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
     expect(result.value).not.toHaveProperty('clarification');
   });
 
-  test('with skipReply returns needs-clarification when the model asks a question', async () => {
+  test('with skipReply returns needs-clarification with the changed layout when the model asks a question', async () => {
     mockChat.mockResolvedValueOnce({
       ...replylessOutputs[mode],
+      layout: changedLayouts[mode],
       executionPlan: [],
       clarification: {
         question: 'Which calendar?',
@@ -192,8 +206,54 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
       type: 'needs_clarification',
       question: 'Which calendar?',
       options: ['Work', 'Personal'],
-      layout: replylessOutputs[mode].layout,
+      layout: changedLayouts[mode],
       executionPlan: [],
+    });
+  });
+
+  test('with skipReply drops the partial changes from a clarification that changes nothing', async () => {
+    const { type: _type, ...currentLayout } = requestFor(mode).layout;
+    mockChat.mockResolvedValueOnce({
+      ...replylessOutputs[mode],
+      layout: currentLayout,
+      executionPlan: [],
+      clarification: {
+        question: 'Which calendar?',
+        options: ['Work', 'Personal'],
+      },
+    });
+
+    const result = await runWithSkipReply(mode);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect<unknown>(result.value).toEqual({
+      type: 'needs_clarification',
+      question: 'Which calendar?',
+      options: ['Work', 'Personal'],
+    });
+    expect(result.value).not.toHaveProperty('layout');
+    expect(result.value).not.toHaveProperty('executionPlan');
+  });
+
+  test('with skipReply keeps the current layout on a clarification that plans Actions', async () => {
+    const { type: _type, ...currentLayout } = requestFor(mode).layout;
+    mockChat.mockResolvedValueOnce({
+      ...replylessOutputs[mode],
+      layout: currentLayout,
+      executionPlan: partialExecutionPlan,
+      clarification: { question: 'Which week should it show?' },
+    });
+
+    const result = await runWithSkipReply(mode);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect<unknown>(result.value).toEqual({
+      type: 'needs_clarification',
+      question: 'Which week should it show?',
+      layout: currentLayout,
+      executionPlan: partialExecutionPlan,
     });
   });
 

@@ -44,6 +44,7 @@ import { buildRetryPrompt } from './retry-prompt.js';
 import {
   skipReplyOutputSchemaFor,
   toPlannerOutput,
+  withoutUnchangedPartials,
 } from './skip-reply-output.js';
 import { validateLlmPlannerOptions } from './validate-options.js';
 
@@ -149,9 +150,15 @@ export function llmPlanner(
  * clarification is returned as a plan tagged `type: 'plan'` with no
  * `userMessage` key. Output with one is returned as a `NeedsClarification`
  * whose `layout` and `executionPlan` are the partial changes the model filled
- * for the parts of the request that are already clear. A request the planner
- * cannot fulfil comes back as a clarification that names the gap and offers
- * the closest supported options.
+ * for the parts of the request that are already clear. When the model
+ * returns an empty `executionPlan` and the request's current layout, the
+ * clarification carries neither. A request the planner cannot fulfil comes
+ * back as a clarification that names the gap and offers the closest
+ * supported options.
+ *
+ * Clarification partial changes are not validated on the `withRetry` path:
+ * `withRetry` returns a clarification without validating or retrying it. The
+ * Engine validates them when it handles the request.
  *
  * The user prompt, hints, enum snapshot reuse, retry prompt, instrumentation
  * and error mapping are those of {@link llmPlanner}; on a retry the system
@@ -187,7 +194,8 @@ export function clarifyingLlmPlanner(
       return send(
         replylessSystemPrompts[mode],
         skipReplyOutputSchemaFor(mode),
-        toPlannerOutput,
+        (parsed) =>
+          withoutUnchangedPartials(toPlannerOutput(parsed), request.layout),
       );
     };
   });

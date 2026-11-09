@@ -1,7 +1,9 @@
 import type {
+  GridLayout,
   GridResponseWithoutReply,
   LayoutMode,
   NeedsClarification,
+  TilingLayout,
   TilingResponseWithoutReply,
 } from '@maelstrom-co/protocol';
 import {
@@ -117,4 +119,86 @@ export function toPlannerOutput(
     layout: plan.layout,
     executionPlan: plan.executionPlan,
   };
+}
+
+/**
+ * Drops the partial changes from a {@link NeedsClarification} that would
+ * change nothing: its `executionPlan` is empty and its `layout` is the
+ * request's current layout. Such a clarification comes back with neither
+ * `layout` nor `executionPlan`, which means the screen stays as it is. A
+ * clarification whose layout or Actions differ, and any plan result, is
+ * returned as it is.
+ *
+ * Layouts match when they list the same grid positions, or the same tiling
+ * tree tokens and instances, in the same order. A reordered or respelled
+ * layout counts as a change.
+ *
+ * @param output - Planner result mapped by {@link toPlannerOutput}.
+ * @param currentLayout - The request's current layout.
+ */
+export function withoutUnchangedPartials<
+  Output extends
+    | GridResponseWithoutReply
+    | TilingResponseWithoutReply
+    | NeedsClarification,
+>(output: Output, currentLayout: GridLayout | TilingLayout): Output {
+  if (output.type !== 'needs_clarification') return output;
+  const { layout, executionPlan, ...question } = output;
+  if (
+    executionPlan === undefined ||
+    executionPlan.length > 0 ||
+    layout === undefined ||
+    !isCurrentLayout(layout, currentLayout)
+  ) {
+    return output;
+  }
+  return question as Output;
+}
+
+type ClarificationLayout = NonNullable<NeedsClarification['layout']>;
+
+function isCurrentLayout(
+  layout: ClarificationLayout,
+  currentLayout: GridLayout | TilingLayout,
+): boolean {
+  if (currentLayout.type === 'grid') {
+    return (
+      'positions' in layout &&
+      sameItems(
+        layout.positions,
+        currentLayout.positions,
+        (position, current) =>
+          position.instanceId === current.instanceId &&
+          position.position.row === current.position.row &&
+          position.position.column === current.position.column &&
+          position.size.width === current.size.width &&
+          position.size.height === current.size.height,
+      )
+    );
+  }
+  return (
+    'tree' in layout &&
+    sameItems(layout.tree, currentLayout.tree, Object.is) &&
+    sameItems(
+      layout.instances,
+      currentLayout.instances,
+      (instance, current) =>
+        instance.instanceId === current.instanceId &&
+        instance.vesselId === current.vesselId &&
+        instance.variant === current.variant,
+    )
+  );
+}
+
+function sameItems<Item, CurrentItem>(
+  items: readonly Item[],
+  currentItems: readonly CurrentItem[],
+  matches: (item: Item, current: CurrentItem) => boolean,
+): boolean {
+  return (
+    items.length === currentItems.length &&
+    items.every((item, index) =>
+      matches(item, currentItems[index] as CurrentItem),
+    )
+  );
 }

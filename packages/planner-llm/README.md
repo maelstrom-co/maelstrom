@@ -90,6 +90,8 @@ See the [system prompt guide](https://docs.maelstrom-ai.co/guides/engine/system-
 
 When `request.skipReply` is `true`, the prompt and the output schema leave out `userMessage`, so the plan comes back without a reply. The model may also return a `NeedsClarification` result with a question and options instead of a plan. A capability the planner cannot support becomes a clarification that names the gap. Compose it with `withRetry` and the engine validator accepts both outcomes.
 
+A clarification may carry `layout` and `executionPlan` as partial changes for the parts of the request that are already clear. When the model returns an empty `executionPlan` and the request's current layout, the planner drops both, so the clarification leaves the screen unchanged. Clarification partial changes are not validated on the `withRetry` path, because `withRetry` returns a clarification without validating or retrying it. The Engine validates them when it handles the request.
+
 `Engine.handle` still refuses replyless outcomes on the `chart_response` path, so use `skipReply` only with a caller that supplies its own reply.
 
 ```ts
