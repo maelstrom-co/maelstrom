@@ -18,7 +18,8 @@ export function toolCallRef(runId: RunId, callId: CallId): ToolCallRef {
 /**
  * The in-memory record of what an Agent Session emitted, rendered into the
  * prior messages of each later run. It keeps tool summaries only, never full
- * tool results, and accepts no identity.
+ * tool results, and accepts no identity. It keeps only the most recent runs
+ * that fit its character bound, see {@link TranscriptOptions.maxChars}.
  */
 export interface Transcript {
   /** Records the utterance that started a run. */
@@ -30,9 +31,19 @@ export interface Transcript {
    */
   recordMessage(runId: RunId, turnId: string, text: string): void;
   /** Records a tool call the model requested, with the arguments it sent. */
-  recordToolCall(ref: ToolCallRef, name: string, args: unknown): void;
+  recordToolCall(
+    runId: RunId,
+    callId: CallId,
+    name: string,
+    args: unknown,
+  ): void;
   /** Records how a tool call settled, by its user-safe summary. */
-  recordToolResult(ref: ToolCallRef, ok: boolean, summary: string): void;
+  recordToolResult(
+    runId: RunId,
+    callId: CallId,
+    ok: boolean,
+    summary: string,
+  ): void;
   /** Records the closing message a run sent when a budget ran out. */
   recordClosingMessage(runId: RunId, text: string): void;
   /**
@@ -42,7 +53,7 @@ export interface Transcript {
    */
   recordEnding(runId: RunId, finished: AgentRunFinished): void;
   /**
-   * Renders everything recorded so far, oldest first. User inputs become
+   * Renders every retained entry, oldest first. User inputs become
    * `user` messages. Reply text, tool calls, tool summaries, closing messages
    * and abnormal endings become `assistant` content, with consecutive
    * entries of the same role joined by newlines into one message.
@@ -50,14 +61,56 @@ export interface Transcript {
   renderPriorMessages(): ModelMessage<string>[];
 }
 
+/**
+ * Default most rendered characters a {@link Transcript} keeps before evicting
+ * its oldest runs.
+ */
+export const TRANSCRIPT_MAX_CHARS = 64_000;
+
+/** Options of {@link createTranscript}. */
+export interface TranscriptOptions {
+  /**
+   * Most rendered characters to keep across all recorded runs. When the total
+   * exceeds it, whole runs leave oldest first, so a run's input, replies,
+   * tool calls, tool results and ending always leave together. The newest
+   * run is always kept, even when it alone exceeds the bound. Defaults to
+   * {@link TRANSCRIPT_MAX_CHARS}.
+   */
+  readonly maxChars?: number;
+}
+
 /** Creates an empty {@link Transcript}. */
-export function createTranscript(): Transcript {
+export function createTranscript({
+  maxChars = TRANSCRIPT_MAX_CHARS,
+}: TranscriptOptions = {}): Transcript {
   const entries: TranscriptEntry[] = [];
   const runsWithReplyText = new Set<RunId>();
+  let totalChars = 0;
+
+  const append = (entry: TranscriptEntry) => {
+    entries.push(entry);
+    totalChars += renderEntry(entry).length;
+    evictOldestRuns();
+  };
+
+  const evictOldestRuns = () => {
+    const newestRunId = entries.at(-1)?.runId;
+    while (totalChars > maxChars) {
+      const oldestRunId = entries[0]?.runId;
+      if (oldestRunId === undefined || oldestRunId === newestRunId) return;
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        if (entry?.runId !== oldestRunId) continue;
+        totalChars -= renderEntry(entry).length;
+        entries.splice(index, 1);
+      }
+      runsWithReplyText.delete(oldestRunId);
+    }
+  };
 
   return {
     recordUserInput(runId, text) {
-      entries.push({ kind: 'user_input', runId, text });
+      append({ kind: 'user_input', runId, text });
     },
     recordMessage(runId, turnId, text) {
       if (text.length === 0) return;
@@ -65,23 +118,32 @@ export function createTranscript(): Transcript {
       const last = entries.at(-1);
       if (last?.kind === 'reply_text' && last.turnId === turnId) {
         last.text += text;
+        totalChars += text.length;
+        evictOldestRuns();
         return;
       }
-      entries.push({ kind: 'reply_text', runId, turnId, text });
+      append({ kind: 'reply_text', runId, turnId, text });
     },
-    recordToolCall(ref, name, args) {
-      entries.push({
+    recordToolCall(runId, callId, name, args) {
+      append({
         kind: 'tool_call',
-        ref,
+        runId,
+        ref: toolCallRef(runId, callId),
         name,
         args: serializeToolArguments(args),
       });
     },
-    recordToolResult(ref, ok, summary) {
-      entries.push({ kind: 'tool_result', ref, ok, summary });
+    recordToolResult(runId, callId, ok, summary) {
+      append({
+        kind: 'tool_result',
+        runId,
+        ref: toolCallRef(runId, callId),
+        ok,
+        summary,
+      });
     },
     recordClosingMessage(runId, text) {
-      entries.push({ kind: 'closing_message', runId, text });
+      append({ kind: 'closing_message', runId, text });
     },
     recordEnding(runId, finished) {
       const line = describeEnding(
@@ -89,7 +151,7 @@ export function createTranscript(): Transcript {
         finished,
         runsWithReplyText.has(runId),
       );
-      if (line !== undefined) entries.push({ kind: 'ending', line });
+      if (line !== undefined) append({ kind: 'ending', runId, line });
     },
     renderPriorMessages() {
       const messages: ModelMessage<string>[] = [];
@@ -122,12 +184,14 @@ type TranscriptEntry =
     }
   | {
       readonly kind: 'tool_call';
+      readonly runId: RunId;
       readonly ref: ToolCallRef;
       readonly name: string;
       readonly args: string;
     }
   | {
       readonly kind: 'tool_result';
+      readonly runId: RunId;
       readonly ref: ToolCallRef;
       readonly ok: boolean;
       readonly summary: string;
@@ -137,7 +201,11 @@ type TranscriptEntry =
       readonly runId: RunId;
       readonly text: string;
     }
-  | { readonly kind: 'ending'; readonly line: string };
+  | {
+      readonly kind: 'ending';
+      readonly runId: RunId;
+      readonly line: string;
+    };
 
 function renderEntry(entry: TranscriptEntry): string {
   switch (entry.kind) {

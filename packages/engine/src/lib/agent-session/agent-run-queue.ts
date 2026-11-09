@@ -38,7 +38,7 @@ import {
 } from './tool-result-store.js';
 import {
   createTranscript,
-  toolCallRef,
+  TRANSCRIPT_MAX_CHARS,
   type Transcript,
 } from './transcript.js';
 
@@ -64,7 +64,10 @@ export interface AgentRunQueueOptions {
   readonly clock: () => number;
   /** Schedules a callback and returns a function that cancels it. */
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
-  /** Session transcript later runs build on. Defaults to a new one. */
+  /**
+   * Session transcript later runs build on. Defaults to a new one bounded by
+   * {@link TRANSCRIPT_MAX_CHARS}.
+   */
   readonly transcript?: Transcript;
   /** Session store of full tool results. Defaults to a new one. */
   readonly toolResults?: ToolResultStore;
@@ -97,7 +100,7 @@ export function createAgentRunQueue({
   logger,
   clock,
   scheduleTimeout,
-  transcript = createTranscript(),
+  transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS }),
   toolResults = createToolResultStore(),
   startRun = runAgent,
 }: AgentRunQueueOptions): AgentRunQueue {
@@ -154,11 +157,7 @@ export function createAgentRunQueue({
         });
         return;
       case 'tool_call':
-        transcript.recordToolCall(
-          toolCallRef(runId, event.callId),
-          event.name,
-          event.args,
-        );
+        transcript.recordToolCall(runId, event.callId, event.name, event.args);
         events.emit({
           type: 'tool_call',
           version: AGENT_WIRE_VERSION,
@@ -170,7 +169,8 @@ export function createAgentRunQueue({
         return;
       case 'tool_result':
         transcript.recordToolResult(
-          toolCallRef(runId, event.callId),
+          runId,
+          event.callId,
           event.ok,
           event.summary,
         );
