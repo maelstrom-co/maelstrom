@@ -120,7 +120,7 @@ export function validateToolResultEnvelope(
   entry: ToolRegistryEntry,
   value: unknown,
 ): ToolResultEnvelopeValidation {
-  const envelope = ToolResultEnvelopeSchema.safeParse(value);
+  const envelope = safeParseNeverThrowing(ToolResultEnvelopeSchema, value);
   if (!envelope.success) {
     return { valid: false, reason: 'not a tool result envelope' };
   }
@@ -205,10 +205,10 @@ function safeSummary(entry: ToolRegistryEntry, output: unknown): string {
     : `${entry.tool.name} succeeded`;
 }
 
-function safeParseNeverThrowing(
-  schema: z.ZodType<unknown>,
+function safeParseNeverThrowing<Output>(
+  schema: z.ZodType<Output>,
   value: unknown,
-): { success: true; data: unknown } | { success: false; error: unknown } {
+): { success: true; data: Output } | { success: false; error: unknown } {
   try {
     return schema.safeParse(value);
   } catch (error) {

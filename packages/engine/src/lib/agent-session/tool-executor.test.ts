@@ -386,6 +386,56 @@ describe('validateToolResultEnvelope', () => {
     ).toEqual({ valid: false, reason: expect.any(String) });
   });
 
+  describe('rejects instead of throwing when reading the value throws', () => {
+    const notAnEnvelope = {
+      valid: false,
+      reason: 'not a tool result envelope',
+    } as const;
+
+    test('a getter on ok throws', () => {
+      const value = {
+        get ok(): boolean {
+          throw new Error('ok getter failed');
+        },
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      };
+      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+    });
+
+    test('a getter on summary throws', () => {
+      const value = {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        get summary(): string {
+          throw new Error('summary getter failed');
+        },
+      };
+      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+    });
+
+    test('a Proxy whose get trap throws', () => {
+      const value = new Proxy(
+        { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
+        {
+          get() {
+            throw new Error('get trap failed');
+          },
+        },
+      );
+      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+    });
+
+    test('a revoked Proxy', () => {
+      const { proxy, revoke } = Proxy.revocable(
+        { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
+        {},
+      );
+      revoke();
+      expect(validateToolResultEnvelope(entry, proxy)).toEqual(notAnEnvelope);
+    });
+  });
+
   test('rejects an envelope whose summary is whitespace-only', () => {
     expect(
       validateToolResultEnvelope(entry, {
