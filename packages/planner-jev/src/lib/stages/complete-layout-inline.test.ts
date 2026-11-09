@@ -121,6 +121,7 @@ describe('completeLayoutInline', () => {
     expect(chatPrompt()).not.toContain('ID:tasks-main (');
     if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
     expect(plain(result.value.layout)).toMatchObject({ tree });
+    expect(result.value.type).toBe('plan');
     expect(result.value.rationale).toContain('Layout: written by the LLM');
   });
 

@@ -79,6 +79,7 @@ export function llmComplete(
     if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
     const candidate: PlannerCandidate = {
+      type: 'plan',
       userMessage: completion.value.userMessage,
       rationale: rationale(layoutPlan),
       executionPlan: declared.value.actions.map((action) => {

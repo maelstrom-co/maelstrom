@@ -153,6 +153,7 @@ export function fallbackCandidate(
   }: { readonly tree?: readonly string[]; readonly userMessage?: string } = {},
 ): PlannerCandidate {
   return {
+    type: 'plan',
     userMessage,
     rationale: 'fallback',
     executionPlan: [],
