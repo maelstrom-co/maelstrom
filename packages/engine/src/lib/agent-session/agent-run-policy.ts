@@ -94,7 +94,8 @@ export interface AgentRunPolicy {
   /**
    * Runs before each model turn. Refuses a turn past `maxTurns`, a passed
    * deadline and a spent or unknown token budget, then awaits the gate
-   * raced against the signal and the deadline. Resolves `true` when the turn
+   * raced against the signal and the deadline and checks the deadline and
+   * token budget again once it settles. Resolves `true` when the turn
    * may start and counts it, `false` after latching an ending and aborting
    * {@link abortController}.
    */
@@ -291,8 +292,12 @@ export function createAgentRunPolicy(
       const refusal =
         turn > budgets.maxTurns ? turnsExhausted() : elapsedOrTokenRefusal();
       if (refusal !== undefined) return refuseTurn(refusal);
-      if (gate !== undefined) await awaitGate(gate, turn);
-      if (ending !== undefined) return refuseTurn();
+      if (gate !== undefined) {
+        await awaitGate(gate, turn);
+        if (ending !== undefined) return refuseTurn();
+        const gatedRefusal = elapsedOrTokenRefusal();
+        if (gatedRefusal !== undefined) return refuseTurn(gatedRefusal);
+      }
       turnsStarted = turn;
       turnCallPending = true;
       requestedThisTurn = new Set();

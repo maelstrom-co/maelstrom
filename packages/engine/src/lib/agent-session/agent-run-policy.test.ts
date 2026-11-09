@@ -487,6 +487,24 @@ describe('gate', () => {
     expect(run.policy.metrics().metrics.turns).toBe(0);
   });
 
+  test('a gate settling past the deadline before the timer runs refuses the turn', async () => {
+    const gateOpened = defer<void>();
+    const run = setup({
+      budgets: { ...roomyBudgets, maxElapsedMs: 100 },
+      gate: () => gateOpened.promise,
+    });
+    run.policy.start();
+
+    const turnStarted = run.policy.beforeModelTurn();
+    run.time.advanceWithoutFiring(100);
+    gateOpened.resolve();
+
+    expect(await turnStarted).toBe(false);
+    expect(run.policy.ending).toEqual({ reason: 'budget', limit: 'elapsed' });
+    expect(run.policy.metrics().metrics.turns).toBe(0);
+    expect(run.policy.abortController.signal.aborted).toBe(true);
+  });
+
   test('an abort while gated ends the run cancelled', async () => {
     const caller = new AbortController();
     const run = setup({
