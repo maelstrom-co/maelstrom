@@ -25,6 +25,7 @@ export const localPlanner: Planner = async ({ request }) => {
       tree[0] =
         `${request.context.chartDimensions.columns < 8 ? 'H' : 'V'}${root.slice(1)}` as typeof root;
     return ok({
+      type: 'plan',
       userMessage,
       rationale:
         'Resize retains the current components, views, and proportions.',
@@ -62,6 +63,7 @@ export const localPlanner: Planner = async ({ request }) => {
     expanded,
   );
   return ok({
+    type: 'plan',
     userMessage,
     rationale:
       'The local walkthrough uses predefined requests and application-owned components.',

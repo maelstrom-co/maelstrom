@@ -7,8 +7,10 @@ import { InstanceId } from './instance.js';
 import {
   ChartRequestSchema,
   ChartResizeReasonSchema,
+  GridModelOutputSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
+  TilingModelOutputSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
   UpdateReasonSchema,
@@ -43,14 +45,21 @@ const tilingPayload = (layout: unknown) => ({
   layout,
 });
 
-describe('GridResponseSchema', () => {
+const planned = <T extends object>(payload: T) => ({
+  type: 'plan' as const,
+  ...payload,
+});
+
+describe('GridModelOutputSchema', () => {
   test('accepts a minimal valid payload', () => {
-    const result = GridResponseSchema.safeParse(gridPayload({ positions: [] }));
+    const result = GridModelOutputSchema.safeParse(
+      gridPayload({ positions: [] }),
+    );
     expect(result.success).toBe(true);
   });
 
   test('accepts positions with instanceId, position, and size', () => {
-    const result = GridResponseSchema.safeParse(
+    const result = GridModelOutputSchema.safeParse(
       gridPayload({
         positions: [
           {
@@ -65,7 +74,7 @@ describe('GridResponseSchema', () => {
   });
 
   test('rejects missing top-level fields', () => {
-    const result = GridResponseSchema.safeParse({
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'ok',
       layout: { positions: [] },
     });
@@ -73,7 +82,7 @@ describe('GridResponseSchema', () => {
   });
 
   test('rejects negative row/column', () => {
-    const result = GridResponseSchema.safeParse(
+    const result = GridModelOutputSchema.safeParse(
       gridPayload({
         positions: [
           {
@@ -88,7 +97,7 @@ describe('GridResponseSchema', () => {
   });
 
   test('rejects zero width/height (minSize is 1)', () => {
-    const result = GridResponseSchema.safeParse(
+    const result = GridModelOutputSchema.safeParse(
       gridPayload({
         positions: [
           {
@@ -103,16 +112,16 @@ describe('GridResponseSchema', () => {
   });
 });
 
-describe('TilingResponseSchema', () => {
+describe('TilingModelOutputSchema', () => {
   test('accepts a minimal valid payload', () => {
-    const result = TilingResponseSchema.safeParse(
+    const result = TilingModelOutputSchema.safeParse(
       tilingPayload({ tree: [], instances: [] }),
     );
     expect(result.success).toBe(true);
   });
 
   test('accepts a tree with splits, instance ids, and null', () => {
-    const result = TilingResponseSchema.safeParse(
+    const result = TilingModelOutputSchema.safeParse(
       tilingPayload({
         tree: ['V', 'ID:calendar-main', 'H', 'ID:tasks-main', null],
         instances: [
@@ -129,14 +138,14 @@ describe('TilingResponseSchema', () => {
   });
 
   test('rejects non-array tree', () => {
-    const result = TilingResponseSchema.safeParse(
+    const result = TilingModelOutputSchema.safeParse(
       tilingPayload({ tree: 'not-an-array', instances: [] }),
     );
     expect(result.success).toBe(false);
   });
 
   test('rejects instance entries missing required fields', () => {
-    const result = TilingResponseSchema.safeParse(
+    const result = TilingModelOutputSchema.safeParse(
       tilingPayload({ tree: [], instances: [{ instanceId: 'x' }] }),
     );
     expect(result.success).toBe(false);
@@ -144,8 +153,8 @@ describe('TilingResponseSchema', () => {
 });
 
 describe('execution plan', () => {
-  test('GridResponseSchema accepts optional paramsJson', () => {
-    const result = GridResponseSchema.safeParse({
+  test('GridModelOutputSchema accepts optional paramsJson', () => {
+    const result = GridModelOutputSchema.safeParse({
       ...gridPayload({ positions: [] }),
       executionPlan: [
         { instanceId: 'x', action: 'select', paramsJson: '{"id":"1"}' },
@@ -156,7 +165,7 @@ describe('execution plan', () => {
   });
 
   test('rejects executionPlan items missing instanceId', () => {
-    const result = GridResponseSchema.safeParse({
+    const result = GridModelOutputSchema.safeParse({
       ...gridPayload({ positions: [] }),
       executionPlan: [{ action: 'select' }],
     });
@@ -165,13 +174,13 @@ describe('execution plan', () => {
 
   test.each([
     {
-      name: 'GridResponseSchema',
-      schema: GridResponseSchema,
+      name: 'GridModelOutputSchema',
+      schema: GridModelOutputSchema,
       payload: gridPayload({ positions: [] }),
     },
     {
-      name: 'TilingResponseSchema',
-      schema: TilingResponseSchema,
+      name: 'TilingModelOutputSchema',
+      schema: TilingModelOutputSchema,
       payload: tilingPayload({ tree: [], instances: [] }),
     },
   ])(
@@ -205,13 +214,13 @@ describe('execution plan', () => {
 
   test.each([
     {
-      name: 'GridResponseSchema',
-      schema: GridResponseSchema,
+      name: 'GridModelOutputSchema',
+      schema: GridModelOutputSchema,
       payload: gridPayload({ positions: [] }),
     },
     {
-      name: 'TilingResponseSchema',
-      schema: TilingResponseSchema,
+      name: 'TilingModelOutputSchema',
+      schema: TilingModelOutputSchema,
       payload: tilingPayload({ tree: [], instances: [] }),
     },
   ])(
@@ -483,6 +492,71 @@ describe('ChartRequestSchema skipReply and intentFacts', () => {
   });
 });
 
+describe('plan result schemas', () => {
+  test.each([
+    {
+      name: 'GridResponseSchema',
+      schema: GridResponseSchema,
+      payload: gridPayload({ positions: [] }),
+    },
+    {
+      name: 'TilingResponseSchema',
+      schema: TilingResponseSchema,
+      payload: tilingPayload({ tree: [], instances: [] }),
+    },
+    {
+      name: 'GridResponseWithoutReplySchema',
+      schema: GridResponseWithoutReplySchema,
+      payload: gridPayload({ positions: [] }),
+    },
+    {
+      name: 'TilingResponseWithoutReplySchema',
+      schema: TilingResponseWithoutReplySchema,
+      payload: tilingPayload({ tree: [], instances: [] }),
+    },
+  ])('$name requires type: plan', ({ schema, payload }) => {
+    const tagged = schema.safeParse(planned(payload));
+    expect(tagged.success).toBe(true);
+    if (tagged.success) expect(tagged.data.type).toBe('plan');
+
+    expect(schema.safeParse(payload).success).toBe(false);
+    expect(
+      schema.safeParse({ ...payload, type: 'needs_clarification' }).success,
+    ).toBe(false);
+  });
+
+  test.each([
+    { name: 'GridModelOutputSchema', schema: GridModelOutputSchema },
+    { name: 'TilingModelOutputSchema', schema: TilingModelOutputSchema },
+  ])('$name never asks the model for a type', ({ schema }) => {
+    const jsonSchema = z.toJSONSchema(schema, {
+      io: 'input',
+      unrepresentable: 'any',
+    }) as { properties?: Record<string, unknown>; required?: string[] };
+
+    expect(Object.keys(schema.shape)).not.toContain('type');
+    expect(Object.keys(jsonSchema.properties ?? {})).not.toContain('type');
+    expect(jsonSchema.required ?? []).not.toContain('type');
+  });
+
+  test('a plan result keeps every model output field', () => {
+    expect(Object.keys(GridResponseSchema.shape).sort()).toEqual(
+      [...Object.keys(GridModelOutputSchema.shape), 'type'].sort(),
+    );
+    expect(Object.keys(TilingResponseSchema.shape).sort()).toEqual(
+      [...Object.keys(TilingModelOutputSchema.shape), 'type'].sort(),
+    );
+  });
+
+  test('a grid plan result rejects a tiling layout', () => {
+    expect(
+      GridResponseSchema.safeParse(
+        planned(gridPayload({ tree: [], instances: [] })),
+      ).success,
+    ).toBe(false);
+  });
+});
+
 describe('replyless response schemas', () => {
   const withoutReply = <T extends { userMessage: string }>(payload: T) => {
     const { userMessage: _omitted, ...rest } = payload;
@@ -490,14 +564,16 @@ describe('replyless response schemas', () => {
   };
 
   test('GridResponseWithoutReplySchema accepts a candidate with no userMessage', () => {
-    const payload = withoutReply(gridPayload({ positions: [] }));
+    const payload = planned(withoutReply(gridPayload({ positions: [] })));
     const result = GridResponseWithoutReplySchema.safeParse(payload);
     expect(result.success).toBe(true);
     if (result.success) expect('userMessage' in result.data).toBe(false);
   });
 
   test('TilingResponseWithoutReplySchema accepts a candidate with no userMessage', () => {
-    const payload = withoutReply(tilingPayload({ tree: [], instances: [] }));
+    const payload = planned(
+      withoutReply(tilingPayload({ tree: [], instances: [] })),
+    );
     expect(TilingResponseWithoutReplySchema.safeParse(payload).success).toBe(
       true,
     );
@@ -505,14 +581,17 @@ describe('replyless response schemas', () => {
 
   test('replyless schemas keep a userMessage that is present', () => {
     const result = GridResponseWithoutReplySchema.safeParse(
-      gridPayload({ positions: [] }),
+      planned(gridPayload({ positions: [] })),
     );
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.userMessage).toBe('ok');
   });
 
   test('replyless schemas still reject a non-string userMessage', () => {
-    const payload = { ...gridPayload({ positions: [] }), userMessage: 42 };
+    const payload = {
+      ...planned(gridPayload({ positions: [] })),
+      userMessage: 42,
+    };
     expect(GridResponseWithoutReplySchema.safeParse(payload).success).toBe(
       false,
     );
@@ -520,24 +599,26 @@ describe('replyless response schemas', () => {
 
   test('replyless schemas still require the rest of the candidate', () => {
     expect(
-      GridResponseWithoutReplySchema.safeParse({ layout: { positions: [] } })
-        .success,
+      GridResponseWithoutReplySchema.safeParse(
+        planned({ layout: { positions: [] } }),
+      ).success,
     ).toBe(false);
     expect(
-      TilingResponseWithoutReplySchema.safeParse({
-        layout: { tree: [], instances: [] },
-      }).success,
+      TilingResponseWithoutReplySchema.safeParse(
+        planned({ layout: { tree: [], instances: [] } }),
+      ).success,
     ).toBe(false);
   });
 
   test('the strict schemas still reject a candidate with no userMessage', () => {
     expect(
-      GridResponseSchema.safeParse(withoutReply(gridPayload({ positions: [] })))
-        .success,
+      GridResponseSchema.safeParse(
+        planned(withoutReply(gridPayload({ positions: [] }))),
+      ).success,
     ).toBe(false);
     expect(
       TilingResponseSchema.safeParse(
-        withoutReply(tilingPayload({ tree: [], instances: [] })),
+        planned(withoutReply(tilingPayload({ tree: [], instances: [] }))),
       ).success,
     ).toBe(false);
   });
@@ -549,6 +630,8 @@ describe('replyless response schemas', () => {
           required?: string[];
         }
       ).required ?? [];
+    expect(required(GridModelOutputSchema)).toContain('userMessage');
+    expect(required(TilingModelOutputSchema)).toContain('userMessage');
     expect(required(GridResponseSchema)).toContain('userMessage');
     expect(required(TilingResponseSchema)).toContain('userMessage');
     expect(required(GridResponseWithoutReplySchema)).not.toContain(
@@ -1165,8 +1248,8 @@ describe('ChartRequestSchema cross-validation', () => {
 });
 
 describe('schema branding', () => {
-  test('GridResponseSchema brands instanceId/action/layout positions via .transform()', () => {
-    const result = GridResponseSchema.safeParse({
+  test('GridModelOutputSchema brands instanceId/action/layout positions via .transform()', () => {
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [{ instanceId: 'foo', action: 'doIt' }],
@@ -1211,8 +1294,8 @@ describe('schema branding', () => {
     void _checkPositionInstanceId;
   });
 
-  test('TilingResponseSchema keeps tree tokens and brands instance fields', () => {
-    const result = TilingResponseSchema.safeParse({
+  test('TilingModelOutputSchema keeps tree tokens and brands instance fields', () => {
+    const result = TilingModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [],
@@ -1274,7 +1357,7 @@ describe('schema branding', () => {
 
 describe('contextual validation messages', () => {
   test('rejects empty instanceId in GridResponse executionPlan with a contextual message', () => {
-    const result = GridResponseSchema.safeParse({
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [{ instanceId: '', action: 'doIt' }],
@@ -1288,7 +1371,7 @@ describe('contextual validation messages', () => {
   });
 
   test('rejects empty action with a contextual message', () => {
-    const result = GridResponseSchema.safeParse({
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [{ instanceId: 'x', action: '' }],
@@ -1302,7 +1385,7 @@ describe('contextual validation messages', () => {
   });
 
   test('rejects empty vesselId in TilingResponse instances with a contextual message', () => {
-    const result = TilingResponseSchema.safeParse({
+    const result = TilingModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [],
@@ -1319,7 +1402,7 @@ describe('contextual validation messages', () => {
   });
 
   test('rejects empty variant in TilingResponse instances with a contextual message', () => {
-    const result = TilingResponseSchema.safeParse({
+    const result = TilingModelOutputSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [],
@@ -1353,8 +1436,8 @@ describe('split-shaped instance ids reaching the request boundary', () => {
     expect(result.success).toBe(true);
   });
 
-  test('GridResponseSchema brands a split-shaped id in a layout position', () => {
-    const result = GridResponseSchema.safeParse({
+  test('GridModelOutputSchema brands a split-shaped id in a layout position', () => {
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'ok',
       rationale: 'r',
       executionPlan: [],
@@ -1371,8 +1454,8 @@ describe('split-shaped instance ids reaching the request boundary', () => {
     expect(result.success).toBe(true);
   });
 
-  test('GridResponseSchema brands a split-shaped id in the execution plan', () => {
-    const result = GridResponseSchema.safeParse({
+  test('GridModelOutputSchema brands a split-shaped id in the execution plan', () => {
+    const result = GridModelOutputSchema.safeParse({
       userMessage: 'ok',
       rationale: 'r',
       executionPlan: [{ instanceId: 'H:hero', action: 'open' }],

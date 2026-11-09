@@ -69,6 +69,7 @@ const stackShortlist: Stage<Shortlist, PlannerCandidate> = async (
       shortlist.instanceIds.length,
   );
   return ok({
+    type: 'plan',
     userMessage: `Showing ${shortlist.named.join(', ')}.`,
     rationale: 'Stacked the Vessels the intent named.',
     executionPlan: [],

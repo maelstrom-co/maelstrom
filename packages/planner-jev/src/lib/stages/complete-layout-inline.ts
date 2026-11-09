@@ -206,6 +206,7 @@ export function assembleCandidate(
     unique.kept.map(({ action, params }) => [action, params]),
   );
   const candidate: PlannerCandidate = {
+    type: 'plan',
     userMessage: completion.userMessage,
     rationale: rationale(decision),
     executionPlan: declared.value.actions.map((action) => {

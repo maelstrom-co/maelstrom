@@ -4,7 +4,7 @@
 
 📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/planner-llm/readme/>
 
-The reference LLM planner for the Maelstrom engine's planner seam. `llmPlanner(options)` returns a `Stage<LlmPlannerInput, PlannerCandidate>` that asks one LLM for the whole candidate in a single structured-output `chat()` call per attempt, using a TanStack AI adapter. The package also exports the section-based prompt builder the planner uses.
+The reference LLM planner for the Maelstrom engine's planner seam. `llmPlanner(options)` returns a `Stage<LlmPlannerInput, PlannerCandidate>` that asks one LLM for the whole candidate in a single structured-output `chat()` call per attempt, using a TanStack AI adapter. The model fills `GridModelOutputSchema` or `TilingModelOutputSchema`, which have no `type` field, and the planner tags the parsed reply `type: 'plan'`. The package also exports the section-based prompt builder the planner uses.
 
 ---
 

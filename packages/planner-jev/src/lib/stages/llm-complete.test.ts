@@ -136,6 +136,7 @@ function candidateOf(result: Awaited<ReturnType<typeof run>>['result']) {
   if (!isOk(result))
     throw new Error(`expected a candidate: ${deferralOf(result)}`);
   return plain(result.value) as {
+    type: string;
     userMessage: string;
     rationale: string;
     executionPlan: {
@@ -161,6 +162,7 @@ describe('llmComplete', () => {
     mockChat.mockResolvedValue({ userMessage: 'Done.' });
     const { result } = await run(completionPlan(makeRequest('hide the tasks')));
     expect(candidateOf(result).userMessage).toBe('Done.');
+    expect(candidateOf(result).type).toBe('plan');
     expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
       'userMessage',
     ]);

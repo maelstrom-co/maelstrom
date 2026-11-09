@@ -12,6 +12,7 @@ import {
 import { logTurns } from './log-turn.js';
 
 const candidate = {
+  type: 'plan',
   userMessage: 'Swapped the calendar and the map.',
   layout: { tree: ['V', 'ID:map-main', 'ID:calendar-main'] },
 };

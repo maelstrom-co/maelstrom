@@ -90,13 +90,19 @@ export {
   MAX_SPLIT_WEIGHT,
 } from './lib/model-output-limits.ts';
 export type { NeedsClarification } from './lib/needs-clarification.ts';
-export { NeedsClarificationSchema } from './lib/needs-clarification.ts';
+export {
+  GridNeedsClarificationSchema,
+  NeedsClarificationSchema,
+  TilingNeedsClarificationSchema,
+} from './lib/needs-clarification.ts';
 export type {
   ChartRequest,
   ChartResizeReason,
+  GridModelOutput,
   GridResponse,
   GridResponseWithoutReply,
   PlannerOutputFor,
+  TilingModelOutput,
   TilingResponse,
   TilingResponseWithoutReply,
   UpdateReason,
@@ -107,8 +113,10 @@ export type {
 export {
   ChartRequestSchema,
   ChartResizeReasonSchema,
+  GridModelOutputSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
+  TilingModelOutputSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
   UpdateReasonSchema,

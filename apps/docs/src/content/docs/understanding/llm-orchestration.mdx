@@ -64,7 +64,7 @@ The engine takes the request and assembles a prompt with these slots (see the [A
 4. **Chart constraints** — the grid dimensions and the chosen layout mode.
 5. **The update reasons** — why this turn is happening.
 
-It also passes a *structured output schema*. The reference engine doesn't ask the LLM for JSON and hope; it tells the model exactly which fields exist (`userMessage`, `rationale`, `executionPlan`, `layout`) and which shape each one takes — `GridResponseSchema` or `TilingResponseSchema` depending on the requested mode. The model fills the slots.
+It also passes a *structured output schema*. The reference engine doesn't ask the LLM for JSON and hope; it tells the model exactly which fields exist (`userMessage`, `rationale`, `executionPlan`, `layout`) and which shape each one takes — `GridModelOutputSchema` or `TilingModelOutputSchema` depending on the requested mode. The model fills the slots. The schema has no `type` field. The Planner stamps `type: 'plan'` on the parsed result before it reaches the Engine.
 
 ## What the LLM returns: `MaelstromResponse`
 

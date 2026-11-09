@@ -145,7 +145,8 @@ export interface ChartRequest {
   /**
    * When `true`, the caller writes the user-facing reply itself, so the
    * Planner may omit `userMessage` or return a {@link NeedsClarification}
-   * instead of a layout. Absent means `false`: the response carries a
+   * that asks the user a question, optionally with the layout and Actions it
+   * could already settle. Absent means `false`: the response carries a
    * `userMessage`. Clients rendering the reply leave it unset. `Engine.handle`
    * does not yet ship replyless outcomes: it refuses them with a
    * `ValidationError` on field `skipReply`.
@@ -161,16 +162,18 @@ export interface ChartRequest {
 }
 
 // ---------------------------------------------------------------------------
-// LLM structured-output schemas
+// Planner results and LLM structured-output schemas
 // ---------------------------------------------------------------------------
 
 /**
- * Structured-output schema for a grid-mode LLM response.
+ * Structured-output schema a grid-mode LLM fills in.
  *
- * Limits the execution plan but leaves semantic layout validation to the
- * Engine's heal layer.
+ * It has no `type` field: a model should not spend output on a constant, so
+ * the Planner stamps `type: 'plan'` after parsing to produce a
+ * {@link GridResponse}. Limits the execution plan but leaves semantic layout
+ * validation to the Engine's heal layer.
  */
-export const GridResponseSchema = z.object({
+export const GridModelOutputSchema = z.object({
   userMessage: z
     .string()
     .describe(
@@ -192,16 +195,17 @@ export const GridResponseSchema = z.object({
   ),
 });
 
-/** Parsed grid-mode LLM output before Engine healing and envelope metadata. */
-export type GridResponse = z.infer<typeof GridResponseSchema>;
+/** Parsed grid-mode LLM output, before the Planner stamps its `type`. */
+export type GridModelOutput = z.infer<typeof GridModelOutputSchema>;
 
 /**
- * Structured-output schema for a tiling-mode LLM response.
+ * Structured-output schema a tiling-mode LLM fills in.
  *
- * Limits the execution plan but leaves tree and Instance coherence checks to
- * the Engine's heal layer.
+ * It has no `type` field: the Planner stamps `type: 'plan'` after parsing to
+ * produce a {@link TilingResponse}. Limits the execution plan but leaves tree
+ * and Instance coherence checks to the Engine's heal layer.
  */
-export const TilingResponseSchema = z.object({
+export const TilingModelOutputSchema = z.object({
   userMessage: z
     .string()
     .describe(
@@ -223,8 +227,14 @@ export const TilingResponseSchema = z.object({
   ),
 });
 
-/** Parsed tiling-mode LLM output before Engine healing and envelope metadata. */
-export type TilingResponse = z.infer<typeof TilingResponseSchema>;
+/** Parsed tiling-mode LLM output, before the Planner stamps its `type`. */
+export type TilingModelOutput = z.infer<typeof TilingModelOutputSchema>;
+
+// Runtime constants: declared ahead of the schemas that read them at module
+// evaluation.
+const planType = z
+  .literal('plan')
+  .describe('Discriminant the Planner stamps after parsing model output.');
 
 const optionalUserMessage = z
   .string()
@@ -234,36 +244,72 @@ const optionalUserMessage = z
   );
 
 /**
+ * Zod parser for a grid-mode plan result: {@link GridModelOutputSchema} plus
+ * the required `type: 'plan'` discriminant. Use it to validate a result a
+ * Planner returns, never as an LLM structured-output schema.
+ */
+export const GridResponseSchema = z.object({
+  type: planType,
+  ...GridModelOutputSchema.shape,
+});
+
+/**
+ * Grid-mode plan result for a request without
+ * {@link ChartRequest.skipReply}: a layout, an execution plan and a required
+ * `userMessage`, before Engine healing and envelope metadata.
+ */
+export type GridResponse = z.infer<typeof GridResponseSchema>;
+
+/**
+ * Zod parser for a tiling-mode plan result: {@link TilingModelOutputSchema}
+ * plus the required `type: 'plan'` discriminant. Use it to validate a result
+ * a Planner returns, never as an LLM structured-output schema.
+ */
+export const TilingResponseSchema = z.object({
+  type: planType,
+  ...TilingModelOutputSchema.shape,
+});
+
+/**
+ * Tiling-mode plan result for a request without
+ * {@link ChartRequest.skipReply}: a layout, an execution plan and a required
+ * `userMessage`, before Engine healing and envelope metadata.
+ */
+export type TilingResponse = z.infer<typeof TilingResponseSchema>;
+
+/**
  * {@link GridResponseSchema} with an optional `userMessage`, for a request
- * that set {@link ChartRequest.skipReply}. Every other field keeps the strict
- * schema's rules.
+ * that set {@link ChartRequest.skipReply}. Every other field, `type`
+ * included, keeps the strict schema's rules.
  */
 export const GridResponseWithoutReplySchema = GridResponseSchema.extend({
   userMessage: optionalUserMessage,
 });
 
-/** Grid-mode Planner output for a request that set `skipReply: true`. */
+/** Grid-mode plan result for a request that set `skipReply: true`. */
 export type GridResponseWithoutReply = z.infer<
   typeof GridResponseWithoutReplySchema
 >;
 
 /**
  * {@link TilingResponseSchema} with an optional `userMessage`, for a request
- * that set {@link ChartRequest.skipReply}. Every other field keeps the strict
- * schema's rules.
+ * that set {@link ChartRequest.skipReply}. Every other field, `type`
+ * included, keeps the strict schema's rules.
  */
 export const TilingResponseWithoutReplySchema = TilingResponseSchema.extend({
   userMessage: optionalUserMessage,
 });
 
-/** Tiling-mode Planner output for a request that set `skipReply: true`. */
+/** Tiling-mode plan result for a request that set `skipReply: true`. */
 export type TilingResponseWithoutReply = z.infer<
   typeof TilingResponseWithoutReplySchema
 >;
 
 /**
- * The Planner output a request of type `R` may receive, chosen by its
- * {@link ChartRequest.skipReply} flag:
+ * The Planner result a request of type `R` may receive, chosen by its
+ * {@link ChartRequest.skipReply} flag. Every member carries a top-level
+ * `type`: `'plan'` for a layout result, `'needs_clarification'` for a
+ * {@link NeedsClarification}.
  *
  * - flag absent or `false`: {@link GridResponse} or {@link TilingResponse},
  *   both with a required `userMessage`
@@ -272,7 +318,9 @@ export type TilingResponseWithoutReply = z.infer<
  * - flag only known as `boolean`: the `true` case, since the request may
  *   have set it
  *
- * Distributes over a union of request types.
+ * Distributes over a union of request types. The types do not tie a
+ * result's `layout` to the request's layout mode, so a mismatch is rejected
+ * at runtime only, by validation against `context.layoutMode`.
  */
 export type PlannerOutputFor<R extends object> = R extends unknown
   ? [SkipReplyFlagOf<R>] extends [false | undefined]

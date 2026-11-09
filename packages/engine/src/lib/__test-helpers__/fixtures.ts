@@ -375,9 +375,10 @@ export const brandTilingTree = (
   tree: ReadonlyArray<AuthorTilingNode>,
 ): TilingNode[] => tree.map(brandTilingNode);
 
-/** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
+/** Brands a complete grid LLM-output author shape into a `GridResponse` tagged `type: 'plan'`. */
 export function brandGridResponse(author: GridResponseAuthor): GridResponse {
   return {
+    type: 'plan',
     userMessage: author.userMessage,
     rationale: author.rationale,
     executionPlan: author.executionPlan.map(brandActionExecution),
@@ -385,11 +386,12 @@ export function brandGridResponse(author: GridResponseAuthor): GridResponse {
   };
 }
 
-/** Brands a complete tiling LLM-output author shape into a typed `TilingResponse`. */
+/** Brands a complete tiling LLM-output author shape into a `TilingResponse` tagged `type: 'plan'`. */
 export function brandTilingResponse(
   author: TilingResponseAuthor,
 ): TilingResponse {
   return {
+    type: 'plan',
     userMessage: author.userMessage,
     rationale: author.rationale,
     executionPlan: author.executionPlan.map(brandActionExecution),

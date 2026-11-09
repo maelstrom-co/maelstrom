@@ -419,6 +419,7 @@ describe('shippedFromRecord', () => {
 
   describe('from the completion stage of a turn that did not fall back', () => {
     const candidate = {
+      type: 'plan',
       userMessage: 'Tokyo it is.',
       rationale: 'Set the weather location.',
       executionPlan: [
@@ -461,6 +462,18 @@ describe('shippedFromRecord', () => {
       expect(shipped?.instances.map((instance) => instance.instanceId)).toEqual(
         quoted.request.instances.map((instance) => instance.instanceId),
       );
+    });
+
+    test('treats a candidate recorded without a type tag as a plan', async () => {
+      const { type: _type, ...untagged } = candidate;
+      const shipped = await shippedFromRecord(shippedRecord, quoted, {
+        stage: 'complete',
+        records: [
+          { stage: 'complete', ms: 1, outcome: 'ok', output: untagged },
+        ],
+      } as never);
+      expect(shipped?.userMessage).toBe(candidate.userMessage);
+      expect(shipped?.tree).toEqual(candidate.layout.tree as never);
     });
 
     test('shows each instance in the variant the shipped plan leaves it in', async () => {
