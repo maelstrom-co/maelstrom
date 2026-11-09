@@ -29,7 +29,7 @@ import {
 import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import { callLLM, logLLMCallError } from './call-llm.js';
+import { callLLM, logLLMCallError, toPlanCandidate } from './call-llm.js';
 import { observeAdapter } from './observe-adapter.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
 import {
@@ -194,6 +194,7 @@ export function llmPlanner(
         ? userPrompt
         : buildRetryPrompt(userPrompt, input.retry.diagnostics),
       mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
+      toPlanCandidate,
       input.history,
       ctx.origin.sessionId,
       signal,
