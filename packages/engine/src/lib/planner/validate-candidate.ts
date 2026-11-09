@@ -6,11 +6,12 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   err,
+  GridNeedsClarificationSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
   isErr,
-  NeedsClarificationSchema,
   ok,
+  TilingNeedsClarificationSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
 } from '@maelstrom-co/protocol';
@@ -35,7 +36,6 @@ import type {
   PlannerOutput,
   ReplylessCandidate,
 } from './candidate.js';
-import { isNeedsClarification } from './candidate.js';
 import type { PlanValidator } from './plan-validator.js';
 
 export interface CandidateValidatorInput {
@@ -101,31 +101,69 @@ export function createCandidateValidator(
     const cacheable = typeof candidate === 'object' && candidate !== null;
     let result = cacheable ? cache.get(candidate) : undefined;
     if (result === undefined) {
-      if (isNeedsClarification(candidate)) {
-        result = processNeedsClarification(input, candidate);
-      } else {
-        const processed = processCandidate({ ...input, llmOutput: candidate });
-        const userMessage = processed.ok
-          ? processed.value.userMessage
-          : undefined;
-        result =
-          isErr(processed) ||
-          input.validatePlan === undefined ||
-          userMessage === undefined ||
-          userMessage.trim() === ''
-            ? processed
-            : validateApplicationPlan(
-                input,
-                { ...processed.value, userMessage },
-                input.validatePlan,
-              );
-      }
+      result = validateUncached(input, candidate);
       if (cacheable) cache.set(candidate, result);
     }
     input.onValidated?.(result);
     return result;
   }
   return validate;
+}
+
+// A misbehaving stage can hand over a primitive or an object with a missing
+// or unknown `type`; each of those is an Err rather than a throw.
+function validateUncached(
+  input: CandidateValidatorInput,
+  candidate: PlannerOutput,
+): Result<FullValidatedPlannerOutput, EngineError> {
+  if (typeof candidate !== 'object' || candidate === null)
+    return rejectUnknownResultType(input, candidate);
+  switch (candidate.type) {
+    case 'needs_clarification':
+      return processNeedsClarification(input, candidate);
+    case 'plan':
+      return processPlan(input, candidate);
+    default: {
+      const unknownResult: never = candidate;
+      return rejectUnknownResultType(input, unknownResult);
+    }
+  }
+}
+
+function processPlan(
+  input: CandidateValidatorInput,
+  candidate: ReplylessCandidate,
+): Result<FullValidatedReplylessCandidate, EngineError> {
+  const processed = processCandidate({ ...input, llmOutput: candidate });
+  if (isErr(processed) || input.validatePlan === undefined) return processed;
+  const { userMessage } = processed.value;
+  if (userMessage === undefined || userMessage.trim() === '') return processed;
+  return validateApplicationPlan(
+    input,
+    { ...processed.value, userMessage },
+    input.validatePlan,
+  );
+}
+
+function rejectUnknownResultType(
+  { messageId, logger }: CandidateValidatorInput,
+  output: unknown,
+): Result<never, EngineError> {
+  const type =
+    typeof output === 'object' && output !== null && 'type' in output
+      ? output.type
+      : undefined;
+  const failure = validationError(
+    `planner result type must be 'plan' or 'needs_clarification', got ${describeType(type)}`,
+    'planner',
+  );
+  logger.error('Planner result has an unknown type', failure, { messageId });
+  return err(failure);
+}
+
+function describeType(type: unknown): string {
+  if (type === undefined) return 'no type';
+  return typeof type === 'string' ? `'${type}'` : typeof type;
 }
 
 const EMPTY_DIAGNOSTICS: FullDiagnostics = Object.freeze({
@@ -159,7 +197,7 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  const shape = NeedsClarificationSchema.safeParse(output);
+  const shape = clarificationSchemaFor(request).safeParse(output);
   if (!shape.success) {
     const failure = validationError(
       `planner result does not match the needs-clarification schema: ${shape.error.message}`,
@@ -270,6 +308,14 @@ function processCandidate(
       ),
     );
   }
+}
+
+// Partial changes on a clarification are checked for shape only: nothing
+// heals or applies its layout or execution plan yet.
+function clarificationSchemaFor(request: ChartRequest) {
+  return request.context.layoutMode === 'grid'
+    ? GridNeedsClarificationSchema
+    : TilingNeedsClarificationSchema;
 }
 
 function responseSchemaFor(request: ChartRequest) {

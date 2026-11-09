@@ -167,6 +167,32 @@ describe('engine.handle — chart_request', () => {
     expect(result.value.response.layout.type).toBe('grid');
   });
 
+  test("the planner's plan tag never reaches the shipped response", async () => {
+    const engine = createEngine({
+      planner: scriptedPlanner([gridLLMResponse]),
+      logger: silentLogger,
+    });
+    expect(gridLLMResponse.type).toBe('plan');
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    if (!isOk(result) || result.value.type !== 'chart_response')
+      throw new Error('expected a chart_response');
+    const { response } = result.value;
+    expect(response.type).toBe('maelstrom_response');
+    expect(Object.keys(response).sort()).toEqual([
+      'executionPlan',
+      'layout',
+      'rationale',
+      'requestId',
+      'type',
+      'userMessage',
+    ]);
+    expect(JSON.stringify(response)).not.toContain('"plan"');
+  });
+
   test('returns HistoryError when getLLMContext throws (no LLM call)', async () => {
     const throwingStore: HistoryStore = {
       ...createInMemoryStore(),

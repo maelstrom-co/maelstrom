@@ -157,6 +157,7 @@ describe('createCandidateValidator', () => {
     [
       'a tiling-shaped candidate for a grid request',
       {
+        type: 'plan',
         userMessage: 'hi',
         rationale: 'r',
         executionPlan: [],
@@ -166,6 +167,7 @@ describe('createCandidateValidator', () => {
     [
       'a candidate without an executionPlan',
       {
+        type: 'plan',
         userMessage: 'hi',
         rationale: 'r',
         layout: { positions: [] },
@@ -200,6 +202,7 @@ describe('createCandidateValidator', () => {
     let rationaleReads = 0;
     const result = validate(
       invalid<PlannerCandidate>({
+        type: 'plan',
         userMessage: 'hi',
         executionPlan: [],
         layout: { positions: [] },
@@ -434,5 +437,98 @@ describe('createCandidateValidator with skipReply', () => {
       field: 'planner',
       message: expect.stringContaining('needs-clarification schema'),
     });
+  });
+});
+
+describe('createCandidateValidator result type', () => {
+  const withType = (type: unknown) => {
+    const { type: _omitted, ...rest } = buildGridResponse();
+    return invalid<PlannerCandidate>(
+      type === undefined ? rest : { ...rest, type },
+    );
+  };
+
+  test.each([
+    ['missing', undefined, 'no type'],
+    ['unknown', 'layout', "'layout'"],
+    ['not a string', 1, 'number'],
+  ] as const)(
+    'a plan result whose type is %s is Err(ValidationError) on field "planner" with and without skipReply',
+    (_case, type, described) => {
+      for (const skipReply of [undefined, true]) {
+        const { logger, entries } = spyLogger();
+        const validate = validatorFor(logger, {
+          ...makeGridRequest(),
+          ...(skipReply === undefined ? {} : { skipReply }),
+        });
+
+        const result = validate(withType(type));
+
+        expect(isErr(result)).toBe(true);
+        if (!isErr(result)) return;
+        expect(result.error).toMatchObject({
+          _tag: 'ValidationError',
+          field: 'planner',
+          message: expect.stringContaining(`got ${described}`),
+        });
+        expect(entries.map((e) => e.msg)).toEqual([
+          'Planner result has an unknown type',
+        ]);
+      }
+    },
+  );
+
+  test('a primitive result is Err(ValidationError) on field "planner"', () => {
+    const validate = validatorFor(spyLogger().logger);
+
+    const result = validate(invalid<PlannerCandidate>(null));
+
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+    });
+  });
+
+  test("a clarification's layout must match the request mode", () => {
+    const validate = validatorFor(spyLogger().logger, {
+      ...makeGridRequest(),
+      skipReply: true,
+    });
+
+    const result = validate(
+      invalid<NeedsClarification>({
+        type: 'needs_clarification',
+        question: 'Which share class?',
+        layout: { tree: ['ID:calendar-main'], instances: [] },
+      }),
+    );
+
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: expect.stringContaining('needs-clarification schema'),
+    });
+  });
+
+  test('a clarification with partial changes in the request mode is accepted as given', () => {
+    const validate = validatorFor(spyLogger().logger, {
+      ...makeGridRequest(),
+      skipReply: true,
+    });
+    const { layout, executionPlan } = buildGridResponse({
+      executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+    });
+    const clarification: NeedsClarification<'grid'> = {
+      type: 'needs_clarification',
+      question: 'Which share class?',
+      layout,
+      executionPlan,
+    };
+
+    const result = validate(clarification);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value).toMatchObject({ layout, executionPlan });
   });
 });

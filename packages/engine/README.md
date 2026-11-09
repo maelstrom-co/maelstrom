@@ -334,10 +334,12 @@ A `Deferred` that reaches the top of the configured planner with nothing to reco
 
 A `ChartRequest` may set `skipReply: true` when its caller writes the reply itself, and may carry `intentFacts`, structured values the caller already knows. Both reach every stage unchanged through `input.request`, and `withRetry` and `withFallback` pass them through.
 
+Every planner result carries a top-level `type`: `'plan'` for a candidate (`GridResponse` or `TilingResponse` and their replyless forms), `'needs_clarification'` for a `NeedsClarification`. A stage that parses model output against `GridModelOutputSchema` or `TilingModelOutputSchema`, which have no `type`, stamps `type: 'plan'` before returning it. Validation rejects a result whose `type` is missing or unknown with `Err(ValidationError)` on field `'planner'`, whatever `skipReply` says. The tag never reaches the client: the shipped `MaelstromResponse` carries its own `type: 'maelstrom_response'`.
+
 The flag changes what validation accepts:
 
 - Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
-- With `skipReply: true`, a candidate may omit `userMessage` (a supplied one, even blank, is passed through unchanged), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
+- With `skipReply: true`, a candidate may omit `userMessage` (a supplied one, even blank, is passed through unchanged), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options?, layout?, executionPlan? }`, see `isNeedsClarification`) instead. A `layout` or `executionPlan` it carries is checked against the request's layout mode for shape only. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
 
 The types keep the two cases apart. `PlannerCandidate` and `ValidatedCandidate` always carry a `userMessage`. `ReplylessCandidate` and `ValidatedReplylessCandidate` are the same shapes with `userMessage` optional, and `PlannerOutput` is `PlannerCandidate | ReplylessCandidate | NeedsClarification`. In a stage, `ctx.validate` returns a `ValidatedCandidate` for a `PlannerCandidate` and a `ValidatedReplylessCandidate` for a `ReplylessCandidate`. It does not accept a `NeedsClarification`.
 

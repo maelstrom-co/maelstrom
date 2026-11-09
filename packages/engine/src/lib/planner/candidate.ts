@@ -16,9 +16,12 @@ import type {
 import type { PlanValidationIssue } from './plan-validator.js';
 
 /**
- * The raw plan a planner produces: the structured output shape for the
- * request's layout mode, before the Engine heals and validates it. A grid
- * request expects a `GridResponse`; a tiling request a `TilingResponse`.
+ * The raw plan a planner produces: the plan result for the request's layout
+ * mode, tagged `type: 'plan'`, before the Engine heals and validates it. A
+ * grid request expects a `GridResponse`; a tiling request a `TilingResponse`.
+ * A stage that parses model output (`GridModelOutput` or
+ * `TilingModelOutput`) stamps the tag itself; validation rejects a result
+ * whose `type` is missing or unknown.
  *
  * A candidate is immutable. Validation results are cached per candidate
  * object, so a stage that wants a different plan must return a new object
@@ -46,7 +49,9 @@ export type ReplylessCandidate =
 /**
  * Everything a planner may return: a {@link PlannerCandidate}, a
  * {@link ReplylessCandidate}, or a {@link NeedsClarification} when it cannot
- * proceed without asking the user. Validation accepts a replyless candidate
+ * proceed without asking the user. Every member carries a top-level `type`,
+ * `'plan'` or `'needs_clarification'`, so a switch on it tells them apart.
+ * Validation accepts a replyless candidate
  * without `userMessage` and a needs-clarification result only for a request
  * that set `skipReply: true`, and `Engine.handle` currently refuses both even
  * then with `Err(ValidationError)` on field `skipReply`.
@@ -103,7 +108,9 @@ export interface EngineDiagnostics {
 /**
  * Candidate after the Engine healed and validated it against the original
  * request: the response that would ship, plus the diagnostics describing what
- * healing changed. The diagnostics never cross the Engine boundary.
+ * healing changed. The diagnostics never cross the Engine boundary. Its
+ * `type` is the response's own `'maelstrom_response'`: the candidate's
+ * `type: 'plan'` is not carried over.
  */
 export type ValidatedCandidate = MaelstromResponse & {
   /** What healing changed, and whether a retry is recommended. */
@@ -152,14 +159,20 @@ export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
 };
 
 /**
- * A needs-clarification result the Engine accepted. Its diagnostics are
- * empty and never recommend a retry: there is no layout to heal.
+ * A needs-clarification result the Engine accepted. Validation checks a
+ * `layout` and `executionPlan` it carries against the request's mode for
+ * shape only, without healing them. Its diagnostics are empty and never
+ * recommend a retry.
  */
 export type FullValidatedNeedsClarification = NeedsClarification & {
   readonly diagnostics: FullDiagnostics;
 };
 
-/** What the Engine's validator returns for any {@link PlannerOutput}. */
+/**
+ * What the Engine's validator returns for any {@link PlannerOutput}. `type`
+ * discriminates it: `'maelstrom_response'` for a validated plan,
+ * `'needs_clarification'` for a clarification.
+ */
 export type FullValidatedPlannerOutput =
   | FullValidatedCandidate
   | FullValidatedReplylessCandidate
@@ -167,8 +180,9 @@ export type FullValidatedPlannerOutput =
 
 /**
  * Whether a planner output is a needs-clarification result rather than a
- * layout candidate. Layout candidates carry no `type` field. The guard checks
- * only the `type` discriminant and does not validate `question` or `options`.
+ * plan result, by its `type` tag. Accepts any value, so it is safe on output
+ * from an untyped stage. It checks only the tag and does not validate
+ * `question`, `options` or any partial changes.
  */
 export function isNeedsClarification(
   output: unknown,
