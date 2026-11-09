@@ -422,6 +422,51 @@ describe('runAgent on chat()', () => {
       },
     );
 
+    test('a substituted success envelope whose output schema has a rejecting async refine is replaced without an unhandled rejection', async () => {
+      const unhandled = recordUnhandledRejections();
+      const tools = asyncOutputRefineTools(async () => {
+        throw new Error('async refine rejected');
+      });
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'order_status', args: { orderId: 'o-1' } }],
+          usage(10, 2),
+        ),
+        textTurn(['No status found.'], usage(4, 1)),
+      ]);
+      const cached: ChatMiddleware = {
+        name: 'test-cached-skip',
+        onBeforeToolCall: () => ({
+          type: 'skip',
+          result: { ok: true, value: { status: 'shipped' }, summary: 'Cached' },
+        }),
+      };
+
+      const events = await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          { signal: new AbortController().signal },
+          { middleware: [cached] },
+        ),
+      );
+
+      expect(await unhandled.settle()).toEqual([]);
+      expect(tools.runs()).toBe(0);
+      expect(toolMessageContents(model.requests[1])).toEqual([
+        { ok: false, error: 'order_status returned an invalid result' },
+      ]);
+      expect(events).toContainEqual({
+        type: 'tool_result',
+        turnId: 'run-1:t1',
+        callId: CallId('c1'),
+        name: 'order_status',
+        ok: false,
+        summary: 'order_status returned an invalid result',
+      });
+      expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+      expectEveryCallSettledOnce(events);
+    });
+
     test('a well-formed substituted envelope reaches the model as its value and the event as its summary', async () => {
       const tools = orderTools();
       const model = scriptedAdapter([
@@ -1462,11 +1507,13 @@ describe('runAgent budgets and stops on chat()', () => {
         const entry = tools.registry.get(name);
         if (entry === undefined) throw new Error(`missing ${name}`);
         expect(
-          validateToolResultEnvelope(entry, {
-            ok: false,
-            code: 'cancelled',
-            summary: (substituted[index] as { error: string }).error,
-          }).valid,
+          (
+            await validateToolResultEnvelope(entry, {
+              ok: false,
+              code: 'cancelled',
+              summary: (substituted[index] as { error: string }).error,
+            })
+          ).valid,
         ).toBe(true);
       }
       expectEveryCallSettledOnce(events);
@@ -1857,6 +1904,25 @@ function asyncRefineTools(refine: () => Promise<boolean>) {
       description: 'Returns the status of an order',
       input: z.object({ orderId: z.string() }).refine(refine),
       output: z.object({ status: z.string() }),
+      sideEffect: 'read_only',
+      execute: async () => {
+        runs += 1;
+        return { status: 'shipped' };
+      },
+      summarize: summarizeAsTruncatedJson,
+    }),
+  ]);
+  return { registry, runs: () => runs };
+}
+
+function asyncOutputRefineTools(refine: () => Promise<boolean>) {
+  let runs = 0;
+  const registry = createToolRegistry([
+    serverTool({
+      name: 'order_status',
+      description: 'Returns the status of an order',
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ status: z.string() }).refine(refine),
       sideEffect: 'read_only',
       execute: async () => {
         runs += 1;

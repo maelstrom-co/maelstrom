@@ -16,10 +16,10 @@ import type {
 } from './agent-run.js';
 import {
   toModelToolPayload,
-  validateToolResultEnvelope,
+  validateToolFailureEnvelope,
   type ToolCallResult,
 } from './tool-executor.js';
-import type { ToolRegistry, ToolRegistryEntry } from './tool-registry.js';
+import type { ToolRegistry } from './tool-registry.js';
 
 /** Summary of a tool call the policy refused before it ran. */
 export const NOT_RUN_TOOL_SUMMARY = 'Not run';
@@ -397,7 +397,7 @@ export function createAgentRunPolicyMiddleware(
       if (admission.admitted) return undefined;
       const entry = options.registry.get(hookCtx.toolName);
       if (entry === undefined) return undefined;
-      const result = notRunToolResult(entry);
+      const result = notRunToolResult();
       options.onToolCallRefused?.({
         callId: hookCtx.toolCallId,
         name: hookCtx.toolName,
@@ -409,14 +409,14 @@ export function createAgentRunPolicyMiddleware(
   };
 }
 
-/** The result of a call refused before it ran, checked with {@link validateToolResultEnvelope}. */
-export function notRunToolResult(entry: ToolRegistryEntry): ToolCallResult {
-  return validatedCancellation(entry, NOT_RUN_TOOL_SUMMARY);
+/** The result of a call refused before it ran, checked with {@link validateToolFailureEnvelope}. */
+export function notRunToolResult(): ToolCallResult {
+  return validatedCancellation(NOT_RUN_TOOL_SUMMARY);
 }
 
-/** The result of a call that was running when the run ended, checked with {@link validateToolResultEnvelope}. */
-export function stoppedToolResult(entry: ToolRegistryEntry): ToolCallResult {
-  return validatedCancellation(entry, STOPPED_TOOL_SUMMARY);
+/** The result of a call that was running when the run ended, checked with {@link validateToolFailureEnvelope}. */
+export function stoppedToolResult(): ToolCallResult {
+  return validatedCancellation(STOPPED_TOOL_SUMMARY);
 }
 
 type WithoutFinishedEventFields<Finished> = Finished extends unknown
@@ -447,11 +447,8 @@ function toolCallsExhausted(): AgentRunEnding {
   return { reason: 'budget', limit: 'toolCalls' };
 }
 
-function validatedCancellation(
-  entry: ToolRegistryEntry,
-  summary: string,
-): ToolCallResult {
-  const validation = validateToolResultEnvelope(entry, {
+function validatedCancellation(summary: string): ToolCallResult {
+  const validation = validateToolFailureEnvelope({
     ok: false,
     code: 'cancelled',
     summary,

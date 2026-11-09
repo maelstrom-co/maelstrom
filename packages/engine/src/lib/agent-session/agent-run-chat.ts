@@ -242,7 +242,7 @@ function startChat(
   // Last in the array, so it sees every other middleware's substitution.
   const resultGuardMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-result-guard',
-    onAfterToolCall: (_ctx, info) => {
+    onAfterToolCall: async (_ctx, info) => {
       const entry = input.registry.get(info.toolName);
       if (entry === undefined) return undefined;
       if (!info.ok && info.result === undefined) return undefined;
@@ -253,7 +253,7 @@ function startChat(
       ) {
         return undefined;
       }
-      const validation = validateToolResultEnvelope(entry, info.result);
+      const validation = await validateToolResultEnvelope(entry, info.result);
       if (!validation.valid) {
         input.logger.warn('Agent run replaced an invalid substituted result', {
           runId: input.runId,
@@ -323,8 +323,7 @@ function toChatTool(
       input.identity,
       context?.abortSignal ?? policy.abortController.signal,
     );
-    const settled =
-      policy.ending === undefined ? result : stoppedToolResult(entry);
+    const settled = policy.ending === undefined ? result : stoppedToolResult();
     if (callId !== undefined) calls.settle(callId, settled);
     return toModelToolPayload(settled);
   }) as Tool;

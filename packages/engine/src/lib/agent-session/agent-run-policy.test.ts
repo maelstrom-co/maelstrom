@@ -543,15 +543,15 @@ describe('terminal latch', () => {
 });
 
 describe('refusal results', () => {
-  test('not run and stopped results pass validateToolResultEnvelope', () => {
+  test('not run and stopped results pass validateToolResultEnvelope', async () => {
     const entry = orderEntry();
 
     for (const [result, summary] of [
-      [notRunToolResult(entry), NOT_RUN_TOOL_SUMMARY],
-      [stoppedToolResult(entry), STOPPED_TOOL_SUMMARY],
+      [notRunToolResult(), NOT_RUN_TOOL_SUMMARY],
+      [stoppedToolResult(), STOPPED_TOOL_SUMMARY],
     ] as const) {
       expect(result).toEqual({ ok: false, code: 'cancelled', summary });
-      expect(validateToolResultEnvelope(entry, result)).toEqual({
+      expect(await validateToolResultEnvelope(entry, result)).toEqual({
         valid: true,
         result,
       });
@@ -621,7 +621,7 @@ describe('policy middleware', () => {
 
     const decision = await hooks.onBeforeToolCall('c1');
 
-    const result = notRunToolResult(orderEntry());
+    const result = notRunToolResult();
     expect(decision).toEqual({
       type: 'skip',
       result: toModelToolPayload(result),
