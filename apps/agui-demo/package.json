@@ -34,6 +34,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "happy-dom": "catalog:",
     "vite": "catalog:"
   },
   "nx": {
@@ -51,7 +52,7 @@
         "command": "tsc -p apps/agui-demo/tsconfig.json --noEmit"
       },
       "test": {
-        "command": "bun --conditions=@maelstrom-co/source test apps/agui-demo/src"
+        "command": "bun --conditions=@maelstrom-co/source test apps/agui-demo/src apps/agui-demo/test"
       }
     }
   }

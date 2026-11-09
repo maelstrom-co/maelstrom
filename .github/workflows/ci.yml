@@ -104,15 +104,15 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      # Docs graders and the workspace prototype launch Chromium from test
-      # targets, so they need browser binaries independently of the e2e job.
+      # Docs graders, the workspace prototype, and the AG-UI demo launch Chromium
+      # from test targets, so they need browser binaries independently of the e2e job.
       - name: Select browser need
         id: browser-need
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
-            browser=$(bunx nx show projects --affected --projects=@maelstrom-co/docs,@maelstrom-co/agui-workspace-poc --json | jq 'length > 0')
+            browser=$(bunx nx show projects --affected --projects=@maelstrom-co/docs,@maelstrom-co/agui-workspace-poc,@maelstrom-co/agui-demo --json | jq 'length > 0')
           else
             browser=true
           fi

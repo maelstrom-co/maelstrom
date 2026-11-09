@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { GoalRunner, type WorkspaceRequest } from './browser/goal-runner';
 import { m } from './browser/maelstrom';
 import { VoicePanel } from './browser/voice-panel';
+import { bindWorkspaceActions } from './browser/workspace-actions';
 import { WorkspaceConnector } from './browser/workspace-connector';
 import {
   localDate,
@@ -63,11 +64,15 @@ export function App() {
     useState<
       Extract<z.infer<typeof Bootstrap>, { needsReconciliation: true }>
     >();
-  const [opening, setOpening] = useState(false);
+  const [operation, setOperation] = useState<'opening' | 'resetting'>();
+  const pending = useRef(false);
+  const opening = operation === 'opening';
+  const resetting = operation === 'resetting';
   const [error, setError] = useState('');
   async function open(reconcile = false) {
-    if (opening || key.trim().length < 10) return;
-    setOpening(true);
+    if (pending.current || key.trim().length < 10) return;
+    pending.current = true;
+    setOperation('opening');
     setError('');
     try {
       const result = await bootstrapRequest({ reconcile });
@@ -108,23 +113,32 @@ export function App() {
         cause instanceof Error ? cause.message : 'Workspace unavailable.',
       );
     } finally {
-      setOpening(false);
+      pending.current = false;
+      setOperation(undefined);
     }
   }
   async function reset() {
-    await session?.state.connector.disconnect();
-    const response = await fetch('/api/workspace/reset', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    if (!response.ok) {
+    if (pending.current) return;
+    pending.current = true;
+    setOperation('resetting');
+    setError('');
+    try {
+      await session?.state.connector.disconnect();
+      const response = await fetch('/api/workspace/reset', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!response.ok) throw new Error('Workspace reset failed.');
+      setSession(undefined);
+      setReview(undefined);
+    } catch {
       setError('Workspace reset failed.');
-      return;
+    } finally {
+      pending.current = false;
+      setOperation(undefined);
     }
-    setSession(undefined);
-    setReview(undefined);
   }
   return (
     <div className="app-shell">
@@ -138,6 +152,7 @@ export function App() {
           {(session || review) && (
             <button
               type="button"
+              disabled={opening || resetting}
               onClick={() => {
                 void reset();
               }}
@@ -222,7 +237,7 @@ export function App() {
               <button
                 className="primary"
                 type="submit"
-                disabled={opening || key.trim().length < 10}
+                disabled={opening || resetting || key.trim().length < 10}
               >
                 {opening
                   ? 'Opening…'
@@ -297,6 +312,10 @@ function WorkspaceBody({
   reconcile: () => void;
 }) {
   const orchestrator = m.useWorkspaceOrchestrator();
+  useEffect(
+    () => bindWorkspaceActions(orchestrator.commandProcessor, session.state),
+    [orchestrator, session.state],
+  );
   const connection = m.useMaelstrom((state) => state.connectionStatus);
   const runner = useMemo(
     () =>

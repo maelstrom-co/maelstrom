@@ -7,7 +7,12 @@
     "lib": ["es2022", "dom"],
     "types": ["bun", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/*.test.ts",
+    "vite.config.ts"
+  ],
   "references": [
     { "path": "../../packages/agui/tsconfig.json" },
     { "path": "../../packages/agui-protocol/tsconfig.json" },
