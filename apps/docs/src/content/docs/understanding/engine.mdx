@@ -85,6 +85,8 @@ Validation follows the ownership boundaries:
 - The response processor checks layout and Action coherence. Recoverable problems, such as an overflowing position or an invalid Action, produce diagnostics. A blank required `userMessage` returns a `ParseError`.
 - An optional `validatePlan` hook checks the healed response against application requirements. Unmet requirements can trigger a retry; requirements still unmet after the retry budget return a `ValidationError`.
 
+Every Planner result must carry a top-level `type`: `'plan'` for a layout and Actions, or `'needs_clarification'` for a question to the user. A custom Planner returns `type: 'plan'` itself, and when it asks a model for structured output it gives the model `GridModelOutputSchema` or `TilingModelOutputSchema`, which have no `type` field. The Engine rejects a result with a missing or unknown `type` with a `ValidationError`. A needs-clarification result may also carry a mode-specific `layout` and `executionPlan` that the Planner could apply alongside the question. The `type` never reaches the client, so `MaelstromResponse` is unchanged.
+
 A request may set `skipReply: true` when its caller writes the user-facing reply itself. Validation then accepts a response without `userMessage`, passes a supplied `userMessage` through unchanged even when it is blank, and accepts a needs-clarification result that asks the user a question instead of changing the layout. `Engine.handle()` still returns only responses that carry a non-blank `userMessage`, so it refuses an absent or blank reply and a needs-clarification result with a `ValidationError` on field `skipReply`.
 
 ### Recoverable output problems
