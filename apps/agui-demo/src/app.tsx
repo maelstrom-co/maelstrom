@@ -34,11 +34,13 @@ const Bootstrap = z.discriminatedUnion('needsReconciliation', [
     sessionId: z.string(),
     threadId: z.string(),
     records: RecordsSchema,
+    storage: z.enum(['memory', 'durable']),
   }),
   z.object({
     needsReconciliation: z.literal(true),
     records: RecordsSchema,
     operations: z.array(z.unknown()),
+    storage: z.enum(['memory', 'durable']),
   }),
 ]);
 type Session = Extract<
@@ -69,6 +71,7 @@ export function App() {
   const opening = operation === 'opening';
   const resetting = operation === 'resetting';
   const [error, setError] = useState('');
+  const storage = session?.storage ?? review?.storage;
   async function open(reconcile = false) {
     if (pending.current || key.trim().length < 10) return;
     pending.current = true;
@@ -148,7 +151,13 @@ export function App() {
           <h1>Workspace</h1>
         </div>
         <div className="header-actions">
-          <span className="status-badge">Local · in-memory</span>
+          <span className="status-badge">
+            {storage === 'durable'
+              ? 'Durable · 7 days'
+              : storage === 'memory'
+                ? 'Local · in-memory'
+                : 'Anonymous · BYOK'}
+          </span>
           {(session || review || error) && (
             <button
               type="button"
@@ -193,7 +202,11 @@ export function App() {
             </h2>
             <p>
               Your OpenAI key stays in memory. Enter it again after a reload.
-              This local build stores records in the server process.
+              {storage === 'memory'
+                ? ' This local build stores records in the server process.'
+                : storage === 'durable'
+                  ? ' Hosted workspaces retain records and receipts for seven days after last use. Recovery requires this browser’s cookies. Reset deletes the workspace data.'
+                  : ''}
             </p>
             <form
               onSubmit={(event) => {
