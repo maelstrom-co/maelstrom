@@ -38,9 +38,9 @@ export interface ServerTool<Input, Output> {
   readonly name: string;
   /** Description shown to the model. */
   readonly description: string;
-  /** Schema the model's arguments are validated against. */
+  /** Schema the model's arguments are validated against. Must be pure and deterministic because it may be evaluated more than once per call. */
   readonly input: z.ZodType<Input>;
-  /** Schema the tool's result is validated against. */
+  /** Schema the tool's result is validated against. Must be pure and deterministic because it may be evaluated more than once per call. */
   readonly output: z.ZodType<Output>;
   /** Always `server`. */
   readonly locus: ToolLocus;
