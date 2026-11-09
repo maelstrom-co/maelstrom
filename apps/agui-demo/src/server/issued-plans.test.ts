@@ -5,6 +5,7 @@ import {
   MaelstromResponseMessageSchema,
 } from '@maelstrom-co/protocol';
 
+import { journalVessel } from '../vessels/definitions';
 import { IssuedPlans } from './issued-plans';
 
 const request = ChartRequestSchema.parse({
@@ -14,7 +15,7 @@ const request = ChartRequestSchema.parse({
     chartDimensions: { rows: 8, columns: 12 },
     layoutMode: 'tiling',
   },
-  vessels: [],
+  vessels: [journalVessel],
   instances: [],
   layout: { type: 'tiling', tree: [], instances: [] },
 });
