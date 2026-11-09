@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { PlannerCandidate, ValidateCandidate } from '@maelstrom-co/engine';
 import {
+  ActionName,
   type ChartRequest,
   err,
+  InstanceId,
   isOk,
   MessageId,
   ok,
@@ -31,6 +33,7 @@ import {
 } from '../__test-helpers__/mock-chat.js';
 import type {
   JevLayoutPlan,
+  ParameterAsk,
   PendingParameter,
   PlannedAction,
 } from '../types.js';
@@ -46,6 +49,18 @@ const LOCATION: PendingParameter = {
   name: 'location',
   type: 'string',
   description: 'City or place to request weather for',
+};
+
+const TITLE_ASK: ParameterAsk = {
+  instanceId: InstanceId('tasks-main'),
+  action: ActionName('addTask'),
+  parameter: { name: 'title', type: 'string', description: 'Task title' },
+};
+
+const LOCATION_ASK: ParameterAsk = {
+  instanceId: InstanceId('weather-main'),
+  action: ActionName('setLocation'),
+  parameter: LOCATION,
 };
 
 function decisionOf(
@@ -525,6 +540,87 @@ describe('completeLayoutInline with skipReply', () => {
     expect(chatPrompt(1)).toBe(chatPrompt(0));
   });
 });
+
+describe('completeLayoutInline with skipReply and asks', () => {
+  test('with a tree ships the partial plan as a needs-clarification result without a call', async () => {
+    const result = await run(
+      decisionOf(
+        completionPlan(
+          skipping(
+            makeRequest('add a task and show the weekly forecast'),
+            true,
+          ),
+          { actions: [planned('weather-main/showWeekly')], asks: [TITLE_ASK] },
+        ),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    const clarification = clarificationOf(result);
+    expect(clarification.type).toBe('needs_clarification');
+    expect(clarification.question).toContain('title');
+    expect(clarification.executionPlan).toEqual([
+      { instanceId: 'weather-main', action: 'showWeekly' },
+    ]);
+    expect(clarification).not.toHaveProperty('userMessage');
+  });
+
+  test('on a hand-off writes the tree without a reply and ships it in the clarification', async () => {
+    const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
+    mockChat.mockResolvedValue({ layout: { tree } });
+    const result = await run(
+      handOff(
+        completionPlan(
+          skipping(makeRequest('hide the tasks and set the weather'), true),
+          { decisions: { 'tasks-main': 'hide' }, asks: [LOCATION_ASK] },
+        ),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'layout',
+    ]);
+    expect(chatPrompt()).not.toContain('## Ask the user');
+    const clarification = clarificationOf(result);
+    expect(clarification.type).toBe('needs_clarification');
+    expect(clarification.layout?.tree).toEqual(tree);
+    expect(clarification).not.toHaveProperty('userMessage');
+  });
+});
+
+describe('completeLayoutInline asks without skipReply', () => {
+  test('the prompt asks the user and the reply comes from the call', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'What should the task say?' });
+    const result = await run(
+      decisionOf(
+        completionPlan(makeRequest('add a task and show the weekly forecast'), {
+          actions: [planned('weather-main/showWeekly')],
+          asks: [TITLE_ASK],
+        }),
+      ),
+    );
+    expect(chatPrompt()).toContain('## Ask the user');
+    const candidate = plain(
+      isOk(result) ? result.value : deferralOf(result),
+    ) as { type: string; userMessage: string };
+    expect(candidate.type).toBe('plan');
+    expect(candidate.userMessage).toBe('What should the task say?');
+  });
+});
+
+function clarificationOf(result: Awaited<ReturnType<typeof run>>) {
+  if (!isOk(result))
+    throw new Error(`expected a result: ${deferralOf(result)}`);
+  return plain(result.value) as {
+    type: string;
+    question?: string;
+    layout?: { tree: unknown[] };
+    executionPlan?: {
+      instanceId: string;
+      action: string;
+      paramsJson?: string;
+    }[];
+  };
+}
 
 function skipping(request: ChartRequest, skipReply: boolean): ChartRequest {
   return { ...request, skipReply };
