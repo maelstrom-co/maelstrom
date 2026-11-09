@@ -7,6 +7,7 @@ const requiredFiles = [
   'SECURITY.md',
   'CODE_OF_CONDUCT.md',
   'apps/demo/README.md',
+  'apps/agui-demo/README.md',
 ] as const;
 
 const recursiveRoots = ['docs', 'apps/docs/src/content/docs'] as const;
