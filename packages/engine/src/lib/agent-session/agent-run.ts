@@ -197,8 +197,26 @@ export interface AgentRunToolPhaseEndedEvent {
   readonly results: readonly AgentRunToolPhaseResult[];
 }
 
+/**
+ * Fields every {@link AgentRunFinished} member shares about tools that
+ * may still be running when the ending is yielded.
+ */
+export interface AgentRunToolSettlement {
+  /**
+   * Resolves once every tool execution the run started has settled, except
+   * `read_only` tools. A deadline or cancel ends the run without waiting
+   * for a tool that ignores its abort signal, so such a tool can still be
+   * performing its side effect after this ending. Never rejects.
+   * Non-enumerable, so a spread copy or serialized form of the ending never
+   * carries it. Absent on an ending not yielded by {@link runAgent}.
+   *
+   * @internal
+   */
+  readonly toolsSettled?: Promise<void>;
+}
+
 /** The run ended because a model turn answered with text and requested no tool. */
-export interface AgentRunCompleted {
+export interface AgentRunCompleted extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
@@ -212,7 +230,7 @@ export interface AgentRunCompleted {
 }
 
 /** Fields every {@link AgentRunBudgetExhausted} member shares. */
-export interface AgentRunBudgetExhaustedBase {
+export interface AgentRunBudgetExhaustedBase extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
@@ -257,7 +275,7 @@ export type AgentRunBudgetExhausted =
  * (`code` is `run_incomplete`). Text deltas already yielded stay, and no
  * closing message is sent.
  */
-export interface AgentRunFailed {
+export interface AgentRunFailed extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
@@ -275,7 +293,7 @@ export interface AgentRunFailed {
 }
 
 /** The run ended because its signal was aborted. */
-export interface AgentRunCancelled {
+export interface AgentRunCancelled extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */

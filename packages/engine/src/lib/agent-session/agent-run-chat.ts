@@ -27,6 +27,7 @@ import {
 } from './agent-run-policy.js';
 import {
   type AgentRunEvent,
+  type AgentRunFinished,
   type AgentRunInput,
   type AgentRunOptions,
   type AgentRunToolPhaseResult,
@@ -92,11 +93,12 @@ async function* streamAgentRun(
     gate: options.gate,
   });
   const calls = createToolCallTracker(input.runId);
+  const executions = createToolExecutionFence();
   let chunks: AsyncIterator<StreamChunk> | undefined;
   let reachedEnd = false;
   try {
     if (policy.start() === undefined) {
-      chunks = startChat(input, policy, calls, instrumentation)[
+      chunks = startChat(input, policy, calls, executions, instrumentation)[
         Symbol.asyncIterator
       ]();
       const runAborted = abortedPromise(policy.abortController.signal);
@@ -182,6 +184,7 @@ async function* streamAgentRun(
       policy.ending ?? { reason: 'cancelled', cause: undefined },
       policy.metrics(),
       calls.lastTurnText(),
+      executions.settled(),
     );
   } finally {
     if (!reachedEnd && !policy.abortController.signal.aborted) {
@@ -198,6 +201,7 @@ function startChat(
   input: AgentRunInput,
   policy: AgentRunPolicy,
   calls: ToolCallTracker,
+  executions: ToolExecutionFence,
   instrumentation: AgentRunChatInstrumentation,
 ): AsyncIterable<StreamChunk> {
   const adapter = admittingProviderCalls(
@@ -227,11 +231,14 @@ function startChat(
       // chat() would send its own validation message to the model, so
       // invalid arguments get the executor's sanitized failure instead.
       if (await acceptsInput(entry, hookCtx.args)) return undefined;
-      const result = await executeToolCall(
+      const result = await executions.track(
         entry,
-        hookCtx.args,
-        input.identity,
-        ctx.signal ?? policy.abortController.signal,
+        executeToolCall(
+          entry,
+          hookCtx.args,
+          input.identity,
+          ctx.signal ?? policy.abortController.signal,
+        ),
       );
       calls.settle(hookCtx.toolCallId, result);
       return { type: 'skip', result: toModelToolPayload(result) };
@@ -280,7 +287,7 @@ function startChat(
     tools: input.registry
       .entries()
       .map((entry) =>
-        toChatTool(entry, input, policy, calls, (callId) =>
+        toChatTool(entry, input, policy, calls, executions, (callId) =>
           rawArgsByCall.get(callId),
         ),
       ),
@@ -303,6 +310,7 @@ function toChatTool(
   input: AgentRunInput,
   policy: AgentRunPolicy,
   calls: ToolCallTracker,
+  executions: ToolExecutionFence,
   rawArgsOf: (callId: string) => unknown,
 ): Tool {
   return toolDefinition({
@@ -318,11 +326,14 @@ function toChatTool(
         ? validatedArgs
         : (rawArgsOf(callId) ?? validatedArgs);
     if (callId !== undefined) calls.markStarted(callId);
-    const result = await executeToolCall(
+    const result = await executions.track(
       entry,
-      rawArgs,
-      input.identity,
-      context?.abortSignal ?? policy.abortController.signal,
+      executeToolCall(
+        entry,
+        rawArgs,
+        input.identity,
+        context?.abortSignal ?? policy.abortController.signal,
+      ),
     );
     const settled = policy.ending === undefined ? result : stoppedToolResult();
     if (callId !== undefined) calls.settle(callId, settled);
@@ -344,6 +355,28 @@ interface AnnouncedToolCall {
 }
 
 type ToolCallTracker = ReturnType<typeof createToolCallTracker>;
+
+type ToolExecutionFence = ReturnType<typeof createToolExecutionFence>;
+
+// A read-only tool is left out so a hung read never holds up whoever
+// waits on the fence.
+function createToolExecutionFence() {
+  const inFlight = new Set<Promise<unknown>>();
+  return {
+    track<T>(entry: ToolRegistryEntry, execution: Promise<T>): Promise<T> {
+      if (entry.tool.sideEffect === 'read_only') return execution;
+      inFlight.add(execution);
+      const forget = () => {
+        inFlight.delete(execution);
+      };
+      execution.then(forget, forget);
+      return execution;
+    },
+    async settled(): Promise<void> {
+      while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
+    },
+  };
+}
 
 function createToolCallTracker(runId: RunId) {
   let turn = 0;
@@ -501,6 +534,7 @@ function* endingEvents(
   ending: AgentRunEnding,
   measured: AgentRunPolicyMetrics,
   lastTurnText: string,
+  toolsSettled: Promise<void>,
 ): Generator<AgentRunEvent> {
   const counters = {
     metrics: measured.metrics,
@@ -508,7 +542,10 @@ function* endingEvents(
   };
   switch (ending.reason) {
     case 'completed':
-      yield { type: 'finished', ...ending, reply: lastTurnText, ...counters };
+      yield withToolsSettled(
+        { type: 'finished', ...ending, reply: lastTurnText, ...counters },
+        toolsSettled,
+      );
       return;
     case 'budget':
       yield {
@@ -516,20 +553,38 @@ function* endingEvents(
         turnId: `${runId}:close`,
         delta: BUDGET_CLOSING_MESSAGE,
       };
-      yield {
-        type: 'finished',
-        ...ending,
-        reply: BUDGET_CLOSING_MESSAGE,
-        ...counters,
-      };
+      yield withToolsSettled(
+        {
+          type: 'finished',
+          ...ending,
+          reply: BUDGET_CLOSING_MESSAGE,
+          ...counters,
+        },
+        toolsSettled,
+      );
       return;
     case 'error':
     case 'cancelled':
-      yield { type: 'finished', ...ending, reply: '', ...counters };
+      yield withToolsSettled(
+        { type: 'finished', ...ending, reply: '', ...counters },
+        toolsSettled,
+      );
       return;
     default:
       assertNever(ending, 'Unknown agent run ending');
   }
+}
+
+// Non-enumerable so the promise never reaches a spread copy, a transcript or
+// the wire.
+function withToolsSettled(
+  finished: AgentRunFinished,
+  toolsSettled: Promise<void>,
+): AgentRunFinished {
+  return Object.defineProperty(finished, 'toolsSettled', {
+    value: toolsSettled,
+    enumerable: false,
+  });
 }
 
 function admittingProviderCalls(

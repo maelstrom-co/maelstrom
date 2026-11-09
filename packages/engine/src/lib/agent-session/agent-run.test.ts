@@ -1358,6 +1358,165 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(await iterator.next()).toEqual({ done: true, value: undefined });
   });
 
+  describe('toolsSettled on the ending', () => {
+    test.each([
+      ['cancelled', 'cancelled'],
+      ['deadline', 'budget'],
+    ] as const)(
+      'after a %s stays pending until a tool that ignores the abort settles',
+      async (trigger, reason) => {
+        const controller = new AbortController();
+        const time = createFakeAgentRunTime();
+        const release = defer<void>();
+        const counter = counterTools({
+          beforeEffect: async () => {
+            if (trigger === 'cancelled') controller.abort('user stopped');
+            else time.advance(100);
+            await release.promise;
+          },
+          ignoresAbort: true,
+        });
+        const model = scriptedAdapter([
+          toolTurn(
+            [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+            usage(4, 1),
+          ),
+          textTurn(['never sent'], usage(4, 1)),
+        ]);
+
+        const events = await collect(
+          runAgent(
+            runInput({
+              adapter: model.adapter,
+              registry: counter.registry,
+              clock: time.clock,
+              budgets: { ...testBudgets, maxElapsedMs: 100 },
+            }),
+            { signal: controller.signal },
+          ),
+        );
+        const finished = lastEvent(events);
+        const settlement = settleState(toolsSettledOf(finished));
+        await flushMacrotask();
+
+        expect(finished.reason).toBe(reason);
+        expect(counter.balances).toEqual([]);
+        expect(settlement.settled()).toBe(false);
+
+        release.resolve();
+        await settlement.promise;
+
+        expect(counter.balances).toEqual([1]);
+        expect(settlement.settled()).toBe(true);
+      },
+    );
+
+    test('is already resolved when no tool is running at the end', async () => {
+      const tools = orderTools();
+      const model = scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(4, 1)),
+        textTurn(['Done.'], usage(4, 1)),
+      ]);
+
+      const events = await collect(
+        runAgent(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          { signal: new AbortController().signal },
+        ),
+      );
+      const settlement = settleState(toolsSettledOf(lastEvent(events)));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(lastEvent(events).reason).toBe('completed');
+      expect(settlement.settled()).toBe(true);
+    });
+
+    test('resolves when an abandoned tool rejects late', async () => {
+      const controller = new AbortController();
+      const release = defer<void>();
+      const counter = counterTools({
+        beforeEffect: async () => {
+          controller.abort('user stopped');
+          await release.promise;
+        },
+        ignoresAbort: true,
+      });
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+          usage(4, 1),
+        ),
+      ]);
+
+      const events = await collect(
+        runAgent(
+          runInput({ adapter: model.adapter, registry: counter.registry }),
+          { signal: controller.signal },
+        ),
+      );
+      const settlement = settleState(toolsSettledOf(lastEvent(events)));
+      await flushMacrotask();
+      expect(settlement.settled()).toBe(false);
+
+      release.reject(new Error('effect failed late'));
+
+      expect(await settlement.promise).toBeUndefined();
+      expect(counter.balances).toEqual([]);
+    });
+
+    test('does not wait for a read-only tool that ignores the abort', async () => {
+      const controller = new AbortController();
+      const release = defer<void>();
+      const registry = createToolRegistry([
+        serverTool({
+          name: 'slow_lookup',
+          description: 'Reads slowly',
+          input: z.object({}),
+          output: z.object({ found: z.boolean() }),
+          sideEffect: 'read_only',
+          execute: async () => {
+            controller.abort('user stopped');
+            await release.promise;
+            return { found: true };
+          },
+          summarize: () => 'Found',
+        }),
+      ]);
+      const model = scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'slow_lookup', args: {} }], usage(4, 1)),
+      ]);
+
+      const events = await collect(
+        runAgent(runInput({ adapter: model.adapter, registry }), {
+          signal: controller.signal,
+        }),
+      );
+      const settlement = settleState(toolsSettledOf(lastEvent(events)));
+      await flushMacrotask();
+
+      expect(lastEvent(events).reason).toBe('cancelled');
+      expect(settlement.settled()).toBe(true);
+      release.resolve();
+    });
+
+    test('never reaches a spread copy or serialized form of the ending', async () => {
+      const events = await collect(
+        runAgent(
+          runInput({
+            adapter: scriptedAdapter([textTurn(['Hi.'], usage(1, 1))]).adapter,
+          }),
+          { signal: new AbortController().signal },
+        ),
+      );
+      const finished = lastEvent(events);
+
+      expect(finished.toolsSettled).toBeInstanceOf(Promise);
+      expect({ ...finished }).not.toHaveProperty('toolsSettled');
+      expect(JSON.stringify(finished)).not.toContain('toolsSettled');
+    });
+  });
+
   test('return() mid-run aborts the run, closes the adapter stream and the tool signal, and ends the iterable', async () => {
     const counter = counterTools();
     const stalled: { signal?: AbortSignal; closed: boolean } = {
@@ -2172,6 +2331,13 @@ function lastEvent(events: readonly AgentRunEvent[]): AgentRunFinished {
   const last = events.at(-1);
   if (last?.type !== 'finished') throw new Error('run did not finish');
   return last;
+}
+
+function toolsSettledOf(finished: AgentRunFinished): Promise<void> {
+  if (finished.toolsSettled === undefined) {
+    throw new Error('the ending carries no toolsSettled');
+  }
+  return finished.toolsSettled;
 }
 
 async function drain(
