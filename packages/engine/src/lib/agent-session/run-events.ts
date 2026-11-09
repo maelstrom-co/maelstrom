@@ -30,6 +30,8 @@ export interface RunBudgetExhaustion {
 export interface AgentRunCounters {
   readonly turns: number;
   readonly toolCalls: number;
+  /** Elapsed time the run measured. Reported as is, never recomputed. */
+  readonly elapsedMs: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly unreportedUsageCalls: number;
@@ -83,7 +85,8 @@ export function buildRunEnding(
   const metrics = {
     turns: counters?.turns ?? 0,
     toolCalls: counters?.toolCalls ?? 0,
-    elapsedMs: Math.max(0, Math.round(now - run.started)),
+    elapsedMs:
+      counters?.elapsedMs ?? Math.max(0, Math.round(now - run.started)),
     inputTokens: counters?.inputTokens ?? 0,
     outputTokens: counters?.outputTokens ?? 0,
   };

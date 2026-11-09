@@ -116,19 +116,30 @@ export function createAgentRunQueue({
 
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
 
+  const measuredSince = (
+    finished: AgentRunFinished,
+    since: number,
+  ): AgentRunFinished => ({
+    ...finished,
+    metrics: {
+      ...finished.metrics,
+      elapsedMs: Math.max(0, Math.round(clock() - since)),
+    },
+  });
+
   const finish = (
     run: ActiveAgentRun,
     finished: AgentRunFinished,
-    since: number,
     toolsSettled?: Promise<void>,
   ) => {
     if (finished.reason === 'budget') {
       transcript.recordClosingMessage(run.runId, finished.reply);
     }
     transcript.recordEnding(run.runId, finished);
+    const now = clock();
     const ending = buildRunEnding(
-      { runId: run.runId, started: since },
-      clock(),
+      { runId: run.runId, started: now },
+      now,
       finished.reply,
       wireOutcome(finished),
       {
@@ -225,18 +236,18 @@ export function createAgentRunQueue({
     } catch (error) {
       if (!isCurrent(run)) return;
       if (run.cancelled) {
-        finish(run, cancelledRun(ZERO_METRICS, 0), turnBegan);
+        finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
         return;
       }
       logger.error('Agent run setup failed', error, { runId: run.runId });
-      finish(run, SETUP_FAILURE, turnBegan);
+      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
       return;
     } finally {
       aborted.dispose();
     }
     if (!isCurrent(run)) return;
     if (setup === SETUP_ABORTED || run.controller.signal.aborted) {
-      finish(run, cancelledRun(ZERO_METRICS, 0), turnBegan);
+      finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
       return;
     }
     const started = clock();
@@ -270,12 +281,12 @@ export function createAgentRunQueue({
       } catch (error) {
         if (!isCurrent(run)) return;
         logger.error('Agent run failed', error, { runId: run.runId });
-        finished = RUN_FAILURE;
+        finished = measuredSince(RUN_FAILURE, started);
         break;
       }
       if (!isCurrent(run)) return;
       if (step.done === true) {
-        finished = RUN_FAILURE;
+        finished = measuredSince(RUN_FAILURE, started);
         break;
       }
       if (step.value.type === 'finished') {
@@ -289,7 +300,6 @@ export function createAgentRunQueue({
       run.cancelled && finished.reason !== 'cancelled'
         ? cancelledRun(finished.metrics, finished.unreportedUsageCalls)
         : finished,
-      started,
       finished.toolsSettled,
     );
   };

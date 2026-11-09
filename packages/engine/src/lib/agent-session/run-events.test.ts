@@ -130,12 +130,13 @@ test('an agent acceptance carries the agent disposition', () => {
 const counters = {
   turns: 2,
   toolCalls: 1,
+  elapsedMs: 15,
   inputTokens: 14,
   outputTokens: 3,
   unreportedUsageCalls: 1,
 };
 
-test('a completed agent run finishes with its counters and no extra reply message, since the reply was streamed', () => {
+test('a completed agent run finishes with its counters, including its own elapsed time, and no extra reply message, since the reply was streamed', () => {
   const ending = buildRunEnding(run, 30.4, 'Done.', undefined, counters);
   expect(ending.events).toEqual([
     {
@@ -148,7 +149,7 @@ test('a completed agent run finishes with its counters and no extra reply messag
       metrics: {
         turns: 2,
         toolCalls: 1,
-        elapsedMs: 20,
+        elapsedMs: 15,
         inputTokens: 14,
         outputTokens: 3,
       },
@@ -159,7 +160,7 @@ test('a completed agent run finishes with its counters and no extra reply messag
     outcome: 'succeeded',
     turns: 2,
     toolCalls: 1,
-    elapsedMs: 20,
+    elapsedMs: 15,
     inputTokens: 14,
     outputTokens: 3,
     unreportedUsageCalls: 1,
@@ -192,7 +193,7 @@ test('a budget ending sends the closing message under the close turn and makes i
       metrics: {
         turns: 2,
         toolCalls: 1,
-        elapsedMs: 20,
+        elapsedMs: 15,
         inputTokens: 14,
         outputTokens: 3,
       },

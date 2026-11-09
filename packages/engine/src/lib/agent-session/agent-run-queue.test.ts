@@ -205,6 +205,27 @@ describe('agent run queue', () => {
     expect(lastFinished(session.received).metrics.elapsedMs).toBe(0);
   });
 
+  test('the finished event reports the elapsed time the run froze, not time spent after it ended', async () => {
+    const time = createFakeAgentRunTime();
+    const startRun: AgentRunStarter = () =>
+      (async function* (): AsyncGenerator<AgentRunEvent> {
+        time.advance(325);
+        yield {
+          type: 'finished',
+          reason: 'completed',
+          reply: 'Done.',
+          metrics: { ...ZERO_METRICS, elapsedMs: 250 },
+          unreportedUsageCalls: 0,
+        };
+      })();
+    const session = createSession({ time, startRun });
+
+    await session.queue.enqueue(utterance('input-1', 'hello'));
+
+    expect(lastFinished(session.received).metrics.elapsedMs).toBe(250);
+    expect(session.finishedMetadata()).toMatchObject([{ elapsedMs: 250 }]);
+  });
+
   test('a second utterance is accepted at once and starts only after the first finishes, building on its transcript', async () => {
     const release = defer<void>();
     const toolStarted = defer<void>();
