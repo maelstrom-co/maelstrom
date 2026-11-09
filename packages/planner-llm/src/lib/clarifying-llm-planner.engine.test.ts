@@ -111,6 +111,24 @@ const partialExecutionPlan = [
   },
 ];
 
+// Engine-valid partial changes per mode: since clarification partial changes
+// are validated like a plan, each must fit the request fixture it targets.
+const validClarificationPartials = {
+  grid: {
+    layout: replylessOutputs.grid.layout,
+    executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+  },
+  tiling: {
+    layout: {
+      tree: ['ID:calendar-main'],
+      instances: [
+        { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+      ],
+    },
+    executionPlan: [],
+  },
+} as const;
+
 const REFUSAL_LOG = 'Refused a skipReply outcome the Engine cannot ship';
 
 describe.each(modes)(
@@ -251,8 +269,8 @@ describe.each(modes)(
 
     test('a skipReply clarification passes validation and the ship boundary refuses it', async () => {
       mockChat.mockResolvedValueOnce({
-        ...replylessOutputs[mode],
-        executionPlan: partialExecutionPlan,
+        rationale: replylessOutputs[mode].rationale,
+        ...validClarificationPartials[mode],
         clarification: { question: 'Which calendar?' },
       });
 
