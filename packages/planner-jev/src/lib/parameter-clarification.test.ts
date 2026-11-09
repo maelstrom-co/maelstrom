@@ -133,6 +133,41 @@ describe('parameterClarification partial changes', () => {
     });
   });
 
+  test('carries the layout when it replaces an instance with the same count', () => {
+    const request = makeRequest('swap the weather widget for a new one');
+    const replaced = request.instances.map((instance) =>
+      instance.instanceId === 'weather-main'
+        ? { ...instance, instanceId: InstanceId('weather-new') }
+        : instance,
+    );
+    const result = parameterClarification(
+      [ask('tasks-main/addTask', TITLE)],
+      partial(request, { instances: replaced }),
+      request,
+    );
+    expect(plain(result.layout)).toMatchObject({
+      instances: expect.arrayContaining([
+        expect.objectContaining({ instanceId: 'weather-new' }),
+      ]),
+    });
+  });
+
+  test('carries the tree layout on a grid request', () => {
+    const tiling = makeRequest('add a task');
+    const grid = makeRequest('add a task', { layoutMode: 'grid' });
+    const result = parameterClarification(
+      [ask('tasks-main/addTask', TITLE)],
+      partial(tiling),
+      grid,
+    );
+    if (tiling.layout.type !== 'tiling')
+      throw new Error('expected a tiling request');
+    expect(plain(result.layout)).toEqual({
+      tree: tiling.layout.tree,
+      instances: plain(tiling.instances),
+    });
+  });
+
   test('an empty executionPlan and an unchanged layout leave only the question', () => {
     const request = makeRequest('add a task');
     const result = parameterClarification(
