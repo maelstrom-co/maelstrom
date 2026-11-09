@@ -1,10 +1,27 @@
 import type { ServerToolContext } from '@maelstrom-co/engine';
 import { describe, expect, it } from 'vitest';
 
-import { latestOrderTool } from './latest-order-tool';
+import type { Order } from '../shop/stores/fixtures';
+import { latestOrderTool, newestOrder } from './latest-order-tool';
 
 const EXPECTED_SUMMARY =
   'Order ORD-10455 placed 2026-09-14: 1x Summit Trail Adult Chicken & Brown Rice, 1x Whisker & Co Indoor Adult Chicken';
+
+describe('newestOrder', () => {
+  it('picks the newest order even when it is not first in the list', () => {
+    const orders = [
+      orderOn('ORD-2', '2026-03-01'),
+      orderOn('ORD-3', '2026-09-14'),
+      orderOn('ORD-1', '2026-01-20'),
+    ];
+
+    expect(newestOrder(orders)?.id).toBe('ORD-3');
+  });
+
+  it('returns undefined for an empty list', () => {
+    expect(newestOrder([])).toBeUndefined();
+  });
+});
 
 describe('latestOrderTool', () => {
   it('returns the newest seed order and its output passes the output schema', async () => {
@@ -23,6 +40,12 @@ describe('latestOrderTool', () => {
     expect(summary).toBe(EXPECTED_SUMMARY);
     expect(summary.length).toBeLessThanOrEqual(200);
     expect(summary).not.toMatch(/\n/);
+  });
+
+  it('describes the tool as reading the seed order history', () => {
+    expect(latestOrderTool.description).toBe(
+      "Returns the shopper's most recent order from the pet shop seed order history, with its date, line items and totals.",
+    );
   });
 
   it('keeps the caller token and user out of the output and summary', async () => {
@@ -54,4 +77,13 @@ function contextFor(
     signal: new AbortController().signal,
     ...overrides,
   };
+}
+
+function orderOn(id: string, placedOn: string): Order {
+  return {
+    id,
+    placedOn,
+    items: [],
+    totals: { subtotalCents: 0, shippingCents: 0, taxCents: 0, totalCents: 0 },
+  } as unknown as Order;
 }

@@ -30,7 +30,7 @@ const latestOrderOutputSchema = z.object({
 export const latestOrderTool = serverTool({
   name: 'latest_order',
   description:
-    "Returns the shopper's most recent pet shop order with its date, line items and totals.",
+    "Returns the shopper's most recent order from the pet shop seed order history, with its date, line items and totals.",
   input: z.object({}),
   output: latestOrderOutputSchema,
   sideEffect: 'read_only',
@@ -53,7 +53,7 @@ export const latestOrderTool = serverTool({
     ),
 });
 
-function newestOrder(orders: readonly Order[]): Order | undefined {
+export function newestOrder(orders: readonly Order[]): Order | undefined {
   return orders.reduce<Order | undefined>(
     (newest, order) =>
       !newest || order.placedOn > newest.placedOn ? order : newest,
