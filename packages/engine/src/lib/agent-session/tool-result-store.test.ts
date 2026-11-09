@@ -6,6 +6,7 @@ import type { AgentRunToolPhaseEndedEvent } from './agent-run.js';
 import {
   createToolResultStore,
   TOOL_RESULT_STORE_CAPACITY,
+  TOOL_RESULT_STORE_MAX_CHARS,
 } from './tool-result-store.js';
 import { toolCallRef } from './transcript.js';
 
@@ -73,21 +74,69 @@ describe('createToolResultStore', () => {
       total,
     );
   });
+
+  test('evicts the oldest results until the serialized values fit the character budget', () => {
+    const store = createToolResultStore({ maxChars: 25 });
+    store.recordToolPhase(runId, successfulPhase('c1', 'a'.repeat(8)));
+    store.recordToolPhase(runId, successfulPhase('c2', 'b'.repeat(8)));
+    store.recordToolPhase(runId, successfulPhase('c3', 'c'.repeat(8)));
+
+    expect(store.get(toolCallRef(runId, CallId('c1')))).toBeUndefined();
+    expect(store.get(toolCallRef(runId, CallId('c2')))?.value).toBe(
+      'b'.repeat(8),
+    );
+    expect(store.get(toolCallRef(runId, CallId('c3')))?.value).toBe(
+      'c'.repeat(8),
+    );
+  });
+
+  test('does not keep a result whose value alone exceeds the character budget', () => {
+    const store = createToolResultStore({ maxChars: 25 });
+    store.recordToolPhase(runId, successfulPhase('c1', 'a'.repeat(8)));
+    store.recordToolPhase(runId, successfulPhase('c2', 'b'.repeat(30)));
+
+    expect(store.get(toolCallRef(runId, CallId('c1')))?.value).toBe(
+      'a'.repeat(8),
+    );
+    expect(store.get(toolCallRef(runId, CallId('c2')))).toBeUndefined();
+  });
+
+  test('counts a re-recorded call once against the character budget', () => {
+    const store = createToolResultStore({ maxChars: 25 });
+    store.recordToolPhase(runId, successfulPhase('c1', 'a'.repeat(8)));
+    store.recordToolPhase(runId, successfulPhase('c2', 'b'.repeat(8)));
+    store.recordToolPhase(runId, successfulPhase('c2', 'b'.repeat(8)));
+
+    expect(store.get(toolCallRef(runId, CallId('c1')))?.value).toBe(
+      'a'.repeat(8),
+    );
+  });
+
+  test('does not keep a result whose value cannot be serialized', () => {
+    const store = createToolResultStore();
+    store.recordToolPhase(runId, successfulPhase('c1', 1n));
+
+    expect(store.get(toolCallRef(runId, CallId('c1')))).toBeUndefined();
+  });
+
+  test('bounds retained values at 256,000 serialized characters by default', () => {
+    expect(TOOL_RESULT_STORE_MAX_CHARS).toBe(256_000);
+  });
 });
 
 function successfulPhase(
   callId: string,
-  value: number,
+  value: unknown,
 ): AgentRunToolPhaseEndedEvent {
   return {
     type: 'tool_phase_ended',
-    turnId: `run-1:t${value}`,
+    turnId: `run-1:${callId}`,
     results: [
       {
         callId: CallId(callId),
         name: 'latest_order',
         ok: true,
-        summary: `Result ${value}`,
+        summary: `Result ${callId}`,
         value,
       },
     ],
