@@ -92,7 +92,7 @@ When `request.skipReply` is `true`, the prompt and the output schema leave out `
 
 A clarification may carry `layout` and `executionPlan` as partial changes for the parts of the request that are already clear. When the model returns an empty `executionPlan` and the request's current layout, the planner drops both, so the clarification leaves the screen unchanged. Clarification partial changes are not validated on the `withRetry` path, because `withRetry` returns a clarification without validating or retrying it. The Engine validates them when it handles the request.
 
-`Engine.handle` still refuses replyless outcomes on the `chart_response` path, so use `skipReply` only with a caller that supplies its own reply.
+`Engine.handle` does not yet ship replyless plans or clarifications. It returns a `ValidationError` on the `skipReply` field for both, so `clarifyingLlmPlanner` under `skipReply` is only usable when the stage is composed directly, for example with `withRetry`.
 
 ```ts
 import { clarifyingLlmPlanner } from '@maelstrom-co/planner-llm';

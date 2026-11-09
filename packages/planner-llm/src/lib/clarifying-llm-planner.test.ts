@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 import {
-  buildGridResponse,
-  makeGridRequest,
   makePlanningInput,
   makeStageContext,
-  makeTilingRequest,
 } from '@maelstrom-co/engine/_testing';
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
 import {
@@ -13,12 +10,17 @@ import {
   isOk,
   TilingModelOutputSchema,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 import { convertSchemaToJsonSchema } from '@tanstack/ai';
 
+import type { ChatArgs } from './__test-helpers__/fixtures.js';
 import {
+  chatCall,
   dummyAdapter,
   overflowDiagnostics,
+  partialExecutionPlan,
+  replyBearingOutputFor,
+  replylessOutputs,
+  requestFor,
 } from './__test-helpers__/fixtures.js';
 import { clarifyingLlmPlanner, llmPlanner } from './llm-planner.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
@@ -42,48 +44,7 @@ afterEach(() => {
   mockChat.mockReset();
 });
 
-interface ChatArgs {
-  readonly adapter: AnyTextAdapter;
-  readonly threadId: string;
-  readonly messages: ReadonlyArray<{ role: string; content: string }>;
-  readonly systemPrompts: readonly string[];
-  readonly outputSchema: unknown;
-  readonly middleware: readonly ChatMiddleware[];
-  readonly abortController: AbortController;
-}
-
 const modes: readonly LayoutMode[] = ['grid', 'tiling'];
-
-const replylessOutputs = {
-  grid: {
-    rationale: 'Top left has room.',
-    executionPlan: [],
-    layout: {
-      positions: [
-        {
-          instanceId: 'calendar-main',
-          position: { row: 0, column: 0 },
-          size: { width: 6, height: 4 },
-        },
-      ],
-    },
-  },
-  tiling: {
-    rationale: 'Two panes side by side.',
-    executionPlan: [],
-    layout: {
-      tree: ['H', 'ID:calendar-main', 'ID:notes-main'],
-      instances: [
-        {
-          instanceId: 'calendar-main',
-          vesselId: 'calendar',
-          variant: 'month',
-        },
-        { instanceId: 'notes-main', vesselId: 'notes', variant: 'list' },
-      ],
-    },
-  },
-} as const;
 
 const changedLayouts = {
   grid: {
@@ -97,14 +58,6 @@ const changedLayouts = {
   },
   tiling: replylessOutputs.tiling.layout,
 } as const;
-
-const partialExecutionPlan = [
-  {
-    instanceId: 'calendar-main',
-    action: 'showWeek',
-    paramsJson: '{"view":"week"}',
-  },
-];
 
 describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
   test('without skipReply sends the same chat() call and returns the same candidate as llmPlanner', async () => {
@@ -131,10 +84,10 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
       })(input, ctx);
 
       expect(comparableChatCalls()).toEqual(strictCalls);
-      expect(chatCall(0).systemPrompts).toEqual([
+      expect(chatCall(mockChat, 0).systemPrompts).toEqual([
         buildSystemPrompt(mode, prompt),
       ]);
-      expect(chatCall(0).outputSchema).toEqual(
+      expect(chatCall(mockChat, 0).outputSchema).toEqual(
         convertOutputSchema(
           mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
         ),
@@ -160,7 +113,7 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
       makeStageContext({ origin: input }),
     );
 
-    const call = chatCall(0);
+    const call = chatCall(mockChat, 0);
     expect(call.outputSchema).toEqual(
       convertOutputSchema(skipReplyOutputSchemaFor(mode)),
     );
@@ -323,7 +276,7 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
       ctx,
     );
 
-    const retry = chatCall(1);
+    const retry = chatCall(mockChat, 1);
     expect(retry.systemPrompts).toEqual([buildReplylessSystemPrompt(mode)]);
     expect(retry.outputSchema).toEqual(
       convertOutputSchema(skipReplyOutputSchemaFor(mode)),
@@ -350,8 +303,10 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
     );
 
     expect(isOk(result)).toBe(true);
-    expect(chatCall(0).systemPrompts).toEqual([buildSystemPrompt(mode)]);
-    expect(chatCall(0).outputSchema).toEqual(
+    expect(chatCall(mockChat, 0).systemPrompts).toEqual([
+      buildSystemPrompt(mode),
+    ]);
+    expect(chatCall(mockChat, 0).outputSchema).toEqual(
       convertOutputSchema(
         mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
       ),
@@ -371,11 +326,11 @@ describe.each(modes)('clarifyingLlmPlanner (%s)', (mode) => {
       makeStageContext({ origin: input }),
     );
 
-    expect(chatCall(0).systemPrompts).toEqual([
+    expect(chatCall(mockChat, 0).systemPrompts).toEqual([
       buildReplylessSystemPrompt(mode, prompt),
     ]);
-    expect(chatCall(0).systemPrompts[0]).toContain('You are Aria,');
-    expect(chatCall(0).systemPrompts[0]).toContain('SENTINEL_RULES');
+    expect(chatCall(mockChat, 0).systemPrompts[0]).toContain('You are Aria,');
+    expect(chatCall(mockChat, 0).systemPrompts[0]).toContain('SENTINEL_RULES');
   });
 });
 
@@ -420,21 +375,11 @@ describe('clarifyingLlmPlanner construction', () => {
   });
 });
 
-function requestFor(mode: LayoutMode): ChartRequest {
-  return mode === 'grid' ? makeGridRequest() : makeTilingRequest();
-}
-
 function withSkipReply(
   request: ChartRequest,
   skipReply: boolean | undefined,
 ): ChartRequest {
   return skipReply === undefined ? request : { ...request, skipReply };
-}
-
-function replyBearingOutputFor(mode: LayoutMode) {
-  return mode === 'grid'
-    ? buildGridResponse()
-    : { userMessage: 'Split the screen.', ...replylessOutputs.tiling };
 }
 
 async function runWithSkipReply(mode: LayoutMode) {
@@ -443,12 +388,6 @@ async function runWithSkipReply(mode: LayoutMode) {
     input,
     makeStageContext({ origin: input }),
   );
-}
-
-function chatCall(index: number): ChatArgs {
-  const args = mockChat.mock.calls[index]?.[0] as ChatArgs | undefined;
-  if (args === undefined) throw new Error(`no chat call at index ${index}`);
-  return args;
 }
 
 function comparableChatCalls() {

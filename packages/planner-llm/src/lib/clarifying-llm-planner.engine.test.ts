@@ -10,11 +10,8 @@ import type {
 import { createEngine, withRetry } from '@maelstrom-co/engine';
 import type { SpyEntry } from '@maelstrom-co/engine/_testing';
 import {
-  buildGridResponse,
-  makeGridRequest,
   makePlanningInput,
   makeStageContext,
-  makeTilingRequest,
   spyLogger,
 } from '@maelstrom-co/engine/_testing';
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
@@ -25,10 +22,16 @@ import {
   isOk,
   TilingNeedsClarificationSchema,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
 import { convertSchemaToJsonSchema } from '@tanstack/ai';
 
-import { dummyAdapter } from './__test-helpers__/fixtures.js';
+import {
+  chatCall,
+  dummyAdapter,
+  partialExecutionPlan,
+  replyBearingOutputFor,
+  replylessOutputs,
+  requestFor,
+} from './__test-helpers__/fixtures.js';
 import type { ClarifyingLlmPlannerInput } from './llm-planner.js';
 import { clarifyingLlmPlanner } from './llm-planner.js';
 import {
@@ -50,45 +53,7 @@ afterEach(() => {
   mockChat.mockReset();
 });
 
-interface ChatArgs {
-  readonly adapter: AnyTextAdapter;
-  readonly messages: ReadonlyArray<{ role: string; content: string }>;
-  readonly systemPrompts: readonly string[];
-  readonly outputSchema: unknown;
-}
-
 const modes: readonly LayoutMode[] = ['grid', 'tiling'];
-
-const replylessOutputs = {
-  grid: {
-    rationale: 'Top left has room.',
-    executionPlan: [],
-    layout: {
-      positions: [
-        {
-          instanceId: 'calendar-main',
-          position: { row: 0, column: 0 },
-          size: { width: 6, height: 4 },
-        },
-      ],
-    },
-  },
-  tiling: {
-    rationale: 'Two panes side by side.',
-    executionPlan: [],
-    layout: {
-      tree: ['H', 'ID:calendar-main', 'ID:notes-main'],
-      instances: [
-        {
-          instanceId: 'calendar-main',
-          vesselId: 'calendar',
-          variant: 'month',
-        },
-        { instanceId: 'notes-main', vesselId: 'notes', variant: 'list' },
-      ],
-    },
-  },
-} as const;
 
 const overflowingReplylessGridOutput = {
   ...replylessOutputs.grid,
@@ -103,16 +68,8 @@ const overflowingReplylessGridOutput = {
   },
 };
 
-const partialExecutionPlan = [
-  {
-    instanceId: 'calendar-main',
-    action: 'showWeek',
-    paramsJson: '{"view":"week"}',
-  },
-];
-
-// Engine-valid partial changes per mode: since clarification partial changes
-// are validated like a plan, each must fit the request fixture it targets.
+// The Engine validates clarification partial changes like a plan (withRetry
+// does not), so each must fit the request fixture it targets.
 const validClarificationPartials = {
   grid: {
     layout: replylessOutputs.grid.layout,
@@ -214,7 +171,7 @@ describe('withRetry(clarifyingLlmPlanner) retry under skipReply', () => {
     expect(retry.diagnostics.retryHint.recommend).toBe(true);
     expect(retry.diagnostics.feedback).toContain('exceeds chart bounds');
 
-    const retried = chatCall(1);
+    const retried = chatCall(mockChat, 1);
     expect(retried.systemPrompts).toEqual([buildReplylessSystemPrompt('grid')]);
     expect(retried.outputSchema).toEqual(
       convertOutputSchema(skipReplyOutputSchemaFor('grid')),
@@ -363,24 +320,8 @@ function expectShipBoundaryRefusal(
   ]);
 }
 
-function requestFor(mode: LayoutMode): ChartRequest {
-  return mode === 'grid' ? makeGridRequest() : makeTilingRequest();
-}
-
-function replyBearingOutputFor(mode: LayoutMode) {
-  return mode === 'grid'
-    ? buildGridResponse()
-    : { userMessage: 'Split the screen.', ...replylessOutputs.tiling };
-}
-
 function clarificationSchemaFor(mode: LayoutMode) {
   return mode === 'grid'
     ? GridNeedsClarificationSchema
     : TilingNeedsClarificationSchema;
-}
-
-function chatCall(index: number): ChatArgs {
-  const args = mockChat.mock.calls[index]?.[0] as ChatArgs | undefined;
-  if (args === undefined) throw new Error(`no chat call at index ${index}`);
-  return args;
 }
