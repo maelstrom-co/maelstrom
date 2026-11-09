@@ -333,7 +333,7 @@ export async function shippedFromRecord(
     const healed =
       candidate === undefined
         ? undefined
-        : await healCandidate(scenario, candidate as PlannerCandidate);
+        : await healCandidate(scenario, tagRecordedPlan(candidate));
     if (
       healed?.layout.type === 'tiling' &&
       healed.userMessage === record.userMessage &&
@@ -377,6 +377,17 @@ const UNPROVEN_PLAN = [
   'Execution plan does not simulate',
   'Response layout is not tiling',
 ];
+
+// Stage outputs recorded before plan results carried a `type` tag lack it.
+// An untagged object is a plan by construction, so stamp `type: 'plan'`
+// rather than let the Engine reject the recorded candidate.
+function tagRecordedPlan(output: unknown): PlannerCandidate {
+  return (
+    isRecord(output) && !('type' in output)
+      ? { type: 'plan', ...output }
+      : output
+  ) as PlannerCandidate;
+}
 
 async function healCandidate(
   scenario: Scenario,

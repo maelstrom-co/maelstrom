@@ -5,7 +5,7 @@ import {
   type ChartRequest,
   type MaelstromResponse,
   MessageId,
-  TilingResponseSchema,
+  TilingModelOutputSchema,
 } from '@maelstrom-co/protocol';
 
 import type { ManualFetch } from './transport.js';
@@ -57,7 +57,7 @@ function candidate(
 }
 
 function shipped(value: ReturnType<typeof candidate>): MaelstromResponse {
-  const parsed = TilingResponseSchema.parse(value);
+  const parsed = TilingModelOutputSchema.parse(value);
   return {
     ...parsed,
     type: 'maelstrom_response',

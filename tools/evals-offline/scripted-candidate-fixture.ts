@@ -8,7 +8,11 @@ import { resolveArms } from '../../packages/evals/src/core/arms.js';
 import type { EvalOptions } from '../../packages/evals/src/core/run.js';
 import { variantScenarioFromCase } from '../../packages/evals/src/core/variant-case.js';
 
-/** Real Engine scoring of a JSON-backed scenario with independent candidate evidence and no model. */
+/**
+ * Real Engine scoring of a JSON-backed scenario with independent candidate
+ * evidence and no model. The case JSON stores the candidate without a `type`
+ * tag. Each planner turn stamps `type: 'plan'` on a fresh copy.
+ */
 export function scriptedCandidate(
   fixture: ScriptedCandidateData,
   definition: unknown,
@@ -16,7 +20,7 @@ export function scriptedCandidate(
 ) {
   const { candidate } = scriptedCandidateDataSchema.parse(fixture);
   const plugin = fakePluginWith({
-    candidate: () => structuredClone(candidate),
+    candidate: () => ({ type: 'plan', ...structuredClone(candidate) }),
   });
   const adapter = plannerAdapter({
     scenario: variantScenarioFromCase(definition),
