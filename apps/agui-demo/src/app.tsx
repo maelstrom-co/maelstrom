@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { GoalRunner, type WorkspaceRequest } from './browser/goal-runner';
 import { m } from './browser/maelstrom';
 import { VoicePanel } from './browser/voice-panel';
+import { bindWorkspaceActions } from './browser/workspace-actions';
 import { WorkspaceConnector } from './browser/workspace-connector';
 import {
   localDate,
@@ -297,6 +298,10 @@ function WorkspaceBody({
   reconcile: () => void;
 }) {
   const orchestrator = m.useWorkspaceOrchestrator();
+  useEffect(
+    () => bindWorkspaceActions(orchestrator.commandProcessor, session.state),
+    [orchestrator, session.state],
+  );
   const connection = m.useMaelstrom((state) => state.connectionStatus);
   const runner = useMemo(
     () =>

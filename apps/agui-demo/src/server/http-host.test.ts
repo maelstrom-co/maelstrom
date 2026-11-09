@@ -14,8 +14,10 @@ import {
 import { fakeText } from '@tanstack/ai/testing';
 
 import { GoalRunner } from '../browser/goal-runner';
+import { bindWorkspaceActions } from '../browser/workspace-actions';
 import { WorkspaceConnector } from '../browser/workspace-connector';
-import { journalVessel } from '../vessels/definitions';
+import { WorkspaceState } from '../browser/workspace-state';
+import { journalVessel, tasksVessel } from '../vessels/definitions';
 import { LocalWorkspaceHost } from './http-host';
 
 const origin = 'http://127.0.0.1:4310';
@@ -279,6 +281,182 @@ test('workspace reset deletes the records and revokes its cookie authorization',
     await client.request('/api/workspace/bootstrap', {})
   ).json();
   expect(second.sessionId).not.toBe(first.sessionId);
+});
+
+test('a retained hidden Task can commit once and supply its version to a dependent subtask', async () => {
+  const adapter = Object.assign(fakeText(), {
+    supportsCombinedToolsAndSchema: () => true,
+  });
+  adapter.setResponses([
+    {
+      toolCalls: [
+        {
+          id: 'hide',
+          name: 'apply_workspace',
+          input: { intent: 'Hide Tasks' },
+        },
+      ],
+    },
+    {
+      toolCalls: [
+        {
+          id: 'create',
+          name: 'apply_workspace',
+          input: { intent: 'Create Task' },
+        },
+      ],
+    },
+    ({ request }) => {
+      const result = [...request.messages]
+        .reverse()
+        .find((message) => message.role === 'tool');
+      const workspace = JSON.parse(String(result?.content)).workspace;
+      expect(
+        workspace.application.chart.instances.map(
+          (instance: { vesselId: string }) => instance.vesselId,
+        ),
+      ).toEqual(['journal']);
+      const task = workspace.records.tasks[0];
+      return {
+        toolCalls: [
+          {
+            id: 'append',
+            name: 'apply_workspace',
+            input: { intent: `Append to ${task.id} version ${task.version}` },
+          },
+        ],
+      };
+    },
+    {
+      text: JSON.stringify({
+        status: 'completed',
+        message: 'Task and subtask saved.',
+      }),
+    },
+  ]);
+  const task = { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' };
+  const journal = {
+    instanceId: 'journal-main',
+    vesselId: 'journal',
+    variant: 'list',
+  };
+  const host = new LocalWorkspaceHost(origin, {
+    adapter: () => adapter,
+    engine: (_key, records) =>
+      createEngine({
+        retry: false,
+        logger: { debug() {}, info() {}, warn() {}, error() {} },
+        planner: async (input) => {
+          const reason = input.request.context.updateReasons.find(
+            (reason) => reason.type === 'user_intent',
+          );
+          const intent = reason?.intent ?? '';
+          return ok(
+            TilingResponseSchema.parse({
+              type: 'plan',
+              userMessage: 'Apply retained Task',
+              rationale: 'Retain hidden Instance identity',
+              layout: {
+                tree: [
+                  intent.startsWith('Append')
+                    ? 'ID:tasks-main'
+                    : 'ID:journal-main',
+                ],
+                instances: [task, journal],
+              },
+              executionPlan:
+                intent === 'Create Task'
+                  ? [
+                      {
+                        instanceId: task.instanceId,
+                        action: 'addTask',
+                        paramsJson: JSON.stringify({
+                          title: 'Verify isolation',
+                        }),
+                      },
+                    ]
+                  : intent.startsWith('Append')
+                    ? [
+                        {
+                          instanceId: task.instanceId,
+                          action: 'addSubtask',
+                          paramsJson: JSON.stringify({
+                            id: records.tasks[0].id,
+                            version: records.tasks[0].version,
+                            subtaskTitle: 'Inspect receipt',
+                          }),
+                        },
+                      ]
+                    : [],
+            }),
+          );
+        },
+      }),
+  });
+  const client = browser(host);
+  const bootstrap = await (
+    await client.request('/api/workspace/bootstrap', {})
+  ).json();
+  client.setBinding(bootstrap.bindingId);
+  const connector = new WorkspaceConnector(async (input, signal) => {
+    const response = await client.request(
+      '/api/workspace/exchange',
+      input,
+      signal,
+    );
+    if (!response.ok) throw new Error('Exchange rejected');
+    return response.json();
+  });
+  const orchestrator = new Orchestrator(connector, {
+    sessionId: SessionId(bootstrap.sessionId),
+    vessels: [tasksVessel, journalVessel],
+  });
+  const state = new WorkspaceState(
+    bootstrap.records,
+    connector,
+    client.request,
+  );
+  const dispose = bindWorkspaceActions(orchestrator.commandProcessor, state);
+  try {
+    await orchestrator.connect();
+    const runner = new GoalRunner(
+      bootstrap.threadId,
+      client.request,
+      connector,
+      orchestrator,
+    );
+    const outcome = await runner.run(
+      'Hide Tasks, create a task, then add its subtask and show it.',
+    );
+    expect(outcome).toMatchObject({ status: 'completed' });
+    expect(outcome.applications).toHaveLength(3);
+    expect(state.snapshot().records).toMatchObject({
+      revision: 2,
+      tasks: [
+        {
+          version: 2,
+          title: 'Verify isolation',
+          subtasks: [{ title: 'Inspect receipt' }],
+        },
+      ],
+    });
+    const snapshot = await (
+      await client.request('/api/workspace/records', {})
+    ).json();
+    expect(snapshot.records).toEqual(state.snapshot().records);
+    const review = await (
+      await client.request('/api/workspace/bootstrap', {})
+    ).json();
+    expect(
+      review.operations.filter(
+        (operation: { recordId?: string }) => operation.recordId,
+      ),
+    ).toHaveLength(2);
+  } finally {
+    dispose();
+    state.dispose();
+    await orchestrator.dispose();
+  }
 });
 
 test('a known limitation is incomplete, not completed or uncertain, and permits a later read-only goal', async () => {
