@@ -432,6 +432,9 @@ describe('preview workflows', () => {
       );
     }
     expect(workflow.match(/preview-lifecycle\.ts deploy-app/g)).toHaveLength(1);
+    expect(step(workflow, 'Build independent preview artifacts')).toContain(
+      'bunx nx run @maelstrom-co/agui-demo:build-hosted --skip-nx-cache',
+    );
     expect(
       workflow.match(/preview-lifecycle\.ts finish-deployment/g),
     ).toHaveLength(1);

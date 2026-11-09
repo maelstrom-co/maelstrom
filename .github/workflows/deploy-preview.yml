@@ -147,7 +147,7 @@ jobs:
     if: needs.approve.result == 'success' && needs.approve.outputs.pr-number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: ${{ github.event_name == 'workflow_run' && 'preview-auto' || 'preview' }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: deploy-preview-pr-${{ needs.approve.outputs.pr-number }}
       cancel-in-progress: false
@@ -213,6 +213,7 @@ jobs:
         timeout-minutes: 10
         run: |
           bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
+          bunx nx run @maelstrom-co/agui-demo:build-hosted --skip-nx-cache
           bunx nx run @maelstrom-co/docs:build --skip-nx-cache
 
       - name: Deploy demo preview
@@ -257,7 +258,7 @@ jobs:
         run: bunx nx run @maelstrom-co/www:build --skip-nx-cache
 
       - name: Deploy remaining previews
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           CI_RUN_ID: ${{ github.event.workflow_run.id || '' }}

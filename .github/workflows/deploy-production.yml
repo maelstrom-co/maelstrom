@@ -147,6 +147,12 @@ jobs:
             directory: apps/demo
             url: https://demo.maelstrom-ai.co
             alias: ''
+          - app: agui-demo
+            project: '@maelstrom-co/agui-demo'
+            build-target: build-hosted
+            directory: apps/agui-demo
+            url: https://agui.maelstrom-ai.co
+            alias: ''
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

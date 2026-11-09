@@ -39,6 +39,7 @@ describe('previewWorkerNames', () => {
       'maelstrom-www-alchemy-pr-42',
       'maelstrom-docs-alchemy-pr-42',
       'maelstrom-playground-alchemy-pr-42',
+      'maelstrom-agui-alchemy-pr-42',
     ]);
     expect(previewWorkerNames('42')).toEqual([
       ...legacyPreviewWorkerNames('42'),
@@ -100,7 +101,7 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
-    expect(requests).toHaveLength(36);
+    expect(requests).toHaveLength(42);
     expect(sleeps).toEqual([60_000, 60_000, 60_000, 60_000, 60_000]);
     expect(
       requests.every(
@@ -171,7 +172,7 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
-    expect(request).toBe(36);
+    expect(request).toBe(42);
   });
 
   test('honors Cloudflare retry-after before retrying a rate-limited deletion', async () => {
@@ -327,9 +328,12 @@ describe('deletePreviewWorkers', () => {
     );
     await Bun.sleep(0);
     expect(peak).toBe(3);
-    while (pending.length > 0) pending.shift()?.();
-    await Bun.sleep(0);
-    while (pending.length > 0) pending.shift()?.();
+    for (let remaining = previewWorkerNames('42').length; remaining > 0;) {
+      remaining -= pending.length;
+      while (pending.length > 0) pending.shift()?.();
+      await Bun.sleep(0);
+    }
+    expect(peak).toBe(3);
     expect(await result).toBeTrue();
   });
 
@@ -366,7 +370,7 @@ describe('deletePreviewWorkers', () => {
 
     expect(success).toBeFalse();
     expect(now).toBeLessThanOrEqual(61_000);
-    expect(requests).toBe(6);
+    expect(requests).toBe(7);
   });
 
   test('fails closed when the final response contradicts its HTTP status', async () => {
@@ -388,7 +392,7 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeFalse();
-    expect(errors).toHaveLength(6);
+    expect(errors).toHaveLength(7);
   });
 
   test('does not hide an authorization failure beside a missing-worker error', async () => {
@@ -477,6 +481,11 @@ describe('discoverPreviewPrNumbers', () => {
             { id: 'maelstrom-www-pr-42' },
             { id: 'maelstrom-docs-alchemy-pr-7' },
             { id: 'maelstrom-playground-alchemy-pr-42' },
+            { id: 'maelstrom-agui-alchemy-pr-81' },
+            { id: 'maelstrom-agui-pr-82' },
+            { id: 'maelstrom-agui-alchemy-pr-0' },
+            { id: 'maelstrom-agui-alchemy-pr-81-extra' },
+            { id: 'maelstrom-agui' },
             { id: 'maelstrom-www-pr-0' },
             { id: 'maelstrom-www-pr-42-extra' },
             { id: 'production' },
@@ -491,7 +500,7 @@ describe('discoverPreviewPrNumbers', () => {
         { accountId: 'account', apiToken: 'secret' },
         { fetch },
       ),
-    ).resolves.toEqual(['7', '42']);
+    ).resolves.toEqual(['7', '42', '81']);
   });
 
   test('fails closed on credentials, HTTP errors, and malformed envelopes', async () => {
