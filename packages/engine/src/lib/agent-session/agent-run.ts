@@ -251,8 +251,11 @@ export type AgentRunBudgetExhausted =
   | AgentRunOtherBudgetExhausted;
 
 /**
- * The run ended because the provider or adapter failed after retries. Text
- * deltas already yielded stay, and no closing message is sent.
+ * The run ended on a failure. The causes are a provider or adapter failure
+ * (`code` is `provider_error` or `adapter_error`), a throwing gate (`code`
+ * is `gate_failed`), and a stream that ended before the model finished
+ * (`code` is `run_incomplete`). Text deltas already yielded stay, and no
+ * closing message is sent.
  */
 export interface AgentRunFailed {
   /** Member discriminator. */

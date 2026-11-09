@@ -60,8 +60,10 @@ export interface AgentRunChatInstrumentation {
  * The Agent Run loop on TanStack AI `chat()`, behind `runAgent`. The
  * returned iterable pulls one `chat()` chunk only when its consumer pulls,
  * ends with exactly one `finished` event and yields nothing after it.
- * Calling `return()` on its iterator aborts the run and closes the adapter
- * stream.
+ * To stop early, callers abort `options.signal` first and then call
+ * `return()` on the iterator, because a pending pull (a held gate or a
+ * running tool) only ends when the signal aborts. `return()` then closes
+ * the adapter stream.
  */
 export function runAgentChat(
   input: AgentRunInput,
@@ -150,6 +152,15 @@ async function* streamAgentRun(
           continue;
         }
         yield* calls.mapChunk(chunk);
+      }
+      if (
+        policy.ending === undefined &&
+        (lastFinishReason === 'length' || lastFinishReason === 'content_filter')
+      ) {
+        input.logger.warn('Agent run final turn was cut off', {
+          runId: input.runId,
+          finishReason: lastFinishReason,
+        });
       }
       if (policy.ending === undefined) {
         policy.latch(

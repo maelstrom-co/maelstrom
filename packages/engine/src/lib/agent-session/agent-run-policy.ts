@@ -121,7 +121,11 @@ export interface AgentRunPolicy {
   recordProviderCall(call: ProviderCallRecord): void;
   /** Latches `ending` when no ending is latched yet. Returns whether it won. */
   latch(ending: AgentRunEnding): boolean;
-  /** Counters for the `finished` event, frozen once {@link finish} is called. */
+  /**
+   * Counters for the `finished` event. Only `elapsedMs` freezes once
+   * {@link finish} is called. The other counters reflect the state at the
+   * time of the call.
+   */
   metrics(): AgentRunPolicyMetrics;
   /** Cancels the deadline timer and stops listening to the caller's signal. */
   finish(): void;

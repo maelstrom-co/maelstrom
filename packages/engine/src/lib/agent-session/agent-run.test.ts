@@ -643,6 +643,34 @@ describe('runAgent on chat()', () => {
   });
 });
 
+describe('runAgent final turn cut off', () => {
+  test('a length final turn still completes and logs one warning', async () => {
+    const warnings: { message: string; data?: Record<string, unknown> }[] = [];
+    const model = scriptedAdapter([
+      textTurn(['Partial'], usage(1, 1), 'length'),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: orderTools().registry,
+          logger: recordingLogger(warnings),
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(warnings).toEqual([
+      {
+        message: 'Agent run final turn was cut off',
+        data: { runId: 'run-1', finishReason: 'length' },
+      },
+    ]);
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+  });
+});
+
 describe('runAgent budgets and stops on chat()', () => {
   test.each([
     ['maxTurns', 'turns'],
@@ -1519,6 +1547,7 @@ function scriptedAdapter(
 function textTurn(
   deltas: readonly string[],
   reported: TokenUsage | undefined,
+  finishReason: 'stop' | 'length' = 'stop',
 ): ModelCall {
   return async function* () {
     yield runStarted();
@@ -1537,7 +1566,7 @@ function textTurn(
       };
     }
     yield { type: EventType.TEXT_MESSAGE_END, messageId: 'm', timestamp: 0 };
-    yield runFinished('stop', reported);
+    yield runFinished(finishReason, reported);
   };
 }
 
@@ -1617,7 +1646,7 @@ function runStarted(): StreamChunk {
 }
 
 function runFinished(
-  finishReason: 'stop' | 'tool_calls',
+  finishReason: 'stop' | 'tool_calls' | 'length',
   reported: TokenUsage | undefined,
 ): StreamChunk {
   return {
