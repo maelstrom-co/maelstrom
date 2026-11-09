@@ -6,6 +6,7 @@
   "scripts": {
     "dev:api": "AGUI_PORT=4311 AGUI_ORIGIN=http://127.0.0.1:4310 bun --conditions=@maelstrom-co/source src/server/local.ts",
     "dev:web": "vite",
+    "dev:durable": "bun scripts/dev-durable.ts",
     "preview": "bun --conditions=@maelstrom-co/source src/server/local.ts"
   },
   "dependencies": {
@@ -30,10 +31,15 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@maelstrom-co/platform-infra": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "catalog:",
+    "miniflare": "5.20261012.0-beta",
     "vite": "catalog:"
   },
   "nx": {
@@ -48,10 +54,21 @@
         "dependsOn": [
           "^build"
         ],
-        "command": "tsc -p apps/agui-demo/tsconfig.json --noEmit"
+        "command": "tsc -p apps/agui-demo/tsconfig.json --noEmit && tsc -p apps/agui-demo/tsconfig.worker.json && tsc -p apps/agui-demo/tsconfig.alchemy.json"
       },
       "test": {
-        "command": "bun --conditions=@maelstrom-co/source test apps/agui-demo/src"
+        "command": "bun --conditions=@maelstrom-co/source test apps/agui-demo/src apps/agui-demo/test"
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build-hosted"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "alchemy deploy --stage prod"
+        }
       }
     }
   }
