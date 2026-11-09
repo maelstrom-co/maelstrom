@@ -8,9 +8,11 @@ import { cancellationError, providerError } from '@maelstrom-co/engine';
 import type { MessageId, Result } from '@maelstrom-co/protocol';
 import {
   err,
-  type GridResponseSchema,
+  type GridModelOutputSchema,
+  type GridResponse,
   ok,
-  type TilingResponseSchema,
+  type TilingModelOutputSchema,
+  type TilingResponse,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 import { chat, convertSchemaToJsonSchema } from '@tanstack/ai';
@@ -19,7 +21,7 @@ export async function callLLM(
   adapter: AnyTextAdapter,
   systemPrompt: string,
   userPrompt: string,
-  outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
+  outputSchema: typeof GridModelOutputSchema | typeof TilingModelOutputSchema,
   historyMessages: readonly LLMContextMessage[],
   threadId: string,
   signal?: AbortSignal,
@@ -61,7 +63,11 @@ export async function callLLM(
           signal.reason,
         ),
       );
-    return ok(outputSchema.parse(output));
+    const plan: GridResponse | TilingResponse = {
+      type: 'plan',
+      ...outputSchema.parse(output),
+    };
+    return ok(plan);
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {

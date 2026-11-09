@@ -19,17 +19,21 @@ import {
   silentLogger,
   spyLogger,
 } from '@maelstrom-co/engine/_testing';
-import type { ChartRequest } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  GridModelOutput,
+  TilingModelOutput,
+} from '@maelstrom-co/protocol';
 import {
   ActionName,
   ChartRequestMessage,
-  GridResponseSchema,
+  GridModelOutputSchema,
   InstanceId,
   isErr,
   isOk,
   MessageId,
   SessionId,
-  TilingResponseSchema,
+  TilingModelOutputSchema,
 } from '@maelstrom-co/protocol';
 import type {
   AnyTextAdapter,
@@ -347,7 +351,7 @@ describe('llmPlanner', () => {
             ],
             systemPrompts: [buildSystemPrompt(mode, prompt)],
             outputSchema: convertOutputSchema(
-              mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
+              mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
             ),
             stream: false,
             debug: false,
@@ -742,6 +746,56 @@ describe('llmPlanner', () => {
         error: { _tag: 'CancellationError', reason: 'superseded' },
       });
     });
+  });
+
+  describe('structured output', () => {
+    test.each([
+      ['grid', makeGridRequest()],
+      ['tiling', makeTilingRequest()],
+    ] as Array<[string, ChartRequest]>)(
+      '%s: the JSON schema sent to chat() has no type property',
+      async (_, request) => {
+        mockChat.mockResolvedValue(modelReplyFor(request));
+        const input = makePlanningInput(request);
+
+        await llmPlanner({ adapter: dummyAdapter })(
+          input,
+          makeStageContext({ origin: input }),
+        );
+
+        const schema = chatCall(0).outputSchema as {
+          readonly properties: Record<string, unknown>;
+          readonly required?: readonly string[];
+        };
+        expect(Object.keys(schema.properties).sort()).toEqual([
+          'executionPlan',
+          'layout',
+          'rationale',
+          'userMessage',
+        ]);
+        expect(schema.required ?? []).not.toContain('type');
+      },
+    );
+
+    test.each([
+      ['grid', makeGridRequest()],
+      ['tiling', makeTilingRequest()],
+    ] as Array<[string, ChartRequest]>)(
+      '%s: a model reply without type returns a plan tagged type plan',
+      async (_, request) => {
+        const reply = modelReplyFor(request);
+        expect('type' in reply).toBe(false);
+        mockChat.mockResolvedValue(reply);
+        const input = makePlanningInput(request);
+
+        const result = await llmPlanner({ adapter: dummyAdapter })(
+          input,
+          makeStageContext({ origin: input }),
+        );
+
+        expect(result).toEqual({ ok: true, value: { type: 'plan', ...reply } });
+      },
+    );
   });
 
   test('D01 bounded provider-input evidence: sends the system prompt, history, then the user prompt', async () => {
@@ -1382,3 +1436,27 @@ describe('llmPlanner instrumentation', () => {
     ).toEqual(['cancelled']);
   });
 });
+
+function modelReplyFor(
+  request: ChartRequest,
+): GridModelOutput | TilingModelOutput {
+  const { type: _type, ...reply } =
+    request.context.layoutMode === 'grid'
+      ? buildGridResponse()
+      : brandTilingResponse({
+          userMessage: 'Tiling ready',
+          rationale: 'User asked for tiling',
+          executionPlan: [],
+          layout: {
+            tree: ['calendar-main'],
+            instances: [
+              {
+                instanceId: 'calendar-main',
+                vesselId: 'calendar',
+                variant: 'month',
+              },
+            ],
+          },
+        });
+  return reply;
+}
