@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { AgentConfig } from '../agent-session/agent-config.js';
 import type { EngineConfig } from '../config.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
@@ -70,6 +71,12 @@ const retrySchema = z.union([
   z.object({ max: z.number().int().nonnegative() }).strict(),
 ]);
 
+// Shape only. resolveAgentConfig validates the model, budgets and tools.
+const agentSchema = z.custom<AgentConfig>(
+  (v) => typeof v === 'object' && v !== null,
+  { message: 'expected object' },
+);
+
 const engineConfigSchema = z
   .object({
     planner: functionSchema<ClarifyingPlanner>(),
@@ -78,6 +85,7 @@ const engineConfigSchema = z
     history: historySchema.optional(),
     instrument: instrumentSchema.optional(),
     retry: retrySchema.optional(),
+    agent: agentSchema.optional(),
   })
   .strict();
 

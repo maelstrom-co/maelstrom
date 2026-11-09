@@ -1,3 +1,8 @@
+import {
+  resolveAgentConfig,
+  type AgentConfig,
+  type ResolvedAgentConfig,
+} from './agent-session/agent-config.js';
 import type { HistoryConfig } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
@@ -52,6 +57,15 @@ export interface EngineConfig {
    * policy.
    */
   readonly retry?: WithRetryOptions | false;
+  /**
+   * Optional Agent Run configuration: the model or a per-run model factory,
+   * instructions, Server Tools, budgets and model-call retry. When omitted,
+   * connections keep the `ui_only` route. Static budgets and tools are
+   * validated when the Engine is created, and invalid values throw. Unset
+   * budgets default to 12 turns, 120,000 ms, 100,000 tokens and 24 tool
+   * calls. See {@link AgentConfig}.
+   */
+  readonly agent?: AgentConfig;
 }
 
 /** {@link EngineConfig} with every default applied. */
@@ -68,6 +82,11 @@ export interface ResolvedEngineConfig {
   readonly instrument: Instrument;
   /** The configured retry policy, or `{ max: 1 }`. */
   readonly retry: WithRetryOptions | false;
+  /**
+   * The agent config with its defaults applied and its tool registry built,
+   * or `undefined` when no agent is configured.
+   */
+  readonly agent: ResolvedAgentConfig | undefined;
 }
 
 const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
@@ -77,7 +96,9 @@ const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
  *
  * The logger defaults to {@link consoleLogger}, the instrument to
  * {@link noopInstrument} and `retry` to `{ max: 1 }`;
- * history remains optional.
+ * history remains optional. A configured `agent` is resolved with
+ * `resolveAgentConfig`.
+ * @throws When the agent config has invalid static budgets or tools.
  */
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {
@@ -87,5 +108,7 @@ export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
     history: config.history,
     instrument: config.instrument ?? noopInstrument,
     retry: config.retry ?? DEFAULT_RETRY,
+    agent:
+      config.agent === undefined ? undefined : resolveAgentConfig(config.agent),
   };
 }
