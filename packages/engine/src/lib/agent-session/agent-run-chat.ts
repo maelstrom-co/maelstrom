@@ -136,7 +136,9 @@ async function* streamAgentRun(
         const chunk = step.value;
         if (chunk.type === 'RUN_FINISHED') {
           lastFinishReason =
-            chunk.finishReason ?? chunk.metadata?.tanstack?.finishReason;
+            chunk.finishReason ??
+            chunk.metadata?.tanstack?.finishReason ??
+            null;
         }
         if (chunk.type === 'RUN_ERROR') {
           input.logger.error(

@@ -774,6 +774,61 @@ describe('runAgent final turn cut off', () => {
   });
 });
 
+describe('runAgent final turn without a finish reason', () => {
+  test('a RUN_FINISHED without a finish reason completes with the reply', async () => {
+    const model = scriptedAdapter([
+      withFinishReason(textTurn(['Your order ', 'is o-1.'], usage(1, 1)), {}),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      reply: 'Your order is o-1.',
+    });
+  });
+
+  test('a RUN_FINISHED with a null finish reason completes with the reply', async () => {
+    const model = scriptedAdapter([
+      withFinishReason(textTurn(['Your order ', 'is o-1.'], usage(1, 1)), {
+        finishReason: null,
+      }),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      reply: 'Your order is o-1.',
+    });
+  });
+
+  test('a stream that ends without RUN_FINISHED ends run_incomplete', async () => {
+    const model = scriptedAdapter([
+      withoutRunFinished(textTurn(['Your order ', 'is o-1.'], usage(1, 1))),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'error',
+      code: 'run_incomplete',
+    });
+  });
+});
+
 describe('runAgent tool input with an async refine', () => {
   test('a rejecting refine refuses the call as invalid arguments without an unhandled rejection', async () => {
     const unhandled = recordUnhandledRejections();
@@ -2086,6 +2141,30 @@ function runFinished(
     finishReason,
     ...(reported !== undefined && { usage: reported }),
     timestamp: 0,
+  };
+}
+
+function withFinishReason(
+  call: ModelCall,
+  replacement: { readonly finishReason?: null },
+): ModelCall {
+  return async function* (request) {
+    for await (const chunk of call(request)) {
+      if (chunk.type !== 'RUN_FINISHED') {
+        yield chunk;
+        continue;
+      }
+      const { finishReason: _dropped, ...rest } = chunk;
+      yield { ...rest, ...replacement } as StreamChunk;
+    }
+  };
+}
+
+function withoutRunFinished(call: ModelCall): ModelCall {
+  return async function* (request) {
+    for await (const chunk of call(request)) {
+      if (chunk.type !== 'RUN_FINISHED') yield chunk;
+    }
   };
 }
 
