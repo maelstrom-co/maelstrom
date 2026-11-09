@@ -90,6 +90,7 @@ test('invalid arguments return invalid_arguments without running the tool', asyn
     ok: false,
     code: 'invalid_arguments',
     summary: expect.any(String),
+    cause: expect.any(z.ZodError),
   });
   expect(runs).toBe(0);
 });
@@ -110,7 +111,91 @@ test('output failing the output schema returns invalid_output', async () => {
     ok: false,
     code: 'invalid_output',
     summary: expect.any(String),
+    cause: expect.any(z.ZodError),
   });
+});
+
+describe('schemas that throw or need async parsing', () => {
+  const schemaFailures = [
+    ['a throwing refine', throwingRefine],
+    ['an async refine', asyncRefine],
+  ] as const;
+
+  test.each(schemaFailures)(
+    'an input schema with %s returns invalid_arguments without running the tool',
+    async (_label, withFailure) => {
+      let runs = 0;
+      const entry = entryFor({
+        input: withFailure(orderInput),
+        execute: async () => {
+          runs += 1;
+          return { orderId: 'o-1', total: 1 };
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'invalid_arguments',
+        summary: 'latest_order received invalid arguments',
+        cause: expect.any(Error),
+      });
+      expect(runs).toBe(0);
+    },
+  );
+
+  test.each(schemaFailures)(
+    'an output schema with %s returns invalid_output after the tool ran',
+    async (_label, withFailure) => {
+      let runs = 0;
+      const entry = entryFor({
+        output: withFailure(orderOutput),
+        execute: async () => {
+          runs += 1;
+          return { orderId: 'o-1', total: 1 };
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'invalid_output',
+        summary: 'latest_order returned an invalid result',
+        cause: expect.any(Error),
+      });
+      expect(runs).toBe(1);
+    },
+  );
+
+  test.each(schemaFailures)(
+    'an envelope checked against an output schema with %s is rejected',
+    (_label, withFailure) => {
+      const entry = entryFor({ output: withFailure(orderOutput) });
+
+      expect(
+        validateToolResultEnvelope(entry, {
+          ok: true,
+          value: { orderId: 'o-1', total: 3 },
+          summary: 'Order o-1',
+        }),
+      ).toEqual({
+        valid: false,
+        reason: 'value does not match the latest_order output schema',
+      });
+    },
+  );
 });
 
 describe('failures', () => {
@@ -132,6 +217,7 @@ describe('failures', () => {
       ok: false,
       code: 'tool_failed',
       summary: 'Order history is unavailable',
+      cause: expect.any(ToolError),
     });
     expect(toModelToolPayload(result)).toEqual({
       ok: false,
@@ -139,11 +225,12 @@ describe('failures', () => {
     });
   });
 
-  test('a plain throw is replaced by "<tool> failed" and its message appears nowhere', async () => {
+  test('a plain throw is replaced by "<tool> failed" and its message reaches only cause', async () => {
     const sentinel = 'SENTINEL-db-password-5f3a';
+    const thrown = new Error(`connection refused for ${sentinel}`);
     const entry = entryFor({
       execute: async () => {
-        throw new Error(`connection refused for ${sentinel}`);
+        throw thrown;
       },
     });
 
@@ -158,9 +245,13 @@ describe('failures', () => {
       ok: false,
       code: 'tool_failed',
       summary: 'latest_order failed',
+      cause: thrown,
     });
-    expect(JSON.stringify(result)).not.toContain(sentinel);
-    expect(JSON.stringify(toModelToolPayload(result))).not.toContain(sentinel);
+    expect(result.ok ? undefined : result.cause).toBe(thrown);
+    const payload = toModelToolPayload(result);
+    expect(payload).toEqual({ ok: false, error: 'latest_order failed' });
+    expect(Object.keys(payload as object)).not.toContain('cause');
+    expect(JSON.stringify(payload)).not.toContain(sentinel);
   });
 
   test('a thrown non-Error value is sanitized too', async () => {
@@ -181,7 +272,11 @@ describe('failures', () => {
       ok: false,
       code: 'tool_failed',
       summary: 'latest_order failed',
+      cause: 'raw string with SENTINEL',
     });
+    expect(JSON.stringify(toModelToolPayload(result))).not.toContain(
+      'SENTINEL',
+    );
   });
 });
 
@@ -324,6 +419,21 @@ describe('summaries', () => {
     expect(result.summary.startsWith('x'.repeat(199))).toBe(true);
   });
 
+  test('the cap never splits a surrogate pair', async () => {
+    const entry = entryFor({
+      summarize: () => `${'x'.repeat(198)}\u{1F600}${'y'.repeat(50)}`,
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.summary).toBe(`${'x'.repeat(198)}…`);
+  });
+
   test('a long ToolError message is capped the same way', async () => {
     const entry = entryFor({
       execute: async () => {
@@ -418,7 +528,9 @@ type OrderTool = ServerTool<
 >;
 
 function entryFor(
-  overrides: Partial<Pick<OrderTool, 'execute' | 'summarize'>>,
+  overrides: Partial<
+    Pick<OrderTool, 'input' | 'output' | 'execute' | 'summarize'>
+  >,
 ): ToolRegistryEntry {
   const tool = serverTool({
     name: 'latest_order',
@@ -432,4 +544,14 @@ function entryFor(
   const entry = createToolRegistry([tool]).get(tool.name);
   if (!entry) throw new Error('test tool did not register');
   return entry;
+}
+
+function throwingRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(() => {
+    throw new Error('refine blew up');
+  });
+}
+
+function asyncRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(async () => true);
 }

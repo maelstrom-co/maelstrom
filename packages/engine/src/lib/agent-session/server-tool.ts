@@ -1,13 +1,26 @@
 import type { z } from 'zod';
 
+/** Every allowed {@link ToolLocus}. */
+export const TOOL_LOCI = ['server'] as const;
+
+/** Every allowed {@link ToolSideEffect}. */
+export const TOOL_SIDE_EFFECTS = [
+  'read_only',
+  'idempotent',
+  'non_idempotent',
+] as const;
+
+/** Every allowed {@link ToolApproval}. */
+export const TOOL_APPROVALS = ['never'] as const;
+
 /** Where a tool runs. Only `server` exists today. */
-export type ToolLocus = 'server';
+export type ToolLocus = (typeof TOOL_LOCI)[number];
 
 /** How a tool affects the world, used to decide whether repeating or parallelizing it is safe. */
-export type ToolSideEffect = 'read_only' | 'idempotent' | 'non_idempotent';
+export type ToolSideEffect = (typeof TOOL_SIDE_EFFECTS)[number];
 
 /** Whether a call needs user approval before it runs. Only `never` exists today. */
-export type ToolApproval = 'never';
+export type ToolApproval = (typeof TOOL_APPROVALS)[number];
 
 /** Per-call context handed to a Server Tool. Identity reaches tools only through this object. */
 export interface ServerToolContext {

@@ -1,10 +1,13 @@
 import type { z } from 'zod';
 
-import type {
-  ServerToolContext,
-  ToolApproval,
-  ToolLocus,
-  ToolSideEffect,
+import {
+  TOOL_APPROVALS,
+  TOOL_LOCI,
+  TOOL_SIDE_EFFECTS,
+  type ServerToolContext,
+  type ToolApproval,
+  type ToolLocus,
+  type ToolSideEffect,
 } from './server-tool.js';
 
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -46,13 +49,20 @@ export interface ToolRegistry {
 
 /**
  * Builds a registry from tool declarations.
- * @throws When a name is duplicated, a name does not match `^[A-Za-z0-9_-]{1,64}$`, or `summarize` is missing.
+ * @throws When a name is not a string, is duplicated or does not match
+ * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` is missing, or when `locus`,
+ * `sideEffect` or `approval` (after defaults) is not an allowed value.
  */
 export function createToolRegistry(
   tools: readonly RegistrableServerTool[],
 ): ToolRegistry {
   const byName = new Map<string, ToolRegistryEntry>();
   for (const tool of tools) {
+    if (typeof tool.name !== 'string') {
+      throw new Error(
+        `Invalid server tool name ${String(tool.name)}: must be a string`,
+      );
+    }
     if (!TOOL_NAME_PATTERN.test(tool.name)) {
       throw new Error(
         `Invalid server tool name ${JSON.stringify(tool.name)}: must match ${TOOL_NAME_PATTERN.source}`,
@@ -66,9 +76,19 @@ export function createToolRegistry(
     }
     byName.set(tool.name, {
       tool,
-      locus: tool.locus,
-      sideEffect: tool.sideEffect ?? 'non_idempotent',
-      approval: tool.approval ?? 'never',
+      locus: allowedValue(tool.name, 'locus', tool.locus, TOOL_LOCI),
+      sideEffect: allowedValue(
+        tool.name,
+        'sideEffect',
+        tool.sideEffect ?? 'non_idempotent',
+        TOOL_SIDE_EFFECTS,
+      ),
+      approval: allowedValue(
+        tool.name,
+        'approval',
+        tool.approval ?? 'never',
+        TOOL_APPROVALS,
+      ),
       summarize: (output) => tool.summarize(output as never),
     });
   }
@@ -76,4 +96,18 @@ export function createToolRegistry(
     get: (name) => byName.get(name),
     entries: () => [...byName.values()],
   };
+}
+
+function allowedValue<T extends string>(
+  toolName: string,
+  field: string,
+  value: unknown,
+  allowed: readonly T[],
+): T {
+  if (!allowed.includes(value as T)) {
+    throw new Error(
+      `Server tool "${toolName}" has invalid ${field} ${JSON.stringify(value)}`,
+    );
+  }
+  return value as T;
 }

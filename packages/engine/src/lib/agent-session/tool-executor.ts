@@ -13,8 +13,7 @@ export type ToolCallFailureCode = (typeof TOOL_CALL_FAILURE_CODES)[number];
 
 /**
  * Outcome of one tool call. `summary` is user-safe and at most
- * {@link TOOL_SUMMARY_MAX_LENGTH} characters. A failure summary never carries a
- * raw error message, except the message of a {@link ToolError}.
+ * {@link TOOL_SUMMARY_MAX_LENGTH} characters.
  */
 export type ToolCallResult =
   | {
@@ -27,6 +26,12 @@ export type ToolCallResult =
       readonly ok: false;
       readonly code: ToolCallFailureCode;
       readonly summary: string;
+      /**
+       * The thrown value or schema error behind the failure, when there is one.
+       * Server-side only, for logging. Never send it to the model, the wire or
+       * a transcript.
+       */
+      readonly cause?: unknown;
     };
 
 /** Whether a substituted result envelope is acceptable, with the normalized result when it is. */
@@ -43,8 +48,11 @@ export type ToolResultEnvelopeValidation =
  *
  * Parses `rawArgs` against the input schema, refuses an already aborted
  * `signal`, runs the tool with `identity` and `signal` as its context,
- * validates the output and summarizes it. Never throws for a tool failure:
- * every outcome is a {@link ToolCallResult}.
+ * validates the output and summarizes it. Never throws: every outcome,
+ * including a schema that throws or needs async parsing, is a
+ * {@link ToolCallResult}. A failure summary never carries a raw error message,
+ * except the message of a {@link ToolError}. The original error goes only to
+ * `cause`.
  */
 export async function executeToolCall(
   entry: ToolRegistryEntry,
@@ -53,9 +61,13 @@ export async function executeToolCall(
   signal: AbortSignal,
 ): Promise<ToolCallResult> {
   const name = entry.tool.name;
-  const parsedInput = entry.tool.input.safeParse(rawArgs);
+  const parsedInput = safeParseNeverThrowing(entry.tool.input, rawArgs);
   if (!parsedInput.success) {
-    return failure('invalid_arguments', `${name} received invalid arguments`);
+    return failure(
+      'invalid_arguments',
+      `${name} received invalid arguments`,
+      parsedInput.error,
+    );
   }
   if (signal.aborted) {
     return failure('cancelled', `${name} was cancelled`);
@@ -70,12 +82,16 @@ export async function executeToolCall(
       signal,
     );
   } catch (error) {
-    return failure('tool_failed', toolFailureSummary(name, error));
+    return failure('tool_failed', toolFailureSummary(name, error), error);
   }
 
-  const parsedOutput = entry.tool.output.safeParse(rawOutput);
+  const parsedOutput = safeParseNeverThrowing(entry.tool.output, rawOutput);
   if (!parsedOutput.success) {
-    return failure('invalid_output', `${name} returned an invalid result`);
+    return failure(
+      'invalid_output',
+      `${name} returned an invalid result`,
+      parsedOutput.error,
+    );
   }
   return {
     ok: true,
@@ -96,7 +112,9 @@ export function toModelToolPayload(result: ToolCallResult): unknown {
  * Validates a result envelope substituted for a real tool run, for example by
  * middleware that skips or replaces a call. A success envelope's `value` must
  * pass the tool's output schema. The accepted result carries the parsed value
- * and a summary capped at {@link TOOL_SUMMARY_MAX_LENGTH}.
+ * and a summary capped at {@link TOOL_SUMMARY_MAX_LENGTH}. The envelope's
+ * summary is trusted as given and only capped, never sanitized or rebuilt with
+ * the tool's `summarize`. Never throws.
  */
 export function validateToolResultEnvelope(
   entry: ToolRegistryEntry,
@@ -112,7 +130,7 @@ export function validateToolResultEnvelope(
       result: failure(envelope.data.code, envelope.data.summary),
     };
   }
-  const output = entry.tool.output.safeParse(envelope.data.value);
+  const output = safeParseNeverThrowing(entry.tool.output, envelope.data.value);
   if (!output.success) {
     return {
       valid: false,
@@ -182,12 +200,39 @@ function safeSummary(entry: ToolRegistryEntry, output: unknown): string {
     : `${entry.tool.name} succeeded`;
 }
 
-function failure(code: ToolCallFailureCode, summary: string): ToolCallResult {
-  return { ok: false, code, summary: capSummary(summary) };
+function safeParseNeverThrowing(
+  schema: z.ZodType<unknown>,
+  value: unknown,
+): { success: true; data: unknown } | { success: false; error: unknown } {
+  try {
+    return schema.safeParse(value);
+  } catch (error) {
+    return { success: false, error };
+  }
+}
+
+function failure(
+  code: ToolCallFailureCode,
+  summary: string,
+  cause?: unknown,
+): ToolCallResult {
+  const capped = capSummary(summary);
+  return cause === undefined
+    ? { ok: false, code, summary: capped }
+    : { ok: false, code, summary: capped, cause };
 }
 
 function capSummary(summary: string): string {
-  return summary.length > TOOL_SUMMARY_MAX_LENGTH
-    ? `${summary.slice(0, TOOL_SUMMARY_MAX_LENGTH - 1)}…`
-    : summary;
+  if (summary.length <= TOOL_SUMMARY_MAX_LENGTH) {
+    return summary;
+  }
+  let end = TOOL_SUMMARY_MAX_LENGTH - 1;
+  if (isHighSurrogate(summary.charCodeAt(end - 1))) {
+    end -= 1;
+  }
+  return `${summary.slice(0, end)}…`;
+}
+
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 }

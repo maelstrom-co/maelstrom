@@ -64,6 +64,42 @@ test('a name of 64 allowed characters is accepted', () => {
   expect(createToolRegistry([{ ...echoTool, name }]).get(name)).toBeDefined();
 });
 
+test.each([undefined, 42])('a non-string name %p is rejected', (name) => {
+  const untyped = { ...echoTool, name } as unknown as ServerTool<
+    { text: string },
+    { text: string }
+  >;
+  expect(() => createToolRegistry([untyped])).toThrow(
+    /Invalid server tool name .* must be a string/,
+  );
+});
+
+test.each([
+  ['locus', 'sever'],
+  ['locus', undefined],
+  ['sideEffect', 'readonly'],
+  ['approval', 'always'],
+])('an untyped caller with %s %p is rejected', (field, value) => {
+  const untyped = { ...echoTool, [field]: value } as unknown as ServerTool<
+    { text: string },
+    { text: string }
+  >;
+  expect(() => createToolRegistry([untyped])).toThrow(
+    `Server tool "echo" has invalid ${field} ${JSON.stringify(value)}`,
+  );
+});
+
+test('an untyped caller without sideEffect or approval gets the defaults', () => {
+  const untyped = {
+    ...echoTool,
+    sideEffect: undefined,
+    approval: undefined,
+  } as unknown as ServerTool<{ text: string }, { text: string }>;
+  const entry = createToolRegistry([untyped]).get('echo');
+  expect(entry?.sideEffect).toBe('non_idempotent');
+  expect(entry?.approval).toBe('never');
+});
+
 test('an untyped caller without summarize is rejected', () => {
   const untyped = {
     ...echoTool,
