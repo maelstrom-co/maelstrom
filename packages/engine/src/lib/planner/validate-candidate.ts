@@ -24,8 +24,10 @@ import type { Logger } from '../logger.js';
 import type { ProcessResponseInput } from '../response/response-processor.js';
 import {
   buildDiagnostics,
+  processPartialChanges,
   processResponse,
 } from '../response/response-processor.js';
+import { isFixableSkip } from '../validation/llm-output/retry-hint.js';
 import type {
   FullDiagnostics,
   FullValidatedCandidate,
@@ -166,23 +168,10 @@ function describeType(type: unknown): string {
   return typeof type === 'string' ? `'${type}'` : typeof type;
 }
 
-const EMPTY_DIAGNOSTICS: FullDiagnostics = Object.freeze({
-  skippedActions: Object.freeze([]),
-  droppedLayoutEntries: Object.freeze([]),
-  warnings: Object.freeze([]),
-  retryHint: Object.freeze({ severity: 'none', recommend: false }),
-  counts: Object.freeze({
-    skippedActions: 0,
-    droppedLayoutEntries: 0,
-    warnings: 0,
-  }),
-  feedback: '',
-});
-
 // Stages can validate a clarification through ctx.validate, so this check
 // rejects one for a request without skipReply before any stage acts on it.
 function processNeedsClarification(
-  { request, messageId, logger }: CandidateValidatorInput,
+  { request, enumSnapshot, messageId, logger }: CandidateValidatorInput,
   output: NeedsClarification,
 ): Result<FullValidatedNeedsClarification, EngineError> {
   if (request.skipReply !== true) {
@@ -211,7 +200,41 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  return ok({ ...shape.data, diagnostics: EMPTY_DIAGNOSTICS });
+  const { layout, executionPlan, ...clarification } = shape.data;
+  const healed = guardInvariants(logger, messageId, () =>
+    processPartialChanges({
+      request,
+      enumSnapshot,
+      messageId,
+      logger,
+      changes: {
+        ...(layout === undefined ? {} : { layout }),
+        ...(executionPlan === undefined ? {} : { executionPlan }),
+      },
+    }),
+  );
+  if (isErr(healed)) return healed;
+  const { diagnostics } = healed.value;
+  if (hasInvalidPartialChanges(diagnostics)) {
+    const failure = validationError(
+      `planner clarification carries partial changes that fail plan validation${
+        diagnostics.feedback === '' ? '' : `:\n${diagnostics.feedback}`
+      }`,
+      'planner',
+      diagnostics,
+    );
+    logger.error(
+      'Planner clarification carries invalid partial changes',
+      failure,
+      {
+        messageId,
+        droppedLayoutCount: diagnostics.counts.droppedLayoutEntries,
+        skippedActionCount: diagnostics.counts.skippedActions,
+      },
+    );
+    return err(failure);
+  }
+  return ok({ ...clarification, ...healed.value });
 }
 
 function validateApplicationPlan(
@@ -264,9 +287,6 @@ function validateApplicationPlan(
   }
 }
 
-// Heal helpers and exhaustiveness guards throw on Engine-internal invariant
-// violations; those become Err(ValidationError) on field 'response' so the
-// caller's Promise<Result> never rejects.
 function processCandidate(
   input: ProcessResponseInput,
 ): Result<FullValidatedReplylessCandidate, EngineError> {
@@ -286,8 +306,30 @@ function processCandidate(
     );
     return err(failure);
   }
+  return guardInvariants(logger, messageId, () => processResponse(input));
+}
+
+// A layout entry healing dropped or an Action skipped for a reason a better
+// model answer would avoid makes partial changes invalid. Repairs that keep
+// every entry, and Actions refused for turn or engine-state reasons, are
+// accepted as they are for a plan.
+function hasInvalidPartialChanges(diagnostics: FullDiagnostics): boolean {
+  return (
+    diagnostics.droppedLayoutEntries.length > 0 ||
+    diagnostics.skippedActions.some((skip) => isFixableSkip(skip.reason))
+  );
+}
+
+// Heal helpers and exhaustiveness guards throw on Engine-internal invariant
+// violations; those become Err(ValidationError) on field 'response' so the
+// caller's Promise<Result> never rejects.
+function guardInvariants<T>(
+  logger: Logger,
+  messageId: MessageId,
+  process: () => Result<T, EngineError>,
+): Result<T, EngineError> {
   try {
-    const processed = processResponse(input);
+    const processed = process();
     if (isErr(processed)) {
       logger.error('Failed to process LLM response', processed.error, {
         messageId,
@@ -310,8 +352,6 @@ function processCandidate(
   }
 }
 
-// Partial changes on a clarification are checked for shape only: nothing
-// heals or applies its layout or execution plan yet.
 function clarificationSchemaFor(request: ChartRequest) {
   return request.context.layoutMode === 'grid'
     ? GridNeedsClarificationSchema

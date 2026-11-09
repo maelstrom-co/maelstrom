@@ -159,12 +159,23 @@ export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
 };
 
 /**
- * A needs-clarification result the Engine accepted. Validation checks a
- * `layout` and `executionPlan` it carries against the request's mode for
- * shape only, without healing them. Its diagnostics are empty and never
- * recommend a retry.
+ * A needs-clarification result the Engine accepted. A `layout` and
+ * `executionPlan` it carries went through the same healing as a plan's and
+ * are present exactly when the result carried them, in the shape a
+ * {@link ValidatedCandidate} ships. Healing that would drop a layout entry
+ * or skip an Action the model could have planned correctly rejects the
+ * result instead. The diagnostics record any repairs; nothing retries a
+ * clarification on their account.
  */
-export type FullValidatedNeedsClarification = NeedsClarification & {
+export type FullValidatedNeedsClarification = Omit<
+  NeedsClarification,
+  'layout' | 'executionPlan'
+> & {
+  /** The healed layout, applied before {@link executionPlan}. */
+  readonly layout?: MaelstromResponse['layout'];
+  /** The Actions healing accepted, in order. */
+  readonly executionPlan?: MaelstromResponse['executionPlan'];
+  /** What healing repaired in the partial changes. */
   readonly diagnostics: FullDiagnostics;
 };
 
