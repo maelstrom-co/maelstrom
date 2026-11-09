@@ -107,7 +107,8 @@ export interface AgentRunSetup {
  * are validated and merged over {@link DEFAULT_AGENT_RUN_BUDGETS}, and the
  * tool registry is built once.
  * @throws When `model` is neither a function nor an object with a
- * `chatStream` method, when a static budget has an invalid value or an
+ * `chatStream` method, when `instructions` is defined and not a string,
+ * when a static budget has an invalid value or an
  * unknown field, or when a tool fails registration (for example a
  * missing `summarize` or a duplicate name).
  */
@@ -116,6 +117,12 @@ export function resolveAgentConfig(config: AgentConfig): ResolvedAgentConfig {
     throw new Error(
       'Invalid agent config: model must be a text adapter or a model factory',
     );
+  }
+  if (
+    config.instructions !== undefined &&
+    typeof config.instructions !== 'string'
+  ) {
+    throw new Error('Invalid agent config: instructions must be a string');
   }
   const budgets = config.budgets;
   return {

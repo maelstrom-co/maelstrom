@@ -29,6 +29,19 @@ const BUDGET_FIELDS = [
 ] as const;
 
 describe('resolveAgentConfig', () => {
+  test('non-string instructions are rejected at creation', () => {
+    expect(() =>
+      resolveAgentConfig({
+        model: adapter,
+        instructions: 7 as unknown as string,
+      }),
+    ).toThrow('Invalid agent config: instructions must be a string');
+    expect(
+      resolveAgentConfig({ model: adapter, instructions: 'be brief' })
+        .instructions,
+    ).toBe('be brief');
+  });
+
   test('without budgets every run gets the defaults', async () => {
     const resolved = resolveAgentConfig({ model: adapter });
     expect(resolved.instructions).toBe('');
