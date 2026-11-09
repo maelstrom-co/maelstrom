@@ -121,9 +121,15 @@ describe('schemas that throw or need async parsing', () => {
     ['an async refine', asyncRefine],
   ] as const;
 
-  test.each(schemaFailures)(
+  const executionSchemaFailures = [
+    ['a throwing refine', throwingRefine],
+    ['a rejecting async refine', rejectingAsyncRefine],
+  ] as const;
+
+  test.each(executionSchemaFailures)(
     'an input schema with %s returns invalid_arguments without running the tool',
     async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
       let runs = 0;
       const entry = entryFor({
         input: withFailure(orderInput),
@@ -147,12 +153,14 @@ describe('schemas that throw or need async parsing', () => {
         cause: expect.any(Error),
       });
       expect(runs).toBe(0);
+      expect(await unhandled.settle()).toEqual([]);
     },
   );
 
-  test.each(schemaFailures)(
+  test.each(executionSchemaFailures)(
     'an output schema with %s returns invalid_output after the tool ran',
     async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
       let runs = 0;
       const entry = entryFor({
         output: withFailure(orderOutput),
@@ -176,8 +184,54 @@ describe('schemas that throw or need async parsing', () => {
         cause: expect.any(Error),
       });
       expect(runs).toBe(1);
+      expect(await unhandled.settle()).toEqual([]);
     },
   );
+
+  test('an input schema with a resolving async refine accepts valid arguments', async () => {
+    const seen: unknown[] = [];
+    const entry = entryFor({
+      input: asyncRefine(orderInput),
+      execute: async (input) => {
+        seen.push(input);
+        return { orderId: input.orderId, total: 4 };
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 4 },
+      summary: expect.any(String),
+    });
+    expect(seen).toEqual([{ orderId: 'o-1' }]);
+  });
+
+  test('an output schema with a resolving async refine accepts a valid result', async () => {
+    const entry = entryFor({
+      output: asyncRefine(orderOutput),
+      execute: async () => ({ orderId: 'o-1', total: 4 }),
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 4 },
+      summary: expect.any(String),
+    });
+  });
 
   test.each(schemaFailures)(
     'an envelope checked against an output schema with %s is rejected',
@@ -653,4 +707,28 @@ function throwingRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
 
 function asyncRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
   return schema.refine(async () => true);
+}
+
+function rejectingAsyncRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(async () => {
+    throw new Error('async refine rejected');
+  });
+}
+
+function recordUnhandledRejections(): { settle(): Promise<unknown[]> } {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on('unhandledRejection', record);
+  return {
+    async settle() {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return unhandled;
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+    },
+  };
 }

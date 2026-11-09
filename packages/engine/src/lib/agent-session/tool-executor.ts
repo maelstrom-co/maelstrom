@@ -48,8 +48,9 @@ export type ToolResultEnvelopeValidation =
  *
  * Parses `rawArgs` against the input schema, refuses an already aborted
  * `signal`, runs the tool with `identity` and `signal` as its context,
- * validates the output and summarizes it. Never throws: every outcome,
- * including a schema that throws or needs async parsing, is a
+ * validates the output and summarizes it. Both schemas are parsed
+ * asynchronously, so async refinements and transforms are supported. Never
+ * throws: every outcome, including a schema that throws or rejects, is a
  * {@link ToolCallResult}. A failure summary never carries a raw error message,
  * except the message of a {@link ToolError}. The original error goes only to
  * `cause`.
@@ -61,7 +62,10 @@ export async function executeToolCall(
   signal: AbortSignal,
 ): Promise<ToolCallResult> {
   const name = entry.tool.name;
-  const parsedInput = safeParseNeverThrowing(entry.tool.input, rawArgs);
+  const parsedInput = await safeParseAsyncNeverThrowing(
+    entry.tool.input,
+    rawArgs,
+  );
   if (!parsedInput.success) {
     return failure(
       'invalid_arguments',
@@ -85,7 +89,10 @@ export async function executeToolCall(
     return failure('tool_failed', toolFailureSummary(name, error), error);
   }
 
-  const parsedOutput = safeParseNeverThrowing(entry.tool.output, rawOutput);
+  const parsedOutput = await safeParseAsyncNeverThrowing(
+    entry.tool.output,
+    rawOutput,
+  );
   if (!parsedOutput.success) {
     return failure(
       'invalid_output',
@@ -211,6 +218,19 @@ function safeParseNeverThrowing<Output>(
 ): { success: true; data: Output } | { success: false; error: unknown } {
   try {
     return schema.safeParse(value);
+  } catch (error) {
+    return { success: false, error };
+  }
+}
+
+async function safeParseAsyncNeverThrowing<Output>(
+  schema: z.ZodType<Output>,
+  value: unknown,
+): Promise<
+  { success: true; data: Output } | { success: false; error: unknown }
+> {
+  try {
+    return await schema.safeParseAsync(value);
   } catch (error) {
     return { success: false, error };
   }
