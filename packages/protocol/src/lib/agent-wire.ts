@@ -397,8 +397,9 @@ export interface AgentErrorEvent {
 }
 
 /**
- * The start of an Agent Run, sent before the run's first model turn. Every
- * other event of the run carries the same `runId`.
+ * The start of an Agent Run, sent when the loop actually begins, which may be
+ * after a queue wait following `accepted`. Sent for agent runs only, never for
+ * `ui_only` runs. Every other event of the run carries the same `runId`.
  */
 export const AgentStartedEventSchema = z.object({
   type: z.literal('started'),
