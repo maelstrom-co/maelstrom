@@ -428,7 +428,12 @@ export const AgentToolCallEventSchema = z.object({
   runId: RunIdSchema,
   turnId: z.string().min(1),
   callId: CallIdSchema,
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .refine((s) => s.trim().length > 0, {
+      message: 'name must not be whitespace-only',
+    }),
 });
 
 /** A breadcrumb that the loop model called a tool. */
@@ -450,8 +455,8 @@ export interface AgentToolCallEvent {
 /**
  * A breadcrumb that a tool call settled. `ok` says whether the tool
  * succeeded and `summary` is a short human-readable description of the
- * outcome, at most 200 characters. A failure carries its cause in `summary`,
- * so there is no separate error field.
+ * outcome, not whitespace-only and at most 200 characters. A failure
+ * carries its cause in `summary`, so there is no separate error field.
  */
 export const AgentToolResultEventSchema = z.object({
   type: z.literal('tool_result'),
@@ -459,9 +464,20 @@ export const AgentToolResultEventSchema = z.object({
   runId: RunIdSchema,
   turnId: z.string().min(1),
   callId: CallIdSchema,
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .refine((s) => s.trim().length > 0, {
+      message: 'name must not be whitespace-only',
+    }),
   ok: z.boolean(),
-  summary: z.string().min(1).max(200),
+  summary: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((s) => s.trim().length > 0, {
+      message: 'summary must not be whitespace-only',
+    }),
 });
 
 /** A breadcrumb that a tool call settled. */
@@ -481,8 +497,8 @@ export interface AgentToolResultEvent {
   /** Whether the tool call succeeded. */
   ok: boolean;
   /**
-   * Short description of the outcome, non-empty and at most 200 characters.
-   * For a failed call it describes the failure.
+   * Short description of the outcome, not whitespace-only and at most 200
+   * characters. For a failed call it describes the failure.
    */
   summary: string;
 }

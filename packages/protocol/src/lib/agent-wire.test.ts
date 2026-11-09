@@ -385,7 +385,7 @@ describe('AgentEvent round-trip', () => {
     }
   });
 
-  test('tool_call and tool_result reject an empty or whitespace callId and an empty turnId or name', () => {
+  test('tool_call and tool_result reject an empty or whitespace callId or name and an empty turnId', () => {
     for (const fixture of [
       eventFixtures.tool_call,
       eventFixtures.tool_result,
@@ -395,6 +395,7 @@ describe('AgentEvent round-trip', () => {
         ['callId', '  '],
         ['turnId', ''],
         ['name', ''],
+        ['name', '  '],
       ] as const) {
         const result = AgentEventSchema.safeParse({ ...fixture, [field]: bad });
         expect(result.success).toBe(false);
@@ -411,8 +412,8 @@ describe('AgentEvent round-trip', () => {
     }
   });
 
-  test('tool_result rejects an empty summary and a summary over 200 characters', () => {
-    for (const summary of ['', 'a'.repeat(201)]) {
+  test('tool_result rejects an empty or whitespace summary and a summary over 200 characters', () => {
+    for (const summary of ['', '   ', 'a'.repeat(201)]) {
       const result = AgentEventSchema.safeParse({
         ...eventFixtures.tool_result,
         summary,
