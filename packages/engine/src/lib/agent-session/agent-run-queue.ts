@@ -75,7 +75,11 @@ export interface AgentRunQueueOptions {
   readonly startRun?: AgentRunStarter;
 }
 
-/** Serial Agent Runs of one connection, one at a time in arrival order. */
+/**
+ * Serial Agent Runs of one connection, one at a time in arrival order. A run's
+ * ending is emitted at once, but the next run starts only after every tool
+ * call of the previous run that is not `read_only` has settled.
+ */
 export interface AgentRunQueue {
   /** Queued runs plus the active one. */
   pendingRuns(): number;
@@ -107,6 +111,7 @@ export function createAgentRunQueue({
   const queue: QueuedAgentRun[] = [];
   const runClock: AgentRunClock = { now: clock, scheduleTimeout };
   let active: ActiveAgentRun | undefined;
+  let toolsSettling: Promise<void> | undefined;
   let closed = false;
 
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
@@ -115,6 +120,7 @@ export function createAgentRunQueue({
     run: ActiveAgentRun,
     finished: AgentRunFinished,
     since: number,
+    toolsSettled?: Promise<void>,
   ) => {
     if (finished.reason === 'budget') {
       transcript.recordClosingMessage(run.runId, finished.reply);
@@ -139,7 +145,19 @@ export function createAgentRunQueue({
     );
     active = undefined;
     run.done.resolve();
-    void pump();
+    if (toolsSettled === undefined) {
+      void pump();
+      return;
+    }
+    // A tool that ignored the abort may still perform its side effect, so the
+    // next run must not start until it settles.
+    const settling = Promise.resolve(toolsSettled)
+      .catch(() => undefined)
+      .then(() => {
+        if (toolsSettling === settling) toolsSettling = undefined;
+        void pump();
+      });
+    toolsSettling = settling;
   };
 
   const forward = (run: ActiveAgentRun, event: AgentRunEvent) => {
@@ -272,11 +290,12 @@ export function createAgentRunQueue({
         ? cancelledRun(finished.metrics, finished.unreportedUsageCalls)
         : finished,
       started,
+      finished.toolsSettled,
     );
   };
 
   const pump = async (): Promise<void> => {
-    if (closed || active !== undefined) return;
+    if (closed || active !== undefined || toolsSettling !== undefined) return;
     const next = queue.shift();
     if (next === undefined) return;
     const run: ActiveAgentRun = {

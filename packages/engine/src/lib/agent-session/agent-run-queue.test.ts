@@ -739,6 +739,223 @@ describe('agent run queue', () => {
       `[run ${runId} ended: error provider_error, The model could not respond., reply above is partial]`,
     );
   });
+
+  describe('a tool still running after its run ended', () => {
+    test.each([
+      ['deadline', 'budget'],
+      ['cancel', 'cancelled'],
+    ] as const)(
+      'after a %s the ending is emitted at once and the next run waits until a non-idempotent tool that ignores its abort settles',
+      async (trigger, reason) => {
+        const time = createFakeAgentRunTime();
+        const release = defer<void>();
+        const toolStarted = defer<AbortSignal>();
+        const charge = chargeTool(async (signal) => {
+          toolStarted.resolve(signal);
+          await release.promise;
+          return { charged: true };
+        });
+        const model = scriptedTextAdapter([
+          scriptedToolTurn(
+            [{ id: 'c1', name: 'charge_card', args: {} }],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['Next.'], scriptedUsage(1, 1)),
+        ]);
+        const session = createSession({
+          time,
+          model: model.adapter,
+          tools: [charge.tool],
+          budgets: { maxElapsedMs: 100 },
+        });
+
+        const first = session.queue.enqueue(utterance('input-1', 'charge me'));
+        const toolSignal = await toolStarted.promise;
+        const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+        const firstRun = runIdOf(session.received, 'input-1');
+        const secondRun = runIdOf(session.received, 'input-2');
+        if (trigger === 'deadline') time.advance(100);
+        else session.queue.cancelRun(firstRun);
+        await first;
+        for (let flush = 0; flush < 5; flush += 1) await flushMacrotasks();
+
+        expect(toolSignal.aborted).toBe(true);
+        expect(charge.settled()).toBe(false);
+        expect(
+          session.received.find(
+            (event) => event.type === 'finished' && event.runId === firstRun,
+          ),
+        ).toMatchObject({ ok: false, reason });
+        expect(
+          eventsOf(session.received, secondRun).map((event) => event.type),
+        ).toEqual(['accepted']);
+        expect(model.requests).toHaveLength(1);
+        expect(session.queue.pendingRuns()).toBe(1);
+
+        release.resolve();
+        await second;
+
+        expect(charge.settled()).toBe(true);
+        expect(
+          eventsOf(session.received, secondRun).map((event) => event.type),
+        ).toEqual(['accepted', 'started', 'message', 'finished']);
+        expect(lastFinished(session.received)).toMatchObject({
+          runId: secondRun,
+          reason: 'completed',
+          reply: 'Next.',
+        });
+      },
+    );
+
+    test('a read-only tool that ignores its abort does not hold back the next run', async () => {
+      const time = createFakeAgentRunTime();
+      const release = defer<void>();
+      const toolStarted = defer<void>();
+      const order = orderTool({
+        latestOrder: async () => {
+          toolStarted.resolve();
+          await release.promise;
+          return LATEST_ORDER;
+        },
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Next.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        time,
+        model: model.adapter,
+        tools: [order.tool],
+        budgets: { maxElapsedMs: 100 },
+      });
+
+      const first = session.queue.enqueue(utterance('input-1', 'last order?'));
+      await toolStarted.promise;
+      const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+      time.advance(100);
+      await Promise.all([first, second]);
+
+      expect(lastFinished(session.received)).toMatchObject({
+        runId: runIdOf(session.received, 'input-2'),
+        reason: 'completed',
+        reply: 'Next.',
+      });
+      release.resolve();
+    });
+
+    test('a run that completes normally starts the next run without waiting', async () => {
+      const charge = chargeTool(() => Promise.resolve({ charged: true }));
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'charge_card', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Charged.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Next.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [charge.tool],
+      });
+
+      const first = session.queue.enqueue(utterance('input-1', 'charge me'));
+      const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+      await Promise.all([first, second]);
+
+      expect(
+        session.received
+          .filter((event) => event.type === 'finished')
+          .map((event) => [event.runId, event.reason]),
+      ).toEqual([
+        [runIdOf(session.received, 'input-1'), 'completed'],
+        [runIdOf(session.received, 'input-2'), 'completed'],
+      ]);
+    });
+
+    test('closing while the next run waits drops it and emits nothing once the tool settles', async () => {
+      const time = createFakeAgentRunTime();
+      const release = defer<void>();
+      const toolStarted = defer<void>();
+      const charge = chargeTool(async () => {
+        toolStarted.resolve();
+        await release.promise;
+        return { charged: true };
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'charge_card', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['never'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        time,
+        model: model.adapter,
+        tools: [charge.tool],
+        budgets: { maxElapsedMs: 100 },
+      });
+
+      const first = session.queue.enqueue(utterance('input-1', 'charge me'));
+      await toolStarted.promise;
+      const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+      time.advance(100);
+      await first;
+      const before = session.received.length;
+      session.queue.close();
+      await second;
+      release.resolve();
+      for (let flush = 0; flush < 5; flush += 1) await flushMacrotasks();
+
+      expect(session.received).toHaveLength(before);
+      expect(model.requests).toHaveLength(1);
+      expect(session.queue.pendingRuns()).toBe(0);
+    });
+
+    test('a settlement that rejects still lets the next run start', async () => {
+      const release = defer<void>();
+      let runs = 0;
+      const startRun: AgentRunStarter = () =>
+        (async function* (): AsyncGenerator<AgentRunEvent> {
+          runs += 1;
+          const finished: AgentRunEvent = {
+            type: 'finished',
+            reason: 'completed',
+            reply: 'Done.',
+            metrics: ZERO_METRICS,
+            unreportedUsageCalls: 0,
+          };
+          if (runs === 1) {
+            Object.defineProperty(finished, 'toolsSettled', {
+              value: release.promise.then(() => {
+                throw new Error('settlement failed');
+              }),
+              enumerable: false,
+            });
+          }
+          yield finished;
+        })();
+      const session = createSession({ startRun });
+
+      const first = session.queue.enqueue(utterance('input-1', 'hi'));
+      const second = session.queue.enqueue(utterance('input-2', 'again'));
+      await first;
+      await flushMacrotasks();
+      const secondRun = runIdOf(session.received, 'input-2');
+      expect(
+        eventsOf(session.received, secondRun).map((event) => event.type),
+      ).toEqual(['accepted']);
+
+      release.resolve();
+      await second;
+
+      expect(
+        eventsOf(session.received, secondRun).map((event) => event.type),
+      ).toEqual(['accepted', 'started', 'finished']);
+    });
+  });
 });
 
 const USER_SENTINEL = 'USER-SENTINEL-42';
@@ -914,4 +1131,26 @@ function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => {
     setImmediate(resolve);
   });
+}
+
+function chargeTool(
+  execute: (signal: AbortSignal) => Promise<{ charged: boolean }>,
+) {
+  let settled = false;
+  const tool = serverTool({
+    name: 'charge_card',
+    description: 'Charges the card of the user',
+    input: z.object({}),
+    output: z.object({ charged: z.boolean() }),
+    sideEffect: 'non_idempotent',
+    execute: async (_input, ctx) => {
+      try {
+        return await execute(ctx.signal);
+      } finally {
+        settled = true;
+      }
+    },
+    summarize: (output) => (output.charged ? 'Charged' : 'Not charged'),
+  });
+  return { tool, settled: () => settled };
 }
