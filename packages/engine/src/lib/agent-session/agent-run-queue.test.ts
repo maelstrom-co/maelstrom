@@ -32,6 +32,7 @@ import {
   type AgentRunBudgets,
   type AgentRunEvent,
   BUDGET_CLOSING_MESSAGE,
+  DEFAULT_AGENT_RUN_BUDGETS,
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import { serverTool } from './server-tool.js';
@@ -658,6 +659,62 @@ describe('agent run queue', () => {
       ]);
       expect(JSON.stringify(session.received)).not.toContain('SECRET');
       expect(errors).toHaveLength(1);
+      expect(
+        eventsOf(session.received, secondRun).map((event) => event.type),
+      ).toEqual(['accepted', 'started', 'message', 'finished']);
+      expect(lastFinished(session.received)).toMatchObject({
+        runId: secondRun,
+        reason: 'completed',
+      });
+    },
+  );
+
+  test.each([
+    ['model factory', 'model', TEST_BUDGETS.maxElapsedMs],
+    ['budget resolver', 'budgets', DEFAULT_AGENT_RUN_BUDGETS.maxElapsedMs],
+  ] as const)(
+    'a %s that never settles ends the run as setup_failed at the elapsed deadline, and the next run starts',
+    async (_label, hanging, deadlineMs) => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedTextTurn(['Second works.'], scriptedUsage(1, 1)),
+      ]);
+      const setupStarted = defer<void>();
+      let setups = 0;
+      const hang = <T>(settled: T): T | Promise<T> => {
+        setups += 1;
+        if (setups > 1) return settled;
+        setupStarted.resolve();
+        return new Promise<never>(() => {});
+      };
+      const session = createSession({
+        time,
+        ...(hanging === 'model'
+          ? { model: () => hang(model.adapter) }
+          : { model: model.adapter, budgets: () => hang(TEST_BUDGETS) }),
+      });
+
+      const first = session.queue.enqueue(utterance('input-1', 'one'));
+      const second = session.queue.enqueue(utterance('input-2', 'two'));
+      await setupStarted.promise;
+      const firstRun = runIdOf(session.received, 'input-1');
+      time.advance(deadlineMs - 1);
+      await flushMacrotasks();
+      expect(eventsOf(session.received, firstRun)).toHaveLength(1);
+      time.advance(1);
+      await Promise.all([first, second]);
+
+      expect(eventsOf(session.received, firstRun)).toEqual([
+        expect.objectContaining({ type: 'accepted' }),
+        expect.objectContaining({
+          type: 'finished',
+          ok: false,
+          reason: 'error',
+          code: 'setup_failed',
+          reply: '',
+        }),
+      ]);
+      const secondRun = runIdOf(session.received, 'input-2');
       expect(
         eventsOf(session.received, secondRun).map((event) => event.type),
       ).toEqual(['accepted', 'started', 'message', 'finished']);

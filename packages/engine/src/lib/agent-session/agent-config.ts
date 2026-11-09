@@ -28,7 +28,9 @@ export interface AgentRunContext {
  * run starts, and the returned adapter serves every model turn of that run.
  * For a per-turn model choice, return a delegating adapter that picks an
  * inner adapter per call. A throw, a rejection, or a value without a
- * `chatStream` method ends the run with an error before it starts.
+ * `chatStream` method ends the run with an error before it starts. So does a
+ * factory still pending after the run's `maxElapsedMs`, or after the default
+ * 120,000 ms when budgets come from a resolver. Its late result is discarded.
  */
 export type AgentModelFactory = (
   ctx: AgentRunContext,
@@ -39,7 +41,8 @@ export type AgentModelFactory = (
  * starts. Returned fields replace the Engine defaults, and omitted fields
  * keep them. The same validation as static budgets applies, so an unknown
  * field ends the run with an error. A throw or rejection also ends the run
- * with an error. The resolver caps a single run, not
+ * with an error, as does a resolver still pending after the default
+ * `maxElapsedMs` of 120,000 ms. The resolver caps a single run, not
  * total spend.
  */
 export type AgentBudgetResolver = (

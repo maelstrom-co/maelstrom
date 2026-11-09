@@ -21,6 +21,7 @@ import {
   type AgentRunFinished,
   type AgentRunInput,
   type AgentRunOptions,
+  DEFAULT_AGENT_RUN_BUDGETS,
   runAgent,
 } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
@@ -227,11 +228,13 @@ export function createAgentRunQueue({
     const priorMessages = transcript.renderPriorMessages();
     transcript.recordUserInput(run.runId, run.input.text);
     const aborted = whenAborted(run.controller.signal);
-    let setup: AgentRunSetup | typeof SETUP_ABORTED;
+    const deadline = setupDeadline(agent, scheduleTimeout);
+    let setup: AgentRunSetup | typeof SETUP_ABORTED | typeof SETUP_TIMED_OUT;
     try {
       setup = await Promise.race([
         resolveAgentRunSetup(agent, identity),
         aborted.promise,
+        deadline.promise,
       ]);
     } catch (error) {
       if (!isCurrent(run)) return;
@@ -244,10 +247,20 @@ export function createAgentRunQueue({
       return;
     } finally {
       aborted.dispose();
+      deadline.dispose();
     }
     if (!isCurrent(run)) return;
     if (setup === SETUP_ABORTED || run.controller.signal.aborted) {
       finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
+      return;
+    }
+    if (setup === SETUP_TIMED_OUT) {
+      logger.error(
+        'Agent run setup timed out',
+        new Error('Agent run setup did not settle before its deadline'),
+        { runId: run.runId },
+      );
+      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
       return;
     }
     const started = clock();
@@ -449,6 +462,33 @@ function whenAborted(signal: AbortSignal): AbortWatch {
     const onAbort = () => resolve(SETUP_ABORTED);
     signal.addEventListener('abort', onAbort, { once: true });
     dispose = () => signal.removeEventListener('abort', onAbort);
+  });
+  return { promise, dispose };
+}
+
+const SETUP_TIMED_OUT = Symbol('agent run setup timed out');
+
+interface SetupDeadline {
+  readonly promise: Promise<typeof SETUP_TIMED_OUT>;
+  readonly dispose: () => void;
+}
+
+// A resolver's own elapsed cap is unknown until it settles, so its setup is
+// bounded by the default cap instead.
+function setupDeadline(
+  agent: ResolvedAgentConfig,
+  scheduleTimeout: AgentRunClock['scheduleTimeout'],
+): SetupDeadline {
+  const limitMs =
+    typeof agent.budgets === 'function'
+      ? DEFAULT_AGENT_RUN_BUDGETS.maxElapsedMs
+      : agent.budgets.maxElapsedMs;
+  if (!Number.isFinite(limitMs)) {
+    return { promise: new Promise(() => {}), dispose: () => {} };
+  }
+  let dispose = () => {};
+  const promise = new Promise<typeof SETUP_TIMED_OUT>((resolve) => {
+    dispose = scheduleTimeout(() => resolve(SETUP_TIMED_OUT), limitMs);
   });
   return { promise, dispose };
 }
