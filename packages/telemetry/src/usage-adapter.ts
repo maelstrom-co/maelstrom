@@ -104,13 +104,13 @@ export function withUsage<Role extends string>(
   role: Role,
   sink: (call: ProviderCallRecord<Role>) => void,
 ): AnyTextAdapter {
-  return new Proxy(adapter, {
-    get(target, property) {
-      const value: unknown = Reflect.get(target, property, target);
+  return new Proxy(Object.create(adapter) as AnyTextAdapter, {
+    get(_shadow, property) {
+      const value: unknown = Reflect.get(adapter, property, adapter);
       if (typeof value !== 'function') return value;
       if ((STREAMS as readonly PropertyKey[]).includes(property))
         return (...args: unknown[]) =>
-          recordStream(() => value.apply(target, args), target, role, sink);
+          recordStream(() => value.apply(adapter, args), adapter, role, sink);
       if (property === 'structuredOutput')
         return async (...args: unknown[]) => {
           const started = performance.now();
@@ -118,7 +118,7 @@ export function withUsage<Role extends string>(
           let model: string | undefined;
           let completed = false;
           try {
-            const result = await value.apply(target, args);
+            const result = await value.apply(adapter, args);
             usage = normalizeLlmUsage(result?.usage);
             model = result?.model;
             completed = true;
@@ -128,7 +128,7 @@ export function withUsage<Role extends string>(
               sink,
               providerCall(
                 role,
-                model ?? target.model,
+                model ?? adapter.model,
                 started,
                 completed,
                 usage,
@@ -136,7 +136,7 @@ export function withUsage<Role extends string>(
             );
           }
         };
-      return value.bind(target);
+      return value.bind(adapter);
     },
   });
 }

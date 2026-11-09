@@ -325,6 +325,36 @@ describe('withUsage', () => {
     expect(bare.adapter.structuredOutputStream).toBe(undefined);
   });
 
+  test('wraps a frozen adapter whose methods are its own properties', async () => {
+    const { adapter, calls } = wrap(
+      Object.freeze({
+        kind: 'text',
+        name: 'frozen',
+        model: 'frozen-model',
+        async *chatStream() {
+          yield* finished;
+        },
+        async structuredOutput() {
+          return { data: { ok: true }, rawText: '{"ok":true}', usage };
+        },
+      }),
+    );
+    expect(await adapter.structuredOutput({} as never)).toEqual({
+      data: { ok: true },
+      rawText: '{"ok":true}',
+      usage,
+    });
+    expect(await drain(adapter.chatStream({} as never))).toEqual(finished);
+    expect(calls.map((call) => [call.model, call.completed])).toEqual([
+      ['frozen-model', true],
+      ['frozen-model', true],
+    ]);
+    expect(calls.map((call) => call.usage)).toEqual([
+      { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+      { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+    ]);
+  });
+
   test('labels each record with the role it was wrapped with', async () => {
     const records: ProviderCallRecord<'agent' | 'grader'>[] = [];
     const adapter = withUsage(
