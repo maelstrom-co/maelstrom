@@ -303,6 +303,110 @@ describe('runAgent on chat()', () => {
     });
   });
 
+  describe('substituted tool results', () => {
+    const INVALID_RESULT_SUMMARY = 'latest_order returned an invalid result';
+
+    test.each([
+      {
+        name: 'a skip whose result is not a tool result envelope',
+        substitution: {
+          name: 'test-malformed-skip',
+          onBeforeToolCall: () => ({
+            type: 'skip',
+            result: { leaked: SECRET },
+          }),
+        } satisfies ChatMiddleware,
+        toolRuns: [],
+      },
+      {
+        name: 'a replaceResult whose value fails the output schema',
+        substitution: {
+          name: 'test-malformed-replace',
+          onAfterToolCall: () => ({
+            type: 'replaceResult',
+            result: { ok: true, value: { orderId: SECRET }, summary: 'Order' },
+          }),
+        } satisfies ChatMiddleware,
+        toolRuns: ['start latest_order', 'end latest_order'],
+      },
+    ])(
+      '$name reaches the model as a sanitized failure and the run continues',
+      async ({ substitution, toolRuns }) => {
+        const log: string[] = [];
+        const tools = orderTools({ log });
+        const model = scriptedAdapter([
+          toolTurn(
+            [{ id: 'c1', name: 'latest_order', args: {} }],
+            usage(10, 2),
+          ),
+          textTurn(['No order found.'], usage(4, 1)),
+        ]);
+
+        const events = await collect(
+          runAgentChat(
+            runInput({ adapter: model.adapter, registry: tools.registry }),
+            { signal: new AbortController().signal },
+            { middleware: [substitution] },
+          ),
+        );
+
+        expect(log).toEqual([...toolRuns]);
+        expect(toolMessageContents(model.requests[1])).toEqual([
+          { ok: false, error: INVALID_RESULT_SUMMARY },
+        ]);
+        expect(serializeLoosely(model.requests)).not.toContain(SECRET);
+        expect(events).toContainEqual({
+          type: 'tool_result',
+          turnId: 'run-1:t1',
+          callId: CallId('c1'),
+          name: 'latest_order',
+          ok: false,
+          summary: INVALID_RESULT_SUMMARY,
+        });
+        expect(serializeLoosely(events)).not.toContain(SECRET);
+        expect(lastEvent(events)).toMatchObject({
+          reason: 'completed',
+          reply: 'No order found.',
+        });
+        expectEveryCallSettledOnce(events);
+      },
+    );
+
+    test('a well-formed substituted envelope reaches the model as its value and the event as its summary', async () => {
+      const tools = orderTools();
+      const model = scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        textTurn(['Your order is o-1.'], usage(4, 1)),
+      ]);
+      const cached: ChatMiddleware = {
+        name: 'test-cached-skip',
+        onBeforeToolCall: () => ({
+          type: 'skip',
+          result: { ok: true, value: LATEST_ORDER, summary: 'Cached order' },
+        }),
+      };
+
+      const events = await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          { signal: new AbortController().signal },
+          { middleware: [cached] },
+        ),
+      );
+
+      expect(toolMessageContents(model.requests[1])).toEqual([LATEST_ORDER]);
+      expect(events).toContainEqual({
+        type: 'tool_result',
+        turnId: 'run-1:t1',
+        callId: CallId('c1'),
+        name: 'latest_order',
+        ok: true,
+        summary: 'Cached order',
+      });
+      expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+    });
+  });
+
   test('identity reaches the tool context and never a model request or an event', async () => {
     const tools = orderTools();
     const model = scriptedAdapter([

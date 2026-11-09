@@ -36,6 +36,7 @@ import {
   executeToolCall,
   toModelToolPayload,
   type ToolCallResult,
+  validateToolResultEnvelope,
 } from './tool-executor.js';
 import type { ToolRegistryEntry } from './tool-registry.js';
 
@@ -44,7 +45,12 @@ import type { ToolRegistryEntry } from './tool-registry.js';
  * interface, for characterizing `chat()` in tests and for diagnostics.
  */
 export interface AgentRunChatInstrumentation {
-  /** Extra `chat()` middleware, installed after the run's own middleware. */
+  /**
+   * Extra `chat()` middleware, installed after the run's own middleware and
+   * before its result guard. A `skip` or `replaceResult` from it must be a
+   * tool result envelope that passes {@link validateToolResultEnvelope},
+   * otherwise the model receives a sanitized failure instead.
+   */
   readonly middleware?: readonly ChatMiddleware[];
   /** Receives every provider call record after the run's ledger stored it. */
   readonly onProviderCall?: (call: ProviderCallRecord) => void;
@@ -222,6 +228,35 @@ function startChat(
       calls.endToolPhase(info.toolCalls.map((call) => call.id));
     },
   };
+  // Last in the array, so it sees every other middleware's substitution.
+  const resultGuardMiddleware: ChatMiddleware = {
+    name: 'maelstrom-agent-run-result-guard',
+    onAfterToolCall: (_ctx, info) => {
+      const entry = input.registry.get(info.toolName);
+      if (entry === undefined) return undefined;
+      if (!info.ok && info.result === undefined) return undefined;
+      const own = calls.settledResult(info.toolCallId);
+      if (
+        own !== undefined &&
+        isSameModelPayload(info.result, toModelToolPayload(own))
+      ) {
+        return undefined;
+      }
+      const validation = validateToolResultEnvelope(entry, info.result);
+      if (!validation.valid) {
+        input.logger.warn('Agent run replaced an invalid substituted result', {
+          runId: input.runId,
+          tool: entry.tool.name,
+          reason: validation.reason,
+        });
+      }
+      const result = validation.valid
+        ? validation.result
+        : invalidSubstitutionResult(entry);
+      calls.settle(info.toolCallId, result);
+      return { type: 'replaceResult', result: toModelToolPayload(result) };
+    },
+  };
   return chat({
     adapter,
     threadId: input.runId,
@@ -244,6 +279,7 @@ function startChat(
       policyMiddleware,
       runEventsMiddleware,
       ...(instrumentation.middleware ?? []),
+      resultGuardMiddleware,
     ],
     debug: false,
     ...(input.retry !== undefined && { retry: input.retry }),
@@ -353,6 +389,9 @@ function createToolCallTracker(runId: RunId) {
     },
     settle(callId: string, result: ToolCallResult) {
       settled.set(callId, result);
+    },
+    settledResult(callId: string): ToolCallResult | undefined {
+      return settled.get(callId);
     },
     markStarted(callId: string) {
       const call = announced.get(callId);
@@ -514,6 +553,36 @@ function acceptsInput(entry: ToolRegistryEntry, args: unknown): boolean {
     return entry.tool.input.safeParse(args).success;
   } catch {
     return false;
+  }
+}
+
+function invalidSubstitutionResult(entry: ToolRegistryEntry): ToolCallResult {
+  return {
+    ok: false,
+    code: 'invalid_output',
+    summary: `${entry.tool.name} returned an invalid result`,
+  };
+}
+
+// chat() parses a string result as JSON and turns undefined into null
+// before middleware sees it.
+function isSameModelPayload(received: unknown, own: unknown): boolean {
+  if (received === own) return true;
+  const normalized =
+    typeof own === 'string' ? parseJsonOrKeep(own) : (own ?? null);
+  if (received === normalized) return true;
+  try {
+    return JSON.stringify(received) === JSON.stringify(normalized);
+  } catch {
+    return false;
+  }
+}
+
+function parseJsonOrKeep(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
   }
 }
 
