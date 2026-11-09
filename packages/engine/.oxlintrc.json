@@ -44,6 +44,11 @@
           {
             "name": "@maelstrom-co/react-devtools",
             "message": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+          },
+          {
+            "name": "@tanstack/ai",
+            "importNames": ["chat"],
+            "message": "Import chat only in the agent run seam (packages/engine/src/lib/agent-session/agent-run-chat.ts, behind runAgent in agent-run.ts) or the two planner LLM call files. See packages/engine/src/lib/agent-session/chat-import-boundary.test.ts."
           }
         ],
         "patterns": [
@@ -65,5 +70,76 @@
         ]
       }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/lib/agent-session/agent-run-chat.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@maelstrom-co/client",
+                "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/react",
+                "message": "Server and worker packages may not import @maelstrom-co/react — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/react-realtime",
+                "message": "Server and worker packages may not import @maelstrom-co/react-realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/realtime",
+                "message": "Server and worker packages may not import @maelstrom-co/realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/realtime-livekit",
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-livekit — it's a browser package (it peer-depends on the livekit-client WebRTC SDK). See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/realtime-openai",
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-openai — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/realtime-openai-live",
+                "message": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+              },
+              {
+                "name": "@maelstrom-co/realtime-vad",
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              {
+                "name": "@maelstrom-co/devtools",
+                "message": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+              },
+              {
+                "name": "@maelstrom-co/react-devtools",
+                "message": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "@maelstrom-co/client/**",
+                  "@maelstrom-co/react/**",
+                  "@maelstrom-co/react-realtime/**",
+                  "@maelstrom-co/realtime/**",
+                  "@maelstrom-co/realtime-livekit/**",
+                  "@maelstrom-co/realtime-openai/**",
+                  "@maelstrom-co/realtime-openai-live/**",
+                  "@maelstrom-co/realtime-vad/**",
+                  "@maelstrom-co/devtools/**",
+                  "@maelstrom-co/react-devtools/**"
+                ],
+                "message": "Server and worker packages cannot import browser packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }
