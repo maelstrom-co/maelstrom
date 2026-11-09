@@ -321,8 +321,8 @@ function toChatTool(
     inputSchema: entry.tool.input,
   }).server(async (validatedArgs, context) => {
     const callId = context?.toolCallId;
-    // The executor parses the model's own arguments, so a schema transform
-    // never runs twice.
+    // The executor re-parses the model's raw arguments. The input schema
+    // may already have run more than once per call, so it must be pure.
     const rawArgs =
       callId === undefined
         ? validatedArgs
