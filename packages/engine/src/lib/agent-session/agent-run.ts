@@ -2,6 +2,7 @@ import type { AgentRunMetrics, CallId, RunId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ModelMessage, TextOptions } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
+import { runAgentChat } from './agent-run-chat.js';
 import type { ToolCallIdentity } from './server-tool-runner.js';
 import type { ToolRegistry } from './tool-registry.js';
 
@@ -312,12 +313,8 @@ export type AgentRunEvent =
  * nothing further.
  */
 export function runAgent(
-  _input: AgentRunInput,
-  _options: AgentRunOptions,
+  input: AgentRunInput,
+  options: AgentRunOptions,
 ): AsyncIterable<AgentRunEvent> {
-  return {
-    [Symbol.asyncIterator]: () => ({
-      next: () => Promise.reject(new Error('not implemented')),
-    }),
-  };
+  return runAgentChat(input, options);
 }
