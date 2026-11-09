@@ -16,7 +16,11 @@ export interface AgentRunBudgets {
   readonly maxTurns: number;
   /** Longest wall-clock duration of the run, in milliseconds, measured on {@link AgentRunClock}. */
   readonly maxElapsedMs: number;
-  /** Most input plus output tokens the run may spend, summed over every provider call. */
+  /**
+   * Most input plus output tokens the run may spend, summed over every
+   * provider call. `Infinity` disables the cap, so unknown usage no longer
+   * blocks tools.
+   */
   readonly maxTokens: number;
   /** Most tool calls the run may make across all turns. */
   readonly maxToolCalls: number;
@@ -206,23 +210,44 @@ export interface AgentRunCompleted {
   readonly unreportedUsageCalls: number;
 }
 
-/** The run ended because a budget ran out, after sending {@link BUDGET_CLOSING_MESSAGE}. */
-export interface AgentRunBudgetExhausted {
+/** Fields every {@link AgentRunBudgetExhausted} member shares. */
+export interface AgentRunBudgetExhaustedBase {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
   readonly reason: 'budget';
   /** Always {@link BUDGET_CLOSING_MESSAGE}. */
   readonly reply: typeof BUDGET_CLOSING_MESSAGE;
-  /** The cap that ran out. */
-  readonly limit: AgentRunBudgetLimit;
-  /** Set when a token cap could not be checked because a provider call reported no usage. */
-  readonly usageUnknown?: true;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
   /** Provider calls that reported no usage, so are missing from the token counters. */
   readonly unreportedUsageCalls: number;
 }
+
+/** The token cap ran out, or could not be checked because usage is unknown. */
+export interface AgentRunTokenBudgetExhausted extends AgentRunBudgetExhaustedBase {
+  /** The cap that ran out. */
+  readonly limit: 'tokens';
+  /** Set when the token cap could not be checked because a provider call reported no usage. */
+  readonly usageUnknown?: true;
+}
+
+/** A cap other than tokens ran out. */
+export interface AgentRunOtherBudgetExhausted extends AgentRunBudgetExhaustedBase {
+  /** The cap that ran out. */
+  readonly limit: Exclude<AgentRunBudgetLimit, 'tokens'>;
+  /** Never set: only a token cap can be blocked by unknown usage. */
+  readonly usageUnknown?: never;
+}
+
+/**
+ * The run ended because a budget ran out, after sending
+ * {@link BUDGET_CLOSING_MESSAGE}. `usageUnknown` is allowed only with
+ * `limit: 'tokens'`.
+ */
+export type AgentRunBudgetExhausted =
+  | AgentRunTokenBudgetExhausted
+  | AgentRunOtherBudgetExhausted;
 
 /**
  * The run ended because the provider or adapter failed after retries. Text
