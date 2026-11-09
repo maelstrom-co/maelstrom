@@ -1,12 +1,12 @@
 # Experimental AG-UI workspace adapter
 
-Three private workspace packages implement the demo's experimental AG-UI binding. They can also serve a headless execution harness without importing the demo.
+Three private workspace packages implement the experimental workspace binding used by the [dedicated AG-UI app](../../apps/agui-demo/README.md). They can also serve a headless execution harness without importing the app.
 
 ## Entrypoints
 
 | Import | Responsibility |
 | --- | --- |
-| `@maelstrom-co/agui/browser` | `AguiWebSocketConnector`, complete-run validation, application acknowledgment, and observable protocol errors. |
+| `@maelstrom-co/agui/browser` | `AguiWorkspaceClient` for host-owned transport, `AguiWebSocketConnector`, complete-run validation, application acknowledgment, and observable protocol errors. |
 | `@maelstrom-co/agui-server` | `AguiWorkspaceSession`, Engine dispatch, sequence/revision admission, and checkpoint restoration. |
 | `@maelstrom-co/agui-protocol` | Private input, result, correlation, and checkpoint schemas. |
 
@@ -28,6 +28,6 @@ React components only subscribe to protocol errors for display. Application ackn
 
 ## Host responsibilities
 
-Applications supply WebSocket options, authentication, host control frames, and their Engine configuration. The server session accepts a lazy Engine supplier, an event sender, and a synchronous checkpoint callback. The demo binds that callback to Durable Object socket attachments.
+Applications supply transport, authentication, and their Engine configuration. The server session accepts a lazy Engine supplier, an event sender, and a synchronous checkpoint callback. The dedicated app uses a same-origin HTTP exchange with a durable app-owned plan and receipt ledger. Its [compatibility reference](../../apps/agui-demo/README.md#runtime-boundaries) separates outer TanStack frontend-tool continuation from the inner workspace operations.
 
-The adapter retains the experimental `demo.agui.run` and `demo:*` wire names. They are compatibility identifiers for a private binding. These packages do not establish standard mid-run AG-UI input semantics or a stable public runtime contract. The [workspace contract](../agui-protocol/CONTRACT.md) defines the wire mapping, typed local failure reasons, and recovery limits. The [demo integration](../../apps/demo/AGUI.md) documents host authentication, native voice, and platform recovery.
+The adapter retains the experimental `demo.agui.run` and `demo:*` wire names. They are compatibility identifiers for a private binding. These packages do not establish standard mid-run AG-UI input semantics or a stable public runtime contract. The [workspace contract](../agui-protocol/CONTRACT.md) defines the wire mapping, typed local failure reasons, and recovery limits. The [historical demo integration](../../apps/demo/AGUI.md) preserves the earlier socket-attachment design.
