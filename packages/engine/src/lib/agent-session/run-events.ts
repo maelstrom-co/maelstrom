@@ -1,5 +1,6 @@
 import {
   AGENT_WIRE_VERSION,
+  type AgentDisposition,
   type AgentEvent,
   type AgentFinishReason,
   type DiagnosticMetadata,
@@ -7,10 +8,27 @@ import {
   type RunId,
 } from '@maelstrom-co/protocol';
 
+import type { AgentRunBudgetLimit } from './agent-run.js';
+
 export interface RunFailure {
   readonly error: string;
   readonly code: string;
   readonly reason?: AgentFinishReason;
+}
+
+export interface RunBudgetExhaustion {
+  readonly reason: 'budget';
+  readonly limit: AgentRunBudgetLimit;
+  readonly closingMessage: string;
+}
+
+/** Counters of an agent run. Their presence means the reply was already streamed as deltas. */
+export interface AgentRunCounters {
+  readonly turns: number;
+  readonly toolCalls: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly unreportedUsageCalls: number;
 }
 
 export interface RunEnding {
@@ -21,6 +39,7 @@ export interface RunEnding {
 export function buildAcceptanceEvents(
   inputId: MessageId,
   runId: RunId,
+  disposition: Extract<AgentDisposition, 'ui_only' | 'agent'> = 'ui_only',
 ): readonly AgentEvent[] {
   return [
     {
@@ -34,7 +53,7 @@ export function buildAcceptanceEvents(
       version: AGENT_WIRE_VERSION,
       inputId,
       runId,
-      disposition: 'ui_only',
+      disposition,
       ack: 'On it.',
     },
   ];
@@ -44,28 +63,40 @@ export function buildRunEnding(
   run: { readonly runId: RunId; readonly started: number },
   now: number,
   reply: string,
-  failure?: RunFailure,
+  outcome?: RunFailure | RunBudgetExhaustion,
+  counters?: AgentRunCounters,
 ): RunEnding {
   const { runId } = run;
-  const reason = failure?.reason ?? (failure ? 'error' : 'completed');
+  const budget =
+    outcome !== undefined && 'closingMessage' in outcome ? outcome : undefined;
+  const failure =
+    outcome !== undefined && !('closingMessage' in outcome)
+      ? outcome
+      : undefined;
+  const ok = outcome === undefined;
+  const reason =
+    budget?.reason ?? failure?.reason ?? (failure ? 'error' : 'completed');
   const metrics = {
-    turns: 0,
-    toolCalls: 0,
+    turns: counters?.turns ?? 0,
+    toolCalls: counters?.toolCalls ?? 0,
     elapsedMs: Math.max(0, Math.round(now - run.started)),
-    inputTokens: 0,
-    outputTokens: 0,
+    inputTokens: counters?.inputTokens ?? 0,
+    outputTokens: counters?.outputTokens ?? 0,
   };
-  const message: AgentEvent[] = failure
-    ? []
-    : [
-        {
-          type: 'message',
-          version: AGENT_WIRE_VERSION,
-          runId,
-          turnId: `${runId}:reply`,
-          delta: reply,
-        },
-      ];
+  const finalReply = budget?.closingMessage ?? (ok ? reply : '');
+  const turnId = budget ? `${runId}:close` : `${runId}:reply`;
+  const message: AgentEvent[] =
+    budget || (ok && counters === undefined)
+      ? [
+          {
+            type: 'message',
+            version: AGENT_WIRE_VERSION,
+            runId,
+            turnId,
+            delta: finalReply,
+          },
+        ]
+      : [];
   return {
     events: [
       ...message,
@@ -74,17 +105,21 @@ export function buildRunEnding(
         version: AGENT_WIRE_VERSION,
         runId,
         ...failure,
-        ok: !failure,
+        ok,
         reason,
-        reply: failure ? '' : reply,
+        reply: finalReply,
         metrics,
       },
     ],
     metadata: {
       reason,
-      outcome: failure ? 'failed' : 'succeeded',
+      outcome: ok ? 'succeeded' : 'failed',
       ...metrics,
       ...(failure ? { code: failure.code } : {}),
+      ...(budget ? { limit: budget.limit } : {}),
+      ...(counters
+        ? { unreportedUsageCalls: counters.unreportedUsageCalls }
+        : {}),
     },
   };
 }

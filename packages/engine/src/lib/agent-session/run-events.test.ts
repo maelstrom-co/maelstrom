@@ -120,3 +120,92 @@ test('a cancelled run keeps its reason and never reports negative elapsed time',
     ending.events.every((event) => AgentEventSchema.safeParse(event).success),
   ).toBe(true);
 });
+
+test('an agent acceptance carries the agent disposition', () => {
+  expect(
+    buildAcceptanceEvents(MessageId('input-1'), run.runId, 'agent')[1],
+  ).toMatchObject({ type: 'accepted', disposition: 'agent' });
+});
+
+const counters = {
+  turns: 2,
+  toolCalls: 1,
+  inputTokens: 14,
+  outputTokens: 3,
+  unreportedUsageCalls: 1,
+};
+
+test('a completed agent run finishes with its counters and no extra reply message, since the reply was streamed', () => {
+  const ending = buildRunEnding(run, 30.4, 'Done.', undefined, counters);
+  expect(ending.events).toEqual([
+    {
+      type: 'finished',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+      ok: true,
+      reason: 'completed',
+      reply: 'Done.',
+      metrics: {
+        turns: 2,
+        toolCalls: 1,
+        elapsedMs: 20,
+        inputTokens: 14,
+        outputTokens: 3,
+      },
+    },
+  ]);
+  expect(ending.metadata).toEqual({
+    reason: 'completed',
+    outcome: 'succeeded',
+    turns: 2,
+    toolCalls: 1,
+    elapsedMs: 20,
+    inputTokens: 14,
+    outputTokens: 3,
+    unreportedUsageCalls: 1,
+  });
+});
+
+test('a budget ending sends the closing message under the close turn and makes it the reply', () => {
+  const ending = buildRunEnding(
+    run,
+    30.4,
+    'ignored',
+    { reason: 'budget', limit: 'turns', closingMessage: 'Out of room.' },
+    counters,
+  );
+  expect(ending.events).toEqual([
+    {
+      type: 'message',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+      turnId: 'run-1:close',
+      delta: 'Out of room.',
+    },
+    {
+      type: 'finished',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+      ok: false,
+      reason: 'budget',
+      reply: 'Out of room.',
+      metrics: {
+        turns: 2,
+        toolCalls: 1,
+        elapsedMs: 20,
+        inputTokens: 14,
+        outputTokens: 3,
+      },
+    },
+  ]);
+  expect(ending.metadata).toMatchObject({
+    reason: 'budget',
+    outcome: 'failed',
+    limit: 'turns',
+    unreportedUsageCalls: 1,
+  });
+  expect(ending.metadata).not.toHaveProperty('code');
+  expect(
+    ending.events.every((event) => AgentEventSchema.safeParse(event).success),
+  ).toBe(true);
+});
