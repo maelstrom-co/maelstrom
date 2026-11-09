@@ -71,11 +71,17 @@ const retrySchema = z.union([
   z.object({ max: z.number().int().nonnegative() }).strict(),
 ]);
 
-// Shape only. resolveAgentConfig validates the model, budgets and tools.
-const agentSchema = z.custom<AgentConfig>(
-  (v) => typeof v === 'object' && v !== null,
-  { message: 'expected object' },
-);
+// Keys only. resolveAgentConfig validates the model, instructions, budgets and
+// tools, so values stay unknown here.
+const agentSchema = z
+  .object({
+    model: z.unknown(),
+    instructions: z.unknown().optional(),
+    tools: z.unknown().optional(),
+    budgets: z.unknown().optional(),
+    retry: z.unknown().optional(),
+  })
+  .strict();
 
 const engineConfigSchema = z
   .object({
@@ -122,9 +128,18 @@ const _retryBwd: NonNullable<EngineConfig['retry']> extends NonNullable<
 >
   ? true
   : false = true;
+type _InferredAgentConfig = NonNullable<_InferredEngineConfig['agent']>;
+const _agentKeysSubsetInferred: keyof AgentConfig extends keyof _InferredAgentConfig
+  ? true
+  : false = true;
+const _inferredAgentKeysSubsetConfig: keyof _InferredAgentConfig extends keyof AgentConfig
+  ? true
+  : false = true;
 void [
   _configKeysSubsetInferred,
   _inferredKeysSubsetConfig,
+  _agentKeysSubsetInferred,
+  _inferredAgentKeysSubsetConfig,
   _loggerFwd,
   _instrumentFwd,
   _retryFwd,
