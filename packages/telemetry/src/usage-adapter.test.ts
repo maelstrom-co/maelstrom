@@ -585,6 +585,50 @@ describe('completion flag', () => {
     });
   });
 
+  test('a chatStream that throws synchronously yields one incomplete record and rethrows', async () => {
+    const { adapter, calls } = wrap({
+      kind: 'text',
+      name: 'eager',
+      model: 'eager-model',
+      chatStream() {
+        throw new Error('no inner adapter left');
+      },
+    });
+    await expect(
+      (async () => drain(adapter.chatStream({} as never)))(),
+    ).rejects.toThrow('no inner adapter left');
+    expect(calls).toEqual([
+      {
+        role: 'complete',
+        model: 'eager-model',
+        latencyMs: expect.any(Number),
+        completed: false,
+      },
+    ]);
+  });
+
+  test('a structuredOutput that throws synchronously yields one incomplete record and rethrows', async () => {
+    const { adapter, calls } = wrap({
+      kind: 'text',
+      name: 'eager',
+      model: 'eager-model',
+      structuredOutput() {
+        throw new Error('no inner adapter left');
+      },
+    });
+    await expect(
+      (async () => adapter.structuredOutput({} as never))(),
+    ).rejects.toThrow('no inner adapter left');
+    expect(calls).toEqual([
+      {
+        role: 'complete',
+        model: 'eager-model',
+        latencyMs: expect.any(Number),
+        completed: false,
+      },
+    ]);
+  });
+
   test('an aborted stream yields one incomplete record without usage', async () => {
     const controller = new AbortController();
     const aborting = {

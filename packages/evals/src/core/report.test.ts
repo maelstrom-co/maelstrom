@@ -98,7 +98,9 @@ describe('summarize', () => {
       llmCalls: [
         {
           role: 'complete',
+          model: 'test-model',
           latencyMs: 300,
+          completed: true,
           usage: { inputTokens: 900, outputTokens: 40, totalTokens: 940 },
         },
       ],
@@ -125,10 +127,17 @@ describe('summarize', () => {
       llmCalls: [
         {
           role: 'planner',
+          model: 'test-model',
           latencyMs: 2000,
+          completed: true,
           usage: { inputTokens: 3000, outputTokens: 500, totalTokens: 3500 },
         },
-        { role: 'planner', latencyMs: 1000 },
+        {
+          role: 'planner',
+          model: 'test-model',
+          latencyMs: 1000,
+          completed: false,
+        },
       ],
     }),
     baseline({
@@ -236,7 +245,9 @@ describe('summarize', () => {
           llmCalls: [
             {
               role: 'planner',
+              model: 'test-model',
               latencyMs: 100,
+              completed: true,
               usage: {
                 inputTokens: 120,
                 outputTokens: 20,
@@ -247,7 +258,9 @@ describe('summarize', () => {
             },
             {
               role: 'planner',
+              model: 'test-model',
               latencyMs: 200,
+              completed: true,
               usage: {
                 inputTokens: 50,
                 outputTokens: 10,
@@ -255,10 +268,17 @@ describe('summarize', () => {
                 cost: 0,
               },
             },
-            { role: 'planner', latencyMs: 300 },
+            {
+              role: 'planner',
+              model: 'test-model',
+              latencyMs: 300,
+              completed: false,
+            },
             {
               role: 'complete',
+              model: 'test-model',
               latencyMs: 400,
+              completed: true,
               usage: { inputTokens: 70, outputTokens: 10 },
             },
           ],

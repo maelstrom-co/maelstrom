@@ -18,7 +18,10 @@ export interface ProviderCallRecord<Role extends string = string> {
    * therefore reports the inner model.
    */
   readonly model: string;
-  /** Wall-clock time from the call until its stream ended or settled. */
+  /**
+   * Wall-clock time until the call ended or settled, measured from the first
+   * pull for a streamed call and from the call for `structuredOutput`.
+   */
   readonly latencyMs: number;
   /**
    * True only when a streamed call delivered `RUN_FINISHED`, or a
@@ -52,7 +55,9 @@ export interface UsageLedgerSnapshot {
   readonly partialUsageCalls: number;
   /**
    * Per-counter sum over the records that reported usage. A counter no record
-   * reported stays absent, and a reported zero stays zero.
+   * reported stays absent, and a reported zero stays zero. Counters other than
+   * input and output tokens, such as cost, cache and the provider total, are
+   * sums over only the calls that reported them and may be partial.
    */
   readonly usage: ReportedLlmUsage;
 }
@@ -79,7 +84,10 @@ export interface UsageLedger<Role extends string = string> {
 
 /**
  * Wraps `adapter` so every provider call sends exactly one
- * {@link ProviderCallRecord} to `sink` when the call ends, however it ends.
+ * {@link ProviderCallRecord} to `sink` when the call ends, however it ends,
+ * including a method that throws synchronously. The error still reaches the
+ * caller. A streamed call starts on its first pull, so a stream that is never
+ * pulled records nothing.
  *
  * Streamed calls take usage from the first `RUN_FINISHED` or `RUN_ERROR`
  * chunk that reports any, and `structuredOutput` from its result. Methods run
@@ -101,7 +109,7 @@ export function withUsage<Role extends string>(
       if (typeof value !== 'function') return value;
       if ((STREAMS as readonly PropertyKey[]).includes(property))
         return (...args: unknown[]) =>
-          recordStream(value.apply(target, args), target, role, sink);
+          recordStream(() => value.apply(target, args), target, role, sink);
       if (property === 'structuredOutput')
         return async (...args: unknown[]) => {
           const started = performance.now();
@@ -207,7 +215,7 @@ const USAGE_COUNTERS = [
 ] as const satisfies readonly (keyof ReportedLlmUsage)[];
 
 async function* recordStream<Role extends string>(
-  stream: AsyncIterable<StreamChunk>,
+  open: () => AsyncIterable<StreamChunk>,
   adapter: AnyTextAdapter,
   role: Role,
   sink: (call: ProviderCallRecord<Role>) => void,
@@ -217,7 +225,7 @@ async function* recordStream<Role extends string>(
   let model: string | undefined;
   let completed = false;
   try {
-    for await (const chunk of stream) {
+    for await (const chunk of open()) {
       if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR') {
         usage ??= normalizeLlmUsage(
           chunk.usage,
