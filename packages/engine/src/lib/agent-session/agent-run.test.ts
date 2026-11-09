@@ -558,6 +558,76 @@ describe('runAgent on chat()', () => {
       });
       expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
     });
+
+    test('a transformArgs decision runs the tool with the transformed arguments', async () => {
+      const tools = counterTools();
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+          usage(10, 2),
+        ),
+        textTurn(['Done.'], usage(4, 1)),
+      ]);
+      const transform: ChatMiddleware = {
+        name: 'test-transform-args',
+        onBeforeToolCall: () => ({ type: 'transformArgs', args: { by: 5 } }),
+      };
+
+      const events = await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          { signal: new AbortController().signal },
+          { middleware: [transform] },
+        ),
+      );
+
+      expect(tools.balances).toEqual([5]);
+      expect(toolMessageContents(model.requests[1])).toEqual([{ balance: 5 }]);
+      expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+      expectEveryCallSettledOnce(events);
+    });
+
+    test('transformed arguments that fail the input schema reach the model as the sanitized failure', async () => {
+      const tools = counterTools();
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+          usage(10, 2),
+        ),
+        textTurn(['Done.'], usage(4, 1)),
+      ]);
+      const transform: ChatMiddleware = {
+        name: 'test-transform-args',
+        onBeforeToolCall: () => ({
+          type: 'transformArgs',
+          args: { by: SECRET },
+        }),
+      };
+
+      const events = await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          { signal: new AbortController().signal },
+          { middleware: [transform] },
+        ),
+      );
+
+      expect(tools.balances).toEqual([]);
+      expect(toolMessageContents(model.requests[1])).toEqual([
+        { ok: false, error: 'increment received invalid arguments' },
+      ]);
+      expect(serializeLoosely(model.requests)).not.toContain(SECRET);
+      expect(events).toContainEqual({
+        type: 'tool_result',
+        turnId: 'run-1:t1',
+        callId: CallId('c1'),
+        name: 'increment',
+        ok: false,
+        summary: 'increment received invalid arguments',
+      });
+      expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+      expectEveryCallSettledOnce(events);
+    });
   });
 
   test('identity reaches the tool context and never a model request or an event', async () => {

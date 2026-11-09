@@ -6,11 +6,14 @@ import {
 } from '@maelstrom-co/telemetry/usage-adapter';
 import {
   type AnyTextAdapter,
+  type BeforeToolCallDecision,
   chat,
   type ChatMiddleware,
+  type ChatMiddlewareContext,
   type StreamChunk,
   type TextOptions,
   type Tool,
+  type ToolCallHookContext,
   toolDefinition,
 } from '@tanstack/ai';
 
@@ -50,7 +53,10 @@ export interface AgentRunChatInstrumentation {
    * Extra `chat()` middleware, installed after the run's own middleware and
    * before its result guard. A `skip` or `replaceResult` from it must be a
    * tool result envelope that passes {@link validateToolResultEnvelope},
-   * otherwise the model receives a sanitized failure instead.
+   * otherwise the model receives a sanitized failure instead. A
+   * `transformArgs` runs the tool with the transformed arguments, or gives
+   * the model the sanitized invalid-arguments failure when they fail the
+   * tool's input schema.
    */
   readonly middleware?: readonly ChatMiddleware[];
   /** Receives every provider call record after the run's ledger stored it. */
@@ -220,31 +226,36 @@ function startChat(
     },
   });
   const rawArgsByCall = new Map<string, unknown>();
+  // chat() would send its own validation message to the model, so invalid
+  // arguments get the executor's sanitized failure instead.
+  const admitArgs = async (
+    ctx: ChatMiddlewareContext,
+    hookCtx: ToolCallHookContext,
+    args: unknown,
+  ): Promise<BeforeToolCallDecision> => {
+    const entry = input.registry.get(hookCtx.toolName);
+    if (entry === undefined) return undefined;
+    rawArgsByCall.set(hookCtx.toolCallId, args);
+    if (await acceptsInput(entry, args)) return undefined;
+    const result = await executions.track(
+      entry,
+      executeToolCall(
+        entry,
+        args,
+        input.identity,
+        ctx.signal ?? policy.abortController.signal,
+      ),
+    );
+    calls.settle(hookCtx.toolCallId, result);
+    return { type: 'skip', result: toModelToolPayload(result) };
+  };
   const runEventsMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-events',
     onConfig: (ctx) => {
       if (ctx.phase === 'beforeModel') calls.startTurn(ctx.iteration + 1);
       return undefined;
     },
-    onBeforeToolCall: async (ctx, hookCtx) => {
-      const entry = input.registry.get(hookCtx.toolName);
-      if (entry === undefined) return undefined;
-      rawArgsByCall.set(hookCtx.toolCallId, hookCtx.args);
-      // chat() would send its own validation message to the model, so
-      // invalid arguments get the executor's sanitized failure instead.
-      if (await acceptsInput(entry, hookCtx.args)) return undefined;
-      const result = await executions.track(
-        entry,
-        executeToolCall(
-          entry,
-          hookCtx.args,
-          input.identity,
-          ctx.signal ?? policy.abortController.signal,
-        ),
-      );
-      calls.settle(hookCtx.toolCallId, result);
-      return { type: 'skip', result: toModelToolPayload(result) };
-    },
+    onBeforeToolCall: (ctx, hookCtx) => admitArgs(ctx, hookCtx, hookCtx.args),
     onToolPhaseComplete: (_ctx, info) => {
       calls.endToolPhase(info.toolCalls.map((call) => call.id));
     },
@@ -299,12 +310,36 @@ function startChat(
     middleware: [
       policyMiddleware,
       runEventsMiddleware,
-      ...(instrumentation.middleware ?? []),
+      ...(instrumentation.middleware ?? []).map((middleware) =>
+        admittingTransformedArgs(middleware, admitArgs),
+      ),
       resultGuardMiddleware,
     ],
     debug: false,
     ...(input.retry !== undefined && { retry: input.retry }),
   });
+}
+
+// chat() stops at the first onBeforeToolCall decision, so a transformArgs
+// from instrumentation is final and its args are what the tool must run.
+function admittingTransformedArgs(
+  middleware: ChatMiddleware,
+  admitArgs: (
+    ctx: ChatMiddlewareContext,
+    hookCtx: ToolCallHookContext,
+    args: unknown,
+  ) => Promise<BeforeToolCallDecision>,
+): ChatMiddleware {
+  const onBeforeToolCall = middleware.onBeforeToolCall;
+  if (onBeforeToolCall === undefined) return middleware;
+  return {
+    ...middleware,
+    onBeforeToolCall: async (ctx, hookCtx) => {
+      const decision = await onBeforeToolCall.call(middleware, ctx, hookCtx);
+      if (decision?.type !== 'transformArgs') return decision;
+      return (await admitArgs(ctx, hookCtx, decision.args)) ?? decision;
+    },
+  };
 }
 
 function toChatTool(
