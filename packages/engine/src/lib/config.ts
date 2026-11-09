@@ -61,9 +61,8 @@ export interface EngineConfig {
    * Optional Agent Run configuration: the model or a per-run model factory,
    * instructions, Server Tools, budgets and model-call retry. When omitted,
    * connections keep the `ui_only` route. Static budgets and tools are
-   * validated when the Engine is created, and invalid values throw. Unset
-   * budgets default to 12 turns, 120,000 ms, 100,000 tokens and 24 tool
-   * calls. See {@link AgentConfig}.
+   * validated when the Engine is created, and invalid values throw.
+   * See {@link AgentConfig}.
    */
   readonly agent?: AgentConfig;
 }

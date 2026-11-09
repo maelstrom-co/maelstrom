@@ -64,8 +64,8 @@ export interface AgentConfig {
   readonly tools?: readonly RegistrableServerTool[];
   /**
    * Caps for each run, as static values or a resolver called once per run.
-   * Fields left out use {@link DEFAULT_AGENT_RUN_BUDGETS}: 12 turns,
-   * 120,000 ms, 100,000 tokens and 24 tool calls. Every value must be a
+   * Fields left out default to 12 turns, 120,000 ms, 100,000
+   * tokens and 24 tool calls. Every value must be a
    * non-negative integer. `maxTokens` and `maxElapsedMs` also accept
    * `Infinity`, which removes that cap. `maxTurns` and `maxToolCalls` must
    * stay finite, so every run keeps a hard bound on its loop. Static values

@@ -22,7 +22,11 @@ export interface RunBudgetExhaustion {
   readonly closingMessage: string;
 }
 
-/** Counters of an agent run. Their presence means the reply was already streamed as deltas. */
+/**
+ * Counters of an agent run. When present on a non-budget ending, the reply
+ * was already streamed as deltas. Budget endings always emit the closing
+ * message as a `message` with turn id `<runId>:close`, even with counters.
+ */
 export interface AgentRunCounters {
   readonly turns: number;
   readonly toolCalls: number;

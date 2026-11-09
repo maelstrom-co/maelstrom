@@ -156,9 +156,33 @@ function agentRuns(
   };
 }
 
-function scheduleGlobalTimeout(callback: () => void, ms: number): () => void {
-  const handle = globalThis.setTimeout(callback, ms);
-  return () => globalThis.clearTimeout(handle);
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/** The timer functions used to schedule the deadline. */
+export interface DeadlineTimers {
+  readonly setTimeout: (callback: () => void, ms: number) => unknown;
+  readonly clearTimeout: (handle: never) => void;
+}
+
+/**
+ * Runs `callback` after `ms`, chaining timers when the delay exceeds the
+ * platform limit. A non-finite delay never fires. Returns a cancel function.
+ */
+export function scheduleGlobalTimeout(
+  callback: () => void,
+  ms: number,
+  timers: DeadlineTimers = globalThis,
+): () => void {
+  if (!Number.isFinite(ms)) return () => undefined;
+  let remaining = Math.max(0, ms);
+  let handle: unknown;
+  const arm = (): void => {
+    const step = Math.min(remaining, MAX_TIMER_DELAY_MS);
+    remaining -= step;
+    handle = timers.setTimeout(remaining > 0 ? arm : callback, step);
+  };
+  arm();
+  return () => timers.clearTimeout(handle as never);
 }
 
 function eventLogData(
