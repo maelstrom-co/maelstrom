@@ -84,6 +84,22 @@ See the [system prompt guide](https://docs.maelstrom-ai.co/guides/engine/system-
 
 ---
 
+## Clarifying planner and skipReply
+
+`clarifyingLlmPlanner(options)` takes the same options as `llmPlanner` and returns a `Stage<ClarifyingLlmPlannerInput, PlannerOutput>`. Without `skipReply` on the request it behaves exactly like `llmPlanner`.
+
+When `request.skipReply` is `true`, the prompt and the output schema leave out `userMessage`, so the plan comes back without a reply. The model may also return a `NeedsClarification` result with a question and options instead of a plan. A capability the planner cannot support becomes a clarification that names the gap. Compose it with `withRetry` and the engine validator accepts both outcomes.
+
+`Engine.handle` still refuses replyless outcomes on the `chart_response` path, so use `skipReply` only with a caller that supplies its own reply.
+
+```ts
+import { clarifyingLlmPlanner } from '@maelstrom-co/planner-llm';
+
+const planner = clarifyingLlmPlanner({ adapter });
+```
+
+---
+
 ## Retry prompt
 
 The engine's `withRetry` re-runs the planner with the previous attempt's diagnostics when healing recommends a retry. On that re-run, `llmPlanner` sends the original user prompt preceded by a structured feedback block summarizing what went wrong; the system prompt is unchanged.
