@@ -60,8 +60,8 @@ export interface EngineConfig {
   /**
    * Optional Agent Run configuration: the model or a per-run model factory,
    * instructions, Server Tools, budgets and model-call retry. When omitted,
-   * connections keep the `ui_only` route. Static budgets and tools are
-   * validated when the Engine is created, and invalid values throw.
+   * connections keep the `ui_only` route. A static model, static budgets and
+   * tools are validated when the Engine is created, and invalid values throw.
    * See {@link AgentConfig}.
    */
   readonly agent?: AgentConfig;
@@ -97,7 +97,8 @@ const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
  * {@link noopInstrument} and `retry` to `{ max: 1 }`;
  * history remains optional. A configured `agent` is resolved with
  * `resolveAgentConfig`.
- * @throws When the agent config has invalid static budgets or tools.
+ * @throws When the agent config has an invalid model, static budgets or
+ * tools.
  */
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {

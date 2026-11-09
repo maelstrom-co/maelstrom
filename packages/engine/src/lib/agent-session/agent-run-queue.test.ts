@@ -572,8 +572,9 @@ describe('agent run queue', () => {
   test.each([
     ['model factory', 'model'],
     ['budget resolver', 'budgets'],
+    ['model factory returning a non-adapter', 'adapter'],
   ] as const)(
-    'a throwing %s ends the run with a sanitized error after accepted and without started, and the next run starts',
+    'a failing %s ends the run with a sanitized error after accepted and without started, and the next run starts',
     async (_label, failing) => {
       const model = scriptedTextAdapter([
         scriptedTextTurn(['Second works.'], scriptedUsage(1, 1)),
@@ -596,13 +597,22 @@ describe('agent run queue', () => {
                 return model.adapter;
               },
             }
-          : {
-              model: model.adapter,
-              budgets: () => {
-                explode();
-                return {};
-              },
-            }),
+          : failing === 'adapter'
+            ? {
+                model: () => {
+                  setups += 1;
+                  return setups === 1
+                    ? ({ secret: 'SECRET' } as unknown as typeof model.adapter)
+                    : model.adapter;
+                },
+              }
+            : {
+                model: model.adapter,
+                budgets: () => {
+                  explode();
+                  return {};
+                },
+              }),
       });
 
       const first = session.queue.enqueue(utterance('input-1', 'one'));

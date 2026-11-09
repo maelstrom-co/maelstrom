@@ -93,6 +93,17 @@ describe('resolveAgentConfig', () => {
     });
   }
 
+  test('a static budget field outside the known four is rejected', () => {
+    expect(() =>
+      resolveAgentConfig({
+        model: adapter,
+        budgets: { maxToken: 100 } as Partial<AgentRunBudgets>,
+      }),
+    ).toThrow(
+      'Invalid agent budget field maxToken from agent config. Allowed fields: maxTurns, maxElapsedMs, maxTokens, maxToolCalls.',
+    );
+  });
+
   test('a tool without summarize fails at startup', () => {
     const { summarize: _summarize, ...withoutSummarize } = echoTool();
     expect(() =>
@@ -113,6 +124,19 @@ describe('resolveAgentConfig', () => {
     expect(() =>
       resolveAgentConfig({ model: null as unknown as AnyTextAdapter }),
     ).toThrow('model must be a text adapter or a model factory');
+  });
+
+  test('an object without chatStream is rejected as a model', () => {
+    expect(() =>
+      resolveAgentConfig({ model: {} as unknown as AnyTextAdapter }),
+    ).toThrow('model must be a text adapter or a model factory');
+  });
+
+  test('a plain object with chatStream is accepted as a model', () => {
+    const delegating = {
+      chatStream: adapter.chatStream.bind(adapter),
+    } as unknown as AnyTextAdapter;
+    expect(resolveAgentConfig({ model: delegating }).model).toBe(delegating);
   });
 
   test('resolveConfig resolves the agent slot and leaves it undefined when absent', () => {
@@ -221,6 +245,27 @@ describe('resolveAgentRunSetup budgets', () => {
     }
   }
 
+  test('a resolver budget field outside the known four rejects the setup', async () => {
+    const resolved = resolveAgentConfig({
+      model: adapter,
+      budgets: () => ({ maxToken: 100 }) as Partial<AgentRunBudgets>,
+    });
+    await expect(resolveAgentRunSetup(resolved, ctx)).rejects.toThrow(
+      'Invalid agent budget field maxToken from budget resolver',
+    );
+  });
+
+  test('an override budget field outside the known four rejects the setup', async () => {
+    const resolved = resolveAgentConfig({ model: adapter });
+    await expect(
+      resolveAgentRunSetup(resolved, ctx, {
+        maxToken: 100,
+      } as Partial<AgentRunBudgets>),
+    ).rejects.toThrow(
+      'Invalid agent budget field maxToken from per-run override',
+    );
+  });
+
   for (const field of ['maxTokens', 'maxElapsedMs'] as const) {
     test(`a resolver ${field} of Infinity is accepted`, async () => {
       const resolved = resolveAgentConfig({
@@ -305,6 +350,15 @@ describe('resolveAgentRunSetup model', () => {
   test('a factory returning no adapter rejects the setup', async () => {
     const config: AgentConfig = {
       model: () => undefined as unknown as AnyTextAdapter,
+    };
+    await expect(
+      resolveAgentRunSetup(resolveAgentConfig(config), ctx),
+    ).rejects.toThrow('did not return a text adapter');
+  });
+
+  test('a factory returning an object without chatStream rejects the setup', async () => {
+    const config: AgentConfig = {
+      model: () => ({}) as unknown as AnyTextAdapter,
     };
     await expect(
       resolveAgentRunSetup(resolveAgentConfig(config), ctx),
