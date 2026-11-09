@@ -244,7 +244,7 @@ Identity (`id`), session binding (`sessionId`), and timestamp live on the surrou
 
 Both fields are optional and absent by default. A client that renders the Planner's reply leaves them unset. They are for a caller that owns the conversation itself, such as an agent loop.
 
-- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result instead of a layout. See [Planner output](#planner-output).
+- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output).
 - **`intentFacts`**: structured values the caller already learned about the intent, for example from tool results, keyed by a name the Planner can reason about. They are inputs to planning, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `ChartRequestSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
 
 ```ts
@@ -313,22 +313,33 @@ interface ActionExecution {
 
 ## Planner output
 
-`GridResponseSchema` and `TilingResponseSchema` describe the structured output a Planner returns for a request without `skipReply`. Both require `userMessage`.
+A Planner result is what a Planner hands the Engine. It never reaches the client: the Engine heals it into a `MaelstromResponse`. Every result carries a top-level `type` discriminant: `'plan'` for a layout result, `'needs_clarification'` for a question.
+
+The LLM never writes `type`. `GridModelOutputSchema` and `TilingModelOutputSchema` are the structured-output schemas handed to the model, and they have no `type` field. The Planner parses the model output, then stamps `type: 'plan'`:
+
+```ts
+const output: GridModelOutput = GridModelOutputSchema.parse(modelJson);
+const result: GridResponse = { ...output, type: 'plan' };
+```
+
+`GridResponseSchema` and `TilingResponseSchema` parse a plan result for a request without `skipReply`. They are the model output schemas plus the required `type: 'plan'`, so both require `userMessage`. Use them to validate a result, never as an LLM schema.
 
 For a request with `skipReply: true` the Planner may return one of these instead:
 
-- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same shapes with an optional `userMessage`. The strict schemas stay unchanged.
-- **`NeedsClarificationSchema`**: a question for the user when the Planner cannot proceed without one. It carries no layout and no execution plan.
+- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same tagged shapes with an optional `userMessage`. The strict schemas stay unchanged.
+- **`GridNeedsClarificationSchema` / `TilingNeedsClarificationSchema`**: a question for the user when the Planner cannot finish without one. It may also carry the `layout` and `executionPlan` the Planner could already settle. For "Show Apple and Alphabet stock" it can lay out Apple and ask which Alphabet share class the user means. The `layout` must match the request mode. Without either field it leaves the screen unchanged. `NeedsClarificationSchema` accepts a layout of either mode, for a caller that does not know the request.
 
 ```ts
-interface NeedsClarification {
+interface NeedsClarification<M extends LayoutMode = LayoutMode> {
   type: 'needs_clarification';
-  question: string;            // never blank
-  options?: readonly string[]; // suggested answers, each non-blank
+  question: string;              // never blank
+  options?: readonly string[];   // suggested answers, each non-blank
+  layout?: M extends 'grid' ? GridResponse['layout'] : TilingResponse['layout'];
+  executionPlan?: GridResponse['executionPlan']; // same limit as a plan result
 }
 ```
 
-`PlannerOutputFor<R>` turns that rule into a type. For a request type whose `skipReply` is absent or `false` it is the reply-bearing `GridResponse | TilingResponse`. For `skipReply: true`, or a flag only known as `boolean`, it is `GridResponseWithoutReply | TilingResponseWithoutReply | NeedsClarification`.
+`PlannerOutputFor<R>` turns that rule into a type. For a request type whose `skipReply` is absent or `false` it is the reply-bearing `GridResponse | TilingResponse`, always tagged `'plan'`. For `skipReply: true`, or a flag only known as `boolean`, it is `GridResponseWithoutReply | TilingResponseWithoutReply | NeedsClarification`, so switching on `type` tells a plan from a clarification. A clarification is never valid without `skipReply: true`.
 
 ---
 
