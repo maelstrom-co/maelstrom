@@ -6,7 +6,7 @@ const MAX_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_TOTAL_BUDGET_MS = 600_000;
 const MAX_RECONCILIATION_CANDIDATES = 200;
 const PREVIEW_WORKER_PATTERN =
-  /^maelstrom-(?:www|docs|playground)(?:-alchemy)?-pr-([1-9]\d*)$/;
+  /^maelstrom-(?:(?:www|docs|playground)(?:-alchemy)?|agui-alchemy)-pr-([1-9]\d*)$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -37,6 +37,7 @@ export const currentPreviewWorkerNames = (prNumber: string) => {
     `maelstrom-www-alchemy-pr-${prNumber}`,
     `maelstrom-docs-alchemy-pr-${prNumber}`,
     `maelstrom-playground-alchemy-pr-${prNumber}`,
+    `maelstrom-agui-alchemy-pr-${prNumber}`,
   ];
 };
 
