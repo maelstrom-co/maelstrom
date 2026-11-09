@@ -53,6 +53,7 @@
   "dependencies": {
     "@maelstrom-co/telemetry": "0.2.1",
     "@maelstrom-co/protocol": "0.2.1",
+    "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
   "nx": {
