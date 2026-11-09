@@ -1,5 +1,5 @@
 import type { ReplylessCandidate, Stage } from '@maelstrom-co/engine';
-import { isErr, ok } from '@maelstrom-co/protocol';
+import { isErr, type NeedsClarification, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import { completionMode } from '../completion-mode.js';
@@ -13,6 +13,7 @@ import {
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { callLlm } from '../llm-call.js';
+import { parameterClarification } from '../parameter-clarification.js';
 import { intentText } from '../questions.js';
 import type { JevLayoutPlan, ParameterAsk, PlannedAction } from '../types.js';
 
@@ -40,11 +41,14 @@ export interface LlmCompleteOptions {
  *
  * On a request with `skipReply: true` the candidate has no `userMessage`:
  * the call only fills parameters, and with none to fill it is not made.
- * Otherwise the candidate always carries the reply.
+ * When the plan also asks the user for parameters, the validated candidate
+ * becomes a needs-clarification result that asks for them and carries the
+ * actions and layout already planned. Otherwise the candidate always
+ * carries the reply, which asks for those parameters itself.
  */
 export function llmComplete(
   options: LlmCompleteOptions,
-): Stage<JevLayoutPlan, ReplylessCandidate> {
+): Stage<JevLayoutPlan, ReplylessCandidate | NeedsClarification> {
   return async (layoutPlan, ctx) => {
     const { plan } = layoutPlan;
     const input = plan.selection.input;
@@ -134,6 +138,8 @@ export function llmComplete(
     if (isErr(report)) return deferAt(ctx, STAGE, 'invalid_candidate');
     if (report.value.diagnostics.retryHint.recommend)
       return deferAt(ctx, STAGE, 'retry_recommended');
+    if (input.request.skipReply === true && plan.asks.length > 0)
+      return ok(parameterClarification(plan.asks, candidate, input.request));
     return ok(candidate);
   };
 }
@@ -161,7 +167,7 @@ function buildPrompt(
       'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
       ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
-  if (plan.asks.length > 0)
+  if (plan.asks.length > 0 && request.skipReply !== true)
     lines.push(
       '',
       '## Ask the user',

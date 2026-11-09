@@ -1,10 +1,10 @@
 import {
+  type ClarifyingPlanner,
   named,
   type Planner,
   type PlannerCandidate,
   type PlanningInput,
   pipeline,
-  type ReplylessCandidate,
   type Retryable,
   type Stage,
   withFallback,
@@ -28,16 +28,15 @@ import type {
 export const FALLBACK_RETRIES = 1;
 
 /**
- * Types a Jev planner whose completion stage may omit `userMessage` as a
- * reply-required {@link Planner}, so the builders keep their strict type.
- * The completion stages omit `userMessage` only when the request sets
+ * Types a Jev planner whose completion stage may omit `userMessage` or ask
+ * a question as a reply-required {@link Planner}, so the builders keep
+ * their strict type. The completion stages return a replyless candidate or
+ * a needs-clarification result only when the request sets
  * `skipReply: true`, which a caller that needs a strict `Planner` never
- * sends. The Engine still validates every candidate against its request, so
- * a replyless candidate is never shipped unchecked. Returns `planner` itself.
+ * sends. The Engine still validates every result against its request, so
+ * neither is ever shipped unchecked. Returns `planner` itself.
  */
-export function asReplyRequiredPlanner(
-  planner: Stage<PlanningInput, ReplylessCandidate>,
-): Planner {
+export function asReplyRequiredPlanner(planner: ClarifyingPlanner): Planner {
   return planner as Planner;
 }
 

@@ -108,6 +108,7 @@ describe('completeLayoutParallel', () => {
     ]);
     expect(chatPrompt(1)).toContain('## Layout to write');
     if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    if (result.value.type !== 'plan') throw new Error('expected a plan');
     expect(plain(result.value.layout)).toMatchObject({ tree });
     expect(result.value.userMessage).toBe('Done.');
   });

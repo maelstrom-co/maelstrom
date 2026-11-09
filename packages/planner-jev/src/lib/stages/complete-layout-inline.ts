@@ -28,6 +28,7 @@ import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
 import { callLlm } from '../llm-call.js';
+import { parameterClarification } from '../parameter-clarification.js';
 import { intentText } from '../questions.js';
 import type {
   ParameterAsk,
@@ -57,8 +58,11 @@ type HandOffCompletion = (Completion | ReplylessCompletion) & {
  *
  * On a request with `skipReply: true` the candidate has no `userMessage`:
  * the call only fills parameters and writes a handed-off tree, and with
- * neither to produce it is not made. Otherwise the candidate always carries
- * the reply.
+ * neither to produce it is not made. When the plan also asks the user for
+ * parameters, the validated candidate becomes a needs-clarification result
+ * that asks for them and carries the actions and layout already planned.
+ * Otherwise the candidate always carries the reply, which asks for those
+ * parameters itself.
  */
 export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
@@ -92,7 +96,22 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
       ((completion.value as HandOffCompletion).layout?.tree as
         | readonly TilingNode[]
         | undefined);
-    return assembleCandidate(ctx, decision, completion.value, prep, tree);
+    const candidate = assembleCandidate(
+      ctx,
+      decision,
+      completion.value,
+      prep,
+      tree,
+    );
+    if (
+      isErr(candidate) ||
+      request.skipReply !== true ||
+      decision.plan.asks.length === 0
+    )
+      return candidate;
+    return ok(
+      parameterClarification(decision.plan.asks, candidate.value, request),
+    );
   };
 }
 
@@ -291,7 +310,12 @@ function buildPrompt(
   const label = handOffInstances
     ? 'you write it, see Layout to write'
     : layoutLabel(decision);
-  const base = buildMessagePrompt(decision, slots, label);
+  const base = buildMessagePrompt(
+    decision,
+    slots,
+    label,
+    decision.plan.selection.input.request.skipReply !== true,
+  );
   return handOffInstances
     ? [base, '', ...layoutSection(decision, handOffInstances)].join('\n')
     : base;
@@ -302,12 +326,14 @@ function buildPrompt(
  * slots to fill and asks. `layoutLabelText` is what the decisions section
  * says under "Layout:", so a caller that writes the tree with a separate
  * call can describe it in its own words instead of pointing at a "Layout to
- * write" section this prompt does not carry.
+ * write" section this prompt does not carry. `includeAsks` false leaves the
+ * asks out, for a call that writes no reply to ask them in.
  */
 export function buildMessagePrompt(
   decision: LayoutDecision,
   slots: readonly Slot[],
   layoutLabelText: string,
+  includeAsks = true,
 ): string {
   const { plan } = decision;
   const { request } = plan.selection.input;
@@ -328,7 +354,7 @@ export function buildMessagePrompt(
       'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
       ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
-  if (plan.asks.length > 0)
+  if (includeAsks && plan.asks.length > 0)
     lines.push(
       '',
       '## Ask the user',

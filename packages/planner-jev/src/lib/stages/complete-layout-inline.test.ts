@@ -141,8 +141,8 @@ describe('completeLayoutInline', () => {
     expect(chatPrompt()).toContain('- ID:weather-main (weather, current view');
     expect(chatPrompt()).not.toContain('ID:tasks-main (');
     if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    if (result.value.type !== 'plan') throw new Error('expected a plan');
     expect(plain(result.value.layout)).toMatchObject({ tree });
-    expect(result.value.type).toBe('plan');
     expect(result.value.rationale).toContain('Layout: written by the LLM');
   });
 
@@ -333,6 +333,7 @@ describe('completeLayoutInline layout summary', () => {
       '- Layout: changed. Before: a on the left. Now: b on the left',
     );
     if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    if (result.value.type !== 'plan') throw new Error('expected a plan');
     expect(result.value.rationale).toContain(
       'Layout: changed. Before: a on the left. Now: b on the left',
     );
@@ -530,6 +531,7 @@ describe('completeLayoutInline with skipReply', () => {
     );
     expect(plain(explicit)).toEqual(plain(absent));
     if (!isOk(explicit)) throw new Error(`deferred: ${deferralOf(explicit)}`);
+    if (explicit.value.type !== 'plan') throw new Error('expected a plan');
     expect(explicit.value.userMessage).toBe('ok');
     expect(Object.keys(chatCall(1).outputSchema.properties ?? {})).toEqual([
       'userMessage',
