@@ -1699,6 +1699,7 @@ for (const endVoice of [false, true]) {
     const engine = createEngine({
       planner: async () =>
         ok({
+          type: 'plan',
           userMessage: 'Engine applied labs',
           rationale: 'fixture',
           layout: {
