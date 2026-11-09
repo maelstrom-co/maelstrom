@@ -134,6 +134,7 @@ test('both CLIs dispatch native reporting through shared orchestration without c
     repeats: 2,
     arms: 'fake',
   });
+  expect('skipReply' in summary.meta).toBe(false);
   expect(await readFile(join(plannerOut, 'report.md'), 'utf8')).toContain(
     'Fake picks',
   );

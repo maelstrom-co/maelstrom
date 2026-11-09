@@ -375,6 +375,47 @@ test('replays recorded upstream stages and runs the rest live', async () => {
   ).toEqual(['write']);
 });
 
+test('refuses a replay recorded with a different skipReply, before any turn', async () => {
+  const unflagged = await outDir();
+  const flagged = await outDir();
+  await run(tokyo, ['quoted-location'], { out: unflagged, arms: ['fake'] });
+  await run(tokyo, ['quoted-location'], {
+    out: flagged,
+    arms: ['fake'],
+    skipReply: true,
+  });
+  let executed = 0;
+  const counting: FakeScript = {
+    candidate() {
+      executed++;
+      return TOKYO_CANDIDATE;
+    },
+  };
+  for (const [recording, skipReply] of [
+    [unflagged, true],
+    [flagged, false],
+  ] as const) {
+    await expect(
+      run(counting, ['quoted-location'], {
+        arms: ['fake'],
+        skipReply,
+        replay: {
+          source: await loadReplay(recording, 'fake'),
+          through: 'select',
+        },
+      }),
+    ).rejects.toThrow('- quoted-location #1: request differs');
+  }
+  expect(executed).toBe(0);
+  const [record] = await run(tokyo, ['quoted-location'], {
+    arms: ['fake'],
+    skipReply: true,
+    replay: { source: await loadReplay(flagged, 'fake'), through: 'select' },
+  });
+  expect(record?.skipReply).toBe(true);
+  expect(record?.score?.pass).toBe(true);
+});
+
 test('refuses a replay the plugin says the arm cannot read, before any turn', async () => {
   const out = await outDir();
   const [scenario] = selectScenarios('development', ['quoted-location']);
