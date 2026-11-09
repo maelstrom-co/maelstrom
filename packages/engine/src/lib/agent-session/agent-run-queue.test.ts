@@ -416,6 +416,86 @@ describe('agent run queue', () => {
     ).toMatchObject({ reason: 'cancelled', ok: false });
   });
 
+  test('cancelling the active run while its setup is pending finishes it as cancelled and starts the queued run', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Second works.'], scriptedUsage(1, 1)),
+    ]);
+    const setupStarted = defer<void>();
+    let setups = 0;
+    const session = createSession({
+      model: () => {
+        setups += 1;
+        if (setups > 1) return model.adapter;
+        setupStarted.resolve();
+        return new Promise<never>(() => {});
+      },
+    });
+
+    const first = session.queue.enqueue(utterance('input-1', 'one'));
+    const second = session.queue.enqueue(utterance('input-2', 'two'));
+    await setupStarted.promise;
+    const firstRun = runIdOf(session.received, 'input-1');
+    session.queue.cancelRun(firstRun);
+    await Promise.all([first, second]);
+
+    expect(eventsOf(session.received, firstRun)).toEqual([
+      expect.objectContaining({ type: 'accepted' }),
+      expect.objectContaining({
+        type: 'finished',
+        ok: false,
+        reason: 'cancelled',
+        reply: '',
+        metrics: ZERO_METRICS,
+      }),
+    ]);
+    const secondRun = runIdOf(session.received, 'input-2');
+    expect(
+      eventsOf(session.received, secondRun).map((event) => event.type),
+    ).toEqual(['accepted', 'started', 'message', 'finished']);
+    expect(lastFinished(session.received)).toMatchObject({
+      runId: secondRun,
+      reason: 'completed',
+      reply: 'Second works.',
+    });
+    expect(session.queue.pendingRuns()).toBe(0);
+  });
+
+  test('a setup that rejects after the run was cancelled still finishes as cancelled', async () => {
+    const setup = defer<never>();
+    const setupStarted = defer<void>();
+    const errors: unknown[] = [];
+    const session = createSession({
+      logger: {
+        ...silentLogger,
+        error: (_message, error) => errors.push(error),
+      },
+      model: () => {
+        setupStarted.resolve();
+        return setup.promise;
+      },
+    });
+
+    const run = session.queue.enqueue(utterance('input-1', 'one'));
+    await setupStarted.promise;
+    const runId = runIdOf(session.received, 'input-1');
+    session.queue.cancelRun(runId);
+    await flushMacrotasks();
+    const emittedBeforeRejection = session.received.length;
+    setup.reject(new Error('late setup failure'));
+    await run;
+    await flushMacrotasks();
+
+    const finished = session.received.filter(
+      (event) => event.type === 'finished',
+    );
+    expect(finished).toEqual([
+      expect.objectContaining({ runId, ok: false, reason: 'cancelled' }),
+    ]);
+    expect(JSON.stringify(session.received)).not.toContain('setup_failed');
+    expect(errors).toEqual([]);
+    expect(session.received).toHaveLength(emittedBeforeRejection);
+  });
+
   test('closing mid-run aborts the tool and emits nothing further, not even finished', async () => {
     const release = defer<void>();
     const toolStarted = defer<AbortSignal>();

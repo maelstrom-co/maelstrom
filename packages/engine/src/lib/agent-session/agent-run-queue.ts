@@ -10,6 +10,7 @@ import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
 import {
   type AgentRunContext,
+  type AgentRunSetup,
   type ResolvedAgentConfig,
   resolveAgentRunSetup,
 } from './agent-config.js';
@@ -196,17 +197,27 @@ export function createAgentRunQueue({
     const turnBegan = clock();
     const priorMessages = transcript.renderPriorMessages();
     transcript.recordUserInput(run.runId, run.input.text);
-    let setup: Awaited<ReturnType<typeof resolveAgentRunSetup>>;
+    const aborted = whenAborted(run.controller.signal);
+    let setup: AgentRunSetup | typeof SETUP_ABORTED;
     try {
-      setup = await resolveAgentRunSetup(agent, identity);
+      setup = await Promise.race([
+        resolveAgentRunSetup(agent, identity),
+        aborted.promise,
+      ]);
     } catch (error) {
       if (!isCurrent(run)) return;
+      if (run.cancelled) {
+        finish(run, cancelledRun(ZERO_METRICS, 0), turnBegan);
+        return;
+      }
       logger.error('Agent run setup failed', error, { runId: run.runId });
       finish(run, SETUP_FAILURE, turnBegan);
       return;
+    } finally {
+      aborted.dispose();
     }
     if (!isCurrent(run)) return;
-    if (run.controller.signal.aborted) {
+    if (setup === SETUP_ABORTED || run.controller.signal.aborted) {
       finish(run, cancelledRun(ZERO_METRICS, 0), turnBegan);
       return;
     }
@@ -392,6 +403,26 @@ const RUN_FAILURE: AgentRunFailed = {
   code: 'run_failed',
   error: 'The agent run failed.',
 };
+
+const SETUP_ABORTED = Symbol('agent run setup aborted');
+
+interface AbortWatch {
+  readonly promise: Promise<typeof SETUP_ABORTED>;
+  readonly dispose: () => void;
+}
+
+function whenAborted(signal: AbortSignal): AbortWatch {
+  if (signal.aborted) {
+    return { promise: Promise.resolve(SETUP_ABORTED), dispose: () => {} };
+  }
+  let dispose = () => {};
+  const promise = new Promise<typeof SETUP_ABORTED>((resolve) => {
+    const onAbort = () => resolve(SETUP_ABORTED);
+    signal.addEventListener('abort', onAbort, { once: true });
+    dispose = () => signal.removeEventListener('abort', onAbort);
+  });
+  return { promise, dispose };
+}
 
 function cancelledRun(
   metrics: AgentRunMetrics,
