@@ -116,7 +116,14 @@ export function processPartialChanges({
 }: ProcessPartialChangesInput): Result<HealedPartialChanges, EngineError> {
   const { layout, executionPlan } = changes;
   if (layout === undefined) {
-    const planned = planActionsOnCurrentLayout(input, executionPlan ?? []);
+    const planned = planActions(input, {
+      instances: input.request.instances,
+      proposed: executionPlan ?? [],
+      // The current layout stays, so it is never an emptied layout.
+      healedLayoutSize: input.request.instances.length,
+      droppedEntries: [],
+      warnings: [],
+    });
     return ok(
       executionPlan === undefined
         ? { diagnostics: planned.diagnostics }
@@ -248,66 +255,65 @@ function healCandidate({
     healed.mode === 'tiling'
       ? mergeTilingInstances(request.instances, healed.layout.instances)
       : request.instances;
-  const { plan: executionPlan, skippedActions } = parseExecutionPlan(
-    llmOutput.executionPlan,
+  const planned = planActions(
+    { request, enumSnapshot, logger },
     {
       instances: planInstances,
-      vessels: request.vessels,
-      enumSnapshot,
-      turn,
-      logger,
+      proposed: llmOutput.executionPlan,
+      healedLayoutSize: layoutEntryCount(healed),
+      droppedEntries: healed.droppedEntries,
+      warnings: healed.warnings,
     },
   );
-
-  const retryHint = deriveRetryHint({
-    healedLayoutSize: layoutEntryCount(healed),
-    requestInstanceCount: request.instances.length,
-    proposedActionCount: llmOutput.executionPlan.length,
-    acceptedActionCount: executionPlan.length,
-    skippedActions,
-    droppedLayoutCount: healed.droppedEntries.length,
-    warningCount: healed.warnings.length,
-  });
-
-  return ok({
-    layout,
-    executionPlan,
-    diagnostics: buildDiagnostics({
-      skippedActions,
-      droppedLayoutEntries: healed.droppedEntries,
-      warnings: healed.warnings,
-      retryHint,
-    }),
-  });
+  return ok({ layout, ...planned });
 }
 
-function planActionsOnCurrentLayout(
-  { request, enumSnapshot, logger }: Omit<ProcessResponseInput, 'llmOutput'>,
-  proposed: readonly RawActionExecution[],
+interface PlanActionsInput extends Pick<
+  HealedLayout,
+  'droppedEntries' | 'warnings'
+> {
+  /** The Instances the Actions are simulated against. */
+  readonly instances: readonly VesselInstanceSnapshot[];
+  readonly proposed: readonly RawActionExecution[];
+  readonly healedLayoutSize: number;
+}
+
+function planActions(
+  {
+    request,
+    enumSnapshot,
+    logger,
+  }: Pick<ProcessResponseInput, 'request' | 'enumSnapshot' | 'logger'>,
+  {
+    instances,
+    proposed,
+    healedLayoutSize,
+    droppedEntries,
+    warnings,
+  }: PlanActionsInput,
 ): Omit<HealedChanges, 'layout'> {
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(proposed, {
-    instances: request.instances,
+    instances,
     vessels: request.vessels,
     enumSnapshot,
     turn: classifyExecutionTurn(request),
     logger,
   });
   const retryHint = deriveRetryHint({
-    // The current layout stays, so it is never an emptied layout.
-    healedLayoutSize: request.instances.length,
+    healedLayoutSize,
     requestInstanceCount: request.instances.length,
     proposedActionCount: proposed.length,
     acceptedActionCount: executionPlan.length,
     skippedActions,
-    droppedLayoutCount: 0,
-    warningCount: 0,
+    droppedLayoutCount: droppedEntries.length,
+    warningCount: warnings.length,
   });
   return {
     executionPlan,
     diagnostics: buildDiagnostics({
       skippedActions,
-      droppedLayoutEntries: [],
-      warnings: [],
+      droppedLayoutEntries: droppedEntries,
+      warnings,
       retryHint,
     }),
   };
