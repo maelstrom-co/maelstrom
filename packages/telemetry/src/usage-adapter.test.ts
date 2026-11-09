@@ -667,6 +667,78 @@ describe('completion flag', () => {
   });
 });
 
+describe('throwing sink', () => {
+  const throwingSink = (calls: ProviderCallRecord<'complete'>[]) => {
+    return (call: ProviderCallRecord<'complete'>) => {
+      calls.push(call);
+      throw new Error('sink');
+    };
+  };
+
+  test('a failed structuredOutput rejects with the provider error, not the sink error', async () => {
+    const calls: ProviderCallRecord<'complete'>[] = [];
+    const adapter = withUsage(
+      {
+        kind: 'text',
+        name: 'failing',
+        model: 'failing-model',
+        async structuredOutput() {
+          throw new Error('provider');
+        },
+      } as unknown as AnyTextAdapter,
+      'complete',
+      throwingSink(calls),
+    );
+    await expect(adapter.structuredOutput({} as never)).rejects.toThrow(
+      'provider',
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a failed chatStream rejects with the provider error, not the sink error', async () => {
+    const calls: ProviderCallRecord<'complete'>[] = [];
+    const adapter = withUsage(
+      {
+        kind: 'text',
+        name: 'failing',
+        model: 'failing-model',
+        async *chatStream() {
+          yield finished[0]!;
+          throw new Error('provider');
+        },
+        structuredOutput: async () => ({ data: 1, rawText: '1' }),
+      } as unknown as AnyTextAdapter,
+      'complete',
+      throwingSink(calls),
+    );
+    const chunks: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of adapter.chatStream({} as never))
+          chunks.push(chunk);
+      })(),
+    ).rejects.toThrow('provider');
+    expect(chunks).toEqual([finished[0]!]);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a successful call still returns its result', async () => {
+    const calls: ProviderCallRecord<'complete'>[] = [];
+    const adapter = withUsage(
+      new FakeAdapter(finished) as unknown as AnyTextAdapter,
+      'complete',
+      throwingSink(calls),
+    );
+    await expect(adapter.structuredOutput({} as never)).resolves.toEqual({
+      data: { ok: true },
+      rawText: '{"ok":true}',
+      usage,
+    });
+    expect(await drain(adapter.chatStream({} as never))).toEqual(finished);
+    expect(calls).toHaveLength(2);
+  });
+});
+
 function wrap(inner: FakeAdapter | AnyTextAdapter | Record<string, unknown>) {
   const calls: ProviderCallRecord<'complete'>[] = [];
   const adapter = withUsage(

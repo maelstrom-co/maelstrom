@@ -86,8 +86,9 @@ export interface UsageLedger<Role extends string = string> {
  * Wraps `adapter` so every provider call sends exactly one
  * {@link ProviderCallRecord} to `sink` when the call ends, however it ends,
  * including a method that throws synchronously. The error still reaches the
- * caller. A streamed call starts on its first pull, so a stream that is never
- * pulled records nothing.
+ * caller. An error thrown by `sink` is swallowed, so it never replaces the
+ * adapter's result or error. A streamed call starts on its first pull, so a
+ * stream that is never pulled records nothing.
  *
  * Streamed calls take usage from the first `RUN_FINISHED` or `RUN_ERROR`
  * chunk that reports any, and `structuredOutput` from its result. Methods run
@@ -123,7 +124,8 @@ export function withUsage<Role extends string>(
             completed = true;
             return result;
           } finally {
-            sink(
+            report(
+              sink,
               providerCall(
                 role,
                 model ?? target.model,
@@ -237,7 +239,21 @@ async function* recordStream<Role extends string>(
       yield chunk;
     }
   } finally {
-    sink(providerCall(role, model ?? adapter.model, started, completed, usage));
+    report(
+      sink,
+      providerCall(role, model ?? adapter.model, started, completed, usage),
+    );
+  }
+}
+
+function report<Role extends string>(
+  sink: (call: ProviderCallRecord<Role>) => void,
+  call: ProviderCallRecord<Role>,
+): void {
+  try {
+    sink(call);
+  } catch {
+    // A sink failure must not replace the adapter's result or error.
   }
 }
 
