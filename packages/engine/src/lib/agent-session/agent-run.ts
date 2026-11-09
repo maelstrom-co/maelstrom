@@ -225,7 +225,7 @@ export interface AgentRunCompleted extends AgentRunToolSettlement {
   readonly reply: string;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
-  /** Provider calls that reported no usage, so are missing from the token counters. */
+  /** Provider calls that reported no usage or only part of it, so are missing from the token counters. */
   readonly unreportedUsageCalls: number;
 }
 
@@ -239,7 +239,7 @@ export interface AgentRunBudgetExhaustedBase extends AgentRunToolSettlement {
   readonly reply: typeof BUDGET_CLOSING_MESSAGE;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
-  /** Provider calls that reported no usage, so are missing from the token counters. */
+  /** Provider calls that reported no usage or only part of it, so are missing from the token counters. */
   readonly unreportedUsageCalls: number;
 }
 
@@ -288,7 +288,7 @@ export interface AgentRunFailed extends AgentRunToolSettlement {
   readonly error: string;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
-  /** Provider calls that reported no usage, so are missing from the token counters. */
+  /** Provider calls that reported no usage or only part of it, so are missing from the token counters. */
   readonly unreportedUsageCalls: number;
 }
 
@@ -304,7 +304,7 @@ export interface AgentRunCancelled extends AgentRunToolSettlement {
   readonly cause: unknown;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
-  /** Provider calls that reported no usage, so are missing from the token counters. */
+  /** Provider calls that reported no usage or only part of it, so are missing from the token counters. */
   readonly unreportedUsageCalls: number;
 }
 

@@ -300,6 +300,21 @@ describe('usage before tools', () => {
     });
   });
 
+  test('a call reporting only one token counter counts as unreported usage', async () => {
+    const run = setup({
+      budgets: { ...roomyBudgets, maxTokens: Number.POSITIVE_INFINITY },
+    });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+    run.policy.recordProviderCall(call({ inputTokens: 4, outputTokens: 2 }));
+    run.policy.recordProviderCall(call({ inputTokens: 9 }));
+
+    expect(run.policy.metrics()).toMatchObject({
+      metrics: { inputTokens: 13, outputTokens: 2 },
+      unreportedUsageCalls: 1,
+    });
+  });
+
   test('cumulative usage of 6 then 6 against 10 allows the first tool and refuses the second', async () => {
     const run = setup({ budgets: { ...roomyBudgets, maxTokens: 10 } });
     run.policy.start();

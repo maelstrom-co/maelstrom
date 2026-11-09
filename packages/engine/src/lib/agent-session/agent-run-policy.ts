@@ -45,7 +45,8 @@ export interface AgentRunPolicyMetrics {
   readonly metrics: AgentRunMetrics;
   /**
    * Provider calls missing from the token counters: recorded calls that
-   * reported no usage, plus started calls not recorded yet.
+   * reported no usage or only one token counter, plus started calls not
+   * recorded yet.
    */
   readonly unreportedUsageCalls: number;
 }
@@ -375,7 +376,10 @@ export function createAgentRunPolicy(
           inputTokens: snapshot.usage.inputTokens ?? 0,
           outputTokens: snapshot.usage.outputTokens ?? 0,
         },
-        unreportedUsageCalls: snapshot.unreportedCalls + activeProviderCalls,
+        unreportedUsageCalls:
+          snapshot.unreportedCalls +
+          snapshot.partialUsageCalls +
+          activeProviderCalls,
       };
     },
     finish() {
