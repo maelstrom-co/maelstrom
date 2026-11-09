@@ -30,6 +30,7 @@ import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
 
 import { latestOrderTool } from './latest-order-tool';
 import { PLAYGROUND_SYSTEM_RULES } from './planner-system-rules';
+import { searchProductsTool } from './search-products-tool';
 
 const MAX_RETRIES = 2;
 const HISTORY_MAX_ENTRIES = 20;
@@ -53,8 +54,9 @@ export interface PlaygroundEngineOptions {
 }
 
 /**
- * The local demo agent: the pet shop assistant with the latest-order Server
- * Tool, served by `adapter` and capped by the Engine budget defaults.
+ * The local demo agent: the pet shop assistant with the latest-order and
+ * product-search Server Tools, served by `adapter` and capped by the Engine
+ * budget defaults.
  */
 export function createDemoAgentConfig(
   adapter: LlmPlannerOptions['adapter'],
@@ -62,7 +64,7 @@ export function createDemoAgentConfig(
   return {
     model: adapter,
     instructions: DEMO_AGENT_INSTRUCTIONS,
-    tools: [latestOrderTool],
+    tools: [latestOrderTool, searchProductsTool],
   };
 }
 

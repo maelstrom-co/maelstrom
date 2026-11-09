@@ -19,7 +19,7 @@ import {
 import { createDemoOpenaiChat } from './engine-model';
 
 describe('createDemoAgentConfig', () => {
-  it('registers exactly one read-only Server Tool for the latest order', () => {
+  it('registers the read-only latest-order and product-search Server Tools', () => {
     const adapter = { name: 'stub-adapter' } as unknown as AnyTextAdapter;
 
     const config = createDemoAgentConfig(adapter);
@@ -27,9 +27,14 @@ describe('createDemoAgentConfig', () => {
     expect(config.model).toBe(adapter);
     expect(config.instructions).toMatch(/pet shop/);
     expect(config.budgets).toBeUndefined();
-    expect(config.tools).toHaveLength(1);
+    expect(config.tools).toHaveLength(2);
     expect(config.tools?.[0]).toMatchObject({
       name: 'latest_order',
+      locus: 'server',
+      sideEffect: 'read_only',
+    });
+    expect(config.tools?.[1]).toMatchObject({
+      name: 'search_products',
       locus: 'server',
       sideEffect: 'read_only',
     });

@@ -85,6 +85,7 @@ function expectDemoAgent(
   expect(options?.agent?.model).toBe(options?.adapter);
   expect(options?.agent?.tools?.map((tool) => tool.name)).toEqual([
     'latest_order',
+    'search_products',
   ]);
 }
 
