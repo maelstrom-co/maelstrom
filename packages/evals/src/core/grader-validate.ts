@@ -378,9 +378,8 @@ const UNPROVEN_PLAN = [
   'Response layout is not tiling',
 ];
 
-// Stage outputs recorded before plan results carried a `type` tag lack it.
-// An untagged object is a plan by construction, so stamp `type: 'plan'`
-// rather than let the Engine reject the recorded candidate.
+// Recorded stage outputs may lack the plan tag. An untagged object is a plan
+// by construction, so tag it here rather than let validation reject the record.
 function tagRecordedPlan(output: unknown): PlannerCandidate {
   return (
     isRecord(output) && !('type' in output)

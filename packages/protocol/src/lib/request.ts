@@ -145,7 +145,8 @@ export interface ChartRequest {
   /**
    * When `true`, the caller writes the user-facing reply itself, so the
    * Planner may omit `userMessage` or return a {@link NeedsClarification}
-   * instead of a layout. Absent means `false`: the response carries a
+   * that asks the user a question, optionally with the layout and Actions it
+   * could already settle. Absent means `false`: the response carries a
    * `userMessage`. Clients rendering the reply leave it unset. `Engine.handle`
    * does not yet ship replyless outcomes: it refuses them with a
    * `ValidationError` on field `skipReply`.
@@ -317,7 +318,9 @@ export type TilingResponseWithoutReply = z.infer<
  * - flag only known as `boolean`: the `true` case, since the request may
  *   have set it
  *
- * Distributes over a union of request types.
+ * Distributes over a union of request types. The types do not tie a
+ * result's `layout` to the request's layout mode, so a mismatch is rejected
+ * at runtime only, by validation against `context.layoutMode`.
  */
 export type PlannerOutputFor<R extends object> = R extends unknown
   ? [SkipReplyFlagOf<R>] extends [false | undefined]

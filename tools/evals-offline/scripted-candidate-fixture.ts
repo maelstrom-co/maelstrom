@@ -11,7 +11,7 @@ import { variantScenarioFromCase } from '../../packages/evals/src/core/variant-c
 /**
  * Real Engine scoring of a JSON-backed scenario with independent candidate
  * evidence and no model. The case JSON stores the candidate without a `type`
- * tag. Each planner turn stamps `type: 'plan'` on a fresh copy.
+ * tag, so the planner adds `type: 'plan'`.
  */
 export function scriptedCandidate(
   fixture: ScriptedCandidateData,
