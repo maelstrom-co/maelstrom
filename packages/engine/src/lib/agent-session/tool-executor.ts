@@ -154,16 +154,21 @@ const TOOL_CALL_FAILURE_CODES = [
   'tool_failed',
 ] as const;
 
+const NonBlankSummarySchema = z
+  .string()
+  .min(1)
+  .refine(isNonBlank, { message: 'summary must not be whitespace-only' });
+
 const ToolResultEnvelopeSchema = z.discriminatedUnion('ok', [
   z.object({
     ok: z.literal(true),
     value: z.unknown(),
-    summary: z.string().min(1),
+    summary: NonBlankSummarySchema,
   }),
   z.object({
     ok: z.literal(false),
     code: z.enum(TOOL_CALL_FAILURE_CODES),
-    summary: z.string().min(1),
+    summary: NonBlankSummarySchema,
   }),
 ]);
 
@@ -182,7 +187,7 @@ function dispatchByLocus(
 }
 
 function toolFailureSummary(name: string, error: unknown): string {
-  if (error instanceof ToolError && error.message.length > 0) {
+  if (error instanceof ToolError && isNonBlank(error.message)) {
     return error.message;
   }
   return `${name} failed`;
@@ -195,7 +200,7 @@ function safeSummary(entry: ToolRegistryEntry, output: unknown): string {
   } catch {
     summary = undefined;
   }
-  return typeof summary === 'string' && summary.length > 0
+  return typeof summary === 'string' && isNonBlank(summary)
     ? capSummary(summary)
     : `${entry.tool.name} succeeded`;
 }
@@ -220,6 +225,10 @@ function failure(
   return cause === undefined
     ? { ok: false, code, summary: capped }
     : { ok: false, code, summary: capped, cause };
+}
+
+function isNonBlank(value: string): boolean {
+  return value.trim().length > 0;
 }
 
 function capSummary(summary: string): string {

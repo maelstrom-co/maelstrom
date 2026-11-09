@@ -225,6 +225,24 @@ describe('failures', () => {
     });
   });
 
+  test('a whitespace-only ToolError message is replaced by "<tool> failed"', async () => {
+    const entry = entryFor({
+      execute: async () => {
+        throw new ToolError('  ');
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe('latest_order failed');
+  });
+
   test('a plain throw is replaced by "<tool> failed" and its message reaches only cause', async () => {
     const sentinel = 'SENTINEL-db-password-5f3a';
     const thrown = new Error(`connection refused for ${sentinel}`);
@@ -368,6 +386,23 @@ describe('validateToolResultEnvelope', () => {
     ).toEqual({ valid: false, reason: expect.any(String) });
   });
 
+  test('rejects an envelope whose summary is whitespace-only', () => {
+    expect(
+      validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: '   ',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+    expect(
+      validateToolResultEnvelope(entry, {
+        ok: false,
+        code: 'tool_failed',
+        summary: '   ',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+  });
+
   test('accepts a well-formed failure envelope', () => {
     expect(
       validateToolResultEnvelope(entry, {
@@ -475,6 +510,20 @@ describe('summaries', () => {
 
   test('an empty summary falls back to "<tool> succeeded"', async () => {
     const entry = entryFor({ summarize: () => '' });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.summary).toBe('latest_order succeeded');
+  });
+
+  test('a whitespace-only summary falls back to "<tool> succeeded"', async () => {
+    const entry = entryFor({ summarize: () => '  ' });
 
     const result = await executeToolCall(
       entry,
