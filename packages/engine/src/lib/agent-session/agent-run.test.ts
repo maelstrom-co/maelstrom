@@ -1338,6 +1338,106 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(model.requests).toHaveLength(2);
   });
 
+  describe('a provider tool call id reused on a later turn', () => {
+    test('gets its own call id, and each result pairs with its own call', async () => {
+      const counter = counterTools();
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+          usage(4, 1),
+        ),
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 2 } }],
+          usage(4, 1),
+        ),
+        textTurn(['Done.'], usage(4, 1)),
+      ]);
+
+      const events = await collect(
+        runAgent(
+          runInput({ adapter: model.adapter, registry: counter.registry }),
+          { signal: new AbortController().signal },
+        ),
+      );
+
+      expect(counter.balances).toEqual([1, 3]);
+      expect(
+        events.filter(
+          (event) => event.type === 'tool_call' || event.type === 'tool_result',
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          type: 'tool_call',
+          turnId: 'run-1:t1',
+          callId: CallId('c1'),
+          args: { by: 1 },
+        }),
+        expect.objectContaining({
+          type: 'tool_result',
+          turnId: 'run-1:t1',
+          callId: CallId('c1'),
+          ok: true,
+          summary: 'Balance 1',
+        }),
+        expect.objectContaining({
+          type: 'tool_call',
+          turnId: 'run-1:t2',
+          callId: CallId('c2'),
+          args: { by: 2 },
+        }),
+        expect.objectContaining({
+          type: 'tool_result',
+          turnId: 'run-1:t2',
+          callId: CallId('c2'),
+          ok: true,
+          summary: 'Balance 3',
+        }),
+      ]);
+      expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+      expectEveryCallSettledOnce(events);
+    });
+
+    test('reports Stopped when the run aborts before that call settles, not the earlier success', async () => {
+      const controller = new AbortController();
+      const release = defer<void>();
+      let effects = 0;
+      const counter = counterTools({
+        beforeEffect: async () => {
+          effects += 1;
+          if (effects === 1) return;
+          controller.abort('user stopped');
+          await release.promise;
+        },
+        ignoresAbort: true,
+      });
+      const model = scriptedAdapter([
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 1 } }],
+          usage(4, 1),
+        ),
+        toolTurn(
+          [{ id: 'c1', name: 'increment', args: { by: 2 } }],
+          usage(4, 1),
+        ),
+        textTurn(['never sent'], usage(4, 1)),
+      ]);
+      const iterator = runAgent(
+        runInput({ adapter: model.adapter, registry: counter.registry }),
+        { signal: controller.signal },
+      )[Symbol.asyncIterator]();
+
+      const events = await drain(iterator);
+      release.resolve();
+      await flushMacrotask();
+
+      expect(
+        events.filter((event) => event.type === 'tool_result').at(-1),
+      ).toEqual(stoppedResult('run-1:t2', 'c2', 'increment'));
+      expect(lastEvent(events)).toMatchObject({ reason: 'cancelled' });
+      expectEveryCallSettledOnce(events);
+    });
+  });
+
   describe('gate', () => {
     test('an unresolved gate before turn 2 holds the second model call until it resolves', async () => {
       const gate = defer<void>();

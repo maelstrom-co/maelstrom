@@ -350,9 +350,13 @@ function createToolCallTracker(runId: RunId) {
   let text = '';
   let accepting = true;
   const queued: AgentRunEvent[] = [];
+  let callCount = 0;
   const streaming = new Map<string, StreamingToolCall>();
-  const announced = new Map<string, AnnouncedToolCall>();
-  const settled = new Map<string, ToolCallResult>();
+  // Providers do not promise run-unique tool call ids, so a reused id maps
+  // to the call announced most recently under it.
+  const callIdByProviderId = new Map<string, CallId>();
+  const announced = new Map<CallId, AnnouncedToolCall>();
+  const settled = new Map<CallId, ToolCallResult>();
   const turnId = () => `${runId}:t${turn}`;
 
   const settleAnnounced = (
@@ -397,21 +401,25 @@ function createToolCallTracker(runId: RunId) {
     startTurn(next: number) {
       turn = next;
     },
-    settle(callId: string, result: ToolCallResult) {
-      settled.set(callId, result);
+    settle(providerCallId: string, result: ToolCallResult) {
+      const callId = callIdByProviderId.get(providerCallId);
+      if (callId !== undefined) settled.set(callId, result);
     },
-    settledResult(callId: string): ToolCallResult | undefined {
-      return settled.get(callId);
+    settledResult(providerCallId: string): ToolCallResult | undefined {
+      const callId = callIdByProviderId.get(providerCallId);
+      return callId === undefined ? undefined : settled.get(callId);
     },
-    markStarted(callId: string) {
-      const call = announced.get(callId);
+    markStarted(providerCallId: string) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
       if (call !== undefined) call.started = true;
     },
-    endToolPhase(callIds: readonly string[]) {
+    endToolPhase(providerCallIds: readonly string[]) {
       if (!accepting) return;
       const results: AgentRunToolPhaseResult[] = [];
-      for (const callId of callIds) {
-        const call = announced.get(callId);
+      for (const providerCallId of providerCallIds) {
+        const callId = callIdByProviderId.get(providerCallId);
+        const call = callId === undefined ? undefined : announced.get(callId);
         if (call === undefined) continue;
         const { event, phaseResult } = settleAnnounced(call);
         queued.push(event);
@@ -452,9 +460,13 @@ function createToolCallTracker(runId: RunId) {
         }
         case 'TOOL_CALL_END': {
           const call = streaming.get(chunk.toolCallId);
-          const callId = toCallId(chunk.toolCallId);
-          if (call === undefined || callId === undefined) return;
+          if (call === undefined || chunk.toolCallId.trim().length === 0) {
+            return;
+          }
           streaming.delete(chunk.toolCallId);
+          callCount += 1;
+          const callId = CallId(`c${callCount}`);
+          callIdByProviderId.set(chunk.toolCallId, callId);
           announced.set(callId, {
             callId,
             name: call.name,
@@ -605,10 +617,6 @@ function unsettledResult(call: AnnouncedToolCall): ToolCallResult {
     code: 'cancelled',
     summary: call.started ? STOPPED_TOOL_SUMMARY : NOT_RUN_TOOL_SUMMARY,
   };
-}
-
-function toCallId(value: string): CallId | undefined {
-  return value.trim().length > 0 ? CallId(value) : undefined;
 }
 
 function parseArgsText(argsText: string): unknown {
