@@ -1124,6 +1124,54 @@ describe('runAgent budgets and stops on chat()', () => {
     });
   });
 
+  test.each([
+    ['the deadline', 'budget'],
+    ['a cancel', 'cancelled'],
+  ] as const)(
+    '%s during a model stream that ignores the abort counts the started call as unreported usage',
+    async (_trigger, reason) => {
+      const time = createFakeAgentRunTime();
+      const controller = new AbortController();
+      const release = defer<void>();
+      const model = scriptedAdapter([
+        abortIgnoringTurn(['Looking'], release.promise),
+      ]);
+      const iterator = runAgent(
+        runInput({
+          adapter: model.adapter,
+          budgets: { ...testBudgets, maxElapsedMs: 100 },
+          clock: time.clock,
+        }),
+        { signal: controller.signal },
+      )[Symbol.asyncIterator]();
+
+      const first = (await iterator.next()).value;
+      const pending = iterator.next();
+      await flushMacrotask();
+      if (reason === 'budget') time.advance(100);
+      else controller.abort('user stopped');
+      const events = [first, (await pending).value, ...(await drain(iterator))];
+
+      expect(events[0]).toEqual({
+        type: 'message',
+        turnId: 'run-1:t1',
+        delta: 'Looking',
+      });
+      expect(lastEvent(events)).toMatchObject({
+        reason,
+        metrics: {
+          ...ZERO_METRICS,
+          turns: 1,
+          elapsedMs: reason === 'budget' ? 100 : 0,
+        },
+        unreportedUsageCalls: 1,
+      });
+
+      release.resolve();
+      await flushMacrotask();
+    },
+  );
+
   test('two turns of 6 tokens against a cap of 10 run the first mutation and refuse the second', async () => {
     const counter = counterTools();
     const model = scriptedAdapter([
@@ -2220,6 +2268,30 @@ function stallingTurn(
     } finally {
       observed.closed = true;
     }
+  };
+}
+
+function abortIgnoringTurn(
+  deltas: readonly string[],
+  released: Promise<void>,
+): ModelCall {
+  return async function* () {
+    yield runStarted();
+    yield {
+      type: EventType.TEXT_MESSAGE_START,
+      messageId: 'm',
+      role: 'assistant',
+      timestamp: 0,
+    };
+    for (const delta of deltas) {
+      yield {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: 'm',
+        delta,
+        timestamp: 0,
+      };
+    }
+    await released;
   };
 }
 

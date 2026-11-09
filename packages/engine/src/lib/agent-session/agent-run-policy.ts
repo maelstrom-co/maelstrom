@@ -43,7 +43,10 @@ export type AgentRunToolCallAdmission =
 export interface AgentRunPolicyMetrics {
   /** Counters for `finished.metrics`, with tokens as the known sums. */
   readonly metrics: AgentRunMetrics;
-  /** Provider calls that reported no usage, so are missing from the token counters. */
+  /**
+   * Provider calls missing from the token counters: recorded calls that
+   * reported no usage, plus started calls not recorded yet.
+   */
   readonly unreportedUsageCalls: number;
 }
 
@@ -106,6 +109,12 @@ export interface AgentRunPolicy {
    */
   beforeProviderCall(): boolean;
   /**
+   * Notes that an admitted provider call's stream was first pulled, so the
+   * call may spend tokens. It counts as unreported usage in {@link metrics}
+   * until {@link recordProviderCall} records it.
+   */
+  noteProviderCallStarted(): void;
+  /**
    * Decides after a tool phase whether another model turn may start. When
    * the last turn requested no tools the run is completing, so nothing is
    * latched. Otherwise refuses when `maxTurns` turns are used, the deadline
@@ -123,9 +132,10 @@ export interface AgentRunPolicy {
    */
   beforeToolCall(callId: string): AgentRunToolCallAdmission;
   /**
-   * Sink for `withUsage`: appends `call` to the ledger and warns through the
-   * logger when a completed call reported no usage, which points at an
-   * adapter that drops its provider's usage.
+   * Sink for `withUsage`: appends `call` to the ledger, ends one call noted
+   * by {@link noteProviderCallStarted} and warns through the logger when a
+   * completed call reported no usage, which points at an adapter that drops
+   * its provider's usage.
    */
   recordProviderCall(call: ProviderCallRecord): void;
   /** Latches `ending` when no ending is latched yet. Returns whether it won. */
@@ -172,6 +182,7 @@ export function createAgentRunPolicy(
   let cancelDeadline: (() => void) | undefined;
   let turnsStarted = 0;
   let turnCallPending = false;
+  let activeProviderCalls = 0;
   let toolCallsAdmitted = 0;
   let toolCallsReserved = 0;
   let reservedTurn = 0;
@@ -331,8 +342,12 @@ export function createAgentRunPolicy(
       toolCallsAdmitted += 1;
       return { admitted: true };
     },
+    noteProviderCallStarted() {
+      activeProviderCalls += 1;
+    },
     recordProviderCall(call) {
       ledger.record(call);
+      activeProviderCalls = Math.max(0, activeProviderCalls - 1);
       if (call.completed && call.usage === undefined) {
         logger.warn(
           'Agent run provider call completed without reporting usage. The adapter likely drops provider usage.',
@@ -355,7 +370,7 @@ export function createAgentRunPolicy(
           inputTokens: snapshot.usage.inputTokens ?? 0,
           outputTokens: snapshot.usage.outputTokens ?? 0,
         },
-        unreportedUsageCalls: snapshot.unreportedCalls,
+        unreportedUsageCalls: snapshot.unreportedCalls + activeProviderCalls,
       };
     },
     finish() {

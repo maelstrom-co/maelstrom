@@ -602,9 +602,45 @@ function admittingProviderCalls(
       return (options: TextOptions) =>
         isAborted(options.request) || !policy.beforeProviderCall()
           ? NO_CHUNKS
-          : value.call(target, options);
+          : noteStartOnFirstPull(
+              value.call(target, options) as AsyncIterable<StreamChunk>,
+              policy,
+            );
     },
   });
+}
+
+// withUsage records a call once its stream body runs, which starts on the
+// first pull. A stream closed before that pull is never recorded, so it is
+// never counted as started either.
+function noteStartOnFirstPull(
+  stream: AsyncIterable<StreamChunk>,
+  policy: AgentRunPolicy,
+): AsyncIterable<StreamChunk> {
+  return {
+    [Symbol.asyncIterator]: () => {
+      const inner = stream[Symbol.asyncIterator]();
+      const innerThrow = inner.throw?.bind(inner);
+      let state: 'fresh' | 'started' | 'closed' = 'fresh';
+      return {
+        next: (...args: [] | [unknown]) => {
+          if (state === 'fresh') {
+            state = 'started';
+            policy.noteProviderCallStarted();
+          }
+          return inner.next(...args);
+        },
+        return: (value?: unknown) => {
+          if (state === 'fresh') state = 'closed';
+          return (
+            inner.return?.(value) ??
+            Promise.resolve({ done: true as const, value: undefined })
+          );
+        },
+        ...(innerThrow !== undefined && { throw: innerThrow }),
+      };
+    },
+  };
 }
 
 const NO_CHUNKS: AsyncIterable<StreamChunk> = {
