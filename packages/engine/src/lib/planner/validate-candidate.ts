@@ -230,6 +230,7 @@ function processNeedsClarification(
         messageId,
         droppedLayoutCount: diagnostics.counts.droppedLayoutEntries,
         skippedActionCount: diagnostics.counts.skippedActions,
+        retryHintSeverity: diagnostics.retryHint.severity,
       },
     );
     return err(failure);
@@ -309,13 +310,15 @@ function processCandidate(
   return guardInvariants(logger, messageId, () => processResponse(input));
 }
 
-// A layout entry healing dropped or an Action skipped for a reason a better
-// model answer would avoid makes partial changes invalid. Repairs that keep
-// every entry, and Actions refused for turn or engine-state reasons, are
-// accepted as they are for a plan.
+// A layout entry healing dropped, an Action skipped for a reason a better
+// model answer would avoid, or a layout that would blank a screen with
+// Instances on it makes partial changes invalid. Repairs that keep every
+// entry, and Actions refused for turn or engine-state reasons, are accepted
+// as they are for a plan.
 function hasInvalidPartialChanges(diagnostics: FullDiagnostics): boolean {
   return (
     diagnostics.droppedLayoutEntries.length > 0 ||
+    diagnostics.retryHint.severity === 'unrecoverable' ||
     diagnostics.skippedActions.some((skip) => isFixableSkip(skip.reason))
   );
 }

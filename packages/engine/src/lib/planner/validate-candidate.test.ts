@@ -728,6 +728,51 @@ describe('createCandidateValidator partial changes on a clarification', () => {
   );
 
   test.each([
+    [
+      'grid',
+      gridRequest,
+      () => buildGridResponse({ layout: { positions: [] } }),
+      (plan: ReplylessCandidate) =>
+        clarifyWith<'grid'>({
+          layout: plan.layout as NeedsClarification<'grid'>['layout'],
+        }),
+    ],
+    [
+      'tiling',
+      stockRequest,
+      () =>
+        applePlan({ executionPlan: [], layout: { tree: [], instances: [] } }),
+      (plan: ReplylessCandidate) =>
+        clarifyWith<'tiling'>({
+          layout: plan.layout as NeedsClarification<'tiling'>['layout'],
+        }),
+    ],
+  ] as const)(
+    'a %s layout that leaves the screen empty is rejected as the equivalent plan is marked unrecoverable',
+    (_mode, request, buildPlan, clarify) => {
+      const { logger, entries } = spyLogger();
+      const validate = validatorFor(logger, request());
+      const plan = buildPlan();
+
+      const planned = validate(plan);
+      const clarified = validate(clarify(plan));
+
+      expect(isOk(planned) && planned.value.diagnostics.retryHint).toEqual({
+        severity: 'unrecoverable',
+        recommend: true,
+      });
+      expect(isErr(clarified) && clarified.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'planner',
+        message: expect.stringContaining('fail plan validation'),
+      });
+      expect(entries.map((e) => e.msg)).toEqual([
+        'Planner clarification carries invalid partial changes',
+      ]);
+    },
+  );
+
+  test.each([
     ['an unknown instance', 'stock-goog', 'showWeek'],
     ['an action the variant does not offer', 'calendar-main', 'showYear'],
   ])(
