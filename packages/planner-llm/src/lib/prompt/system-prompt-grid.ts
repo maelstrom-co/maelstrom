@@ -1,3 +1,4 @@
+import { replaceOrThrow } from './replace-or-throw.js';
 import type { SystemSectionKey } from './sections.js';
 import {
   SHARED_ACTIONS,
@@ -55,7 +56,8 @@ ${SHARED_RULES_FOOTER}`,
 /** Grid-mode system sections for requests that skip the user reply. */
 export const gridReplylessSystemSections: Record<SystemSectionKey, string> = {
   ...gridSystemSections,
-  identity: gridSystemSections.identity.replace(
+  identity: replaceOrThrow(
+    gridSystemSections.identity,
     '\n4. Provide a friendly, conversational response to the user',
     '',
   ),

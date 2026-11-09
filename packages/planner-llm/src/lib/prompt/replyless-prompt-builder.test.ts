@@ -33,9 +33,18 @@ describe.each(modes)('buildReplylessSystemPrompt (%s)', (mode) => {
     const prompt = buildReplylessSystemPrompt(mode);
     expect(prompt).toContain('requested capability is unsupported');
     expect(prompt).toContain('names the gap');
-    expect(prompt).toContain('closest supported alternatives as options');
+    expect(prompt).toContain(
+      'the question names the gap, the options offer the closest supported alternatives',
+    );
     expect(prompt).toContain(
       'only for the parts of the request that are already clear',
+    );
+  });
+
+  test('off-domain requests return a clarification instead of a silent no-op', () => {
+    const prompt = buildReplylessSystemPrompt(mode);
+    expect(prompt).toContain(
+      'Fill the clarification field with a question that names the gap and offers supported alternatives, and keep the current state unchanged.',
     );
   });
 

@@ -1,5 +1,6 @@
 import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
 
+import { replaceOrThrow } from './replace-or-throw.js';
 import type { SystemSectionKey } from './sections.js';
 import {
   NO_OP_VARIANT_ACKNOWLEDGEMENT,
@@ -142,7 +143,8 @@ ${SHARED_RULES_FOOTER}`,
 /** Tiling-mode system sections for requests that skip the user reply. */
 export const tilingReplylessSystemSections: Record<SystemSectionKey, string> = {
   ...tilingSystemSections,
-  identity: tilingSystemSections.identity.replace(
+  identity: replaceOrThrow(
+    tilingSystemSections.identity,
     '\n5. Provide a friendly, conversational response to the user',
     '',
   ),
@@ -156,11 +158,18 @@ When handling resize or mutation triggers (without user intent):
 ${SHARED_TRIGGER_RESIZE_FOOTER}
 
 ${SHARED_TRIGGER_USER_INTENT_REPLYLESS}`,
-  layout: tilingSystemSections.layout.replace(
+  layout: replaceOrThrow(
+    tilingSystemSections.layout,
     NO_OP_VARIANT_ACKNOWLEDGEMENT,
     NO_OP_VARIANT_REPLYLESS,
   ),
-  rules: tilingSystemSections.rules
-    .replace(SHARED_RULES, SHARED_RULES_REPLYLESS)
-    .replace(SHARED_RULES_FOOTER, SHARED_RULES_FOOTER_REPLYLESS),
+  rules: replaceOrThrow(
+    replaceOrThrow(
+      tilingSystemSections.rules,
+      SHARED_RULES,
+      SHARED_RULES_REPLYLESS,
+    ),
+    SHARED_RULES_FOOTER,
+    SHARED_RULES_FOOTER_REPLYLESS,
+  ),
 };
