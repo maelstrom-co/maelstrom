@@ -3,7 +3,9 @@ import type {
   EngineError,
   Logger,
   PlannerCandidate,
+  PlannerOutput,
   PlanningInput,
+  ReplylessCandidate,
   Retryable,
   Stage,
 } from '@maelstrom-co/engine';
@@ -28,15 +30,21 @@ import {
 } from '@maelstrom-co/protocol';
 import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
 import type { AnyTextAdapter } from '@tanstack/ai';
+import type { z } from 'zod';
 
 import { callLLM, logLLMCallError, toPlanCandidate } from './call-llm.js';
 import { observeAdapter } from './observe-adapter.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
 import {
+  buildReplylessSystemPrompt,
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
 } from './prompt/prompt-builder.js';
 import { buildRetryPrompt } from './retry-prompt.js';
+import {
+  skipReplyOutputSchemaFor,
+  toPlannerOutput,
+} from './skip-reply-output.js';
 import { validateLlmPlannerOptions } from './validate-options.js';
 
 /** Configuration for {@link llmPlanner}. */
@@ -58,14 +66,17 @@ export interface LlmPlannerOptions {
  * optional hints from earlier stages, and optional retry feedback from the
  * engine's `withRetry`.
  */
-export type LlmPlannerInput = Retryable<
-  PlanningInput & {
-    /**
-     * Guidance from earlier stages, rendered verbatim as a `Planner Hints`
-     * section at the end of the user prompt. Omitted or empty adds nothing.
-     */
-    readonly hints?: readonly string[];
-  }
+export type LlmPlannerInput = Retryable<LlmPlanningInput>;
+
+/**
+ * Input accepted by {@link clarifyingLlmPlanner}: the same as
+ * {@link LlmPlannerInput}, except that the retry feedback may carry a
+ * {@link ReplylessCandidate} from the previous attempt, so the planner fits
+ * `withRetry` for a stage that returns any `PlannerOutput`.
+ */
+export type ClarifyingLlmPlannerInput = Retryable<
+  LlmPlanningInput,
+  ReplylessCandidate
 >;
 
 /**
@@ -103,6 +114,9 @@ export type LlmPlannerInput = Retryable<
  * Prompts, output, provider errors, and credentials never appear in these events. Counters
  * normalized or omitted by an adapter cannot be recovered here.
  *
+ * It ignores the request's `skipReply` flag and always asks for a reply; use
+ * {@link clarifyingLlmPlanner} for a planner that honours it.
+ *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
  *   misconfigured. System prompts are built once here, so the error surfaces
  *   at construction. The message starts with `Invalid LlmPlannerOptions:`
@@ -116,18 +130,122 @@ export type LlmPlannerInput = Retryable<
 export function llmPlanner(
   options: LlmPlannerOptions,
 ): Stage<LlmPlannerInput, PlannerCandidate> {
+  return createLlmPlanner(options, replyBearingModelCalls);
+}
+
+/**
+ * A planner that honours the request's `skipReply` flag and may answer with a
+ * needs-clarification result. It returns the skipReply arm of the protocol's
+ * `PlannerOutputFor`: a tagged plan without `userMessage`, or a
+ * `NeedsClarification`.
+ *
+ * Without the flag, or with `skipReply: false`, it behaves exactly like
+ * {@link llmPlanner}: the same system prompt, user prompt, structured output
+ * schema and tagged, reply-bearing candidate.
+ *
+ * With `skipReply: true` it sends a system prompt that never asks for a reply
+ * and a structured output schema without `userMessage` but with an optional
+ * `clarification` (a `question` and optional `options`). Output without a
+ * clarification is returned as a plan tagged `type: 'plan'` with no
+ * `userMessage` key. Output with one is returned as a `NeedsClarification`
+ * whose `layout` and `executionPlan` are the partial changes the model filled
+ * for the parts of the request that are already clear. A request the planner
+ * cannot fulfil comes back as a clarification that names the gap and offers
+ * the closest supported options.
+ *
+ * The user prompt, hints, enum snapshot reuse, retry prompt, instrumentation
+ * and error mapping are those of {@link llmPlanner}; on a retry the system
+ * prompt and schema stay those of the request's mode and flag.
+ *
+ * @throws {Error} If `options` is invalid or a system-prompt customizer is
+ *   misconfigured. The default and reply-free system prompts for both layout
+ *   modes are built once here, so the error surfaces at construction. The
+ *   message starts with `Invalid LlmPlannerOptions:` and the original error
+ *   is attached as `cause`.
+ *
+ * @example
+ * ```ts
+ * const engine = createEngine({
+ *   planner: withRetry(clarifyingLlmPlanner({ adapter: openaiText('gpt-4o') }), {
+ *     max: 1,
+ *   }),
+ * });
+ * ```
+ */
+export function clarifyingLlmPlanner(
+  options: LlmPlannerOptions,
+): Stage<ClarifyingLlmPlannerInput, PlannerOutput> {
+  return createLlmPlanner<PlannerOutput>(options, (prompt) => {
+    const replyBearing = replyBearingModelCalls(prompt);
+    const replylessSystemPrompts: Record<LayoutMode, string> = {
+      grid: buildReplylessSystemPrompt('grid', prompt),
+      tiling: buildReplylessSystemPrompt('tiling', prompt),
+    };
+    return (request, send) => {
+      if (request.skipReply !== true) return replyBearing(request, send);
+      const mode = request.context.layoutMode;
+      return send(
+        replylessSystemPrompts[mode],
+        skipReplyOutputSchemaFor(mode),
+        toPlannerOutput,
+      );
+    };
+  });
+}
+
+interface LlmPlanningInput extends PlanningInput {
+  /**
+   * Guidance from earlier stages, rendered verbatim as a `Planner Hints`
+   * section at the end of the user prompt. Omitted or empty adds nothing.
+   */
+  readonly hints?: readonly string[];
+}
+
+type SendModelCall = <OutputSchema extends z.ZodType, Output>(
+  systemPrompt: string,
+  outputSchema: OutputSchema,
+  toResult: (parsed: z.output<OutputSchema>) => Output,
+) => Promise<Result<Output, EngineError>>;
+
+type ModelCallForRequest<Output> = (
+  request: ChartRequest,
+  send: SendModelCall,
+) => Promise<Result<Output, EngineError>>;
+
+type BuildModelCalls<Output> = (
+  prompt: PromptOptions,
+) => ModelCallForRequest<Output>;
+
+function replyBearingModelCalls(
+  prompt: PromptOptions,
+): ModelCallForRequest<PlannerCandidate> {
+  const systemPrompts: Record<LayoutMode, string> = {
+    grid: buildSystemPrompt('grid', prompt),
+    tiling: buildSystemPrompt('tiling', prompt),
+  };
+  return (request, send) => {
+    const mode = request.context.layoutMode;
+    return send(
+      systemPrompts[mode],
+      mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
+      toPlanCandidate,
+    );
+  };
+}
+
+function createLlmPlanner<Output extends PlannerOutput>(
+  options: LlmPlannerOptions,
+  buildModelCalls: BuildModelCalls<Output>,
+): Stage<ClarifyingLlmPlannerInput, Output> {
   const {
     adapter,
     prompt = {},
     modelOptions,
   } = validateLlmPlannerOptions(options);
 
-  let systemPrompts: Record<LayoutMode, string>;
+  let modelCallFor: ModelCallForRequest<Output>;
   try {
-    systemPrompts = {
-      grid: buildSystemPrompt('grid', prompt),
-      tiling: buildSystemPrompt('tiling', prompt),
-    };
+    modelCallFor = buildModelCalls(prompt);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid LlmPlannerOptions: prompt.system: ${message}`, {
@@ -140,7 +258,6 @@ export function llmPlanner(
   return async (input, ctx) => {
     const { signal, logger } = ctx;
     const { request, messageId, hints } = input;
-    const mode = request.context.layoutMode;
 
     const cached = originalPrompts.get(request);
     let userPrompt: string;
@@ -187,18 +304,24 @@ export function llmPlanner(
         providerAborted = true;
       },
     );
-    const received = await callLLM(
-      observedAdapter,
-      systemPrompts[mode],
+    const outgoingUserPrompt =
       input.retry === undefined
         ? userPrompt
-        : buildRetryPrompt(userPrompt, input.retry.diagnostics),
-      mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
-      toPlanCandidate,
-      input.history,
-      ctx.origin.sessionId,
-      signal,
-      modelOptions,
+        : buildRetryPrompt(userPrompt, input.retry.diagnostics);
+    const received = await modelCallFor(
+      request,
+      (systemPrompt, outputSchema, toResult) =>
+        callLLM(
+          observedAdapter,
+          systemPrompt,
+          outgoingUserPrompt,
+          outputSchema,
+          toResult,
+          input.history,
+          ctx.origin.sessionId,
+          signal,
+          modelOptions,
+        ),
     );
     const result = providerAborted
       ? err(cancellationError('Provider call was cancelled', signal?.reason))

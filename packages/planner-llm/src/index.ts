@@ -1,6 +1,10 @@
 // Planner
-export type { LlmPlannerInput, LlmPlannerOptions } from './lib/llm-planner.js';
-export { llmPlanner } from './lib/llm-planner.js';
+export type {
+  ClarifyingLlmPlannerInput,
+  LlmPlannerInput,
+  LlmPlannerOptions,
+} from './lib/llm-planner.js';
+export { clarifyingLlmPlanner, llmPlanner } from './lib/llm-planner.js';
 // Prompt builder
 export type {
   PromptOptions,
