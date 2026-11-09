@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 
 import { WORKSPACE_RUN, workspaceRun } from '@maelstrom-co/agui-protocol';
 import { Orchestrator } from '@maelstrom-co/client';
@@ -12,6 +12,7 @@ import {
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import { fakeText } from '@tanstack/ai/testing';
+import { z } from 'zod';
 
 import { GoalRunner } from '../browser/goal-runner';
 import { bindWorkspaceActions } from '../browser/workspace-actions';
@@ -19,8 +20,65 @@ import { WorkspaceConnector } from '../browser/workspace-connector';
 import { WorkspaceState } from '../browser/workspace-state';
 import { journalVessel, tasksVessel } from '../vessels/definitions';
 import { LocalWorkspaceHost } from './http-host';
+import { MemoryWorkspaceRepository } from './workspace-repository';
 
 const origin = 'http://127.0.0.1:4310';
+
+test('outer storage failures emit bounded diagnostics without leaking causes or request data', async () => {
+  const secret = 'private-token-and-record-content';
+  const schemaFailure = z.string().safeParse({ content: secret });
+  if (schemaFailure.success) throw new Error('Expected schema failure');
+  const failures = [
+    { cause: new SyntaxError(secret), category: 'invalid_stored_json' },
+    { cause: schemaFailure.error, category: 'invalid_stored_schema' },
+    {
+      cause: new Error('Workspace authorization required.'),
+      category: 'authorization_required',
+    },
+    { cause: new Error(secret.repeat(1_000)), category: 'storage_failure' },
+  ];
+  const logged = spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    for (const [index, { cause, category }] of failures.entries()) {
+      class FailedRepository extends MemoryWorkspaceRepository {
+        override get(_token: string): never {
+          throw cause;
+        }
+      }
+      const host = new LocalWorkspaceHost(origin, {}, new FailedRepository());
+      const response = await host.fetch(
+        new Request(`${origin}/api/workspace/bootstrap?private=${secret}`, {
+          method: 'POST',
+          headers: {
+            origin,
+            'content-type': 'application/json',
+            cookie: `agui_local_workspace=${secret}`,
+            'x-openai-key': secret,
+          },
+          body: JSON.stringify({ content: secret }),
+        }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        error: { code: 'STORAGE_UNAVAILABLE' },
+      });
+      expect(logged).toHaveBeenCalledTimes(index + 1);
+      const line = logged.mock.calls.at(-1)?.[0];
+      expect(typeof line).toBe('string');
+      expect(line.length).toBeLessThan(256);
+      expect(line).not.toContain(secret);
+      expect(JSON.parse(line)).toEqual({
+        event: 'workspace_storage_failed',
+        operation: 'bootstrap',
+        category,
+        requestId: expect.any(String),
+      });
+    }
+  } finally {
+    logged.mockRestore();
+  }
+});
+
 function latch() {
   let resolve = () => {};
   const promise = new Promise<void>((done) => {

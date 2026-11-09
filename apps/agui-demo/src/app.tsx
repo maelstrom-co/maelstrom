@@ -149,7 +149,7 @@ export function App() {
         </div>
         <div className="header-actions">
           <span className="status-badge">Local · in-memory</span>
-          {(session || review) && (
+          {(session || review || error) && (
             <button
               type="button"
               disabled={opening || resetting}

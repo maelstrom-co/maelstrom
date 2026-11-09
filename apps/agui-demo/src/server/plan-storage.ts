@@ -9,6 +9,7 @@ import { RecordCommandSchema, type Records, RecordsSchema } from '../records';
 import type { IssuedPlan } from './issued-plans';
 
 export const IssuedPlanSchema: z.ZodType<IssuedPlan> = z.object({
+  bindingId: z.string().optional(),
   response: MaelstromResponseMessageSchema.shape.response,
   request: ChartRequestSchema,
   toolCallId: z.string().optional(),
