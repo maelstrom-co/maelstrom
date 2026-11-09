@@ -17,6 +17,7 @@ import {
   RecordCommandSchema,
   type Records,
 } from '../records';
+import type { PlanStorage } from './plan-storage';
 import { validateWorkspacePlan } from './plan-validation';
 
 const pureActions = new Set([
@@ -66,6 +67,31 @@ export class IssuedPlans {
   private plans = new Map<string, IssuedPlan>();
   private current?: string;
   private stopped = false;
+
+  constructor(private readonly storage?: PlanStorage) {
+    if (!storage) return;
+    const saved = storage.load();
+    this.records = structuredClone(saved.records);
+    this.plans = new Map(
+      saved.plans.map((plan) => [
+        plan.response.requestId,
+        structuredClone(plan),
+      ]),
+    );
+    this.stopped = true;
+  }
+
+  private persist(plan: IssuedPlan, records?: Records) {
+    try {
+      this.storage?.commit(
+        structuredClone(plan),
+        records && structuredClone(records),
+      );
+    } catch (error) {
+      this.stopped = true;
+      throw error;
+    }
+  }
 
   snapshot() {
     return structuredClone(this.records);
@@ -169,6 +195,7 @@ export class IssuedPlans {
       }
       issued.effect = { index, command, allocatedId };
     }
+    this.persist(issued);
     this.plans.set(response.requestId, issued);
     this.current = response.requestId;
   }
@@ -191,13 +218,24 @@ export class IssuedPlans {
       plan.effect.command,
       () => plan.effect?.allocatedId ?? crypto.randomUUID(),
     );
-    // The local host publishes records and receipt together; the durable host must persist this transaction atomically.
+    this.persist({ ...plan, receipt: result }, result.records);
     this.records = result.records;
     plan.receipt = structuredClone(result);
     return structuredClone(result);
   }
 
   settle(requestId: string, status: string, toolCallId?: string) {
+    const plan = this.checkSettlement(requestId, status, toolCallId);
+    this.persist({ ...plan, settled: true });
+    plan.settled = true;
+    this.current = undefined;
+  }
+
+  private checkSettlement(
+    requestId: string,
+    status: string,
+    toolCallId?: string,
+  ) {
     const plan = this.plans.get(requestId);
     if (
       this.stopped ||
@@ -213,8 +251,7 @@ export class IssuedPlans {
       this.stop();
       throw new Error('Application effects are not confirmed.');
     }
-    plan.settled = true;
-    this.current = undefined;
+    return plan;
   }
 
   confirmed(requestId: string, toolCallId: string) {
@@ -291,7 +328,11 @@ export class IssuedPlans {
         'Canonical settlement evidence does not match the issued plan.',
       );
     }
-    this.settle(requestId, application.status, toolCallId);
-    plan.accepted = structuredClone({ application, observation });
+    this.checkSettlement(requestId, application.status, toolCallId);
+    const accepted = structuredClone({ application, observation });
+    this.persist({ ...plan, settled: true, accepted });
+    plan.settled = true;
+    plan.accepted = accepted;
+    this.current = undefined;
   }
 }
