@@ -221,7 +221,8 @@ export function createAgentRunPolicy(
         new Promise<void>((resolve) => resolve(turnGate({ turn }))),
         interrupted,
       ]);
-    } catch {
+    } catch (error) {
+      logger.error('Agent run gate failed', error, { runId, turn });
       latch({
         reason: 'error',
         code: 'gate_failed',
@@ -354,8 +355,9 @@ export function createAgentRunPolicy(
  *   The `init` phase is ignored, so turn one is gated once.
  * - `onShouldContinue` runs {@link AgentRunPolicy.shouldStartNextTurn}, the
  *   hook that stops the loop without starting another adapter call.
- * - `onChunk` reports each `TOOL_CALL_START` to
- *   {@link AgentRunPolicy.noteToolCallRequested}.
+ * - `onChunk` reports each `TOOL_CALL_START` for a tool in `registry` to
+ *   {@link AgentRunPolicy.noteToolCallRequested}. `chat()` rejects an
+ *   unknown tool before `onBeforeToolCall`, so it never takes a reservation.
  * - `onBeforeToolCall` runs {@link AgentRunPolicy.beforeToolCall} and turns
  *   a refusal into a `skip` whose result is the validated {@link notRunToolResult}.
  *   A tool missing from `registry` is left to `chat()`, which cannot run it.
@@ -378,7 +380,10 @@ export function createAgentRunPolicyMiddleware(
         requestedTools: state.lastTurnToolCallCount > 0,
       }),
     onChunk: (_ctx, chunk) => {
-      if (chunk.type === 'TOOL_CALL_START') {
+      if (
+        chunk.type === 'TOOL_CALL_START' &&
+        options.registry.get(chunk.toolCallName) !== undefined
+      ) {
         policy.noteToolCallRequested(chunk.toolCallId);
       }
       return undefined;

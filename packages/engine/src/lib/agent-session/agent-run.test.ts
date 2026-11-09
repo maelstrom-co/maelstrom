@@ -239,7 +239,46 @@ describe('runAgent on chat()', () => {
     expect(totalOf(finished)).toBe(8);
   });
 
+  test('a rate-limited attempt without usage does not block tools under a token cap', async () => {
+    const model = scriptedAdapter([
+      failingTurn({ message: 'slow down', retryAfterMs: 0 }),
+      toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+      textTurn(['Done.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: orderTools().registry,
+          retry: { maxRetries: 1, maxWaitMs: 0 },
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    const finished = lastEvent(events);
+    expect(model.requests).toHaveLength(3);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'latest_order',
+      ok: true,
+      summary: 'Order o-1',
+    });
+    expect(finished).toMatchObject({
+      reason: 'completed',
+      reply: 'Done.',
+      unreportedUsageCalls: 0,
+    });
+    expect(finished.metrics.turns).toBe(2);
+    expect(totalOf(finished)).toBe(17);
+  });
+
   test('a policy abort mid-run, which chat() ends silently, still yields exactly one finished', async () => {
+    const errors: { message: string; error?: unknown; data?: unknown }[] = [];
+    const gateError = new Error(SECRET);
     const model = scriptedAdapter([
       toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
       textTurn(['never sent'], usage(4, 1)),
@@ -247,11 +286,15 @@ describe('runAgent on chat()', () => {
 
     const events = await collect(
       runAgent(
-        runInput({ adapter: model.adapter, registry: orderTools().registry }),
+        runInput({
+          adapter: model.adapter,
+          registry: orderTools().registry,
+          logger: recordingLogger([], errors),
+        }),
         {
           signal: new AbortController().signal,
           gate: ({ turn }) =>
-            turn === 2 ? Promise.reject(new Error(SECRET)) : undefined,
+            turn === 2 ? Promise.reject(gateError) : undefined,
         },
       ),
     );
@@ -269,6 +312,13 @@ describe('runAgent on chat()', () => {
       reply: '',
     });
     expect(JSON.stringify(events)).not.toContain(SECRET);
+    expect(errors).toEqual([
+      {
+        message: 'Agent run gate failed',
+        error: gateError,
+        data: { runId: 'run-1', turn: 2 },
+      },
+    ]);
   });
 
   test('a ToolError message reaches the model and the loop continues', async () => {
@@ -965,6 +1015,46 @@ describe('runAgent budgets and stops on chat()', () => {
     expectEveryCallSettledOnce(events);
   });
 
+  test('an unknown tool requested beside a real one takes no tool call reservation', async () => {
+    const counter = counterTools();
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'increment', args: { by: 1 } },
+          { id: 'c2', name: 'made_up_tool', args: {} },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['Balance is 1.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: counter.registry,
+          budgets: { ...testBudgets, maxToolCalls: 1 },
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(counter.balances).toEqual([1]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_result',
+        callId: CallId('c1'),
+        name: 'increment',
+        ok: true,
+      }),
+    );
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      reply: 'Balance is 1.',
+      metrics: { turns: 2, toolCalls: 1 },
+    });
+  });
+
   test('a batch of two increments within two remaining tool calls runs them one after another', async () => {
     const counter = counterTools();
     const model = scriptedAdapter([
@@ -1483,7 +1573,7 @@ function toolTurn(
 function failingTurn(options: {
   readonly deltas?: readonly string[];
   readonly message: string;
-  readonly usage: TokenUsage;
+  readonly usage?: TokenUsage;
   readonly retryAfterMs?: number;
 }): ModelCall {
   return async function* () {
@@ -1508,7 +1598,7 @@ function failingTurn(options: {
       type: EventType.RUN_ERROR,
       message: options.message,
       code: 'upstream',
-      usage: options.usage,
+      ...(options.usage !== undefined && { usage: options.usage }),
       ...(options.retryAfterMs !== undefined && {
         retryAfterMs: options.retryAfterMs,
       }),
@@ -1700,6 +1790,7 @@ function counterTools(
 
 function recordingLogger(
   warnings: { message: string; data?: Record<string, unknown> }[],
+  errors: { message: string; error?: unknown; data?: unknown }[] = [],
 ): Logger {
   return {
     debug: () => undefined,
@@ -1707,7 +1798,9 @@ function recordingLogger(
     warn: (message, data) => {
       warnings.push({ message, data });
     },
-    error: () => undefined,
+    error: (message, error, data) => {
+      errors.push({ message, error, data });
+    },
   };
 }
 
