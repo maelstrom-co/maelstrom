@@ -575,12 +575,21 @@ describe('application infrastructure contract', () => {
     expect(lockfile).toContain('alchemy@2.0.0-beta.85');
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.81');
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.83');
-    for (const provider of ['cloudflare', 'aws']) {
+    const providerPatchHashes = {
+      cloudflare:
+        '0fde199561fc50fa2cfd4973c48a62e45ebb6dc447eb36eb1ec3c3cfd755ba31',
+      aws: 'c962d33a5c2bae56e1bc0352523cee95538788a82414561688c20639cdec6ea5',
+    };
+    for (const [provider, hash] of Object.entries(providerPatchHashes)) {
       const name = `@alchemy.run/${provider}@2.0.0-beta.85`;
-      expect(root.patchedDependencies?.[name]).toBeDefined();
-      expect(lockfile).toContain(
-        root.patchedDependencies?.[name] ?? 'missing patch',
-      );
+      const providerPatch = root.patchedDependencies?.[name];
+      expect(providerPatch).toBeDefined();
+      expect(
+        createHash('sha256')
+          .update(read(providerPatch ?? 'missing patch'))
+          .digest('hex'),
+      ).toBe(hash);
+      expect(lockfile).toContain(providerPatch ?? 'missing patch');
     }
     expect(lockfile).toContain(patchPath);
     expect([
