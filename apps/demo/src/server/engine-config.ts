@@ -1,11 +1,13 @@
 /**
  * One definition of "a playground engine", shared by both transports.
  *
- * Local and hosted differ only in adapter key source, logger, and model
- * options. Everything else — the system rules the LLM is prompted with,
- * retry count, history window — is the product's behavior and must not
- * depend on which transport a request arrived over: a layout bug
- * reproduced locally has to be the same bug that ships.
+ * Local and hosted differ in adapter key source, logger, model options and,
+ * for now, the agent slot: only local engines register the agent and its
+ * Server Tools, while the hosted Worker stays on the chart planner path.
+ * Everything else — the system rules the LLM is prompted with, retry count,
+ * history window — is the product's behavior and must not depend on which
+ * transport a request arrived over: a layout bug reproduced locally has to
+ * be the same bug that ships.
  *
  * Kept in one place because the drift is not hypothetical. An earlier spike
  * hand-rolled its own `createEngine(...)` call and reached the deployed
@@ -14,6 +16,7 @@
  * request rather than at build time.
  */
 import {
+  type AgentConfig,
   createEngine,
   createInMemoryStore,
   type Engine,
@@ -25,10 +28,13 @@ import {
 } from '@maelstrom-co/planner-jev';
 import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
 
+import { latestOrderTool } from './latest-order-tool';
 import { PLAYGROUND_SYSTEM_RULES } from './planner-system-rules';
 
 const MAX_RETRIES = 2;
 const HISTORY_MAX_ENTRIES = 20;
+const DEMO_AGENT_INSTRUCTIONS =
+  'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.';
 
 export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
@@ -42,6 +48,22 @@ export interface PlaygroundEngineOptions {
    */
   readonly logger?: Parameters<typeof createEngine>[0]['logger'];
   readonly modelOptions?: LlmPlannerOptions['modelOptions'];
+  /** Agent slot. Set on local engines only, so the hosted Worker omits it. */
+  readonly agent?: AgentConfig;
+}
+
+/**
+ * The local demo agent: the pet shop assistant with the latest-order Server
+ * Tool, served by `adapter` and capped by the Engine budget defaults.
+ */
+export function createDemoAgentConfig(
+  adapter: LlmPlannerOptions['adapter'],
+): AgentConfig {
+  return {
+    model: adapter,
+    instructions: DEMO_AGENT_INSTRUCTIONS,
+    tools: [latestOrderTool],
+  };
 }
 
 /**
@@ -66,6 +88,7 @@ export function createPlaygroundEngine(
       maxEntries: HISTORY_MAX_ENTRIES,
     },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
+    ...(options.agent === undefined ? {} : { agent: options.agent }),
   });
 }
 
@@ -118,5 +141,6 @@ export function createJevPlaygroundEngine(
       maxEntries: HISTORY_MAX_ENTRIES,
     },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
+    ...(options.agent === undefined ? {} : { agent: options.agent }),
   });
 }

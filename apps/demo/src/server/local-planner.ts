@@ -8,6 +8,7 @@
 import type { Engine } from '@maelstrom-co/engine';
 
 import {
+  createDemoAgentConfig,
   createJevPlaygroundEngine,
   createPlaygroundEngine,
   type JevPlannerName,
@@ -56,10 +57,12 @@ export function buildSharedEngine(
     // Same redacting logger as hosted: OpenAI 401s can echo the key into
     // provider errors, and the Engine logs those via logger.error before any
     // outbound wire scrub runs. Local holds a long-lived OPENAI_API_KEY.
+    const adapter = createDemoOpenaiChat(apiKey);
     return {
       engine: createPlaygroundEngine({
-        adapter: createDemoOpenaiChat(apiKey),
+        adapter,
         logger: createRedactingLogger(secrets),
+        agent: createDemoAgentConfig(adapter),
       }),
       initError: null,
     };
@@ -134,10 +137,12 @@ export function buildLocalEngine(
   const logReplies = env.JEV_LOG_REPLIES?.trim() === '1';
   let engine: Engine;
   try {
+    const adapter = createDemoOpenaiChat(openaiKey);
     engine = createJevPlaygroundEngine({
       planner,
-      adapter: createDemoOpenaiChat(openaiKey),
+      adapter,
       logger,
+      agent: createDemoAgentConfig(adapter),
       typesafe: {
         apiKey: typesafeKey,
         model,
