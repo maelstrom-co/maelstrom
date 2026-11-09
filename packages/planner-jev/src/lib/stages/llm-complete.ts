@@ -29,22 +29,22 @@ export interface LlmCompleteOptions {
 
 /**
  * Turns the Jev decisions into a candidate: one small LLM call writes the
- * `userMessage` and fills `stated_elsewhere` parameters, code builds the
- * layout, execution plan and rationale. The layout declares each instance in
- * its variant before the actions run, and the execution plan ships every
- * planned action, so the client applies the layout and then each action's
- * transition, view switches included. The candidate then goes
- * through `ctx.validate`; a validation error or a recommended retry defers,
- * so a flawed Jev plan falls back instead of shipping healed. Provider
- * failures and cancellation are real errors: the fallback uses the same
- * provider.
+ * `userMessage` (unless the request sets `skipReply`) and fills
+ * `stated_elsewhere` parameters, code builds the layout, execution plan and
+ * rationale. The layout declares each instance in its variant before the
+ * actions run, and the execution plan ships every planned action, so the
+ * client applies the layout and then each action's transition, view
+ * switches included. The candidate then goes through `ctx.validate`; a
+ * validation error or a recommended retry defers, so a flawed Jev plan falls
+ * back instead of shipping healed. Provider failures and cancellation are
+ * real errors: the fallback uses the same provider.
  *
  * On a request with `skipReply: true` the candidate has no `userMessage`:
  * the call only fills parameters, and with none to fill it is not made.
  * When the plan also asks the user for parameters, the validated candidate
  * becomes a needs-clarification result that asks for them and carries the
- * actions and layout already planned. Otherwise the candidate always
- * carries the reply, which asks for those parameters itself.
+ * actions and layout already planned. Without `skipReply` the candidate
+ * always carries the reply, which asks for those parameters itself.
  */
 export function llmComplete(
   options: LlmCompleteOptions,

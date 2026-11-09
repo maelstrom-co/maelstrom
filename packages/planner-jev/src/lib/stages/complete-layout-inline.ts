@@ -49,20 +49,20 @@ type HandOffCompletion = (Completion | ReplylessCompletion) & {
 
 /**
  * Turns a layout decision into a candidate like `llmComplete`: one small
- * LLM call writes the `userMessage` and fills `stated_elsewhere`
- * parameters, code builds the execution plan, layout and rationale, and
- * `ctx.validate` gates the result. A decision without a tree hands the
- * layout to the same call: its output gains `layout.tree`, which must place
- * exactly the visible instances, each at least at its minimum size, or the
- * stage defers with `invalid_layout`.
+ * LLM call writes the `userMessage` (unless the request sets `skipReply`)
+ * and fills `stated_elsewhere` parameters, code builds the execution plan,
+ * layout and rationale, and `ctx.validate` gates the result. A decision
+ * without a tree hands the layout to the same call: its output gains
+ * `layout.tree`, which must place exactly the visible instances, each at
+ * least at its minimum size, or the stage defers with `invalid_layout`.
  *
  * On a request with `skipReply: true` the candidate has no `userMessage`:
  * the call only fills parameters and writes a handed-off tree, and with
  * neither to produce it is not made. When the plan also asks the user for
  * parameters, the validated candidate becomes a needs-clarification result
  * that asks for them and carries the actions and layout already planned.
- * Otherwise the candidate always carries the reply, which asks for those
- * parameters itself.
+ * Without `skipReply` the candidate always carries the reply, which asks
+ * for those parameters itself.
  */
 export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
