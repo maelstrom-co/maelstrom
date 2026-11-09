@@ -3,12 +3,17 @@ import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
 import type { SystemSectionKey } from './sections.js';
 import {
   NO_OP_VARIANT_ACKNOWLEDGEMENT,
+  NO_OP_VARIANT_REPLYLESS,
   SHARED_ACTIONS,
   SHARED_RULES,
   SHARED_RULES_FOOTER,
+  SHARED_RULES_FOOTER_REPLYLESS,
+  SHARED_RULES_REPLYLESS,
   SHARED_TRIGGER_RESIZE_FOOTER,
   SHARED_TRIGGER_TYPES,
+  SHARED_TRIGGER_TYPES_REPLYLESS,
   SHARED_TRIGGER_USER_INTENT,
+  SHARED_TRIGGER_USER_INTENT_REPLYLESS,
   SHARED_TRIGGER_VESSEL_MODIFIED,
 } from './system-prompt-shared.js';
 
@@ -132,4 +137,30 @@ ${SHARED_RULES}
 - CRITICAL: If you create a new instance that depends on a follow-up action to become useful, the response is incomplete unless that action is present in executionPlan
 
 ${SHARED_RULES_FOOTER}`,
+};
+
+/** Tiling-mode system sections for requests that skip the user reply. */
+export const tilingReplylessSystemSections: Record<SystemSectionKey, string> = {
+  ...tilingSystemSections,
+  identity: tilingSystemSections.identity.replace(
+    '\n5. Provide a friendly, conversational response to the user',
+    '',
+  ),
+  triggers: `UPDATE TRIGGERS:
+${SHARED_TRIGGER_TYPES_REPLYLESS}
+- "Chart resized: ..." - The display area changed. The tiling layout adapts automatically.
+${SHARED_TRIGGER_VESSEL_MODIFIED}
+
+When handling resize or mutation triggers (without user intent):
+- The tiling system handles space distribution automatically
+${SHARED_TRIGGER_RESIZE_FOOTER}
+
+${SHARED_TRIGGER_USER_INTENT_REPLYLESS}`,
+  layout: tilingSystemSections.layout.replace(
+    NO_OP_VARIANT_ACKNOWLEDGEMENT,
+    NO_OP_VARIANT_REPLYLESS,
+  ),
+  rules: tilingSystemSections.rules
+    .replace(SHARED_RULES, SHARED_RULES_REPLYLESS)
+    .replace(SHARED_RULES_FOOTER, SHARED_RULES_FOOTER_REPLYLESS),
 };

@@ -3,9 +3,13 @@ import {
   SHARED_ACTIONS,
   SHARED_RULES,
   SHARED_RULES_FOOTER,
+  SHARED_RULES_FOOTER_REPLYLESS,
+  SHARED_RULES_REPLYLESS,
   SHARED_TRIGGER_RESIZE_FOOTER,
   SHARED_TRIGGER_TYPES,
+  SHARED_TRIGGER_TYPES_REPLYLESS,
   SHARED_TRIGGER_USER_INTENT,
+  SHARED_TRIGGER_USER_INTENT_REPLYLESS,
   SHARED_TRIGGER_VESSEL_MODIFIED,
 } from './system-prompt-shared.js';
 
@@ -46,4 +50,27 @@ Layout rules:
 ${SHARED_RULES}
 
 ${SHARED_RULES_FOOTER}`,
+};
+
+/** Grid-mode system sections for requests that skip the user reply. */
+export const gridReplylessSystemSections: Record<SystemSectionKey, string> = {
+  ...gridSystemSections,
+  identity: gridSystemSections.identity.replace(
+    '\n4. Provide a friendly, conversational response to the user',
+    '',
+  ),
+  triggers: `UPDATE TRIGGERS:
+${SHARED_TRIGGER_TYPES_REPLYLESS}
+- "Chart resized: ..." - The display area changed. Adjust positions if needed.
+${SHARED_TRIGGER_VESSEL_MODIFIED}
+
+When handling resize or mutation triggers (without user intent):
+- Adjust positions to fit the new dimensions
+${SHARED_TRIGGER_RESIZE_FOOTER}
+
+${SHARED_TRIGGER_USER_INTENT_REPLYLESS}`,
+  rules: `Rules:
+${SHARED_RULES_REPLYLESS}
+
+${SHARED_RULES_FOOTER_REPLYLESS}`,
 };
