@@ -662,6 +662,21 @@ describe('llmComplete with skipReply and asks', () => {
       },
     ]);
   });
+
+  test('a pending slot left null defers param_unfilled instead of asking', async () => {
+    mockChat.mockResolvedValue({ params: { p0: null } });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('add a task and show the weather'), true),
+        {
+          actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+          asks: [TITLE_ASK],
+        },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(deferralOf(result)).toBe('llmComplete/param_unfilled');
+  });
 });
 
 function clarificationOf(result: Awaited<ReturnType<typeof run>>['result']) {

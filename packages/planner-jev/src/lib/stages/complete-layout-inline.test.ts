@@ -587,6 +587,37 @@ describe('completeLayoutInline with skipReply and asks', () => {
     expect(clarification.layout?.tree).toEqual(tree);
     expect(clarification).not.toHaveProperty('userMessage');
   });
+
+  test('on a hand-off, a tree that does not fit defers invalid_layout instead of asking', async () => {
+    mockChat.mockResolvedValue({ layout: { tree: ['ID:calendar-main'] } });
+    const result = await run(
+      handOff(
+        completionPlan(
+          skipping(makeRequest('hide the tasks and set the weather'), true),
+          { decisions: { 'tasks-main': 'hide' }, asks: [LOCATION_ASK] },
+        ),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+  });
+
+  test('a pending slot left null defers param_unfilled instead of asking', async () => {
+    mockChat.mockResolvedValue({ params: { p0: null } });
+    const result = await run(
+      decisionOf(
+        completionPlan(
+          skipping(makeRequest('add a task and show the weather'), true),
+          {
+            actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+            asks: [TITLE_ASK],
+          },
+        ),
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(deferralOf(result)).toBe('llmComplete/param_unfilled');
+  });
 });
 
 describe('completeLayoutInline asks without skipReply', () => {
