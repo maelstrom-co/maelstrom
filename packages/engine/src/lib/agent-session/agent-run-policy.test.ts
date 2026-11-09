@@ -16,6 +16,7 @@ import { z } from 'zod';
 
 import { defer } from '../__test-helpers__/defer.js';
 import type { Logger } from '../logger.js';
+import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import { summarizeAsTruncatedJson } from './__test-helpers__/summarize-as-truncated-json.js';
 import {
   type AgentRunEnding,
@@ -28,11 +29,7 @@ import {
   STOPPED_TOOL_SUMMARY,
   stoppedToolResult,
 } from './agent-run-policy.js';
-import type {
-  AgentRunBudgets,
-  AgentRunClock,
-  AgentRunGate,
-} from './agent-run.js';
+import type { AgentRunBudgets, AgentRunGate } from './agent-run.js';
 import { serverTool } from './server-tool.js';
 import {
   toModelToolPayload,
@@ -665,20 +662,12 @@ describe('policy middleware', () => {
   });
 });
 
-interface FakeTime {
-  readonly clock: AgentRunClock;
-  advance(ms: number): void;
-  advanceWithoutFiring(ms: number): void;
-  scheduled(): number[];
-  pending(): number;
-}
-
 function setup(options: {
   budgets: AgentRunBudgets;
   gate?: AgentRunGate;
   signal?: AbortSignal;
 }) {
-  const time = createFakeTime();
+  const time = createFakeAgentRunTime();
   const ledger = createUsageLedger();
   const warnings: { message: string; data?: Record<string, unknown> }[] = [];
   const logger: Logger = {
@@ -699,45 +688,6 @@ function setup(options: {
     gate: options.gate,
   });
   return { policy, time, ledger, warnings };
-}
-
-function createFakeTime(): FakeTime {
-  let now = 0;
-  const timers: {
-    at: number;
-    delay: number;
-    callback: () => void;
-    done: boolean;
-  }[] = [];
-  const fireDue = () => {
-    for (const timer of timers) {
-      if (!timer.done && timer.at <= now) {
-        timer.done = true;
-        timer.callback();
-      }
-    }
-  };
-  return {
-    clock: {
-      now: () => now,
-      scheduleTimeout: (callback, ms) => {
-        const timer = { at: now + ms, delay: ms, callback, done: false };
-        timers.push(timer);
-        return () => {
-          timer.done = true;
-        };
-      },
-    },
-    advance: (ms) => {
-      now += ms;
-      fireDue();
-    },
-    advanceWithoutFiring: (ms) => {
-      now += ms;
-    },
-    scheduled: () => timers.map((timer) => timer.delay),
-    pending: () => timers.filter((timer) => !timer.done).length,
-  };
 }
 
 function call(
