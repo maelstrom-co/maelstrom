@@ -225,7 +225,7 @@ function startChat(
       rawArgsByCall.set(hookCtx.toolCallId, hookCtx.args);
       // chat() would send its own validation message to the model, so
       // invalid arguments get the executor's sanitized failure instead.
-      if (acceptsInput(entry, hookCtx.args)) return undefined;
+      if (await acceptsInput(entry, hookCtx.args)) return undefined;
       const result = await executeToolCall(
         entry,
         hookCtx.args,
@@ -559,9 +559,12 @@ function abortedPromise(signal: AbortSignal): Promise<typeof RUN_ABORTED> {
   });
 }
 
-function acceptsInput(entry: ToolRegistryEntry, args: unknown): boolean {
+async function acceptsInput(
+  entry: ToolRegistryEntry,
+  args: unknown,
+): Promise<boolean> {
   try {
-    return entry.tool.input.safeParse(args).success;
+    return (await entry.tool.input.safeParseAsync(args)).success;
   } catch {
     return false;
   }

@@ -671,6 +671,72 @@ describe('runAgent final turn cut off', () => {
   });
 });
 
+describe('runAgent tool input with an async refine', () => {
+  test('a rejecting refine refuses the call as invalid arguments without an unhandled rejection', async () => {
+    const unhandled = recordUnhandledRejections();
+    const tools = asyncRefineTools(async () => {
+      throw new Error('async refine rejected');
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'order_status', args: { orderId: 'o-1' } }],
+        usage(10, 2),
+      ),
+      textTurn(['That order is unknown.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(await unhandled.settle()).toEqual([]);
+    expect(tools.runs()).toBe(0);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'order_status',
+      ok: false,
+      summary: 'order_status received invalid arguments',
+    });
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+  });
+
+  test('a resolving refine runs the tool', async () => {
+    const unhandled = recordUnhandledRejections();
+    const tools = asyncRefineTools(async () => true);
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'order_status', args: { orderId: 'o-1' } }],
+        usage(10, 2),
+      ),
+      textTurn(['It shipped.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(await unhandled.settle()).toEqual([]);
+    expect(tools.runs()).toBe(1);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'order_status',
+      ok: true,
+      summary: '{"status":"shipped"}',
+    });
+    expect(toolMessageContents(model.requests[1])).toEqual([
+      { status: 'shipped' },
+    ]);
+  });
+});
+
 describe('runAgent budgets and stops on chat()', () => {
   test.each([
     ['maxTurns', 'turns'],
@@ -1781,6 +1847,43 @@ function orderTools(
     }),
   ]);
   return { registry, contexts, args, statusCalls: () => statusCalls };
+}
+
+function asyncRefineTools(refine: () => Promise<boolean>) {
+  let runs = 0;
+  const registry = createToolRegistry([
+    serverTool({
+      name: 'order_status',
+      description: 'Returns the status of an order',
+      input: z.object({ orderId: z.string() }).refine(refine),
+      output: z.object({ status: z.string() }),
+      sideEffect: 'read_only',
+      execute: async () => {
+        runs += 1;
+        return { status: 'shipped' };
+      },
+      summarize: summarizeAsTruncatedJson,
+    }),
+  ]);
+  return { registry, runs: () => runs };
+}
+
+function recordUnhandledRejections(): { settle(): Promise<unknown[]> } {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on('unhandledRejection', record);
+  return {
+    async settle() {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return unhandled;
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+    },
+  };
 }
 
 function counterTools(
