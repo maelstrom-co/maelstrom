@@ -79,7 +79,7 @@ const calendar = defineVessel({
     month: {
       props: { view: 'month' },
       minSize: { width: 6, height: 4 },
-      actions: [{ name: 'showWeek', description: 'Show a week.', transitionsTo: 'week' }],
+      actions: [{ name: 'showWeek', description: 'Show a week.', transitionsTo: 'week', effect: 'none' }],
     },
     week: {
       props: { view: 'week' },
