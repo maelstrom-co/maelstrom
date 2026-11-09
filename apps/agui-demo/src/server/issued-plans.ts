@@ -53,6 +53,7 @@ const recordKinds: Record<string, RecordCommand['kind']> = {
 };
 
 export interface IssuedPlan {
+  bindingId?: string;
   response: MaelstromResponse;
   request: ChartRequest;
   toolCallId?: string;
@@ -67,6 +68,7 @@ export class IssuedPlans {
   private plans = new Map<string, IssuedPlan>();
   private current?: string;
   private stopped = false;
+  private bindingId?: string;
 
   constructor(private readonly storage?: PlanStorage) {
     if (!storage) return;
@@ -114,9 +116,10 @@ export class IssuedPlans {
     this.stopped = true;
   }
 
-  reconcile() {
+  reconcile(bindingId?: string) {
     this.current = undefined;
     this.stopped = false;
+    this.bindingId = bindingId;
   }
 
   issue(
@@ -139,6 +142,7 @@ export class IssuedPlans {
     )
       throw new Error('Request intent does not match its tool admission.');
     const issued: IssuedPlan = {
+      bindingId: this.bindingId,
       response: structuredClone(response),
       request: structuredClone(request),
       toolCallId: tool?.id,

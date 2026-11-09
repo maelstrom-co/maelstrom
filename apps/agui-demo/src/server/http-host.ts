@@ -1,16 +1,14 @@
 import { toServerSentEventsResponse } from '@tanstack/ai';
 import { z } from 'zod';
 
-import { IssuedPlans } from './issued-plans';
 import {
   type BindingDependencies,
   WorkspaceBinding,
 } from './workspace-binding';
-
-interface LocalWorkspace {
-  plans: IssuedPlans;
-  binding?: WorkspaceBinding;
-}
+import {
+  MemoryWorkspaceRepository,
+  type WorkspaceRepository,
+} from './workspace-repository';
 
 async function readBody(request: Request) {
   const reader = request.body?.getReader();
@@ -52,13 +50,13 @@ function error(status: number, code: string, message: string) {
 }
 
 export class LocalWorkspaceHost {
-  private readonly workspaces = new Map<string, LocalWorkspace>();
   private readonly cookieName: string;
   private readonly secure: boolean;
 
   constructor(
     private readonly origin: string,
     private readonly dependencies: BindingDependencies = {},
+    private readonly repository: WorkspaceRepository = new MemoryWorkspaceRepository(),
   ) {
     const url = new URL(origin);
     this.secure = url.protocol === 'https:';
@@ -77,6 +75,31 @@ export class LocalWorkspaceHost {
   }
 
   async fetch(request: Request): Promise<Response> {
+    try {
+      const response = await this.handle(request);
+      const token = this.token(request);
+      if (response.ok && !response.headers.has('Set-Cookie') && token)
+        response.headers.set('Set-Cookie', this.cookie(token));
+      return response;
+    } catch {
+      return error(
+        503,
+        'STORAGE_UNAVAILABLE',
+        'Workspace storage is unavailable. Inspect and reconcile before continuing.',
+      );
+    }
+  }
+
+  private token(request: Request) {
+    return request.headers
+      .get('cookie')
+      ?.split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${this.cookieName}=`))
+      ?.slice(this.cookieName.length + 1);
+  }
+
+  private async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (
       url.origin !== this.origin ||
@@ -93,13 +116,7 @@ export class LocalWorkspaceHost {
       request.headers.get('content-type')?.split(';')[0] !== 'application/json'
     )
       return error(415, 'JSON_REQUIRED', 'JSON is required.');
-    const token = request.headers
-      .get('cookie')
-      ?.split(';')
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${this.cookieName}=`))
-      ?.slice(this.cookieName.length + 1);
-    let workspace = token ? this.workspaces.get(token) : undefined;
+    const token = this.token(request);
     let body: unknown;
     try {
       body = await readBody(request);
@@ -107,6 +124,8 @@ export class LocalWorkspaceHost {
     } catch {
       return error(400, 'INVALID_INPUT', 'Invalid or oversized JSON request.');
     }
+    let workspace = token ? this.repository.get(token) : undefined;
+    if (workspace) this.repository.touch(workspace);
     if (url.pathname === '/api/workspace/bootstrap') {
       const parsed = z
         .object({ reconcile: z.boolean().optional() })
@@ -116,25 +135,21 @@ export class LocalWorkspaceHost {
         return error(400, 'INVALID_INPUT', 'Invalid workspace request.');
       let newToken: string | undefined;
       if (!workspace) {
-        if (this.workspaces.size >= 100)
-          return error(503, 'CAPACITY', 'Local workspace capacity reached.');
         newToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
-        workspace = { plans: new IssuedPlans() };
-        this.workspaces.set(newToken, workspace);
+        workspace = this.repository.create(newToken);
       }
-      if (workspace.binding) {
-        workspace.binding.stop();
+      if (workspace.binding || workspace.needsReconciliation) {
+        this.repository.retire(workspace);
         if (!parsed.data.reconcile)
           return json({
             needsReconciliation: true,
             records: workspace.plans.snapshot(),
             operations: workspace.plans.review(),
-            storage: 'memory',
+            storage: this.repository.storage,
           });
-        workspace.plans.reconcile();
       }
       const binding = new WorkspaceBinding(workspace.plans, this.dependencies);
-      workspace.binding = binding;
+      this.repository.bind(workspace, binding);
       return json(
         {
           needsReconciliation: false,
@@ -142,7 +157,7 @@ export class LocalWorkspaceHost {
           sessionId: binding.sessionId,
           threadId: binding.threadId,
           records: workspace.plans.snapshot(),
-          storage: 'memory',
+          storage: this.repository.storage,
         },
         200,
         newToken ? { 'Set-Cookie': this.cookie(newToken) } : undefined,
@@ -151,8 +166,7 @@ export class LocalWorkspaceHost {
     if (!workspace || !token)
       return error(401, 'UNAUTHORIZED', 'Workspace authorization is required.');
     if (url.pathname === '/api/workspace/reset') {
-      workspace.binding?.stop();
-      this.workspaces.delete(token);
+      this.repository.delete(token);
       return json({ reset: true }, 200, {
         'Set-Cookie': this.cookie('', true),
       });
@@ -169,7 +183,7 @@ export class LocalWorkspaceHost {
         'Reconcile this workspace before continuing.',
       );
     if (url.pathname === '/api/workspace/stop') {
-      binding.stop();
+      this.repository.retire(workspace);
       return json({ stopped: true });
     }
     if (url.pathname === '/api/workspace/voice') {
