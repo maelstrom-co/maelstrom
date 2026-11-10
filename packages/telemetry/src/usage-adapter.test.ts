@@ -917,6 +917,30 @@ describe('rate-limited calls', () => {
     expect(calls[0]).not.toHaveProperty('rateLimited');
   });
 
+  test('a later error without retryAfterMs clears the mark', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([
+        started,
+        rateLimitError({ retryAfterMs: 0 }),
+        rateLimitError(),
+      ]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).not.toHaveProperty('rateLimited');
+  });
+
+  test('a later error with retryAfterMs sets the mark', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([
+        started,
+        rateLimitError(),
+        rateLimitError({ retryAfterMs: 0 }),
+      ]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).toHaveProperty('rateLimited', true);
+  });
+
   test('an error without retryAfterMs stays unreported', async () => {
     const { adapter, calls } = wrap(
       new FakeAdapter([started, rateLimitError()]),
