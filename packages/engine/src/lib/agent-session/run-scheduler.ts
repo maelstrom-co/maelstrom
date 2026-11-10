@@ -53,6 +53,7 @@ export interface RunSchedulerOptions {
 
 export interface RunScheduler {
   pendingRuns(): number;
+  pump(): Promise<void>;
   enqueue(input: AgentUtteranceInput): Promise<void>;
   acknowledge(input: AgentUiAppliedInput): void;
   close(): void;
@@ -183,6 +184,7 @@ export function createRunScheduler({
   };
   return {
     pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
+    pump,
     enqueue(input) {
       const started = clock();
       const run: UiRun = {
@@ -213,6 +215,7 @@ export function createRunScheduler({
         events.emit(
           changeError(input.changeId, 'unknown_change', 'Unknown UI change.'),
         );
+        void pump();
         return;
       }
       const { run, event, cancelTimeout } = state;
@@ -224,6 +227,7 @@ export function createRunScheduler({
             'Expected one outcome per Action.',
           ),
         );
+        void pump();
         return;
       }
       state = { phase: 'finishing', run };

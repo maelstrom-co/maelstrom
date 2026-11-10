@@ -1237,3 +1237,88 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
     time.uninstall();
   }
 });
+
+const TIMED_OUT = Symbol('timed out');
+
+const expectErrorObserverSendIsPlanned = async (
+  trigger: Parameters<
+    ReturnType<ReturnType<typeof createEngine>['openConnection']>['send']
+  >[0],
+) => {
+  const events: AgentEvent[] = [];
+  let plans = 0;
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () => {
+      plans++;
+      return ok({
+        type: 'plan',
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({ sessionId: SessionId('error-observer'), user: null });
+  let change: Extract<AgentEvent, { type: 'ui_change' }> | undefined;
+  let planned: () => void = () => undefined;
+  const plannedEvent = new Promise<void>((resolve) => {
+    planned = resolve;
+  });
+  let followUp: Promise<void> | undefined;
+  connection.subscribe((event) => {
+    if (event.type === 'error' && followUp === undefined)
+      followUp = connection.send(utterance());
+  });
+  connection.subscribe((event) => {
+    events.push(event);
+    if (event.type === 'ui_change') {
+      change = event;
+      planned();
+    }
+  });
+  try {
+    await connection.send(trigger);
+    const outcome = await Promise.race([
+      plannedEvent,
+      new Promise<typeof TIMED_OUT>((resolve) =>
+        setTimeout(() => resolve(TIMED_OUT), 200),
+      ),
+    ]);
+    expect(outcome).not.toBe(TIMED_OUT);
+    expect(plans).toBe(1);
+    if (!change) throw new Error('Missing change');
+    const types = events.map((event) => event.type);
+    expect(types[0]).toBe('error');
+    expect(types.indexOf('ui_change')).toBeGreaterThan(0);
+    await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      chart: utterance().chart,
+      actionOutcomes: [],
+    });
+    await followUp;
+  } finally {
+    connection.close();
+  }
+};
+
+test('an utterance sent from an unknown acknowledgement error observer is planned without further input', async () => {
+  await expectErrorObserverSendIsPlanned({
+    type: 'ui_applied',
+    version: AGENT_WIRE_VERSION,
+    changeId: 'unknown-change',
+    chart: utterance().chart,
+    actionOutcomes: [],
+  });
+});
+
+test('an utterance sent from an admission rejection error observer is planned without further input', async () => {
+  await expectErrorObserverSendIsPlanned({
+    type: 'unknown',
+    version: AGENT_WIRE_VERSION,
+    inputId: 'bad-input',
+  });
+});

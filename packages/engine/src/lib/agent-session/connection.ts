@@ -130,8 +130,10 @@ export function createAgentConnection(
     async send(raw) {
       if (controller.signal.aborted) return;
       const admitted = admission.admit(raw, runs.pendingRuns());
-      if (admitted.kind === 'rejected') events.emit(admitted.event);
-      else if (admitted.kind === 'acknowledgement')
+      if (admitted.kind === 'rejected') {
+        events.emit(admitted.event);
+        void runs.pump();
+      } else if (admitted.kind === 'acknowledgement')
         runs.acknowledge(admitted.input);
       else if (admitted.kind === 'utterance')
         await runs.enqueue(admitted.input);
@@ -146,6 +148,7 @@ function agentRuns(
 ): RunScheduler {
   return {
     pendingRuns: () => queue.pendingRuns(),
+    pump: async () => {},
     enqueue: (input) => queue.enqueue(input),
     acknowledge: (input) =>
       logger.warn('Ignored ui_applied on an agent connection', {
