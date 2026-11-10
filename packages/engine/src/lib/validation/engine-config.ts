@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { AgentConfig } from '../agent-session/agent-config.js';
 import type { EngineConfig } from '../config.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
@@ -70,6 +71,18 @@ const retrySchema = z.union([
   z.object({ max: z.number().int().nonnegative() }).strict(),
 ]);
 
+// Keys only. resolveAgentConfig validates the model, instructions, budgets and
+// tools, so values stay unknown here.
+const agentSchema = z
+  .object({
+    model: z.unknown(),
+    instructions: z.unknown().optional(),
+    tools: z.unknown().optional(),
+    budgets: z.unknown().optional(),
+    retry: z.unknown().optional(),
+  })
+  .strict();
+
 const engineConfigSchema = z
   .object({
     planner: functionSchema<ClarifyingPlanner>(),
@@ -78,6 +91,7 @@ const engineConfigSchema = z
     history: historySchema.optional(),
     instrument: instrumentSchema.optional(),
     retry: retrySchema.optional(),
+    agent: agentSchema.optional(),
   })
   .strict();
 
@@ -114,9 +128,18 @@ const _retryBwd: NonNullable<EngineConfig['retry']> extends NonNullable<
 >
   ? true
   : false = true;
+type _InferredAgentConfig = NonNullable<_InferredEngineConfig['agent']>;
+const _agentKeysSubsetInferred: keyof AgentConfig extends keyof _InferredAgentConfig
+  ? true
+  : false = true;
+const _inferredAgentKeysSubsetConfig: keyof _InferredAgentConfig extends keyof AgentConfig
+  ? true
+  : false = true;
 void [
   _configKeysSubsetInferred,
   _inferredKeysSubsetConfig,
+  _agentKeysSubsetInferred,
+  _inferredAgentKeysSubsetConfig,
   _loggerFwd,
   _instrumentFwd,
   _retryFwd,

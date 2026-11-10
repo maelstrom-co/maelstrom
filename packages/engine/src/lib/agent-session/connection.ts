@@ -1,11 +1,15 @@
 import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';
+import type { ResolvedAgentConfig } from './agent-config.js';
+import { type AgentRunQueue, createAgentRunQueue } from './agent-run-queue.js';
+import type { AgentRunClock } from './agent-run.js';
 import { createInputAdmission } from './input-admission.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import {
   createRunScheduler,
   type RunObserver,
+  type RunScheduler,
   type UiChangePlanner,
 } from './run-scheduler.js';
 
@@ -21,6 +25,12 @@ export interface OpenConnectionOptions {
   readonly capabilities?: unknown;
   /** Monotonic millisecond clock for measuring run duration. Defaults to performance.now. */
   readonly clock?: () => number;
+  /**
+   * Schedules a callback after a delay in milliseconds and returns a function
+   * that cancels it. Agent Runs use it for their deadline. Defaults to
+   * `globalThis.setTimeout`, cancelled with `globalThis.clearTimeout`.
+   */
+  readonly scheduleTimeout?: AgentRunClock['scheduleTimeout'];
   /**
    * Maximum wait in milliseconds for the browser to acknowledge a UI change
    * with `ui_applied`. Defaults to 30,000. Must be a positive integer no
@@ -61,6 +71,7 @@ export function createAgentConnection(
   plan: UiChangePlanner,
   observe: RunObserver,
   logger: Logger,
+  agent?: ResolvedAgentConfig,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -81,14 +92,32 @@ export function createAgentConnection(
       ),
   });
   const admission = createInputAdmission();
-  const runs = createRunScheduler({
-    plan,
-    observe,
-    events,
-    signal: controller.signal,
-    clock,
-    acknowledgementTimeoutMs,
-  });
+  const runs =
+    agent === undefined
+      ? createRunScheduler({
+          plan,
+          observe,
+          events,
+          signal: controller.signal,
+          clock,
+          acknowledgementTimeoutMs,
+        })
+      : agentRuns(
+          createAgentRunQueue({
+            agent,
+            identity: {
+              user: options.user,
+              ...(options.token === undefined ? {} : { token: options.token }),
+            },
+            events,
+            observe,
+            logger,
+            clock,
+            scheduleTimeout: options.scheduleTimeout ?? scheduleGlobalTimeout,
+          }),
+          options.sessionId,
+          logger,
+        );
   return {
     subscribe: (listener) => events.subscribe(listener),
     close() {
@@ -108,6 +137,52 @@ export function createAgentConnection(
         await runs.enqueue(admitted.input);
     },
   };
+}
+
+function agentRuns(
+  queue: AgentRunQueue,
+  sessionId: SessionId,
+  logger: Logger,
+): RunScheduler {
+  return {
+    pendingRuns: () => queue.pendingRuns(),
+    enqueue: (input) => queue.enqueue(input),
+    acknowledge: (input) =>
+      logger.warn('Ignored ui_applied on an agent connection', {
+        sessionId,
+        changeId: input.changeId,
+      }),
+    close: () => queue.close(),
+  };
+}
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+/** The timer functions used to schedule the deadline. */
+export interface DeadlineTimers {
+  readonly setTimeout: (callback: () => void, ms: number) => unknown;
+  readonly clearTimeout: (handle: never) => void;
+}
+
+/**
+ * Runs `callback` after `ms`, chaining timers when the delay exceeds the
+ * platform limit. A non-finite delay never fires. Returns a cancel function.
+ */
+export function scheduleGlobalTimeout(
+  callback: () => void,
+  ms: number,
+  timers: DeadlineTimers = globalThis,
+): () => void {
+  if (!Number.isFinite(ms)) return () => undefined;
+  let remaining = Math.max(0, ms);
+  let handle: unknown;
+  const arm = (): void => {
+    const step = Math.min(remaining, MAX_TIMER_DELAY_MS);
+    remaining -= step;
+    handle = timers.setTimeout(remaining > 0 ? arm : callback, step);
+  };
+  arm();
+  return () => timers.clearTimeout(handle as never);
 }
 
 function eventLogData(

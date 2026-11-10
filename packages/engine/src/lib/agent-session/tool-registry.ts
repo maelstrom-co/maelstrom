@@ -14,14 +14,23 @@ const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** A Server Tool with its input and output types erased so tools of different types share one list. */
 export interface RegistrableServerTool {
+  /** Name the model calls the tool by. Must match `^[A-Za-z0-9_-]{1,64}$`. */
   readonly name: string;
+  /** Description shown to the model. */
   readonly description: string;
+  /** Schema the model's arguments are validated against. */
   readonly input: z.ZodType<unknown>;
+  /** Schema the tool's result is validated against. */
   readonly output: z.ZodType<unknown>;
+  /** Where the tool runs. */
   readonly locus: ToolLocus;
+  /** How the tool affects the world. */
   readonly sideEffect: ToolSideEffect;
+  /** Whether a call needs user approval before it runs. */
   readonly approval: ToolApproval;
+  /** Runs the tool with validated input. */
   execute(input: never, ctx: ServerToolContext): Promise<unknown>;
+  /** Pure, synchronous, user-safe one-line description of a result. */
   summarize(output: never): string;
 }
 
