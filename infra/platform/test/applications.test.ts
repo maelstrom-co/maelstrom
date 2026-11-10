@@ -577,7 +577,7 @@ describe('application infrastructure contract', () => {
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.83');
     const providerPatchHashes = {
       cloudflare:
-        '0fde199561fc50fa2cfd4973c48a62e45ebb6dc447eb36eb1ec3c3cfd755ba31',
+        '80ff00070e2bd0c0a3dd7513971200358e7720ab5a7fcdf0051c3224cdb9caa5',
       aws: 'c962d33a5c2bae56e1bc0352523cee95538788a82414561688c20639cdec6ea5',
     };
     for (const [provider, hash] of Object.entries(providerPatchHashes)) {
