@@ -48,7 +48,7 @@ afterAll(async () => {
   for (const close of cleanup) await close();
 });
 
-async function fixture() {
+async function fixture(voiceUpstream?: string) {
   const directory = await mkdtemp(join(tmpdir(), 'agui-workerd-'));
   let port: number | undefined;
   const start = () =>
@@ -61,6 +61,7 @@ async function fixture() {
         script,
         compatibilityDate: '2026-07-22',
         compatibilityFlags: ['nodejs_compat'],
+        bindings: voiceUpstream ? { VOICE_UPSTREAM: voiceUpstream } : undefined,
         durableObjects: {
           WORKSPACES: { className: 'WorkspaceFixture', useSQLite: true },
         },
@@ -179,6 +180,72 @@ async function fixture() {
     cookies,
   };
 }
+
+test('workerd voice exchange reaches the provider once and never forwards its key through redirects', async () => {
+  const answer = {
+    session: { id: 'live_workerd' },
+    transport: { type: 'webrtc', sdp: 'v=0\r\no=answer' },
+  };
+  const requests: {
+    path: string;
+    authorization: string | null;
+    cookie: string | null;
+  }[] = [];
+  const upstream = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      await request.text();
+      requests.push({
+        path,
+        authorization: request.headers.get('authorization'),
+        cookie: request.headers.get('cookie'),
+      });
+      if (path === '/redirect')
+        return new Response(null, {
+          status: 307,
+          headers: { Location: new URL('/forbidden', request.url).href },
+        });
+      return Response.json(answer, { status: 201 });
+    },
+  });
+  try {
+    for (const path of ['accepted', 'redirect']) {
+      requests.length = 0;
+      const f = await fixture(new URL(path, upstream.url).href);
+      await f.open();
+      const response = await f.request('/api/workspace/voice', {
+        session: {
+          model: 'browser-model',
+          delegation: {
+            type: 'responses',
+            responses: { model: 'browser-backend' },
+          },
+        },
+        transport: { type: 'webrtc', sdp: 'v=0\r\no=offer' },
+      });
+      expect(response.status).toBe(path === 'accepted' ? 200 : 502);
+      if (path === 'accepted') expect(await response.json()).toEqual(answer);
+      else
+        expect(await response.json()).toMatchObject({
+          error: { code: 'VOICE_UNAVAILABLE' },
+        });
+      expect(requests).toEqual([
+        {
+          path: `/${path}`,
+          authorization: 'Bearer fixture-key-must-not-persist',
+          cookie: null,
+        },
+      ]);
+      expect(JSON.stringify(await f.inspect())).not.toContain(
+        'fixture-key-must-not-persist',
+      );
+    }
+  } finally {
+    upstream.stop(true);
+  }
+}, 30_000);
 
 test('workerd restart preserves records and receipts, requires reconciliation, and fences the old browser', async () => {
   const f = await fixture();

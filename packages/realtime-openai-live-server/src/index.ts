@@ -11,7 +11,7 @@ export interface LiveSessionExchangeOptions {
   readonly apiKey: string;
   /** Upper bound for exchange including body reading; defaults to thirty seconds. */
   readonly timeoutMs?: number;
-  /** Trusted fetch implementation for server runtimes and tests. It must honor redirect rejection. */
+  /** Trusted fetch implementation for server runtimes and tests. It must honor manual redirect handling. */
   readonly fetch?: typeof globalThis.fetch;
 }
 
@@ -61,7 +61,7 @@ export function createLiveSessionExchange(
             'https://api.openai.com/v1/live/sessions',
             {
               method: 'POST',
-              redirect: 'error',
+              redirect: 'manual',
               credentials: 'omit',
               signal: controller.signal,
               headers: {
