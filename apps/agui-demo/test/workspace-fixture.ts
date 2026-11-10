@@ -1,5 +1,6 @@
 import { createEngine } from '@maelstrom-co/engine';
 import { ok, TilingResponseSchema } from '@maelstrom-co/protocol';
+import { createLiveSessionExchange } from '@maelstrom-co/realtime-openai-live-server';
 import { fakeText } from '@tanstack/ai/testing';
 
 import { routeWorkspace } from '../src/worker/router';
@@ -16,7 +17,8 @@ function latch() {
 export class WorkspaceFixture extends WorkspaceDO {
   private readonly pause;
   private readonly expired = latch();
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: Env & { VOICE_UPSTREAM?: string }) {
+    const voiceUpstream = env.VOICE_UPSTREAM;
     const pause = { enabled: false, entered: latch(), release: latch() };
     const adapter = Object.assign(fakeText(), {
       supportsCombinedToolsAndSchema: () => true,
@@ -34,6 +36,14 @@ export class WorkspaceFixture extends WorkspaceDO {
       { text: JSON.stringify({ status: 'completed', message: 'Task saved.' }) },
     ]);
     super(ctx, env, {
+      voiceExchange: voiceUpstream
+        ? (apiKey) =>
+            createLiveSessionExchange({
+              apiKey,
+              fetch: ((_input, init) =>
+                fetch(voiceUpstream, init)) as typeof fetch,
+            })
+        : undefined,
       adapter: () => adapter,
       engine: () =>
         createEngine({
