@@ -29,7 +29,10 @@ export class WorkspaceFixture extends WorkspaceDO {
           {
             id: 'create',
             name: 'apply_workspace',
-            input: { intent: 'Create a durable Task' },
+            input: {
+              intent: 'Create a durable Task',
+              expectedMutation: { kind: 'task.create', title: 'Durable Task' },
+            },
           },
         ],
       },

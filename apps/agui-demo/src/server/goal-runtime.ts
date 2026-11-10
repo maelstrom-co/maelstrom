@@ -22,22 +22,43 @@ import {
   applyWorkspaceTool,
   GoalSummary,
 } from '../goal-contract';
+import { type RecordCommand, RecordCommandSchema } from '../records';
+
+const ConfirmedApplication = z.object({
+  command: RecordCommandSchema.nullable(),
+  receipt: z
+    .object({
+      recordId: z.string().min(1),
+      revision: z.number().int().positive(),
+    })
+    .nullable(),
+  message: z.string().optional(),
+});
 
 const applyTool = toolDefinition({
   name: applyWorkspaceTool.name,
   description: applyWorkspaceTool.description,
   inputSchema: ApplyWorkspaceInput,
-  outputSchema: ApplyWorkspaceResult.extend({ workspace: z.unknown() }),
+  outputSchema: ApplyWorkspaceResult.extend({
+    expectedMutation: ApplyWorkspaceInput.shape.expectedMutation,
+    mutationVerified: z.boolean(),
+    confirmed: ConfirmedApplication,
+    workspace: z.unknown(),
+  }),
 });
 
 interface WorkspacePort {
   snapshot(): unknown;
-  confirm(requestId: string, toolCallId: string): void;
+  confirm(
+    requestId: string,
+    toolCallId: string,
+  ): z.infer<typeof ConfirmedApplication>;
 }
 
 const instructions = `You own the user's complete workspace goal. Use only Calendar, Weather, Journal, Tasks, Map, and Labs.
 Use read_workspace for authoritative records and observed UI. Record IDs and versions are exact; do not invent them or use titles as mutation targets.
 Use apply_workspace to arrange UI and perform at most ONE application-effect Action per call. Dependent effects require separate calls.
+For every record write, declare expectedMutation with the exact command, including all values and target ID/version. Use null only when the call must not change records. The server compares the accepted command and receipt against this expectation; an applied layout alone is not proof of a mutation.
 After creating a Journal entry, read its canonical ID/version before appending content. Never combine create and append in one intent.
 Calendar mutations need an absolute YYYY-MM-DD date, HH:mm local time, and IANA timezone. Ask for missing date context.
 Never claim a mutation succeeded without an applied frontend-tool result. A result identifies an accepted canonical settlement, not merely a submitted request.
@@ -55,6 +76,7 @@ export class GoalRuntime {
   private pending?: {
     id: string;
     intent: string;
+    expectedMutation: RecordCommand | null;
     interruptId: string;
     runId: string;
     admitted: boolean;
@@ -124,6 +146,7 @@ export class GoalRuntime {
     const messages = structuredClone(body.messages);
     const pending = this.pending;
     let resume: RunAgentInput['resume'];
+    let mutationMismatch = false;
     if (pending) {
       if (
         !pending.admitted ||
@@ -134,8 +157,21 @@ export class GoalRuntime {
       )
         throw new Error('Issued frontend result required.');
       const result = ApplyWorkspaceResult.parse(JSON.parse(last.content));
-      this.workspace.confirm(result.requestId, pending.id);
-      const evidence = { ...result, workspace: this.workspace.snapshot() };
+      const confirmed = ConfirmedApplication.parse(
+        this.workspace.confirm(result.requestId, pending.id),
+      );
+      if (Boolean(confirmed.command) !== Boolean(confirmed.receipt))
+        throw new Error('Mutation receipt is unavailable.');
+      mutationMismatch =
+        JSON.stringify(confirmed.command) !==
+        JSON.stringify(pending.expectedMutation);
+      const evidence = {
+        ...result,
+        expectedMutation: pending.expectedMutation,
+        mutationVerified: !mutationMismatch,
+        confirmed,
+        workspace: this.workspace.snapshot(),
+      };
       messages[messages.length - 1] = {
         id: last.id,
         role: 'tool',
@@ -183,6 +219,42 @@ export class GoalRuntime {
     };
     signal.addEventListener('abort', abort, { once: true });
     try {
+      if (mutationMismatch) {
+        signal.throwIfAborted();
+        const result = GoalSummary.parse({
+          status: 'incomplete',
+          message:
+            'The requested record change was not confirmed by the saved command and receipt. Review the saved records before retrying. No automatic retry was started.',
+        });
+        this.history = MessagesSnapshotEventSchema.parse({
+          type: 'MESSAGES_SNAPSHOT',
+          messages: [
+            ...messages,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: JSON.stringify(result),
+            },
+          ],
+        }).messages;
+        const events: StreamChunk[] = [
+          {
+            type: EventType.RUN_STARTED,
+            threadId: body.threadId,
+            runId: body.runId,
+          },
+          { type: EventType.MESSAGES_SNAPSHOT, messages: this.history },
+          {
+            type: EventType.RUN_FINISHED,
+            threadId: body.threadId,
+            runId: body.runId,
+            outcome: { type: 'success' },
+            result,
+          },
+        ];
+        for (const event of events) EventSchemas.parse(event);
+        return events;
+      }
       const params = await chatParamsFromRequestBody({ ...body, messages });
       const read = toolDefinition({
         name: 'read_workspace',
@@ -319,12 +391,13 @@ export class GoalRuntime {
           .find((item) => item.id === interrupt.toolCallId);
         if (completedCall?.function.name !== applyTool.name)
           throw new Error('Missing canonical frontend call.');
-        const { intent } = ApplyWorkspaceInput.parse(
+        const { intent, expectedMutation } = ApplyWorkspaceInput.parse(
           JSON.parse(completedCall.function.arguments),
         );
         this.pending = {
           id: interrupt.toolCallId,
           intent,
+          expectedMutation,
           interruptId: interrupt.id,
           runId: body.runId,
           admitted: false,
