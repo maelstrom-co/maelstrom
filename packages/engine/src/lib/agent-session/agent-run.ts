@@ -10,7 +10,7 @@ import type { ToolRegistry } from './tool-registry.js';
  * Caps on one Agent Run. A run that reaches any cap stops with
  * {@link BUDGET_CLOSING_MESSAGE} and a `budget` {@link AgentRunFinished}.
  * The values are frozen for the run and never reach a prompt or tool
- * arguments.
+ * arguments. A zero or `NaN` cap refuses the run before any model call.
  */
 export interface AgentRunBudgets {
   /** Most model turns the run may take. */

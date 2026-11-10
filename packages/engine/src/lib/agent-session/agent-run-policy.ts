@@ -480,7 +480,9 @@ const ZERO_BUDGET_LIMITS: readonly (readonly [
 function zeroBudgetLimit(
   budgets: AgentRunBudgets,
 ): AgentRunBudgetLimit | undefined {
-  return ZERO_BUDGET_LIMITS.find(([budget]) => budgets[budget] <= 0)?.[1];
+  return ZERO_BUDGET_LIMITS.find(
+    ([budget]) => Number.isNaN(budgets[budget]) || budgets[budget] <= 0,
+  )?.[1];
 }
 
 function turnsExhausted(): AgentRunEnding {

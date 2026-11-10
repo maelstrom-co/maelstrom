@@ -71,6 +71,24 @@ describe('admission before chat()', () => {
     },
   );
 
+  test.each([
+    ['maxTurns', 'turns'],
+    ['maxElapsedMs', 'elapsed'],
+    ['maxTokens', 'tokens'],
+    ['maxToolCalls', 'toolCalls'],
+  ] as const)(
+    'a NaN %s is refused like a zero budget with limit %s and no deadline timer',
+    (budget, limit) => {
+      const run = setup({
+        budgets: { ...roomyBudgets, [budget]: Number.NaN },
+      });
+
+      expect(run.policy.start()).toEqual({ reason: 'budget', limit });
+      expect(run.policy.ending).toEqual({ reason: 'budget', limit });
+      expect(run.time.scheduled()).toEqual([]);
+    },
+  );
+
   test('an already aborted signal ends the run cancelled with its reason', () => {
     const caller = new AbortController();
     caller.abort('user left');
