@@ -8,26 +8,34 @@ import { cancellationError, providerError } from '@maelstrom-co/engine';
 import type { MessageId, Result } from '@maelstrom-co/protocol';
 import {
   err,
-  type GridModelOutputSchema,
+  type GridModelOutput,
   type GridResponse,
   ok,
-  type TilingModelOutputSchema,
+  type TilingModelOutput,
   type TilingResponse,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 import { chat, convertSchemaToJsonSchema } from '@tanstack/ai';
+import type { z } from 'zod';
 
-export async function callLLM(
+/**
+ * Sends one structured-output chat call, parses the response with
+ * `outputSchema` and returns `toResult` of the parsed output. A parse
+ * failure is a `ProviderError`, and `toResult` runs only after a
+ * successful parse.
+ */
+export async function callLLM<OutputSchema extends z.ZodType, Output>(
   adapter: AnyTextAdapter,
   systemPrompt: string,
   userPrompt: string,
-  outputSchema: typeof GridModelOutputSchema | typeof TilingModelOutputSchema,
+  outputSchema: OutputSchema,
+  toResult: (parsed: z.output<OutputSchema>) => Output,
   historyMessages: readonly LLMContextMessage[],
   threadId: string,
   signal?: AbortSignal,
   modelOptions?: Record<string, unknown>,
   middleware: ChatMiddleware[] = [],
-): Promise<Result<PlannerCandidate, EngineError>> {
+): Promise<Result<Output, EngineError>> {
   const controller = new AbortController();
 
   if (signal?.aborted) {
@@ -63,11 +71,7 @@ export async function callLLM(
           signal.reason,
         ),
       );
-    const plan: GridResponse | TilingResponse = {
-      type: 'plan',
-      ...outputSchema.parse(output),
-    };
-    return ok(plan);
+    return ok(toResult(outputSchema.parse(output)));
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -98,6 +102,17 @@ export async function callLLM(
   } finally {
     signal?.removeEventListener('abort', abort);
   }
+}
+
+/**
+ * Maps parsed reply-bearing model output to the Planner candidate it stands
+ * for by stamping `type: 'plan'`.
+ */
+export function toPlanCandidate(
+  parsed: GridModelOutput | TilingModelOutput,
+): PlannerCandidate {
+  const plan: GridResponse | TilingResponse = { type: 'plan', ...parsed };
+  return plan;
 }
 
 export function logLLMCallError(

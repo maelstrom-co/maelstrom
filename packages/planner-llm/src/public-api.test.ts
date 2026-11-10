@@ -8,6 +8,7 @@ test('the package entry exposes the planner, prompt builder and prompt sections'
       'buildPrompt',
       'buildSystemPrompt',
       'buildUserPrompt',
+      'clarifyingLlmPlanner',
       'llmPlanner',
       'SystemSection',
       'UserSection',
