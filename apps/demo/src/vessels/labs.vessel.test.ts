@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+
 import { VariantName, VesselSchema } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { DEFAULT_LAYOUT } from '../lib/default-layout';
 import { labsEntry, labsVessel } from './labs.vessel';
 
@@ -11,10 +13,10 @@ describe('Labs Vessel contract', () => {
     expect(parsed.defaultVariant).toBe('trends');
     expect(Object.keys(parsed.variants)).toEqual(['list', 'trends']);
     expect(parsed.variants[VariantName('list')].actions).toMatchObject([
-      { name: 'showTrends', transitionsTo: 'trends' },
+      { name: 'showTrends', transitionsTo: 'trends', effect: 'none' },
     ]);
     expect(parsed.variants[VariantName('trends')].actions).toMatchObject([
-      { name: 'showList', transitionsTo: 'list' },
+      { name: 'showList', transitionsTo: 'list', effect: 'none' },
       {
         name: 'selectMarker',
         parameters: [

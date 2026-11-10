@@ -7,6 +7,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import {
   ActionName,
   type ChartRequestMessage,
@@ -27,16 +28,27 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
+import {
+  calendarMain,
+  calendarViewsVessel,
+  createCalendarLayout,
+} from '../../../test-utils/calendar-vessel.js';
 import {
   createMockConnector,
   createTestOrchestrator,
 } from '../../../test-utils/connector-mocks.js';
 import {
+  inboxMain,
+  listDetailVessel,
+} from '../../../test-utils/list-detail-vessel.js';
+import {
   createMockEmptyResponse,
   createMockResponse,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
+import type { BatchExecutionResult } from '../command-processor/action-runner.types.js';
 import type {
   AcknowledgedAssistantConnector,
   EngineConnector,
@@ -274,6 +286,8 @@ function seedInstance(
   }));
   return instanceId;
 }
+
+type BatchSummary = Pick<BatchExecutionResult, 'successCount' | 'skippedCount'>;
 
 function currentVariant(
   orchestrator: Orchestrator,
@@ -2149,6 +2163,58 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('reverts a transition whose Action needs a handler when the runner has none', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(listDetailVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: inboxMain,
+        vesselId: 'inbox',
+        variant: 'list',
+      });
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+      orchestrator.commandProcessor.registerRunner(instanceId, {});
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('selectItem'), {
+        id: 'item-7',
+      });
+      expect(currentVariant(orchestrator, instanceId)).toBe('detail');
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await waitFor(() => currentVariant(orchestrator, instanceId) === 'list');
+
+      const mutations = scheduleSpy.mock.calls.map(([reason]) =>
+        reason.type === 'vessel_mutation' ? reason.changes : reason.type,
+      );
+      expect(mutations).toEqual([
+        'user invoked "selectItem" with {"id":"item-7"}: variant list → detail',
+        'action "selectItem" did not run; reverted variant detail → list',
+      ]);
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('keeps an effect none transition when the runner has no handler for it', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(listDetailVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: inboxMain,
+        vesselId: 'inbox',
+        variant: 'list',
+      });
+      orchestrator.commandProcessor.registerRunner(instanceId, {});
+
+      orchestrator.invokeAction(instanceId, ActionName('showDetails'));
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('detail');
+      orchestrator.dispose();
+    });
+
     it('does not revert when a newer transition superseded this one (last-write-wins)', async () => {
       const { orchestrator } = createTestOrchestrator();
       orchestrator.vesselManager.registerVessel(threeStateVessel);
@@ -2369,6 +2435,182 @@ describe('Orchestrator', () => {
   // slow runner fails and reverts, the engine keeps the stale target variant
   // unless told about the rollback.
   // --------------------------------------------------------------------------
+
+  describe('Engine Execution Plan transitions', () => {
+    function calendarResponse(
+      requestId: MessageId,
+      action: string,
+    ): MaelstromResponse {
+      return {
+        type: 'maelstrom_response',
+        requestId,
+        userMessage: 'ok',
+        rationale: 'test',
+        executionPlan: [
+          { instanceId: calendarMain, action: ActionName(action) },
+        ],
+        layout: createCalendarLayout('day'),
+      };
+    }
+
+    it('applies an effect none transition from an Engine response and schedules no vessel_mutation', async () => {
+      const connector = createMockConnector({
+        process: mock((message: ChartRequestMessage) =>
+          Promise.resolve(calendarResponse(message.id, 'showWeek')),
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        vessels: [calendarViewsVessel],
+      });
+      try {
+        await orchestrator.connect();
+        orchestrator.commandProcessor.registerRunner(calendarMain, {});
+        const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+        await orchestrator.processIntent('show the week');
+        await orchestrator.commandProcessor.waitForIdle();
+
+        expect(currentVariant(orchestrator, calendarMain)).toBe('week');
+        expect(scheduleSpy).not.toHaveBeenCalled();
+        scheduleSpy.mockRestore();
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('loses the Engine compare-and-set when a local invokeAction lands during its handler', async () => {
+      let finishShowWeek: ((result: ActionResult) => void) | undefined;
+      const connector = createMockConnector({
+        process: mock((message: ChartRequestMessage) =>
+          Promise.resolve(calendarResponse(message.id, 'showWeek')),
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        vessels: [calendarViewsVessel],
+      });
+      try {
+        await orchestrator.connect();
+        orchestrator.commandProcessor.registerRunner(calendarMain, {
+          showWeek: () =>
+            new Promise<ActionResult>((resolve) => {
+              finishShowWeek = resolve;
+            }),
+        });
+        const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+        const pending = orchestrator.processIntent('show the week');
+        await waitFor(() => finishShowWeek !== undefined);
+        expect(currentVariant(orchestrator, calendarMain)).toBe('day');
+
+        orchestrator.invokeAction(calendarMain, ActionName('showMonth'));
+        expect(currentVariant(orchestrator, calendarMain)).toBe('month');
+
+        finishShowWeek?.(ok(undefined));
+        await pending;
+        await orchestrator.commandProcessor.waitForIdle();
+
+        expect(currentVariant(orchestrator, calendarMain)).toBe('month');
+        const mutations = scheduleSpy.mock.calls.map(([reason]) =>
+          reason.type === 'vessel_mutation' ? reason.changes : reason.type,
+        );
+        expect(mutations).toEqual([
+          'user invoked "showMonth": variant day → month',
+        ]);
+        scheduleSpy.mockRestore();
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    async function runShowWeekWhileRedefining(
+      redefined: VesselDefinition,
+    ): Promise<{ orchestrator: Orchestrator; completed: BatchSummary[] }> {
+      let finishShowWeek: ((result: ActionResult) => void) | undefined;
+      const connector = createMockConnector({
+        process: mock((message: ChartRequestMessage) =>
+          Promise.resolve(calendarResponse(message.id, 'showWeek')),
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        vessels: [calendarViewsVessel],
+      });
+      const completed: BatchSummary[] = [];
+      orchestrator.commandProcessor.events.on(
+        'actions_completed',
+        ({ result }) => {
+          completed.push({
+            successCount: result.successCount,
+            skippedCount: result.skippedCount,
+          });
+        },
+      );
+      await orchestrator.connect();
+      orchestrator.commandProcessor.registerRunner(calendarMain, {
+        showWeek: () =>
+          new Promise<ActionResult>((resolve) => {
+            finishShowWeek = resolve;
+          }),
+      });
+
+      const pending = orchestrator.processIntent('show the week');
+      await waitFor(() => finishShowWeek !== undefined);
+      expect(orchestrator.vesselManager.registerVessel(redefined).valid).toBe(
+        true,
+      );
+
+      finishShowWeek?.(ok(undefined));
+      await pending;
+      await orchestrator.commandProcessor.waitForIdle();
+      return { orchestrator, completed };
+    }
+
+    it('skips the transition when the Vessel is redefined without the target during the handler', async () => {
+      const { day, month } = calendarViewsVessel.variants;
+      const { orchestrator, completed } = await runShowWeekWhileRedefining({
+        ...calendarViewsVessel,
+        variants: {
+          day: {
+            ...day,
+            actions: day.actions.filter(({ name }) => name !== 'showWeek'),
+          },
+          month: {
+            ...month,
+            actions: month.actions.filter(({ name }) => name !== 'showWeek'),
+          },
+        },
+      });
+      try {
+        expect(currentVariant(orchestrator, calendarMain)).toBe('day');
+        expect(completed).toEqual([{ successCount: 1, skippedCount: 0 }]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('applies the redefined target when the Vessel changes during the handler', async () => {
+      const { day } = calendarViewsVessel.variants;
+      const { orchestrator, completed } = await runShowWeekWhileRedefining({
+        ...calendarViewsVessel,
+        variants: {
+          ...calendarViewsVessel.variants,
+          day: {
+            ...day,
+            actions: day.actions.map((action) =>
+              action.name === 'showWeek'
+                ? { ...action, transitionsTo: 'month' }
+                : action,
+            ),
+          },
+        },
+      });
+      try {
+        expect(currentVariant(orchestrator, calendarMain)).toBe('month');
+        expect(completed).toEqual([{ successCount: 1, skippedCount: 0 }]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+  });
 
   describe('invokeAction compensating revert mutation (MAE-328 fix A)', () => {
     it('retains the original and compensating mutations until local action settlement', async () => {

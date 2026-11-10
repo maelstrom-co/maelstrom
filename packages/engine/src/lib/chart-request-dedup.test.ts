@@ -10,6 +10,7 @@ import {
   ok,
   SessionId,
 } from '@maelstrom-co/protocol';
+
 import { defer } from './__test-helpers__/defer.js';
 import {
   buildGridResponse,

@@ -8,6 +8,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
@@ -26,6 +27,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -166,7 +168,7 @@ describe('m.registerVessel()', () => {
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    // biome-ignore lint/suspicious/noExplicitAny: executeAction's real signature is an overloaded, vessel-specific tuple; function params are contravariant, so `unknown[]` rejects assignment from the real (narrower) executeAction — only `any[]` can widen this ad-hoc structural type to accept it.
+    // oxlint-disable-next-line typescript/no-explicit-any -- executeAction's real signature is an overloaded, vessel-specific tuple; function params are contravariant, so `unknown[]` rejects assignment from the real (narrower) executeAction — only `any[]` can widen this ad-hoc structural type to accept it.
     let widgetProps: { executeAction: (...args: any[]) => void } | null = null;
 
     function App() {

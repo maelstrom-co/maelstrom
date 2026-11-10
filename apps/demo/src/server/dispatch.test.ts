@@ -5,6 +5,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { dispatchFrame } from './dispatch';
 
 const chartRequest = encodeEnvelope(

@@ -14,6 +14,7 @@ import {
   type Result,
   RunId,
 } from '@maelstrom-co/protocol';
+
 import type { EngineError } from '../errors.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import {

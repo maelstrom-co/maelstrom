@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+
 import { feedbackCoverage, isFeedbackQuote } from './feedback-coverage';
 import {
   __resetProjectTasksStoreForTests,

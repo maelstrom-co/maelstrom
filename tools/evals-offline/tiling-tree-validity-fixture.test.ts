@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+
 import { strictTilingLayoutFailures } from '../../packages/evals/src/adapters/legacy-tiling-add-vessel.js';
 import {
   strictBinaryTilingLayoutFailures,

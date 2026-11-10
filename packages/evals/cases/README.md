@@ -1194,12 +1194,14 @@ From the workspace root:
 
 ```sh
 bun test --conditions=@maelstrom-co/source tools/evals-offline
-bunx nx run @maelstrom-co/evals:check --skip-nx-cache --skipSync
+bunx nx run @maelstrom-co/evals:lint --skip-nx-cache --skipSync
+bunx nx format:check --all
 bunx nx run evals-offline:test --skip-nx-cache --skipSync
 ```
 
-The eval package's existing Biome include covers `cases/**/*.json`; TypeScript's
-`src` include alone does not. Biome also checks sibling `scenarios/**/*.json`. Offline tests load the index, validate and execute
+Recorded cases and scenarios retain their generated JSON layout to preserve
+byte budgets and source hashes. TypeScript's `src` include does not validate them.
+Offline tests load the index, validate and execute
 all forty-three cases, mutate temporary copies to prove inputs/expectations matter, and
 retain the earlier state-loss/order/replay/scorer controls. They deny network.
 `--skipSync` is the existing workspace-reference workaround, not skipped tests.

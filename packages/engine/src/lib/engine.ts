@@ -11,6 +11,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
+
 import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import {
@@ -49,7 +50,6 @@ import type {
   FullValidatedPlannerOutput,
   PlannerOutput,
 } from './planner/candidate.js';
-import { isNeedsClarification } from './planner/candidate.js';
 import type {
   ClarifyingPlanner,
   PlanningInput,
@@ -714,22 +714,34 @@ function requireShippableReply(
   messageId: MessageId,
   logger: Logger,
 ): Result<FullValidatedCandidate, EngineError> {
-  if (isNeedsClarification(outcome)) {
-    return refuseReplylessOutcome(
-      'a needs-clarification result',
-      messageId,
-      logger,
-    );
+  switch (outcome.type) {
+    case 'needs_clarification':
+      return refuseReplylessOutcome(
+        'a needs-clarification result',
+        messageId,
+        logger,
+      );
+    case 'maelstrom_response': {
+      const { userMessage } = outcome;
+      if (userMessage === undefined || userMessage.trim() === '') {
+        return refuseReplylessOutcome(
+          'a response without userMessage',
+          messageId,
+          logger,
+        );
+      }
+      return ok({ ...outcome, userMessage });
+    }
+    default: {
+      const unhandled: never = outcome;
+      return err(
+        validationError(
+          `unhandled validated planner outcome: ${String(unhandled)}`,
+          'planner',
+        ),
+      );
+    }
   }
-  const { userMessage } = outcome;
-  if (userMessage === undefined || userMessage.trim() === '') {
-    return refuseReplylessOutcome(
-      'a response without userMessage',
-      messageId,
-      logger,
-    );
-  }
-  return ok({ ...outcome, userMessage });
 }
 
 function refuseReplylessOutcome(

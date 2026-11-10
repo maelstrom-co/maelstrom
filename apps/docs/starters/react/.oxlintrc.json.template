@@ -1,0 +1,280 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "react",
+    "jsx-a11y",
+    "import",
+    "nextjs"
+  ],
+  "categories": {
+    "correctness": "off"
+  },
+  "rules": {
+    "jsx-a11y/no-access-key": "error",
+    "jsx-a11y/no-aria-hidden-on-focusable": "error",
+    "jsx-a11y/aria-unsupported-elements": "error",
+    "jsx-a11y/no-autofocus": "error",
+    "jsx-a11y/no-distracting-elements": "error",
+    "jsx-a11y/scope": "error",
+    "jsx-a11y/no-interactive-element-to-noninteractive-role": "error",
+    "jsx-a11y/label-has-associated-control": "error",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "error",
+    "jsx-a11y/no-noninteractive-tabindex": "error",
+    "jsx-a11y/tabindex-no-positive": "error",
+    "jsx-a11y/img-redundant-alt": "error",
+    "jsx-a11y/no-redundant-roles": "error",
+    "jsx-a11y/no-static-element-interactions": "error",
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/anchor-has-content": "error",
+    "jsx-a11y/aria-activedescendant-has-tabindex": "error",
+    "jsx-a11y/role-has-required-aria-props": "error",
+    "jsx-a11y/role-supports-aria-props": "error",
+    "react/button-has-type": "error",
+    "jsx-a11y/interactive-supports-focus": "error",
+    "jsx-a11y/heading-has-content": "error",
+    "jsx-a11y/html-has-lang": "error",
+    "jsx-a11y/iframe-has-title": "error",
+    "jsx-a11y/click-events-have-key-events": "error",
+    "jsx-a11y/mouse-events-have-key-events": "error",
+    "jsx-a11y/media-has-caption": "error",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/aria-proptypes": "error",
+    "jsx-a11y/autocomplete-valid": "error",
+    "jsx-a11y/lang": "error",
+    "eslint/no-regex-spaces": "error",
+    "eslint/prefer-rest-params": "error",
+    "typescript/ban-types": "error",
+    "eslint/no-sequences": "error",
+    "typescript/no-extraneous-class": [
+      "error",
+      {
+        "allowEmpty": true,
+        "allowConstructorOnly": true
+      }
+    ],
+    "eslint/prefer-arrow-callback": [
+      "error",
+      {
+        "allowNamedFunctions": true
+      }
+    ],
+    "unicorn/prefer-date-now": "error",
+    "eslint/prefer-numeric-literals": "error",
+    "eslint/prefer-regex-literals": "error",
+    "eslint/no-const-assign": "error",
+    "eslint/no-constant-condition": "error",
+    "oxc/bad-min-max-func": "error",
+    "eslint/no-constructor-return": "error",
+    "eslint/no-empty-character-class": "error",
+    "eslint/no-empty-pattern": "error",
+    "eslint/no-obj-calls": "error",
+    "eslint/no-inner-declarations": [
+      "error",
+      "functions",
+      {
+        "blockScopedFunctions": "allow",
+        "namespaces": "allow"
+      }
+    ],
+    "eslint/constructor-super": "error",
+    "eslint/no-use-before-define": [
+      "error",
+      {
+        "functions": false,
+        "variables": false,
+        "classes": false,
+        "typedefs": false,
+        "ignoreTypeReferences": true,
+        "allowNamedExports": true
+      }
+    ],
+    "eslint/no-nonoctal-decimal-escape": "error",
+    "eslint/no-loss-of-precision": "error",
+    "eslint/no-self-assign": "error",
+    "eslint/no-setter-return": "error",
+    "eslint/no-case-declarations": "error",
+    "eslint/no-unreachable": "error",
+    "eslint/no-this-before-super": "error",
+    "eslint/no-unsafe-finally": "error",
+    "eslint/no-unsafe-optional-chaining": "error",
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "args": "all",
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrors": "all",
+        "caughtErrorsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ],
+    "eslint/no-unused-labels": "error",
+    "eslint/no-unused-private-class-members": "error",
+    "react/void-dom-elements-no-children": "error",
+    "eslint/use-isnan": "error",
+    "eslint/for-direction": "error",
+    "eslint/valid-typeof": "error",
+    "eslint/require-yield": "error",
+    "oxc/no-accumulating-spread": "error",
+    "react/jsx-no-target-blank": "error",
+    "eslint/no-eval": "error",
+    "typescript/no-non-null-assertion": "warn",
+    "eslint/prefer-const": [
+      "error",
+      {
+        "ignoreReadBeforeAssign": true
+      }
+    ],
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "prefer": "type-imports",
+        "fixStyle": "inline-type-imports",
+        "disallowTypeAnnotations": false
+      }
+    ],
+    "typescript/prefer-literal-enum-member": "error",
+    "oxc/approx-constant": "error",
+    "eslint/no-cond-assign": ["error", "always"],
+    "eslint/no-async-promise-executor": "error",
+    "eslint/no-ex-assign": "error",
+    "eslint/no-class-assign": "error",
+    "react/jsx-no-comment-textnodes": "error",
+    "eslint/no-compare-neg-zero": "error",
+    "eslint/no-labels": [
+      "error",
+      {
+        "allowLoop": true,
+        "allowSwitch": false
+      }
+    ],
+    "typescript/no-invalid-void-type": "off",
+    "oxc/no-const-enum": "error",
+    "eslint/no-control-regex": "error",
+    "eslint/no-debugger": "error",
+    "unicorn/no-document-cookie": "error",
+    "eslint/eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "eslint/no-duplicate-case": "error",
+    "eslint/no-dupe-class-members": "error",
+    "eslint/no-dupe-else-if": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "eslint/no-dupe-keys": "error",
+    "typescript/no-empty-interface": [
+      "error",
+      {
+        "allowSingleExtends": true
+      }
+    ],
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-extra-non-null-assertion": "error",
+    "eslint/no-fallthrough": "error",
+    "eslint/no-func-assign": "error",
+    "eslint/no-global-assign": "error",
+    "eslint/no-import-assign": "error",
+    "eslint/no-irregular-whitespace": "error",
+    "eslint/no-label-var": "error",
+    "eslint/no-misleading-character-class": "error",
+    "typescript/no-misused-new": "error",
+    "oxc/misrefactored-assign-op": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "eslint/no-prototype-builtins": "error",
+    "eslint/no-redeclare": "error",
+    "eslint/no-self-compare": "error",
+    "eslint/no-shadow-restricted-names": "error",
+    "eslint/no-sparse-arrays": "error",
+    "eslint/no-template-curly-in-string": "error",
+    "unicorn/no-thenable": "error",
+    "typescript/ban-ts-comment": [
+      "error",
+      {
+        "ts-ignore": true,
+        "ts-expect-error": false,
+        "ts-nocheck": false,
+        "ts-check": false
+      }
+    ],
+    "typescript/no-unsafe-declaration-merging": "error",
+    "eslint/no-unsafe-negation": "error",
+    "eslint/no-useless-escape": "error",
+    "eslint/no-useless-backreference": "error",
+    "eslint/no-with": "error",
+    "typescript/adjacent-overload-signatures": "error",
+    "eslint/default-case-last": "error",
+    "eslint/getter-return": "error",
+    "nextjs/google-font-display": "error",
+    "unicorn/no-instanceof-builtins": "error",
+    "eslint/array-callback-return": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "react/no-children-prop": "error",
+    "react/no-render-return-value": "error",
+    "react/exhaustive-deps": "error",
+    "react/rules-of-hooks": "error",
+    "react/jsx-key": "error",
+    "react/no-danger": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-array-index-key": "error",
+    "eslint/no-restricted-globals": [
+      "error",
+      {
+        "name": "isFinite",
+        "message": "Use Number.isFinite."
+      },
+      {
+        "name": "isNaN",
+        "message": "Use Number.isNaN."
+      }
+    ],
+    "eslint/no-new-native-nonconstructor": "error",
+    "unicorn/new-for-builtins": "off"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/out-tsc/**",
+    "**/.astro/**",
+    "**/routeTree.gen.ts",
+    "**/drizzle/migrations/**",
+    ".nx/**",
+    "tmp/**"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/__tests__/**",
+        "**/*.node-test.ts",
+        "**/*.test.isolated.tsx"
+      ],
+      "rules": {
+        "typescript/no-non-null-assertion": "off"
+      }
+    },
+    {
+      "files": ["**/*.astro"],
+      "rules": {
+        "eslint/no-unused-vars": "off"
+      }
+    },
+    {
+      "files": ["**/*.{ts,tsx,mts,cts}"],
+      "rules": {
+        "eslint/no-redeclare": "off"
+      }
+    }
+  ]
+}

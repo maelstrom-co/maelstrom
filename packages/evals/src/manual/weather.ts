@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   createEngine,
   createInMemoryStore,
@@ -18,6 +19,7 @@ import {
   VesselSchema,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   constraintExpectationsSchema,
   constraintInputsSchema,
@@ -32,6 +34,10 @@ import {
   weatherActionBackedInputsSchema,
 } from '../adapters/weather-action-backed-transition.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import {
+  carriedForwardChartState,
+  postActionLayout,
+} from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -231,13 +237,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForwardChartState(previous, initial.vessels)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent }],
@@ -279,6 +279,7 @@ export function scoreWeatherTurns(
       );
     const action = sample.actions[index];
     const variant = sample.variants[index];
+    const shipped = postActionLayout(turn.response, initial.vessels);
     const plan =
       action === undefined ? [] : [{ instanceId: 'weather-main', action }];
     if (selected === 'D39') {
@@ -286,11 +287,8 @@ export function scoreWeatherTurns(
         ...scoreWeatherActionBackedResponse({
           executionPlan: turn.response.executionPlan,
           layout: {
-            type: turn.response.layout.type,
-            instances:
-              turn.response.layout.type === 'tiling'
-                ? turn.response.layout.instances
-                : [],
+            type: shipped.type,
+            instances: shipped.type === 'tiling' ? shipped.instances : [],
           },
         }).failures,
       );
@@ -319,12 +317,12 @@ export function scoreWeatherTurns(
     }));
     if (
       selected !== 'D39' &&
-      (!isDeepStrictEqual(turn.response.layout, {
+      (!isDeepStrictEqual(shipped, {
         ...initial.layout,
         instances,
       }) ||
-        turn.response.layout.type !== 'tiling' ||
-        !isDeepStrictEqual(turn.response.layout.instances, instances))
+        shipped.type !== 'tiling' ||
+        !isDeepStrictEqual(shipped.instances, instances))
     )
       failures.push(
         `Chart layout/Instance snapshot mismatch at turn ${index + 1}`,

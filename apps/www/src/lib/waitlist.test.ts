@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { submitWaitlist, validateWaitlistEmail } from './waitlist';
 
 describe('validateWaitlistEmail', () => {

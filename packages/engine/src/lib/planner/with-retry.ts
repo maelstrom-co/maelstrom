@@ -69,8 +69,8 @@ export function withRetry<In>(
  * returns any `PlannerOutput` too.
  *
  * A needs-clarification result is returned unchanged on the attempt that
- * produced it, without validation or retry: it has no layout to heal, and
- * the Engine decides whether the request allows it.
+ * produced it, without validation or retry. The Engine validates it,
+ * partial changes included, and decides whether the request allows it.
  *
  * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
  * @throws {Error} If `options.max` is not a non-negative integer.

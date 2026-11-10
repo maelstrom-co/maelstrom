@@ -1,6 +1,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { RealtimeSession } from '@maelstrom-co/realtime';
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
+
 import { demoVoiceSession } from '../lib/demo-voice';
 import { isVoiceConnected } from '../lib/voice-session-state';
 

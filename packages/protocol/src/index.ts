@@ -30,11 +30,7 @@ export {
   AgentInputSchema,
 } from './lib/agent-wire.ts';
 export type { Brand } from './lib/brand.ts';
-export type {
-  ChartDimensions,
-  ChartPosition,
-  ChartSize,
-} from './lib/chart.ts';
+export type { ChartDimensions, ChartPosition, ChartSize } from './lib/chart.ts';
 export { ChartDimensionsSchema } from './lib/chart.ts';
 export * from './lib/diagnostics.ts';
 export type { EngineMessage, EngineMessageBase } from './lib/engine-message.ts';
@@ -94,13 +90,19 @@ export {
   MAX_SPLIT_WEIGHT,
 } from './lib/model-output-limits.ts';
 export type { NeedsClarification } from './lib/needs-clarification.ts';
-export { NeedsClarificationSchema } from './lib/needs-clarification.ts';
+export {
+  GridNeedsClarificationSchema,
+  NeedsClarificationSchema,
+  TilingNeedsClarificationSchema,
+} from './lib/needs-clarification.ts';
 export type {
   ChartRequest,
   ChartResizeReason,
+  GridModelOutput,
   GridResponse,
   GridResponseWithoutReply,
   PlannerOutputFor,
+  TilingModelOutput,
   TilingResponse,
   TilingResponseWithoutReply,
   UpdateReason,
@@ -111,8 +113,10 @@ export type {
 export {
   ChartRequestSchema,
   ChartResizeReasonSchema,
+  GridModelOutputSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
+  TilingModelOutputSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
   UpdateReasonSchema,
@@ -180,6 +184,7 @@ export { toError } from './lib/to-error.ts';
 export { ToolCallId, ToolCallIdSchema } from './lib/tool-call-id.ts';
 export { VariantName } from './lib/variant-name.ts';
 export type {
+  ActionEffect,
   ActionParameter,
   ValidationIssue,
   Vessel,
@@ -191,6 +196,7 @@ export type {
   VesselVariantDefinition,
 } from './lib/vessel.ts';
 export {
+  ActionEffectSchema,
   ActionParameterSchema,
   defineVessel,
   VesselActionSchema,

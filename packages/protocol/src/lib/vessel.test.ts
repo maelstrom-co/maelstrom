@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import { ActionName } from './action-name.js';
 import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
 import type { Vessel, VesselDefinition } from './vessel.js';
 import { defineVessel, validateVessel } from './vessel.js';
-import { VesselId } from './vessel-id.js';
 
 // Type-level equality: a removed `.transform(<Brand>)` flips the inferred
 // type, the `Equals<...>` in the test below resolves to `false`, and tsc
@@ -276,55 +276,172 @@ describe('validateVessel', () => {
     ).toBe(true);
   });
 
+  describe('Action effect', () => {
+    function vesselWithAction(action: Record<string, unknown>) {
+      return {
+        ...validVessel,
+        variants: {
+          ...validVessel.variants,
+          month: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [action],
+          },
+        },
+      };
+    }
+
+    function parsedEffect(action: Record<string, unknown>) {
+      const result = validateVessel(vesselWithAction(action));
+      if (!result.valid) throw new Error('expected valid');
+      return result.vessel.variants[VariantName('month')]?.actions[0]?.effect;
+    }
+
+    test('parses an omitted effect as any', () => {
+      expect(
+        parsedEffect({ name: 'addEvent', description: 'Add an event' }),
+      ).toBe('any');
+    });
+
+    test('keeps each declared effect', () => {
+      expect(
+        parsedEffect({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'none',
+        }),
+      ).toBe('none');
+      expect(
+        parsedEffect({
+          name: 'openEntry',
+          description: 'Open an entry',
+          effect: 'idempotent',
+          parameters: [{ name: 'id', type: 'string', description: 'Entry id' }],
+        }),
+      ).toBe('idempotent');
+    });
+
+    test('rejects an effect outside none, idempotent and any', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'pure',
+        }),
+      );
+      expect(result.valid).toBe(false);
+    });
+
+    test('rejects effect none without transitionsTo', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'refresh',
+          description: 'Refresh',
+          effect: 'none',
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'transitionsTo'],
+          message:
+            'Action "refresh" declares effect "none" but no transitionsTo',
+        }),
+      );
+    });
+
+    test('rejects the removed idempotent flag with a migration message', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'openEntry',
+          description: 'Open an entry',
+          idempotent: true,
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'idempotent'],
+          message:
+            'Action "openEntry" declares idempotent, which was replaced by effect: \'idempotent\'',
+        }),
+      );
+    });
+
+    test('rejects effect none with parameters', () => {
+      const result = validateVessel(
+        vesselWithAction({
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+          effect: 'none',
+          parameters: [
+            { name: 'date', type: 'string', description: 'Week start' },
+          ],
+        }),
+      );
+      expect(result.valid).toBe(false);
+      if (result.valid) throw new Error('expected invalid result');
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: ['variants', 'month', 'actions', 0, 'parameters'],
+          message:
+            'Action "showWeek" declares effect "none" but takes parameters',
+        }),
+      );
+    });
+  });
+
   // Without `Object.hasOwn`, indexing `vessel.variants[key]` returns the
   // matching `Object.prototype` member (truthy) for keys like `'toString'` /
   // `'__proto__'` / `'constructor'`, silently bypassing the existence check.
   describe('Object.prototype member names', () => {
-    test.each([
-      'toString',
-      '__proto__',
-      'constructor',
-      'hasOwnProperty',
-    ])('rejects defaultVariant=%s', (defaultVariant) => {
-      const result = validateVessel({ ...validVessel, defaultVariant });
-      expect(result.valid).toBe(false);
-      if (result.valid) throw new Error('expected invalid result');
-      expect(
-        result.issues.some((i) =>
-          /Default variant .* does not exist/.test(i.message),
-        ),
-      ).toBe(true);
-    });
+    test.each(['toString', '__proto__', 'constructor', 'hasOwnProperty'])(
+      'rejects defaultVariant=%s',
+      (defaultVariant) => {
+        const result = validateVessel({ ...validVessel, defaultVariant });
+        expect(result.valid).toBe(false);
+        if (result.valid) throw new Error('expected invalid result');
+        expect(
+          result.issues.some((i) =>
+            /Default variant .* does not exist/.test(i.message),
+          ),
+        ).toBe(true);
+      },
+    );
 
-    test.each([
-      'toString',
-      '__proto__',
-      'constructor',
-    ])('rejects transitionsTo=%s', (transitionsTo) => {
-      const result = validateVessel({
-        ...validVessel,
-        variants: {
-          month: {
-            props: {},
-            minSize: { width: 4, height: 4 },
-            actions: [
-              {
-                name: 'showMissing',
-                description: 'transitions to a prototype member',
-                transitionsTo,
-              },
-            ],
+    test.each(['toString', '__proto__', 'constructor'])(
+      'rejects transitionsTo=%s',
+      (transitionsTo) => {
+        const result = validateVessel({
+          ...validVessel,
+          variants: {
+            month: {
+              props: {},
+              minSize: { width: 4, height: 4 },
+              actions: [
+                {
+                  name: 'showMissing',
+                  description: 'transitions to a prototype member',
+                  transitionsTo,
+                },
+              ],
+            },
           },
-        },
-      });
-      expect(result.valid).toBe(false);
-      if (result.valid) throw new Error('expected invalid result');
-      expect(
-        result.issues.some((i) =>
-          /transitions to non-existent variant/.test(i.message),
-        ),
-      ).toBe(true);
-    });
+        });
+        expect(result.valid).toBe(false);
+        if (result.valid) throw new Error('expected invalid result');
+        expect(
+          result.issues.some((i) =>
+            /transitions to non-existent variant/.test(i.message),
+          ),
+        ).toBe(true);
+      },
+    );
   });
 
   test('rejects a vessel with an empty id', () => {
@@ -379,5 +496,29 @@ describe('defineVessel', () => {
     // would widen to string.
     const firstAction = v.variants.list.actions[0];
     expect(firstAction?.name).toBe('select');
+  });
+
+  test('rejects the removed idempotent flag at compile time', () => {
+    const v = defineVessel({
+      id: 'orders',
+      name: 'Orders',
+      description: 'Order tracking',
+      defaultVariant: 'list',
+      variants: {
+        list: {
+          props: {},
+          minSize: { width: 2, height: 2 },
+          actions: [
+            {
+              name: 'select',
+              description: 'Select an order',
+              // @ts-expect-error idempotent was replaced by effect
+              idempotent: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(validateVessel(v).valid).toBe(false);
   });
 });

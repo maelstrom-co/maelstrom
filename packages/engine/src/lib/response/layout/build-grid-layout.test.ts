@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { InstanceId } from '@maelstrom-co/protocol';
 
 import { buildGridLayout } from './build-grid-layout.js';

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import { buildSystemPrompt, llmPlanner } from '@maelstrom-co/planner-llm';
 import {
@@ -12,6 +13,7 @@ import {
   VesselSchema,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import { treeRects } from '../core/geometry.js';
 import { checkArrangement } from '../core/predicates.js';
 import {

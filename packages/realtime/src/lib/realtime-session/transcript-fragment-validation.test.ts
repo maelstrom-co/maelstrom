@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+
 import type { TimedTranscriptFragment } from '@maelstrom-co/client';
+
 import {
   DEFAULT_MAX_FRAGMENT_CHARS,
   isValidFragment,

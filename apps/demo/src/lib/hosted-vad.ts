@@ -1,4 +1,5 @@
 import { browserVadAssetNamesForModel } from '@maelstrom-co/realtime-vad/asset-manifest';
+
 import { HOSTED_VAD_MODEL } from './hosted-vad-model';
 
 export { HOSTED_VAD_MODEL };

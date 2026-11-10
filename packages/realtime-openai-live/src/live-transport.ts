@@ -26,6 +26,7 @@ import {
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad/config';
+
 import { type LiveContextKind, LiveDiagnostics } from './live-diagnostics.js';
 
 /** Browser transport configuration. Factories must return exclusively owned resources. */
@@ -139,9 +140,7 @@ type Run = {
  * required Responses function outputs before calling disconnect: session.close
  * rejects later commands. This transport never reconnects or replays commands.
  */
-export class OpenAILiveTransport
-  implements RealtimeTransportAdapter<LiveSessionConfig>
-{
+export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSessionConfig> {
   private readonly diagnosticFeed = new LiveDiagnostics();
   /** Optional projected native evidence; subscribing never starts media or transport work. */
   readonly diagnostics: AdapterDiagnosticSource = this.diagnosticFeed;

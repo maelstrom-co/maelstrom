@@ -10,42 +10,43 @@ test.each([
     name: 'explicit zero output counter',
     usageMetadata: { promptTokenCount: 7, candidatesTokenCount: 0 },
   },
-])('documents the Gemini adapter limit for $name without provider requests', async ({
-  usageMetadata,
-}) => {
-  const fetch = vi.fn(
-    async () =>
-      new Response(
-        `data: ${JSON.stringify({
-          candidates: [
-            {
-              index: 0,
-              content: { role: 'model', parts: [{ text: '{}' }] },
-              finishReason: 'STOP',
-            },
-          ],
-          usageMetadata,
-        })}\n\n`,
-        { headers: { 'Content-Type': 'text/event-stream' } },
+])(
+  'documents the Gemini adapter limit for $name without provider requests',
+  async ({ usageMetadata }) => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          `data: ${JSON.stringify({
+            candidates: [
+              {
+                index: 0,
+                content: { role: 'model', parts: [{ text: '{}' }] },
+                finishReason: 'STOP',
+              },
+            ],
+            usageMetadata,
+          })}\n\n`,
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    let usage: RunFinishedEvent['usage'];
+    for await (const chunk of chat({
+      adapter: createGeminiChat(
+        'gemini-3.1-flash-lite-preview',
+        'synthetic-test-key',
       ),
-  );
-  vi.stubGlobal('fetch', fetch);
-  let usage: RunFinishedEvent['usage'];
-  for await (const chunk of chat({
-    adapter: createGeminiChat(
-      'gemini-3.1-flash-lite-preview',
-      'synthetic-test-key',
-    ),
-    messages: [{ role: 'user', content: 'synthetic' }],
-    threadId: 'synthetic-thread',
-    debug: false,
-  })) {
-    if (chunk.type === 'RUN_FINISHED') usage = chunk.usage;
-  }
-  expect(fetch).toHaveBeenCalledTimes(1);
-  expect(usage).toEqual({
-    promptTokens: 7,
-    completionTokens: 0,
-    totalTokens: 7,
-  });
-});
+      messages: [{ role: 'user', content: 'synthetic' }],
+      threadId: 'synthetic-thread',
+      debug: false,
+    })) {
+      if (chunk.type === 'RUN_FINISHED') usage = chunk.usage;
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(usage).toEqual({
+      promptTokens: 7,
+      completionTokens: 0,
+      totalTokens: 7,
+    });
+  },
+);

@@ -21,13 +21,14 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   err,
-  GridResponseSchema,
+  GridModelOutputSchema,
   isErr,
   ok,
-  TilingResponseSchema,
+  TilingModelOutputSchema,
 } from '@maelstrom-co/protocol';
 import type { ReportedLlmUsage } from '@maelstrom-co/telemetry/usage';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import { callLLM, logLLMCallError } from './call-llm.js';
 import { observeAdapter } from './observe-adapter.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
@@ -71,7 +72,9 @@ export type LlmPlannerInput = Retryable<
  * A planner that asks one LLM for the whole candidate in a single `chat()`
  * call: the system prompt for the request's layout mode, the user prompt
  * serialized from the request (plus any `hints`), prior history, and the
- * layout mode's structured output schema.
+ * layout mode's structured output schema (`GridModelOutputSchema` or
+ * `TilingModelOutputSchema`). That schema has no `type` field, so the model
+ * never writes it. The parsed reply is returned tagged `type: 'plan'`.
  *
  * On a retry from the engine's `withRetry` the user prompt becomes the original
  * prompt preceded by the previous attempt's diagnostics; the system prompt is
@@ -190,7 +193,7 @@ export function llmPlanner(
       input.retry === undefined
         ? userPrompt
         : buildRetryPrompt(userPrompt, input.retry.diagnostics),
-      mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
+      mode === 'grid' ? GridModelOutputSchema : TilingModelOutputSchema,
       input.history,
       ctx.origin.sessionId,
       signal,

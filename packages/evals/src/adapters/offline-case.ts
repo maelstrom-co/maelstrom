@@ -1,4 +1,5 @@
 import { z } from 'zod';
+
 import { evalCaseSchema, evalFixtureSchema } from '../core/case-schema.js';
 import { plannerCaseSchema } from '../core/planner-case.js';
 import { selectScenarios } from '../core/scenarios.js';
@@ -100,7 +101,6 @@ import {
   transitionExpectationsSchema,
   transitionInputsSchema,
 } from './legacy-vessel-transition.js';
-
 import {
   weatherDelayedActionDataSchema,
   weatherDelayedActionExpectationsSchema,
@@ -118,13 +118,11 @@ import {
   weatherTransitionChainInputsSchema,
 } from './legacy-weather-transition-chain.js';
 import { scriptedCandidateDataSchema } from './scripted-candidate.js';
-
 import {
   threeVesselAdditionDataSchema,
   threeVesselAdditionExpectationsSchema,
   threeVesselAdditionInputsSchema,
 } from './three-vessel-addition.js';
-
 import {
   weatherActionBackedDataSchema,
   weatherActionBackedExpectationsSchema,

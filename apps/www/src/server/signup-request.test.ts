@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import { Effect } from 'effect';
+
 import { validateWaitlistEmail } from '../lib/waitlist';
 import { decodeSignupRequest, requireTurnstileToken } from './signup-request';
 
@@ -68,12 +70,15 @@ describe('decodeSignupRequest', () => {
       'token above 2048 chars',
       { email: 'user@example.com', turnstileToken: 'x'.repeat(2049) },
     ],
-  ])('leaves %s as null so policy ordering stays with the caller', async (_name, value) => {
-    const decoded = await Effect.runPromise(
-      decodeSignupRequest(jsonPostValue(value)),
-    );
-    expect(decoded.turnstileToken).toBeNull();
-  });
+  ])(
+    'leaves %s as null so policy ordering stays with the caller',
+    async (_name, value) => {
+      const decoded = await Effect.runPromise(
+        decodeSignupRequest(jsonPostValue(value)),
+      );
+      expect(decoded.turnstileToken).toBeNull();
+    },
+  );
 
   test('decodes a valid signup with its bounded token', async () => {
     const decoded = await Effect.runPromise(

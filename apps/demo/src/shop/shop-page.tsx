@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
@@ -42,6 +43,7 @@ import { ShopKeylessPreview } from './shop-keyless-preview';
 import { ShopOptionSync } from './shop-option-sync';
 import { ShopVoiceCorner } from './shop-voice-corner';
 import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
+
 import './shop.css';
 
 export function ShopPage() {
@@ -82,6 +84,7 @@ export function ShopPage() {
 
   // The Provider and the connector must share one id per session boundary,
   // and keyEpoch is the dependency so a new epoch mints a new id.
+  // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const connector = useMemo(() => {
     if (browserKeyMode && !apiKey) return null;
@@ -313,6 +316,7 @@ function ShopWorkspace({
     return () => {
       live = false;
     };
+    // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   return (

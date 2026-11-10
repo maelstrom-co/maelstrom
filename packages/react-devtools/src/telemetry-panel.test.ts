@@ -1,4 +1,5 @@
 import { afterEach, expect, jest, test } from 'bun:test';
+
 import {
   createDevtools,
   type DevtoolsOptions,
@@ -16,8 +17,9 @@ function mount(options: DevtoolsOptions = {}) {
   cleanups.push(() => tools.dispose());
   const unmount = mountDevtools(tools);
   cleanups.push(unmount);
-  const shadow = document.querySelector('[data-maelstrom-devtools]')!
-    .shadowRoot!;
+  const shadow = document.querySelector(
+    '[data-maelstrom-devtools]',
+  )!.shadowRoot!;
   const click = (label: string) => {
     const button = Array.from(shadow.querySelectorAll('button')).find(
       (node) => node.textContent === label,
@@ -189,41 +191,42 @@ test('returning to telemetry preserves history without attributing unobserved wo
   expect(queue.getAttribute('d')!.match(/M/g)).toHaveLength(2);
 });
 
-test.each([
-  'accepted',
-  'delivered',
-  'overflow',
-] as const)('a reset of %s starts a new interval instead of inventing a negative rate', (counter) => {
-  let current = snapshot();
-  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
-  click('Telemetry');
-  current = {
-    ...current,
-    accepted: 16,
-    delivered: 9,
-    dropped: { ...current.dropped, overflow: 4 },
-  };
-  advanceTo(1000);
-  current = {
-    ...current,
-    accepted: counter === 'accepted' ? 0 : 116,
-    delivered: counter === 'delivered' ? 0 : 109,
-    dropped: {
-      ...current.dropped,
-      invalid: 51,
-      overflow: counter === 'overflow' ? 0 : 54,
-    },
-  };
-  advanceTo(2000);
-  const trends = shadow.querySelector(
-    '[aria-label="Telemetry delivery trends"]',
-  )!;
-  expect(trends.textContent).toContain('Counters reset');
-  expect(trends.textContent).toContain('3 samples · 1 s observed');
-  expect(trends.textContent).toContain('+4 · 4/s');
-  expect(trends.textContent).toContain('+2 · 2/s');
-  expect(trends.textContent).toContain('+1 · 1/s');
-});
+test.each(['accepted', 'delivered', 'overflow'] as const)(
+  'a reset of %s starts a new interval instead of inventing a negative rate',
+  (counter) => {
+    let current = snapshot();
+    const { shadow, click, advanceTo } = observe({
+      getSnapshot: () => current,
+    });
+    click('Telemetry');
+    current = {
+      ...current,
+      accepted: 16,
+      delivered: 9,
+      dropped: { ...current.dropped, overflow: 4 },
+    };
+    advanceTo(1000);
+    current = {
+      ...current,
+      accepted: counter === 'accepted' ? 0 : 116,
+      delivered: counter === 'delivered' ? 0 : 109,
+      dropped: {
+        ...current.dropped,
+        invalid: 51,
+        overflow: counter === 'overflow' ? 0 : 54,
+      },
+    };
+    advanceTo(2000);
+    const trends = shadow.querySelector(
+      '[aria-label="Telemetry delivery trends"]',
+    )!;
+    expect(trends.textContent).toContain('Counters reset');
+    expect(trends.textContent).toContain('3 samples · 1 s observed');
+    expect(trends.textContent).toContain('+4 · 4/s');
+    expect(trends.textContent).toContain('+2 · 2/s');
+    expect(trends.textContent).toContain('+1 · 1/s');
+  },
+);
 
 test('a replacement reader cannot turn another telemetry lifetime into a delivery spike', () => {
   const telemetry = { getSnapshot: snapshot };
@@ -291,56 +294,59 @@ test('failed reads remain visible and recovery cannot bridge missing delivery ev
 test.each([
   ['Queue depth and exporter activity', false, 2],
   ['Local delivery rates', true, 3],
-] as const)('%s keeps an isolated observation visible after a failed read', (title, needsInterval, seriesCount) => {
-  let broken = false;
-  let accepted = 12;
-  const { shadow, click, advanceTo } = observe({
-    getSnapshot() {
-      if (broken) throw new Error('unavailable');
-      return { ...snapshot(), accepted };
-    },
-  });
-  click('Telemetry');
-  if (needsInterval) {
-    accepted = 19;
-    advanceTo(1000);
-  }
-  broken = true;
-  advanceTo(2000);
-  const chart = shadow.querySelector(`svg[aria-label="${title}"]`)!;
-  expect(chart.querySelectorAll('circle')).toHaveLength(seriesCount);
-  for (const path of chart.querySelectorAll('path')) {
-    expect(path.getAttribute('d')).toContain('M');
-    expect(path.getAttribute('d')).not.toContain('L');
-  }
-});
+] as const)(
+  '%s keeps an isolated observation visible after a failed read',
+  (title, needsInterval, seriesCount) => {
+    let broken = false;
+    let accepted = 12;
+    const { shadow, click, advanceTo } = observe({
+      getSnapshot() {
+        if (broken) throw new Error('unavailable');
+        return { ...snapshot(), accepted };
+      },
+    });
+    click('Telemetry');
+    if (needsInterval) {
+      accepted = 19;
+      advanceTo(1000);
+    }
+    broken = true;
+    advanceTo(2000);
+    const chart = shadow.querySelector(`svg[aria-label="${title}"]`)!;
+    expect(chart.querySelectorAll('circle')).toHaveLength(seriesCount);
+    for (const path of chart.querySelectorAll('path')) {
+      expect(path.getAttribute('d')).toContain('M');
+      expect(path.getAttribute('d')).not.toContain('L');
+    }
+  },
+);
 
-test.each([
-  false,
-  true,
-])('trend retention bounds successful and unavailable reads (unavailable: %s)', (unavailable) => {
-  let accepted = 12;
-  const { shadow, click, advanceTo } = observe({
-    getSnapshot() {
-      if (unavailable) throw new Error('unavailable');
-      return { ...snapshot(), accepted };
-    },
-  });
-  click('Telemetry');
-  for (let index = 1; index <= 130; index++) {
-    accepted = 12 + index;
-    advanceTo(index * 1000);
-  }
-  const trends = shadow.querySelector(
-    '[aria-label="Telemetry delivery trends"]',
-  )!;
-  expect(trends.textContent).toContain('120 samples');
-  expect(trends.textContent).toContain('11 older samples expired');
-  if (!unavailable) {
-    expect(trends.textContent).toContain('119 s observed');
-    expect(trends.textContent).toContain('+119 · 1/s');
-  }
-});
+test.each([false, true])(
+  'trend retention bounds successful and unavailable reads (unavailable: %s)',
+  (unavailable) => {
+    let accepted = 12;
+    const { shadow, click, advanceTo } = observe({
+      getSnapshot() {
+        if (unavailable) throw new Error('unavailable');
+        return { ...snapshot(), accepted };
+      },
+    });
+    click('Telemetry');
+    for (let index = 1; index <= 130; index++) {
+      accepted = 12 + index;
+      advanceTo(index * 1000);
+    }
+    const trends = shadow.querySelector(
+      '[aria-label="Telemetry delivery trends"]',
+    )!;
+    expect(trends.textContent).toContain('120 samples');
+    expect(trends.textContent).toContain('11 older samples expired');
+    if (!unavailable) {
+      expect(trends.textContent).toContain('119 s observed');
+      expect(trends.textContent).toContain('+119 · 1/s');
+    }
+  },
+);
 
 test('sample exploration keeps its evidence and keyboard focus while live telemetry grows', () => {
   let current = snapshot();
@@ -436,33 +442,38 @@ test.each([
   'timeout',
   'disabled',
   'disposed',
-] as const)('%s losses remain visible even without newly accepted facts', (reason) => {
-  let current = snapshot();
-  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
-  click('Telemetry');
-  current = {
-    ...current,
-    state:
-      reason === 'disposed'
-        ? 'disposed'
-        : reason === 'timeout' || reason === 'disabled'
-          ? 'timed_out'
-          : 'active',
-    dropped: { ...current.dropped, [reason]: current.dropped[reason] + 4 },
-  };
-  advanceTo(1000);
-  const totals = shadow.querySelector(
-    '[aria-label="Observed interval totals"]',
-  )!;
-  expect(totals.textContent).toContain('Lost in window+4 · 4/s');
-  expect(totals.textContent).toContain('Accepted in window+0 · 0/s');
-  const json = shadow.querySelector(
-    '[aria-label="Selected telemetry sample"] pre',
-  )!;
-  expect(JSON.parse(json.textContent!).dropped[reason]).toBe(
-    current.dropped[reason],
-  );
-});
+] as const)(
+  '%s losses remain visible even without newly accepted facts',
+  (reason) => {
+    let current = snapshot();
+    const { shadow, click, advanceTo } = observe({
+      getSnapshot: () => current,
+    });
+    click('Telemetry');
+    current = {
+      ...current,
+      state:
+        reason === 'disposed'
+          ? 'disposed'
+          : reason === 'timeout' || reason === 'disabled'
+            ? 'timed_out'
+            : 'active',
+      dropped: { ...current.dropped, [reason]: current.dropped[reason] + 4 },
+    };
+    advanceTo(1000);
+    const totals = shadow.querySelector(
+      '[aria-label="Observed interval totals"]',
+    )!;
+    expect(totals.textContent).toContain('Lost in window+4 · 4/s');
+    expect(totals.textContent).toContain('Accepted in window+0 · 0/s');
+    const json = shadow.querySelector(
+      '[aria-label="Selected telemetry sample"] pre',
+    )!;
+    expect(JSON.parse(json.textContent!).dropped[reason]).toBe(
+      current.dropped[reason],
+    );
+  },
+);
 
 test('an expired selection reports missing evidence and restores a usable keyboard target', () => {
   let accepted = 12;

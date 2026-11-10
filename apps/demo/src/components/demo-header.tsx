@@ -1,5 +1,6 @@
 import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import type { ReactNode } from 'react';
+
 import { captureCommunityInviteClick } from '../lib/community-analytics';
 
 const DEMO_LINKS = [

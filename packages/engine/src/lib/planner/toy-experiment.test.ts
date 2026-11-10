@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { InstanceId } from '@maelstrom-co/protocol';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 
@@ -68,6 +69,7 @@ const stackShortlist: Stage<Shortlist, PlannerCandidate> = async (
       shortlist.instanceIds.length,
   );
   return ok({
+    type: 'plan',
     userMessage: `Showing ${shortlist.named.join(', ')}.`,
     rationale: 'Stacked the Vessels the intent named.',
     executionPlan: [],

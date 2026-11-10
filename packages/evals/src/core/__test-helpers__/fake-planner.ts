@@ -8,6 +8,7 @@ import {
   withFallback,
 } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
+
 import type {
   Arm,
   Judge,
@@ -45,6 +46,7 @@ export const FAKE_STAGES = ['pick', 'write'] as const;
 
 /** A candidate that sets the weather to Tokyo and keeps the default board, passing `quoted-location`. */
 export const TOKYO_CANDIDATE = {
+  type: 'plan',
   userMessage: 'Tokyo it is.',
   rationale: 'r',
   executionPlan: [
@@ -164,17 +166,15 @@ export function fakePluginWith(
         label: 'Fake picks',
         cell: (s) => (s.picks === undefined ? 'n/a' : String(s.picks)),
       },
-      ...FAKE_STAGES.map(
-        (stage): ReportRow => ({
-          label: `${stage} latency p50 / p95 (ms)`,
-          section: 'latency',
-          cell: (s) => {
-            const live = s.latency.stages?.[stage];
-            if (live && live.samples > 0) return spread(live);
-            return s.replayed.includes(stage) ? 'replayed' : 'n/a';
-          },
-        }),
-      ),
+      ...FAKE_STAGES.map((stage): ReportRow => ({
+        label: `${stage} latency p50 / p95 (ms)`,
+        section: 'latency',
+        cell: (s) => {
+          const live = s.latency.stages?.[stage];
+          if (live && live.samples > 0) return spread(live);
+          return s.replayed.includes(stage) ? 'replayed' : 'n/a';
+        },
+      })),
       {
         label: 'Fake calls / input / output tokens',
         section: 'tokens',

@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from 'bun:test';
+
 import { getGitHubStarCount } from './github-stars';
 
 test('browser refreshes use a public CORS request without credentials or page referrers', async () => {

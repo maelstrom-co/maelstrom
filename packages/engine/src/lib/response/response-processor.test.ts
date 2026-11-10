@@ -1,12 +1,19 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest } from '@maelstrom-co/protocol';
+
+import type {
+  ChartRequest,
+  GridLayout,
+  TilingLayout,
+} from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
   isErr,
   isOk,
   MessageId,
+  VariantName,
 } from '@maelstrom-co/protocol';
+
 import {
   type AuthorInstanceSnapshot,
   type AuthorVessel,
@@ -14,15 +21,18 @@ import {
   brandTilingResponse,
   buildGridResponse,
   buildSkippedAction,
+  forwardOnlyWizardVessel,
   type GridResponseAuthor,
   makeGridRequest,
   makeTilingRequest,
   silentLogger,
   type TilingResponseAuthor,
+  threeViewCalendarVessel,
 } from '../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import type { ReplylessCandidate } from '../planner/candidate.js';
+import { finalVariants } from './execution-plan/final-variants.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
 // Discriminates an author response on its layout shape so each branch brands
@@ -615,32 +625,35 @@ describe('processResponse', () => {
       ['string', '"hello"'],
       ['array', '[1,2,3]'],
       ['null', 'null'],
-    ])('skips action when paramsJson is a valid JSON %s (not an object)', (_label, paramsJson) => {
-      const errors: string[] = [];
-      const logger: Logger = {
-        ...silentLogger,
-        error: (msg: string) => errors.push(msg),
-      };
+    ])(
+      'skips action when paramsJson is a valid JSON %s (not an object)',
+      (_label, paramsJson) => {
+        const errors: string[] = [];
+        const logger: Logger = {
+          ...silentLogger,
+          error: (msg: string) => errors.push(msg),
+        };
 
-      const llmOutput: GridResponseAuthor = {
-        userMessage: 'Action test',
-        rationale: 'Test',
-        executionPlan: [{ instanceId: 'a', action: 'doIt', paramsJson }],
-        layout: { positions: [] },
-      };
+        const llmOutput: GridResponseAuthor = {
+          userMessage: 'Action test',
+          rationale: 'Test',
+          executionPlan: [{ instanceId: 'a', action: 'doIt', paramsJson }],
+          layout: { positions: [] },
+        };
 
-      const result = processResponse({
-        llmOutput,
-        request: richRequest(),
-        messageId: MessageId('req-1'),
-        logger,
-      });
-      expect(isOk(result)).toBe(true);
-      if (!isOk(result)) return;
+        const result = processResponse({
+          llmOutput,
+          request: richRequest(),
+          messageId: MessageId('req-1'),
+          logger,
+        });
+        expect(isOk(result)).toBe(true);
+        if (!isOk(result)) return;
 
-      expect(result.value.executionPlan).toHaveLength(0);
-      expect(errors[0]).toContain('not a JSON object');
-    });
+        expect(result.value.executionPlan).toHaveLength(0);
+        expect(errors[0]).toContain('not a JSON object');
+      },
+    );
   });
 
   describe('execution plan validation', () => {
@@ -2805,7 +2818,7 @@ describe('processResponse', () => {
   // Chart resizes are the one trigger that arrives without any user or vessel
   // signal, so the serialized state the LLM sees is identical to the state
   // before an action it already ran. The Engine refuses every action its
-  // author did not declare idempotent on such a turn rather than replaying it.
+  // author did not declare rerun-safe on such a turn rather than replaying it.
   describe('resize-only update reasons', () => {
     const journalVessel: AuthorVessel = {
       id: 'journal',
@@ -2828,7 +2841,7 @@ describe('processResponse', () => {
               name: 'showRead',
               description: 'Switch to reading',
               transitionsTo: 'read',
-              idempotent: true,
+              effect: 'none',
             },
           ],
         },
@@ -2915,7 +2928,7 @@ describe('processResponse', () => {
       expect(result.value.diagnostics.retryHint.recommend).toBe(false);
     });
 
-    test('keeps an idempotent Variant transition on an existing instance', () => {
+    test('keeps a no-effect Variant transition on an existing instance', () => {
       const llmOutput: TilingResponseAuthor = {
         userMessage: 'Switched the journal to reading',
         rationale: 'Narrower chart suits the read variant',
@@ -2972,27 +2985,33 @@ describe('processResponse userMessage and skipReply', () => {
   test.each([
     ['absent', undefined],
     ['false', false],
-  ])('a missing userMessage is a ParseError when skipReply is %s', (_case, skipReply) => {
-    const result = process(withoutReply(), skipReply);
+  ])(
+    'a missing userMessage is a ParseError when skipReply is %s',
+    (_case, skipReply) => {
+      const result = process(withoutReply(), skipReply);
 
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error).toMatchObject({
-      _tag: 'ParseError',
-      raw: 'userMessage',
-    });
-  });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error).toMatchObject({
+        _tag: 'ParseError',
+        raw: 'userMessage',
+      });
+    },
+  );
 
   test.each([
     ['absent', undefined, ''],
     ['false', false, ''],
     ['absent', undefined, ' \t\n '],
     ['false', false, ' \t\n '],
-  ])('a blank userMessage is a ParseError when skipReply is %s (%p)', (_case, skipReply, userMessage) => {
-    const result = process(buildGridResponse({ userMessage }), skipReply);
+  ])(
+    'a blank userMessage is a ParseError when skipReply is %s (%p)',
+    (_case, skipReply, userMessage) => {
+      const result = process(buildGridResponse({ userMessage }), skipReply);
 
-    expect(isErr(result) && result.error._tag).toBe('ParseError');
-  });
+      expect(isErr(result) && result.error._tag).toBe('ParseError');
+    },
+  );
 
   test('a missing userMessage is accepted when skipReply is true', () => {
     const result = process(withoutReply(), true);
@@ -3010,14 +3029,436 @@ describe('processResponse userMessage and skipReply', () => {
     expect(isOk(result) && result.value.userMessage).toBe('Done');
   });
 
-  test.each([
-    '',
-    ' \t\n ',
-  ])('a blank userMessage %p passes through unchanged when skipReply is true', (userMessage) => {
-    const result = process(buildGridResponse({ userMessage }), true);
+  test.each(['', ' \t\n '])(
+    'a blank userMessage %p passes through unchanged when skipReply is true',
+    (userMessage) => {
+      const result = process(buildGridResponse({ userMessage }), true);
+
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.userMessage).toBe(userMessage);
+    },
+  );
+});
+
+describe('processResponse pre-action Layout Variant', () => {
+  function calendarResponse(
+    layoutVariant: string,
+    plan: readonly string[],
+  ): TilingResponseAuthor {
+    return {
+      userMessage: 'Done',
+      rationale: 'calendar view change',
+      executionPlan: plan.map((action) => ({
+        instanceId: 'calendar-main',
+        action,
+      })),
+      layout: {
+        tree: ['calendar-main'],
+        instances: [
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: layoutVariant,
+          },
+        ],
+      },
+    };
+  }
+
+  function calendarRequestIn(variant: string): ChartRequest {
+    return makeTilingRequest({
+      instances: [
+        { instanceId: 'calendar-main', vesselId: 'calendar', variant },
+      ],
+      vessels: [threeViewCalendarVessel],
+    });
+  }
+
+  function layoutVariantOf(
+    layout: GridLayout | TilingLayout,
+  ): VariantName | undefined {
+    return layout.type === 'tiling' ? layout.instances[0]?.variant : undefined;
+  }
+
+  function run(llmOutput: TilingResponseAuthor, request: ChartRequest) {
+    const result = processResponse({
+      llmOutput,
+      request,
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+    if (!isOk(result)) throw new Error('expected an accepted response');
+    return result.value;
+  }
+
+  test('a pre-action Layout Variant plus its transition Action is accepted unchanged', () => {
+    const response = run(
+      calendarResponse('day', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings).toEqual([]);
+  });
+
+  test('the post-action Layout Variant from the ticket is restored and its Action kept', () => {
+    const response = run(
+      calendarResponse('week', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+    expect(response.diagnostics.retryHint).toEqual({
+      severity: 'low',
+      recommend: false,
+    });
+  });
+
+  test('an existing Instance is simulated from its Layout Variant, not its request Variant', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'jump to review then finish',
+        executionPlan: [{ instanceId: 'wizard-main', action: 'finish' }],
+        layout: {
+          tree: ['wizard-main'],
+          instances: [
+            {
+              instanceId: 'wizard-main',
+              vesselId: 'wizard',
+              variant: 'review',
+            },
+          ],
+        },
+      },
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'start' },
+        ],
+        vessels: [forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('review'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('finish'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+  });
+
+  test('a transition the request Variant does not offer is skipped against the Layout Variant', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'finish the wizard',
+        executionPlan: [{ instanceId: 'wizard-main', action: 'finish' }],
+        layout: {
+          tree: ['wizard-main'],
+          instances: [
+            { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'done' },
+          ],
+        },
+      },
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'wizard-main', vesselId: 'wizard', variant: 'start' },
+        ],
+        vessels: [forwardOnlyWizardVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('done'));
+    expect(response.executionPlan).toEqual([]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      buildSkippedAction({
+        reason: 'self_transition_noop',
+        instanceId: 'wizard-main',
+        action: 'finish',
+        vesselId: 'wizard',
+        currentVariant: 'done',
+      }),
+    ]);
+  });
+
+  test('a transition Action skipped for its params next to an accepted Action keeps the declared Layout Variant and reports the skip', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'add an event and switch to the week view',
+        executionPlan: [
+          { instanceId: 'calendar-main', action: 'addEvent' },
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: '{"view":"next"}',
+          },
+        ],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      },
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('week'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('addEvent'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({ action: ActionName('showWeek') }),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).not.toContain(
+      'pre_action_variant_restored',
+    );
+  });
+
+  test('a side-effect Action skipped for its params ahead of the transition still restores the request Variant and keeps the transition', () => {
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'add an event and switch to the week view',
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'addEvent',
+            paramsJson: '{"x":1}',
+          },
+          { instanceId: 'calendar-main', action: 'showWeek' },
+        ],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      },
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('day'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({
+        reason: 'params_validation_failed',
+        action: ActionName('addEvent'),
+      }),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+  });
+
+  test('an Action only the Layout Variant offers ahead of the transition keeps the declared Layout Variant so that Action ships', () => {
+    const shareOnWeekCalendarVessel: AuthorVessel = {
+      ...threeViewCalendarVessel,
+      variants: {
+        ...threeViewCalendarVessel.variants,
+        week: {
+          ...threeViewCalendarVessel.variants.week,
+          actions: [
+            ...threeViewCalendarVessel.variants.week.actions,
+            { name: 'shareWeek', description: 'Share the week' },
+          ],
+        },
+      },
+    };
+
+    const response = run(
+      calendarResponse('week', ['shareWeek', 'showWeek']),
+      makeTilingRequest({
+        instances: [
+          { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'day' },
+        ],
+        vessels: [shareOnWeekCalendarVessel],
+      }),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('week'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('shareWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([
+      expect.objectContaining({
+        reason: 'self_transition_noop',
+        action: ActionName('showWeek'),
+      }),
+    ]);
+    expect(response.diagnostics.warnings).toEqual([]);
+  });
+
+  test('a toggle executable from both Variants restores the request Variant so the Instance ends on the Layout Variant', () => {
+    const togglePanelVessel: AuthorVessel = {
+      id: 'panel',
+      name: 'Panel',
+      description: 'Panel that toggles between two Variants',
+      defaultVariant: 'collapsed',
+      variants: {
+        collapsed: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'toggle',
+              description: 'Expand',
+              transitionsTo: 'expanded',
+            },
+          ],
+        },
+        expanded: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'toggle',
+              description: 'Collapse',
+              transitionsTo: 'collapsed',
+            },
+          ],
+        },
+      },
+    };
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'panel-main', vesselId: 'panel', variant: 'collapsed' },
+      ],
+      vessels: [togglePanelVessel],
+    });
+
+    const response = run(
+      {
+        userMessage: 'Done',
+        rationale: 'expand the panel',
+        executionPlan: [{ instanceId: 'panel-main', action: 'toggle' }],
+        layout: {
+          tree: ['panel-main'],
+          instances: [
+            {
+              instanceId: 'panel-main',
+              vesselId: 'panel',
+              variant: 'expanded',
+            },
+          ],
+        },
+      },
+      request,
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('collapsed'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('toggle'),
+    ]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'pre_action_variant_restored',
+    ]);
+    if (response.layout.type !== 'tiling') throw new Error('expected tiling');
+    const replay = finalVariants(
+      response.layout.instances,
+      response.executionPlan,
+      request.vessels,
+    );
+    expect(isOk(replay) && replay.value.get(InstanceId('panel-main'))).toBe(
+      VariantName('expanded'),
+    );
+  });
+
+  test('an existing Instance declared with an inherited Variant name is dropped instead of throwing', () => {
+    const result = processResponse({
+      llmOutput: calendarResponse('constructor', ['showWeek']),
+      request: calendarRequestIn('day'),
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect(result.value.userMessage).toBe(userMessage);
+    expect(result.value.diagnostics.droppedLayoutEntries).toContainEqual(
+      expect.objectContaining({
+        reason: 'unknown_variant',
+        variant: VariantName('constructor'),
+      }),
+    );
+    expect(result.value.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+  });
+
+  test('a new Instance declared with an inherited Variant name is dropped instead of throwing', () => {
+    const result = processResponse({
+      llmOutput: {
+        userMessage: 'Done',
+        rationale: 'open a second calendar',
+        executionPlan: [{ instanceId: 'calendar-side', action: 'showWeek' }],
+        layout: {
+          tree: ['V', 'calendar-main', 'calendar-side'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'day',
+            },
+            {
+              instanceId: 'calendar-side',
+              vesselId: 'calendar',
+              variant: 'constructor',
+            },
+          ],
+        },
+      },
+      request: calendarRequestIn('day'),
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.diagnostics.droppedLayoutEntries).toContainEqual(
+      expect.objectContaining({
+        reason: 'unknown_variant',
+        variant: VariantName('constructor'),
+      }),
+    );
+    expect(result.value.executionPlan).toEqual([]);
+  });
+
+  test('a Layout Variant that disagrees with the transition target is kept with a conflict warning and no retry', () => {
+    const response = run(
+      calendarResponse('month', ['showWeek']),
+      calendarRequestIn('day'),
+    );
+
+    expect(layoutVariantOf(response.layout)).toBe(VariantName('month'));
+    expect(response.executionPlan.map((a) => a.action)).toEqual([
+      ActionName('showWeek'),
+    ]);
+    expect(response.diagnostics.skippedActions).toEqual([]);
+    expect(response.diagnostics.warnings.map((w) => w.kind)).toEqual([
+      'layout_variant_and_action_transition_conflict',
+    ]);
+    expect(response.diagnostics.retryHint.recommend).toBe(false);
   });
 });

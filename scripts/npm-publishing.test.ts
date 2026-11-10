@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+
 import { waitForPublishedPackages } from './lib/published-packages.ts';
 
 type Step = {
@@ -32,106 +33,108 @@ const readWorkflow = async (name: string): Promise<Workflow> =>
     await Bun.file(`.github/workflows/${name}.yml`).text(),
   ) as Workflow;
 
-test.each([
-  'release',
-  'publish-pr',
-])('%s saves per-attempt records before waiting for registry visibility', async (name) => {
-  const publish = (await readWorkflow(name)).jobs.publish!;
-  const index = (step: string) =>
-    publish.steps.findIndex((value) => value.name === step);
-  const find = (step: string) => {
-    const result = publish.steps[index(step)];
-    if (!result) throw new Error(`Missing ${step}`);
-    return result;
-  };
-  const publication = name === 'release' ? 'Publish' : 'Publish packages';
-  const download = find('Download publication records');
-  const save = find('Save publication record');
-  const command = find(publication);
-  expect(index('Download publication records')).toBeLessThan(
-    index(publication),
-  );
-  expect(index(publication)).toBeLessThan(index('Save publication record'));
-  expect(index('Save publication record')).toBeLessThan(
-    index('Verify packages are live'),
-  );
-  expect(download.with?.pattern).toBe('npm-publication-records-*');
-  expect(download.with?.['digest-mismatch']).toBe('error');
-  expect(download.with?.['github-token']).toBeUndefined();
-  expect(download.with?.['run-id']).toBeUndefined();
-  expect(download.with?.repository).toBeUndefined();
-  expect(save.if).toContain('always()');
-  expect(save.with?.overwrite).toBe(false);
-  expect(save.with?.['retention-days']).toBe(7);
-  expect(save.with?.name).toBe(
-    'npm-publication-records-' + '$' + '{{ github.run_attempt }}',
-  );
-  expect(command.run).toContain('--publication-record "$PUBLICATION_RECORD"');
-  expect(command.run).toContain('--recovery-records "$RECOVERY_RECORDS"');
-  expect(command.run).toContain('--source-commit "$SOURCE_COMMIT"');
-  expect(command.env?.RECOVERY_RECORDS).toBe(
-    '$' + '{{ runner.temp }}/prior-publication-records',
-  );
-  expect(command.env?.PUBLICATION_RECORD).toBe(
-    '$' +
-      '{{ runner.temp }}/current-publication-record/publication-record.json',
-  );
-  expect(command.env?.SOURCE_COMMIT).toBe(
-    name === 'release'
-      ? '$' + '{{ needs.prepare.outputs.commit }}'
-      : '$' + '{{ github.event.pull_request.head.sha }}',
-  );
-});
+test.each(['release', 'publish-pr'])(
+  '%s saves per-attempt records before waiting for registry visibility',
+  async (name) => {
+    const publish = (await readWorkflow(name)).jobs.publish!;
+    const index = (step: string) =>
+      publish.steps.findIndex((value) => value.name === step);
+    const find = (step: string) => {
+      const result = publish.steps[index(step)];
+      if (!result) throw new Error(`Missing ${step}`);
+      return result;
+    };
+    const publication = name === 'release' ? 'Publish' : 'Publish packages';
+    const download = find('Download publication records');
+    const save = find('Save publication record');
+    const command = find(publication);
+    expect(index('Download publication records')).toBeLessThan(
+      index(publication),
+    );
+    expect(index(publication)).toBeLessThan(index('Save publication record'));
+    expect(index('Save publication record')).toBeLessThan(
+      index('Verify packages are live'),
+    );
+    expect(download.with?.pattern).toBe('npm-publication-records-*');
+    expect(download.with?.['digest-mismatch']).toBe('error');
+    expect(download.with?.['github-token']).toBeUndefined();
+    expect(download.with?.['run-id']).toBeUndefined();
+    expect(download.with?.repository).toBeUndefined();
+    expect(save.if).toContain('always()');
+    expect(save.with?.overwrite).toBe(false);
+    expect(save.with?.['retention-days']).toBe(7);
+    expect(save.with?.name).toBe(
+      'npm-publication-records-' + '$' + '{{ github.run_attempt }}',
+    );
+    expect(command.run).toContain('--publication-record "$PUBLICATION_RECORD"');
+    expect(command.run).toContain('--recovery-records "$RECOVERY_RECORDS"');
+    expect(command.run).toContain('--source-commit "$SOURCE_COMMIT"');
+    expect(command.env?.RECOVERY_RECORDS).toBe(
+      '$' + '{{ runner.temp }}/prior-publication-records',
+    );
+    expect(command.env?.PUBLICATION_RECORD).toBe(
+      '$' +
+        '{{ runner.temp }}/current-publication-record/publication-record.json',
+    );
+    expect(command.env?.SOURCE_COMMIT).toBe(
+      name === 'release'
+        ? '$' + '{{ needs.prepare.outputs.commit }}'
+        : '$' + '{{ github.event.pull_request.head.sha }}',
+    );
+  },
+);
 
-test.each([
-  'release',
-  'publish-pr',
-])('%s reserves the full scanning deadline after the maximum setup and upload time', async (name) => {
-  const publish = (await readWorkflow(name)).jobs.publish!;
-  const verificationIndex = publish.steps.findIndex(
-    (step) => step.name === 'Verify packages are live',
-  );
-  expect(verificationIndex).toBeGreaterThanOrEqual(0);
-  const stepMinutes = publish.steps.map((step) => {
-    const minutes = step['timeout-minutes'];
+test.each(['release', 'publish-pr'])(
+  '%s reserves the full scanning deadline after the maximum setup and upload time',
+  async (name) => {
+    const publish = (await readWorkflow(name)).jobs.publish!;
+    const verificationIndex = publish.steps.findIndex(
+      (step) => step.name === 'Verify packages are live',
+    );
+    expect(verificationIndex).toBeGreaterThanOrEqual(0);
+    const stepMinutes = publish.steps.map((step) => {
+      const minutes = step['timeout-minutes'];
+      expect(
+        Number.isInteger(minutes),
+        `${step.name} needs a bounded duration`,
+      ).toBe(true);
+      expect(minutes).toBeGreaterThan(0);
+      return minutes!;
+    });
+    const jobMinutes = publish['timeout-minutes']!;
+    expect(Number.isInteger(jobMinutes)).toBe(true);
+    expect(jobMinutes).toBeGreaterThanOrEqual(
+      stepMinutes.reduce((sum, minutes) => sum + minutes, 0) + 1,
+    );
+
+    const beforeVerificationMs =
+      stepMinutes
+        .slice(0, verificationIndex)
+        .reduce((sum, minutes) => sum + minutes, 0) * 60_000;
+    let elapsedMs = beforeVerificationMs;
     expect(
-      Number.isInteger(minutes),
-      `${step.name} needs a bounded duration`,
-    ).toBe(true);
-    expect(minutes).toBeGreaterThan(0);
-    return minutes!;
-  });
-  const jobMinutes = publish['timeout-minutes']!;
-  expect(Number.isInteger(jobMinutes)).toBe(true);
-  expect(jobMinutes).toBeGreaterThanOrEqual(
-    stepMinutes.reduce((sum, minutes) => sum + minutes, 0) + 1,
-  );
-
-  const beforeVerificationMs =
-    stepMinutes
-      .slice(0, verificationIndex)
-      .reduce((sum, minutes) => sum + minutes, 0) * 60_000;
-  let elapsedMs = beforeVerificationMs;
-  expect(
-    waitForPublishedPackages(
-      ['still-scanning'],
-      { version: '0.2.0', registry: 'https://registry.npmjs.org' },
-      {
-        now: () => elapsedMs,
-        isPublished: () => false,
-        sleep: (milliseconds) => {
-          elapsedMs += milliseconds;
-          expect(elapsedMs).toBeLessThan(jobMinutes * 60_000);
+      waitForPublishedPackages(
+        ['still-scanning'],
+        { version: '0.2.0', registry: 'https://registry.npmjs.org' },
+        {
+          now: () => elapsedMs,
+          isPublished: () => false,
+          sleep: (milliseconds) => {
+            elapsedMs += milliseconds;
+            expect(elapsedMs).toBeLessThan(jobMinutes * 60_000);
+          },
+          log: () => {},
         },
-        log: () => {},
-      },
-    ),
-  ).toEqual(['still-scanning']);
-  expect(elapsedMs - beforeVerificationMs).toBeGreaterThanOrEqual(30 * 60_000);
-  expect(stepMinutes[verificationIndex]! * 60_000).toBeGreaterThanOrEqual(
-    elapsedMs - beforeVerificationMs + 60_000,
-  );
-});
+      ),
+    ).toEqual(['still-scanning']);
+    expect(elapsedMs - beforeVerificationMs).toBeGreaterThanOrEqual(
+      30 * 60_000,
+    );
+    expect(stepMinutes[verificationIndex]! * 60_000).toBeGreaterThanOrEqual(
+      elapsedMs - beforeVerificationMs + 60_000,
+    );
+  },
+);
 
 test('a private repository cannot publish npm previews, including maintainer PRs', async () => {
   const workflow = await readWorkflow('publish-pr');

@@ -4,11 +4,6 @@ import { join } from 'node:path';
 import type { TilingNode } from '@maelstrom-co/protocol';
 
 import {
-  GRADER_VERSION,
-  type GraderDimension,
-  type GraderGrade,
-} from './grader.js';
-import {
   type GradedResponse,
   type GraderLabel,
   type GraderValidation,
@@ -19,6 +14,11 @@ import {
   spearman,
   validateGrader,
 } from './grader-validate.js';
+import {
+  GRADER_VERSION,
+  type GraderDimension,
+  type GraderGrade,
+} from './grader.js';
 import type { RunRecord } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
@@ -165,24 +165,27 @@ describe('validateGrader', () => {
     ['model', { ...provenance, model: 'two' }],
     ['kind', { ...provenance, kind: 'unknown' as const }],
     ['partial', undefined],
-  ])('fails calibration for mixed %s provenance despite passing statistics', (_name, other) => {
-    const { records, grades } = fixture(10);
-    for (const changedIndex of [0, grades.length - 1]) {
-      const validation = validateGrader({
-        labels,
-        records,
-        grades: grades.map((entry, index) => ({
-          ...entry,
-          provenance: index === changedIndex ? other : provenance,
-        })),
-      });
-      expect(validation.gateRho).toBeCloseTo(1, 10);
-      expect(validation.agreement).toEqual({ agree: 10, total: 10 });
-      expect(validation.passed).toBe(false);
-      expect(validation).not.toHaveProperty('provenance');
-      expect(graderGate(validation).validated).toBe(false);
-    }
-  });
+  ])(
+    'fails calibration for mixed %s provenance despite passing statistics',
+    (_name, other) => {
+      const { records, grades } = fixture(10);
+      for (const changedIndex of [0, grades.length - 1]) {
+        const validation = validateGrader({
+          labels,
+          records,
+          grades: grades.map((entry, index) => ({
+            ...entry,
+            provenance: index === changedIndex ? other : provenance,
+          })),
+        });
+        expect(validation.gateRho).toBeCloseTo(1, 10);
+        expect(validation.agreement).toEqual({ agree: 10, total: 10 });
+        expect(validation.passed).toBe(false);
+        expect(validation).not.toHaveProperty('provenance');
+        expect(graderGate(validation).validated).toBe(false);
+      }
+    },
+  );
 
   test('agreement-only contributors cannot mix provenance with labelled grades', () => {
     const { records, grades } = fixture(10);
@@ -416,6 +419,7 @@ describe('shippedFromRecord', () => {
 
   describe('from the completion stage of a turn that did not fall back', () => {
     const candidate = {
+      type: 'plan',
       userMessage: 'Tokyo it is.',
       rationale: 'Set the weather location.',
       executionPlan: [
@@ -458,6 +462,36 @@ describe('shippedFromRecord', () => {
       expect(shipped?.instances.map((instance) => instance.instanceId)).toEqual(
         quoted.request.instances.map((instance) => instance.instanceId),
       );
+    });
+
+    test('treats a candidate recorded without a type tag as a plan', async () => {
+      const { type: _type, ...untagged } = candidate;
+      const shipped = await shippedFromRecord(shippedRecord, quoted, {
+        stage: 'complete',
+        records: [
+          { stage: 'complete', ms: 1, outcome: 'ok', output: untagged },
+        ],
+      } as never);
+      expect(shipped?.userMessage).toBe(candidate.userMessage);
+      expect(shipped?.tree).toEqual(candidate.layout.tree as never);
+    });
+
+    test('shows each instance in the variant the shipped plan leaves it in', async () => {
+      const switching = {
+        ...candidate,
+        executionPlan: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      };
+      const shipped = await shippedFromRecord(shippedRecord, quoted, {
+        stage: 'complete',
+        records: [
+          { stage: 'complete', ms: 1, outcome: 'ok', output: switching },
+        ],
+      } as never);
+      expect(
+        shipped?.instances.find(
+          (instance) => instance.instanceId === 'weather-main',
+        )?.variant,
+      ).toBe('weekly' as never);
     });
 
     test('rejects a candidate whose message or tree is not what the record shipped', async () => {

@@ -29,10 +29,13 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex');
       hidden
     >
       <input type="hidden" name="token" />
-      <button class="btn btn-primary" type="submit">Confirm my email</button>
+      <button class="btn btn-primary" type="submit">
+        Confirm my email
+      </button>
     </form>
     <noscript>
-      JavaScript is required to confirm your email without exposing your confirmation token in a request URL.
+      JavaScript is required to confirm your email without exposing your
+      confirmation token in a request URL.
     </noscript>
   </WaitlistResult>
 </Layout>
@@ -41,11 +44,7 @@ Astro.response.headers.set('X-Robots-Tag', 'noindex');
   import { isWaitlistToken } from '../../lib/waitlist-token';
 
   const fragment = window.location.hash;
-  window.history.replaceState(
-    null,
-    '',
-    window.location.pathname,
-  );
+  window.history.replaceState(null, '', window.location.pathname);
 
   const token = new URLSearchParams(fragment.slice(1)).get('token');
   const form = document.querySelector<HTMLFormElement>(

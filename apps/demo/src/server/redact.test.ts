@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { describe, expect, it } from 'vitest';
+
 import { redactSecrets } from './redact';
 
 // nanoid's default alphabet is `A-Za-z0-9_-` at length 21 — the same

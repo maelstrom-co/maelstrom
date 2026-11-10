@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+
 import { type Page, test } from '@playwright/test';
+
 import { computeBargeInMeasurement } from './barge-in-measurement.ts';
 import {
   type BargeInObserverWindow,

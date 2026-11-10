@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Check } from 'lucide-react';
+
 import { VesselCard } from '../components/vessel-card';
 import {
   describeAddedTask,

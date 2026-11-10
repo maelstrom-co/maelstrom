@@ -57,20 +57,16 @@ const {
   feedbackActions,
   getFeedbackSnapshot,
 } = await import('./stores/feedback.store');
-const { __resetBoardFilterStoreForTests, boardFilterActions } = await import(
-  './stores/board-filter.store'
-);
-const { projectTasksVessel } = await import(
-  './vessels/project-tasks.vessel.def'
-);
-const { myPrioritiesVessel } = await import(
-  './vessels/my-priorities.vessel.def'
-);
+const { __resetBoardFilterStoreForTests, boardFilterActions } =
+  await import('./stores/board-filter.store');
+const { projectTasksVessel } =
+  await import('./vessels/project-tasks.vessel.def');
+const { myPrioritiesVessel } =
+  await import('./vessels/my-priorities.vessel.def');
 const { taskDetailVessel } = await import('./vessels/task-detail.vessel.def');
 const { triageInboxVessel } = await import('./vessels/triage-inbox.vessel.def');
-const { sourceFeedbackVessel } = await import(
-  './vessels/source-feedback.vessel.def'
-);
+const { sourceFeedbackVessel } =
+  await import('./vessels/source-feedback.vessel.def');
 
 const TASK_PARAMETER_ACTIONS = [
   'updateTask',

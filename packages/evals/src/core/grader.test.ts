@@ -7,6 +7,7 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import { scriptedJudge } from './__test-helpers__/fake-planner.js';
 import { silentLogger } from './__test-helpers__/fixtures.js';
 import {

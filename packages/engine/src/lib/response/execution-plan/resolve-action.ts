@@ -79,14 +79,14 @@ export function resolveAction(
     return err({ kind: 'no_simulated_variant' });
   }
 
-  const variantDef = vessel.variants[currentVariant];
-  if (!variantDef) {
+  if (!Object.hasOwn(vessel.variants, currentVariant)) {
     return err({
       kind: 'variant_not_on_vessel',
       vesselId: vessel.id,
       variant: currentVariant,
     });
   }
+  const variantDef = vessel.variants[currentVariant];
 
   const actionDef = variantDef.actions.find((a) => a.name === item.action);
   if (!actionDef) {
@@ -213,12 +213,12 @@ export function logResolveFailure(
       // the resize trigger so on-call doesn't read it as a broken action
       // definition.
       logger.warn(
-        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not declared idempotent and this update was triggered by chart resize alone, skipping`,
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" declares effect "any", not "none" or "idempotent", and this update was triggered by chart resize alone, skipping`,
       );
       return;
     case 'parameterized_on_resize':
-      // Names the parameters, not the flag: the action IS declared
-      // idempotent, so a message blaming the declaration would send on-call
+      // Names the parameters, not the effect: the action IS declared
+      // rerun-safe, so a message blaming the declaration would send on-call
       // to edit a Vessel definition that is already correct.
       logger.warn(
         `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" carries parameters and this update was triggered by chart resize alone, skipping`,

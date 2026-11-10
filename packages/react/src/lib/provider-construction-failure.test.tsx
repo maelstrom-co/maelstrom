@@ -1,7 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
+
 import * as realClient from '@maelstrom-co/client';
 import { act, cleanup, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstromContext } from './context.js';
 import { createProvider } from './provider.js';

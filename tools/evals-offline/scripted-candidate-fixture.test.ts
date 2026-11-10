@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+
 import { getScenario } from '../../packages/evals/src/adapters/offline-case.js';
 import {
   type ScriptedCandidateData,
@@ -133,11 +134,6 @@ test('scripted candidate missing/wrong Actions fail the unchanged scenario score
     expect(
       result.failures.some((failure) => failure.startsWith('Ordered actions:')),
     ).toBe(true);
-    expect(
-      result.failures.some((failure) =>
-        failure.startsWith('Variant of weather-main'),
-      ),
-    ).toBe(true);
     expect(result.records[0].value).toEqual(data);
     expect(getScenario('variant').expected).toEqual(sourceExpected);
     if (action === 'inventedAction')
@@ -147,6 +143,7 @@ test('scripted candidate missing/wrong Actions fail the unchanged scenario score
 
 test('Engine removes an invalid extra Action: raw candidate fails but shipped response passes', async () => {
   const { item, data } = documents();
+  data.candidate.layout.instances[1].variant = VariantName('current');
   const malformed = scriptedCandidateDataSchema.parse({
     candidate: {
       ...data.candidate,
@@ -209,15 +206,13 @@ test('scripted candidates do not introduce a raw-Variant oracle beyond the uncha
     identity,
     scriptedCandidate(data, item.definition),
   );
-  expect(result.evaluation).toBe('fail');
+  expect(result.evaluation).toBe('pass');
   expect(
     result.observation?.instances?.find(
       (item) => item.instanceId === 'weather-main',
     )?.variant,
-  ).toBe(VariantName('current'));
-  expect(result.failures).toContain(
-    'Variant of weather-main is current, but the execution plan leaves it weekly',
-  );
+  ).toBe(VariantName('weekly'));
+  expect(result.failures).toEqual([]);
 });
 
 test('scripted candidate schema bounds raw output without semantic healing or silent field stripping', () => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+
 import { isGreetingBargeInReady } from './greeting-barge-in-gate.ts';
 
 test('greeting readiness starts at 100ms accumulated activity with a 0–30ms quiet tail', () => {

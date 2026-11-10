@@ -38,7 +38,7 @@ test('real TanStack planner failures do not print provider secrets outside the e
   const jev = join(packages, 'planner-jev', 'src', 'lib');
   const probe = `
     import { callLLM } from ${JSON.stringify(join(packages, 'planner-llm', 'src', 'lib', 'call-llm.ts'))};
-    import { GridResponseSchema } from '@maelstrom-co/protocol';
+    import { GridModelOutputSchema } from '@maelstrom-co/protocol';
     import { z } from 'zod';
     import { llmComplete } from ${JSON.stringify(join(jev, 'stages', 'llm-complete.ts'))};
     import { callLlm } from ${JSON.stringify(join(jev, 'stages', 'complete-layout-inline.ts'))};
@@ -59,7 +59,7 @@ test('real TanStack planner failures do not print provider secrets outside the e
     const plan = completionPlan(makeRequest('hide the tasks'));
     const ctx = makeContext(plan.plan.selection.input);
     const results = await Promise.all([
-      callLLM(adapter, 'system', 'user', GridResponseSchema, [], ctx.origin.sessionId),
+      callLLM(adapter, 'system', 'user', GridModelOutputSchema, [], ctx.origin.sessionId),
       llmComplete({ adapter })(plan, ctx),
       callLlm({ adapter }, 'user', z.object({ userMessage: z.string() }), [], ctx),
     ]);
@@ -84,7 +84,7 @@ test('real TanStack planners accept structured replies without provider requests
   const jev = join(packages, 'planner-jev', 'src', 'lib');
   const probe = `
     import { callLLM } from ${JSON.stringify(join(packages, 'planner-llm', 'src', 'lib', 'call-llm.ts'))};
-    import { GridResponseSchema } from '@maelstrom-co/protocol';
+    import { GridModelOutputSchema } from '@maelstrom-co/protocol';
     import { z } from 'zod';
     import { callLlm } from ${JSON.stringify(join(jev, 'llm-call.ts'))};
     import { makeContext, makeInput, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
@@ -104,7 +104,7 @@ test('real TanStack planners accept structured replies without provider requests
     };
     const ctx = makeContext(makeInput(makeRequest('hide the tasks')));
     const results = await Promise.all([
-      callLLM(adapter, 'system', 'user', GridResponseSchema, [], ctx.origin.sessionId),
+      callLLM(adapter, 'system', 'user', GridModelOutputSchema, [], ctx.origin.sessionId),
       callLlm({ adapter }, 'user', z.object({ userMessage: z.string() }), [], ctx),
     ]);
     if (providerCalls !== 2 || results.some(result => !result.ok || result.value.userMessage !== 'Done.')) {

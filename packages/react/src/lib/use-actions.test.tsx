@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+
 import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
@@ -12,6 +13,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { useState } from 'react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -51,6 +53,13 @@ const orderVessel = defineVessel({
 });
 
 const entry = vessel(orderVessel, () => null);
+
+// Every orders Action needs a handler, so tests override only the one they observe.
+const unusedHandlers: ActionRunner<typeof orderVessel> = {
+  selectOrder: () => ok(undefined),
+  refresh: () => ok(undefined),
+  close: () => ok(undefined),
+};
 
 afterEach(() => cleanup());
 
@@ -100,6 +109,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 
@@ -143,6 +153,7 @@ describe('m.useActions()', () => {
       ok(undefined),
     );
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       selectOrder: selectOrderHandler,
     };
 
@@ -190,6 +201,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 
@@ -243,6 +255,7 @@ describe('m.useActions()', () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
+      ...unusedHandlers,
       refresh: refreshHandler,
     };
 

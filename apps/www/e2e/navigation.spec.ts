@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+
 import { installPostHogRecorder } from './posthog';
 
 const playgroundUrl =

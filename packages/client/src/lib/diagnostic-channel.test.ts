@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
+
 import type { SetLayoutCommand } from './command-processor/command.types.js';
 import { DiagnosticChannel } from './diagnostic-channel.js';
 
@@ -169,13 +171,10 @@ test('authoritative identities stay distinct while forwarded identifiers remain 
   ]);
 });
 
-test.each([
-  'observation',
-  'control',
-  'replay',
-  'thenable',
-] as const)('rejected diagnostic observers cannot terminate work or delay healthy delivery: %s', (mode) => {
-  const probe = `
+test.each(['observation', 'control', 'replay', 'thenable'] as const)(
+  'rejected diagnostic observers cannot terminate work or delay healthy delivery: %s',
+  (mode) => {
+    const probe = `
       import { DiagnosticChannel } from './diagnostic-channel.ts';
       import { SessionId } from '@maelstrom-co/protocol';
       const channel = new DiagnosticChannel(SessionId('fixture'));
@@ -198,15 +197,16 @@ test.each([
       channel.dispose();
       console.log(JSON.stringify(delivered));
     `;
-  const child = Bun.spawnSync(
-    [process.execPath, '--no-env-file', '--eval', probe],
-    {
-      cwd: import.meta.dir,
-    },
-  );
-  expect(child.exitCode, child.stderr.toString()).toBe(0);
-  expect(JSON.parse(child.stdout.toString())).toEqual(['first', 'second']);
-});
+    const child = Bun.spawnSync(
+      [process.execPath, '--no-env-file', '--eval', probe],
+      {
+        cwd: import.meta.dir,
+      },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toEqual(['first', 'second']);
+  },
+);
 
 test('a failing optional source cannot prevent other sources from releasing', () => {
   const channel = new DiagnosticChannel(SessionId('fixture'));
@@ -223,43 +223,43 @@ test('a failing optional source cannot prevent other sources from releasing', ()
   expect(channel.observed).toBe(false);
 });
 
-test.each([
-  'unsubscribe',
-  'dispose',
-  'reattach',
-] as const)('source startup releases only the observation lifetime that ended: %s', (mode) => {
-  const channel = new DiagnosticChannel(SessionId('fixture'));
-  const released: number[] = [];
-  let starts = 0;
-  let first = true;
-  let detach = () => {};
-  let detachReplacement = () => {};
-  detach = channel.subscribe(() => {
-    if (!first) return;
-    first = false;
-    if (mode === 'dispose') channel.dispose();
-    else {
-      detach();
-      if (mode === 'reattach') detachReplacement = channel.subscribe(() => {});
-    }
-  });
-  channel.addSource(() => {
-    const lifetime = ++starts;
-    channel.emit('source.initial');
-    return () => {
-      released.push(lifetime);
-    };
-  });
-  expect(released).toEqual([1]);
-  if (mode === 'reattach') {
-    expect(channel.observed).toBe(true);
-    expect(starts).toBe(2);
-    detachReplacement();
-    expect(released).toEqual([1, 2]);
-  } else expect(channel.observed).toBe(false);
-  channel.dispose();
-  expect(released).toEqual(mode === 'reattach' ? [1, 2] : [1]);
-});
+test.each(['unsubscribe', 'dispose', 'reattach'] as const)(
+  'source startup releases only the observation lifetime that ended: %s',
+  (mode) => {
+    const channel = new DiagnosticChannel(SessionId('fixture'));
+    const released: number[] = [];
+    let starts = 0;
+    let first = true;
+    let detach = () => {};
+    let detachReplacement = () => {};
+    detach = channel.subscribe(() => {
+      if (!first) return;
+      first = false;
+      if (mode === 'dispose') channel.dispose();
+      else {
+        detach();
+        if (mode === 'reattach')
+          detachReplacement = channel.subscribe(() => {});
+      }
+    });
+    channel.addSource(() => {
+      const lifetime = ++starts;
+      channel.emit('source.initial');
+      return () => {
+        released.push(lifetime);
+      };
+    });
+    expect(released).toEqual([1]);
+    if (mode === 'reattach') {
+      expect(channel.observed).toBe(true);
+      expect(starts).toBe(2);
+      detachReplacement();
+      expect(released).toEqual([1, 2]);
+    } else expect(channel.observed).toBe(false);
+    channel.dispose();
+    expect(released).toEqual(mode === 'reattach' ? [1, 2] : [1]);
+  },
+);
 
 test('a source removed during startup cannot remain observed or restart', () => {
   const channel = new DiagnosticChannel(SessionId('fixture'));

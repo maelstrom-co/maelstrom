@@ -10,6 +10,11 @@ import {
   validateVessel,
 } from '@maelstrom-co/protocol';
 
+import {
+  calendarMain,
+  calendarViewsVessel,
+  createCalendarLayout,
+} from '../../../test-utils/calendar-vessel.js';
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
 
@@ -142,7 +147,7 @@ describe('buildChartRequest', () => {
 
     const request = buildChartRequest(buildParams({ layout: existingLayout }));
 
-    expect(request.layout).toBe(existingLayout);
+    expect(request.layout).toEqual(existingLayout);
   });
 
   it('should synthesize a fresh empty layout of layoutMode when the stored layout is a different type', () => {
@@ -285,5 +290,147 @@ describe('buildChartRequest', () => {
     // Assert against the real wire schema, not a hand-rolled shape check —
     // this is exactly the request the orchestrator would send.
     expect(() => ChartRequestSchema.parse(request)).not.toThrow();
+  });
+
+  describe('after an Engine Action transition', () => {
+    function validateCalendar(vessel: unknown): Vessel {
+      const result = validateVessel(vessel);
+      if (!result.valid) {
+        throw new Error('validateCalendar: fixture failed validation');
+      }
+      return result.vessel;
+    }
+
+    function calendarInstances(variant: string) {
+      return new Map<InstanceId, VesselInstance>([
+        [
+          calendarMain,
+          {
+            instanceId: calendarMain,
+            vesselId: VesselId('calendar'),
+            variant: VariantName(variant),
+            position: { column: 0, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      ]);
+    }
+
+    it('declares the live Variant in the request layout and leaves the stored layout unchanged', () => {
+      const storedLayout = createCalendarLayout('day');
+
+      const request = buildChartRequest(
+        buildParams({
+          instances: calendarInstances('week'),
+          layout: storedLayout,
+          vessels: [validateCalendar(calendarViewsVessel)],
+        }),
+      );
+
+      expect(request.instances.map(({ variant }) => variant)).toEqual([
+        VariantName('week'),
+      ]);
+      if (request.layout.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(request.layout.instances.map(({ variant }) => variant)).toEqual([
+        VariantName('week'),
+      ]);
+      expect(storedLayout).toEqual(createCalendarLayout('day'));
+    });
+
+    it('stays schema-valid after the Vessel is republished without the pre-action Variant', () => {
+      const { day: _removedDay, ...remainingVariants } =
+        calendarViewsVessel.variants;
+      const republishedCalendar = validateCalendar({
+        ...calendarViewsVessel,
+        defaultVariant: 'week',
+        variants: {
+          ...remainingVariants,
+          week: {
+            ...remainingVariants.week,
+            actions: remainingVariants.week.actions.filter(
+              ({ name }) => name !== 'showDay',
+            ),
+          },
+          month: {
+            ...remainingVariants.month,
+            actions: remainingVariants.month.actions.filter(
+              ({ name }) => name !== 'showDay',
+            ),
+          },
+        },
+      });
+
+      const request = buildChartRequest(
+        buildParams({
+          instances: calendarInstances('week'),
+          layout: createCalendarLayout('day'),
+          vessels: [republishedCalendar],
+        }),
+      );
+
+      expect(ChartRequestSchema.safeParse(request).success).toBe(true);
+    });
+
+    it('keeps a declaration that has no live Instance as stored', () => {
+      const hiddenId = InstanceId('calendar-hidden');
+      const hiddenDeclaration = {
+        instanceId: hiddenId,
+        vesselId: VesselId('calendar'),
+        variant: VariantName('month'),
+      };
+      const storedLayout = {
+        ...createCalendarLayout('day'),
+        instances: [
+          ...createCalendarLayout('day').instances,
+          hiddenDeclaration,
+        ],
+      };
+
+      const request = buildChartRequest(
+        buildParams({
+          instances: calendarInstances('week'),
+          layout: storedLayout,
+          vessels: [validateCalendar(calendarViewsVessel)],
+        }),
+      );
+
+      if (request.layout.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(request.layout.instances).toEqual([
+        {
+          instanceId: calendarMain,
+          vesselId: VesselId('calendar'),
+          variant: VariantName('week'),
+        },
+        hiddenDeclaration,
+      ]);
+    });
+
+    it('forwards a matching grid layout unchanged', () => {
+      const gridLayout = {
+        type: 'grid' as const,
+        positions: [
+          {
+            instanceId: calendarMain,
+            position: { column: 0, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      };
+
+      const request = buildChartRequest(
+        buildParams({
+          instances: calendarInstances('week'),
+          layout: gridLayout,
+          vessels: [validateCalendar(calendarViewsVessel)],
+          config: { layoutMode: 'grid' as LayoutMode },
+        }),
+      );
+
+      expect(request.layout).toBe(gridLayout);
+    });
   });
 });

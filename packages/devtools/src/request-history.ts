@@ -1,4 +1,5 @@
 import type { DiagnosticEvent } from '@maelstrom-co/protocol';
+
 import { identity } from './diagnostic-identity.js';
 
 function requestKey(event: DiagnosticEvent): string | undefined {

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import {
   consoleLogger,
   createEngine,
@@ -19,6 +20,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+
 import { armRegistry, pluginOf } from './arms.js';
 import {
   GRADER_DIMENSIONS,
@@ -30,9 +32,10 @@ import {
   type ShippedResponse,
 } from './grader.js';
 import type { StageRecord } from './instrument.js';
-import { judgeProvenance } from './judge.js';
 import { evaluationJudgeSchema, type JudgeProvenance } from './judge-result.js';
+import { judgeProvenance } from './judge.js';
 import type { PlannerEvalPlugin } from './plugin.js';
+import { postActionInstances } from './post-action-instances.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
@@ -330,7 +333,7 @@ export async function shippedFromRecord(
     const healed =
       candidate === undefined
         ? undefined
-        : await healCandidate(scenario, candidate as PlannerCandidate);
+        : await healCandidate(scenario, tagRecordedPlan(candidate));
     if (
       healed?.layout.type === 'tiling' &&
       healed.userMessage === record.userMessage &&
@@ -339,7 +342,11 @@ export async function shippedFromRecord(
       return {
         ...shipped,
         executionPlan: healed.executionPlan,
-        instances: healed.layout.instances,
+        instances: postActionInstances(
+          healed.layout.instances,
+          healed.executionPlan,
+          scenario.request.vessels,
+        ),
       };
   }
   const existing = new Set<string>(
@@ -370,6 +377,16 @@ const UNPROVEN_PLAN = [
   'Execution plan does not simulate',
   'Response layout is not tiling',
 ];
+
+// Recorded stage outputs may lack the plan tag. An untagged object is a plan
+// by construction, so tag it here rather than let validation reject the record.
+function tagRecordedPlan(output: unknown): PlannerCandidate {
+  return (
+    isRecord(output) && !('type' in output)
+      ? { type: 'plan', ...output }
+      : output
+  ) as PlannerCandidate;
+}
 
 async function healCandidate(
   scenario: Scenario,

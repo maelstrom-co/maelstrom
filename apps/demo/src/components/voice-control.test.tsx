@@ -15,6 +15,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 
 // voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
@@ -183,20 +184,20 @@ describe('VoiceControl greeting Skip action', () => {
     expect(getByText('Skip greeting')).toBe(button);
   });
 
-  it.each([
-    'idle',
-    'error',
-  ] as const)('does not render Skip greeting while voice is %s', (state) => {
-    voiceResult = makeVoiceResult(
-      state,
-      undefined,
-      'automatic',
-      undefined,
-      'preparing',
-    );
-    const { queryByRole } = render(<VoiceControl />);
-    expect(queryByRole('button', { name: 'Skip greeting' })).toBeNull();
-  });
+  it.each(['idle', 'error'] as const)(
+    'does not render Skip greeting while voice is %s',
+    (state) => {
+      voiceResult = makeVoiceResult(
+        state,
+        undefined,
+        'automatic',
+        undefined,
+        'preparing',
+      );
+      const { queryByRole } = render(<VoiceControl />);
+      expect(queryByRole('button', { name: 'Skip greeting' })).toBeNull();
+    },
+  );
 
   it('uses Listening after Skip without replacing active or error labels', () => {
     for (const [state, label] of [
@@ -270,20 +271,23 @@ describe('VoiceControl hold-to-talk button', () => {
     ['listening', 'Listening'],
     ['thinking', 'Thinking…'],
     ['speaking', 'Speaking…'],
-  ] as const)('keeps the %s activity visible during preparation', (state, label) => {
-    voiceResult = makeVoiceResult(
-      state,
-      undefined,
-      'automatic',
-      undefined,
-      'preparing',
-    );
-    const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
+  ] as const)(
+    'keeps the %s activity visible during preparation',
+    (state, label) => {
+      voiceResult = makeVoiceResult(
+        state,
+        undefined,
+        'automatic',
+        undefined,
+        'preparing',
+      );
+      const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
 
-    expect(getAllByRole('status')).toHaveLength(1);
-    expect(getByRole('status').textContent).toContain(label);
-    expect(queryByRole('progressbar')).toBeNull();
-  });
+      expect(getAllByRole('status')).toHaveLength(1);
+      expect(getByRole('status').textContent).toContain(label);
+      expect(queryByRole('progressbar')).toBeNull();
+    },
+  );
 
   it('keeps fatal and disconnected presentation ahead of greeting preparation', () => {
     for (const state of ['error', 'idle'] as const) {

@@ -3,6 +3,7 @@ import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
+
 import { isDebugRequested } from './debug-mode';
 import {
   createHostedDemoGreetingSynthesizer,
@@ -15,13 +16,13 @@ import { createDemoLiveExchange } from './live-exchange';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
-import { getLivekitToken } from './voice/get-livekit-token';
 import {
   type DemoVoiceProvider,
   LIVE_BACKEND_MODEL,
   LIVE_MODEL,
   voiceProviderStore,
 } from './voice-provider';
+import { getLivekitToken } from './voice/get-livekit-token';
 
 // Factories only. No network at module load.
 const localSynthesizeGreeting = createLocalDemoGreetingSynthesizer();

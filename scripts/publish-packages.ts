@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
+
 import {
   PACKED_MANIFEST_FILENAME,
   type PackedPackage,

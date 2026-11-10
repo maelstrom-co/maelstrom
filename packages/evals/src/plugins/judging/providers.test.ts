@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { silentLogger } from '../../core/__test-helpers__/fixtures.js';
 import { judgeEvidence } from '../../core/judge.js';
 import type { JudgeVerdict } from '../../core/plugin.js';

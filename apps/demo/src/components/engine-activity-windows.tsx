@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+
 import { beginRequestWindow, endRequestWindow } from '../lib/action-activity';
 import { m } from '../lib/maelstrom';
 

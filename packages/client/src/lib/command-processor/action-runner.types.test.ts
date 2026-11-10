@@ -4,9 +4,14 @@
  * Run `nx typecheck @maelstrom-co/client` to verify these tests.
  */
 
-import { describe, it } from 'bun:test';
+import { describe, expectTypeOf, it } from 'bun:test';
 
-import { defineVessel, ok, type Result } from '@maelstrom-co/protocol';
+import {
+  defineVessel,
+  ok,
+  type Result,
+  type VesselDefinition,
+} from '@maelstrom-co/protocol';
 
 import type { ActionResult } from './action-result.js';
 import type {
@@ -187,6 +192,126 @@ describe('ActionRunner Type Tests', () => {
       field: true,
     };
     void _invalidParams;
+  });
+});
+
+// `showDetails` and `showList` only switch views. `selectItem` is declared
+// with effect `none` on `detail` but needs a handler on `list`, and `archive`
+// and `pin` declare no effect and `idempotent`.
+const effectVessel = defineVessel({
+  id: 'inbox',
+  name: 'Inbox',
+  description: 'Items with a list and a detail view',
+  defaultVariant: 'list',
+  variants: {
+    list: {
+      props: {},
+      minSize: { width: 2, height: 2 },
+      actions: [
+        {
+          name: 'showDetails',
+          description: 'Detail view',
+          transitionsTo: 'detail',
+          effect: 'none',
+        },
+        {
+          name: 'selectItem',
+          description: 'Open one item',
+          transitionsTo: 'detail',
+        },
+        {
+          name: 'pin',
+          description: 'Pin the list',
+          effect: 'idempotent',
+        },
+      ],
+    },
+    detail: {
+      props: {},
+      minSize: { width: 2, height: 2 },
+      actions: [
+        {
+          name: 'selectItem',
+          description: 'Back to the selected item',
+          transitionsTo: 'detail',
+          effect: 'none',
+        },
+        {
+          name: 'showList',
+          description: 'List view',
+          transitionsTo: 'list',
+          effect: 'none',
+        },
+        { name: 'archive', description: 'Archive the item' },
+      ],
+    },
+  },
+});
+
+type EffectVessel = typeof effectVessel;
+type Handler = () => Promise<ActionResult> | ActionResult;
+
+describe('ActionRunner handler requirements', () => {
+  it('requires handlers only for Actions not declared effect none', () => {
+    expectTypeOf<ActionRunner<EffectVessel>>().toEqualTypeOf<{
+      selectItem: Handler;
+      pin: Handler;
+      archive: Handler;
+      showDetails?: Handler;
+      showList?: Handler;
+    }>();
+
+    const runner: ActionRunner<EffectVessel> = {
+      selectItem: () => ok(undefined),
+      pin: () => ok(undefined),
+      archive: () => ok(undefined),
+    };
+    void runner;
+  });
+
+  it('rejects a runner missing a required handler', () => {
+    // @ts-expect-error - `archive` declares no effect, so it needs a handler
+    const _missingArchive: ActionRunner<EffectVessel> = {
+      selectItem: () => ok(undefined),
+      pin: () => ok(undefined),
+    };
+    void _missingArchive;
+  });
+
+  it('rejects a runner missing an idempotent handler', () => {
+    // @ts-expect-error - `pin` is idempotent, which still needs a handler
+    const _missingPin: ActionRunner<EffectVessel> = {
+      selectItem: () => ok(undefined),
+      archive: () => ok(undefined),
+    };
+    void _missingPin;
+  });
+
+  it('requires a handler for a name declared effect none on only some Variants', () => {
+    // @ts-expect-error - `selectItem` needs its handler on the list Variant
+    const _missingSelect: ActionRunner<EffectVessel> = {
+      pin: () => ok(undefined),
+      archive: () => ok(undefined),
+    };
+    void _missingSelect;
+  });
+
+  it('accepts handlers for effect none Actions too', () => {
+    const runner: ActionRunner<EffectVessel> = {
+      selectItem: () => ok(undefined),
+      pin: () => ok(undefined),
+      archive: () => ok(undefined),
+      showDetails: () => ok(undefined),
+      showList: () => ok(undefined),
+    };
+    void runner;
+  });
+
+  it('makes every handler optional for a widened Vessel definition', () => {
+    const widened: VesselDefinition = effectVessel;
+    const runner: ActionRunner<typeof widened> = {};
+    expectTypeOf(runner).toEqualTypeOf<ActionRunner>();
+    void runner;
   });
 });
 

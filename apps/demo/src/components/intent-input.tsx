@@ -1,6 +1,7 @@
 import type { IntentSnapshot, IntentSubmission } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+
 import {
   type ActivityState,
   problemSummaryForWindow,
@@ -135,6 +136,7 @@ export function IntentInput({
     return () => {
       live = false;
     };
+    // oxlint-disable-next-line react/exhaustive-deps -- Retry a refused resume only when connection or processing changes.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   const handleSubmit = (e: React.FormEvent) => {

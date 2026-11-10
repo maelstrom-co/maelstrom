@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
+
 import { Orchestrator } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
 } from '@maelstrom-co/protocol';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createRealtimeInstance } from './realtime-instance.js';
 

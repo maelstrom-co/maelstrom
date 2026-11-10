@@ -309,7 +309,7 @@ describe('actionsBatchedPerInstance', () => {
     ]);
   });
 
-  test('drops a second action whose name and bound parameters repeat an earlier one, regardless of the idempotent flag', async () => {
+  test('drops a second action whose name and bound parameters repeat an earlier one, regardless of the declared effect', async () => {
     const { result, logs } = await run(
       selectionOf('add "Buy milk" twice', TASKS_ONLY),
       answering({
@@ -403,24 +403,27 @@ describe('actionsBatchedPerInstance', () => {
     ['the second', 'v0', 'stated_elsewhere'],
     ['the first', 'stated_elsewhere', 'v0'],
     ['both', 'stated_elsewhere', 'stated_elsewhere'],
-  ])('keeps a repeated action when a parameter is still pending on %s slot', async (_name, first, second) => {
-    const { result, logs } = await run(
-      selectionOf('add "Buy milk" twice', TASKS_ONLY),
-      answering({
-        'tasks-main/1': 'addTask',
-        'tasks-main/2': 'list:addTask',
-        'param/tasks-main/1/addTask/title': first,
-        'param/tasks-main/2/list:addTask/title': second,
-        'param/tasks-main/1/addTask/urgent': 'omit',
-        'param/tasks-main/2/list:addTask/urgent': 'omit',
-      }),
-    );
-    expect(planned(result).actions.map((action) => action.action)).toEqual([
-      'addTask',
-      'addTask',
-    ]);
-    expect(logged(logs, 'jev.duplicate_action_dropped')).toEqual([]);
-  });
+  ])(
+    'keeps a repeated action when a parameter is still pending on %s slot',
+    async (_name, first, second) => {
+      const { result, logs } = await run(
+        selectionOf('add "Buy milk" twice', TASKS_ONLY),
+        answering({
+          'tasks-main/1': 'addTask',
+          'tasks-main/2': 'list:addTask',
+          'param/tasks-main/1/addTask/title': first,
+          'param/tasks-main/2/list:addTask/title': second,
+          'param/tasks-main/1/addTask/urgent': 'omit',
+          'param/tasks-main/2/list:addTask/urgent': 'omit',
+        }),
+      );
+      expect(planned(result).actions.map((action) => action.action)).toEqual([
+        'addTask',
+        'addTask',
+      ]);
+      expect(logged(logs, 'jev.duplicate_action_dropped')).toEqual([]);
+    },
+  );
 
   test('asks once for a parameter two slots of the same action both leave unanswered', async () => {
     const { result } = await run(

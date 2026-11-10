@@ -46,7 +46,8 @@ export type SimulationError =
  * replay stops at the first such action and returns a {@link SimulationError},
  * so a planner can reject or repair the plan before handing it over.
  *
- * @param instances - The instances and their variants before the plan runs.
+ * @param instances - The instances and their variants before the plan runs,
+ *   which is the variant the Layout declares for each of them.
  * @param actions - The plan's actions, in execution order.
  * @param vessels - The catalog the instances belong to.
  */

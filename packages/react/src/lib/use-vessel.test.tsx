@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
@@ -13,6 +14,7 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
+
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -40,7 +42,14 @@ const orderVessel = defineVessel({
     detail: {
       props: { view: 'detail' as const, orderId: '' },
       minSize: { width: 3, height: 3 },
-      actions: [{ name: 'close', description: 'Close', transitionsTo: 'list' }],
+      actions: [
+        {
+          name: 'close',
+          description: 'Close',
+          transitionsTo: 'list',
+          effect: 'none',
+        },
+      ],
     },
   },
 });
@@ -523,6 +532,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
       const runner = useMemo(
         () => ({
           viewDetail: () => ok(undefined),
+          refresh: () => ok(undefined),
         }),
         [],
       );
@@ -653,6 +663,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
       const runner = useMemo(
         () => ({
           viewDetail: () => err(new Error('action failed')),
+          refresh: () => ok(undefined),
         }),
         [],
       );
@@ -706,6 +717,7 @@ describe('m.useVessel() — store-authoritative transitions', () => {
           viewDetail: () => {
             throw new Error('runner threw');
           },
+          refresh: () => ok(undefined),
         }),
         [],
       );

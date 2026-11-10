@@ -1,4 +1,5 @@
 import { Data, Effect } from 'effect';
+
 import { readLimitedBody } from '../lib/read-limited-body';
 import { isWaitlistToken } from '../lib/waitlist-token';
 import { BodyTooLarge, UnsupportedMediaType } from './signup-request';

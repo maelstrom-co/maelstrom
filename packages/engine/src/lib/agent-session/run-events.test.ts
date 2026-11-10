@@ -1,10 +1,12 @@
 import { expect, test } from 'bun:test';
+
 import {
   AGENT_WIRE_VERSION,
   AgentEventSchema,
   MessageId,
   RunId,
 } from '@maelstrom-co/protocol';
+
 import { buildAcceptanceEvents, buildRunEnding } from './run-events.js';
 
 const run = { runId: RunId('run-1'), started: 10.2 };

@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+
 import { type Application, type Reflection, ReflectionKind } from 'typedoc';
 import { MemberRouter } from 'typedoc-plugin-markdown';
 

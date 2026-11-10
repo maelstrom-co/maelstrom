@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
 import {
   type EngineConnector,
   type IntentQueueOptions,
@@ -18,6 +19,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
@@ -123,6 +125,24 @@ describe('RealtimeSession shared intent admission', () => {
     const client = new Orchestrator(connector, {
       sessionId,
       intentQueue: policy,
+      vessels: [
+        {
+          id: 'vessel',
+          name: 'Vessel',
+          description: 'test vessel',
+          defaultVariant: 'default',
+          variants: {
+            default: {
+              props: {},
+              minSize: { width: 1, height: 1 },
+              actions: [
+                { name: 'show', description: 'Show the Instance' },
+                { name: 'fail', description: 'Fail on purpose' },
+              ],
+            },
+          },
+        },
+      ],
     });
     cleanup.push(() => client.dispose());
     await client.connect();

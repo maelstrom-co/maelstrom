@@ -21,6 +21,7 @@ type AnyTextAdapter = EvalOptions['adapter'];
 
 export const preserve = getScenario('preserve');
 const candidate = {
+  type: 'plan',
   userMessage: 'Unchanged',
   rationale: 'Keep synthetic layout',
   executionPlan: [],

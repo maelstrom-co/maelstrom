@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { assertValeVersion } from './vale-version.ts';
 
 describe('assertValeVersion', () => {

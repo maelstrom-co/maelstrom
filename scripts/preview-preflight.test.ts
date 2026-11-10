@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { validatePreviewConfiguration } from './preview-preflight.ts';
 import { isWorkersDevSuffix } from './preview-worker-url.ts';
 
@@ -41,20 +42,23 @@ describe('preview configuration preflight', () => {
       'CLOUDFLARE_PREVIEW_API_TOKEN',
       'Settings → Environments → preview → Environment secrets',
     ],
-  ])('names the setting and repair location when %s is missing', (key, location) => {
-    for (const value of [undefined, '', ' \t\n']) {
-      const errors = validatePreviewConfiguration({
-        ...settings,
-        [key]: value,
-      });
-      expect(errors).toHaveLength(1);
-      expect(errors[0]).toContain(`'${key}'`);
-      expect(errors[0]).toContain(location);
-      expect(errors.join('\n')).not.toContain(
-        settings.CLOUDFLARE_PREVIEW_API_TOKEN,
-      );
-    }
-  });
+  ])(
+    'names the setting and repair location when %s is missing',
+    (key, location) => {
+      for (const value of [undefined, '', ' \t\n']) {
+        const errors = validatePreviewConfiguration({
+          ...settings,
+          [key]: value,
+        });
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain(`'${key}'`);
+        expect(errors[0]).toContain(location);
+        expect(errors.join('\n')).not.toContain(
+          settings.CLOUDFLARE_PREVIEW_API_TOKEN,
+        );
+      }
+    },
+  );
 
   test('reports every missing setting in one run so maintainers can repair configuration together', () => {
     const errors = validatePreviewConfiguration({});

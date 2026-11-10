@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useEffect, useId, useRef, useState } from 'react';
+
 import { VesselCard } from '../components/vessel-card';
 import {
   markDirectAction,
@@ -226,6 +227,7 @@ export default function JournalComponent({
                     entry={entry}
                     draft={drafts.get(entry.id) ?? null}
                     onDraftChange={(text) => setDraft(entry.id, text)}
+                    // oxlint-disable-next-line jsx-a11y/no-autofocus -- The user opens this editor by activating its row.
                     autoFocus
                     onSave={(content) => saveEntry(entry, content)}
                     onSaved={() => closeRow(entry.id)}
@@ -316,7 +318,7 @@ function EntryEditor({
       <textarea
         id={textareaId}
         value={value}
-        // biome-ignore lint/a11y/noAutofocus: the editor opens in response to the user activating its row.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- The user opens this editor by activating its row.
         autoFocus={autoFocus}
         placeholder="Waiting for content..."
         rows={ruled ? undefined : 3}

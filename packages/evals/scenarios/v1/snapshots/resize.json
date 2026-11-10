@@ -76,13 +76,13 @@
                   "name": "showWeek",
                   "description": "Switch to week view for event timeline",
                   "transitionsTo": "week",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showDay",
                   "description": "Switch to day view for hourly schedule",
                   "transitionsTo": "day",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "addEvent",
@@ -100,7 +100,7 @@
                     }
                   ],
                   "transitionsTo": "day",
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "removeEvent",
@@ -113,7 +113,7 @@
                     }
                   ],
                   "transitionsTo": "day",
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "moveEvent",
@@ -131,7 +131,7 @@
                     }
                   ],
                   "transitionsTo": "day",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             },
@@ -146,13 +146,13 @@
                   "name": "showMonth",
                   "description": "Switch back to month view",
                   "transitionsTo": "month",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showDay",
                   "description": "Switch to day view",
                   "transitionsTo": "day",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "addEvent",
@@ -169,7 +169,7 @@
                       "description": "Time like 9:00 or 14:30"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "removeEvent",
@@ -181,7 +181,7 @@
                       "description": "Title of the event to remove"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "moveEvent",
@@ -198,7 +198,7 @@
                       "description": "New time like 9:00 or 14:30"
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             },
@@ -213,13 +213,13 @@
                   "name": "showMonth",
                   "description": "Switch to month view",
                   "transitionsTo": "month",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showWeek",
                   "description": "Switch to week view",
                   "transitionsTo": "week",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "addEvent",
@@ -236,7 +236,7 @@
                       "description": "Time like 9:00 or 14:30"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "removeEvent",
@@ -248,7 +248,7 @@
                       "description": "Title of the event to remove"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "moveEvent",
@@ -265,7 +265,7 @@
                       "description": "New time like 9:00 or 14:30"
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             }
@@ -294,19 +294,19 @@
                       "description": "City or place to request weather for"
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "showHourly",
                   "description": "Show hourly forecast for today",
                   "transitionsTo": "hourly",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showWeekly",
                   "description": "Show weekly forecast",
                   "transitionsTo": "weekly",
-                  "idempotent": true
+                  "effect": "none"
                 }
               ]
             },
@@ -327,19 +327,19 @@
                       "description": "City or place to request weather for"
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "showCurrent",
                   "description": "Show current conditions",
                   "transitionsTo": "current",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showWeekly",
                   "description": "Show weekly forecast",
                   "transitionsTo": "weekly",
-                  "idempotent": true
+                  "effect": "none"
                 }
               ]
             },
@@ -360,19 +360,19 @@
                       "description": "City or place to request weather for"
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "showCurrent",
                   "description": "Show current conditions",
                   "transitionsTo": "current",
-                  "idempotent": true
+                  "effect": "none"
                 },
                 {
                   "name": "showHourly",
                   "description": "Show hourly forecast",
                   "transitionsTo": "hourly",
-                  "idempotent": true
+                  "effect": "none"
                 }
               ]
             }
@@ -401,7 +401,7 @@
                       "description": "Task title"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "removeTask",
@@ -413,7 +413,7 @@
                       "description": "Title of the task to remove"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "checkTask",
@@ -425,7 +425,7 @@
                       "description": "Title of the task to check"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "uncheckTask",
@@ -437,7 +437,7 @@
                       "description": "Title of the task to uncheck"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "addSubtask",
@@ -454,7 +454,7 @@
                       "description": "Title of the subtask to add"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 }
               ]
             }
@@ -490,7 +490,7 @@
                     }
                   ],
                   "transitionsTo": "route",
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "focusLocation",
@@ -509,7 +509,7 @@
                     }
                   ],
                   "transitionsTo": "compact",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             },
@@ -524,7 +524,7 @@
                   "name": "showOverview",
                   "description": "Show all saved locations",
                   "transitionsTo": "overview",
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "showRoute",
@@ -542,7 +542,7 @@
                       ]
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "focusLocation",
@@ -561,7 +561,7 @@
                     }
                   ],
                   "transitionsTo": "compact",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             },
@@ -576,7 +576,7 @@
                   "name": "showOverview",
                   "description": "Show all saved locations",
                   "transitionsTo": "overview",
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "showRoute",
@@ -595,7 +595,7 @@
                     }
                   ],
                   "transitionsTo": "route",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             }
@@ -625,7 +625,7 @@
                     }
                   ],
                   "transitionsTo": "entry",
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "openEntry",
@@ -638,7 +638,7 @@
                     }
                   ],
                   "transitionsTo": "entry",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             },
@@ -659,7 +659,7 @@
                       "description": "Title of the entry"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "openEntry",
@@ -671,7 +671,7 @@
                       "description": "Title of the entry to open. Matched case-insensitively, with substring fallback."
                     }
                   ],
-                  "idempotent": true
+                  "effect": "idempotent"
                 },
                 {
                   "name": "writeContent",
@@ -683,13 +683,13 @@
                       "description": "Text to append to the entry"
                     }
                   ],
-                  "idempotent": false
+                  "effect": "any"
                 },
                 {
                   "name": "backToList",
                   "description": "Return to the journal entries list",
                   "transitionsTo": "list",
-                  "idempotent": true
+                  "effect": "idempotent"
                 }
               ]
             }

@@ -1,5 +1,4 @@
 import { ToolCallId } from '@maelstrom-co/protocol';
-
 import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

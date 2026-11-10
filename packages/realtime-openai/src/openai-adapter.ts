@@ -28,6 +28,7 @@ import {
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad/config';
+
 import {
   GreetingInterruption,
   type ReplacePublicationArgs,

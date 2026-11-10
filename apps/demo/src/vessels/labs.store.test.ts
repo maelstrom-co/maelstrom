@@ -1,5 +1,6 @@
 import { isErr, isOk } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { createLabsActionRunner, getLabsSelection } from './labs.store';
 
 let serial = 0;
@@ -17,8 +18,6 @@ describe('Labs selection handlers', () => {
       expect(getLabsSelection(first)).toBe(markerSlug);
       expect(getLabsSelection(second)).toBeNull();
     }
-    expect(isOk(runner.showList())).toBe(true);
-    expect(isOk(runner.showTrends())).toBe(true);
     expect(getLabsSelection(first)).toBe('glucose');
     expect(
       isOk(

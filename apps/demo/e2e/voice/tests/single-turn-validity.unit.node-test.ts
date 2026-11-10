@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
 import { summarizeVoiceBenchmark } from './benchmark-metrics.ts';
 import type { AudioTimelineMeasurement } from './shared-audio-timeline.ts';
 import {
@@ -360,17 +361,21 @@ test('attaches the diagnostic before attempting both cleanup steps', async () =>
 test('still attempts both cleanup steps when report attachment fails', async () => {
   const order: string[] = [];
   await assert.rejects(
-    attachReportAndCleanup({ safe: true }, async () => {
-      order.push('attach');
-      throw new Error('attachment failure');
-    }, [
+    attachReportAndCleanup(
+      { safe: true },
       async () => {
-        order.push('stop-voice');
+        order.push('attach');
+        throw new Error('attachment failure');
       },
-      async () => {
-        order.push('stop-capture');
-      },
-    ]),
+      [
+        async () => {
+          order.push('stop-voice');
+        },
+        async () => {
+          order.push('stop-capture');
+        },
+      ],
+    ),
     /attachment failure/,
   );
   assert.deepEqual(order, ['attach', 'stop-voice', 'stop-capture']);

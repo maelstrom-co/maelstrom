@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
@@ -47,6 +48,7 @@ import {
   TASKLANE_VOICE_PROVIDERS,
   tasklaneVoiceProvider,
 } from './voice-providers';
+
 import './tasklane.css';
 
 export function TasklanePage() {
@@ -87,7 +89,11 @@ export function TasklanePage() {
 
   // The Provider and the connector must share one id per session boundary,
   // and keyEpoch is the dependency so a new epoch mints a new id.
-  const sessionId = useMemo(() => SessionId(), [keyEpoch]);
+  const sessionId = useMemo(
+    () => SessionId(),
+    // oxlint-disable-next-line react/exhaustive-deps -- A new key epoch deliberately creates a new session.
+    [keyEpoch],
+  );
   const connector = useMemo(() => {
     if (browserKeyMode && !apiKey) return null;
     return createDemoConnector({
@@ -319,6 +325,7 @@ function TasklaneWorkspace({
     return () => {
       live = false;
     };
+    // oxlint-disable-next-line react/exhaustive-deps -- Retry a refused resume only when connection or processing changes.
   }, [resumeIntent, connectionStatus, isProcessing]);
 
   return (

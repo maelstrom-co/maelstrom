@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import { withActionOptions } from '../../lib/vessel-options';
 import {
   CATALOG_SKUS,
@@ -51,7 +52,7 @@ const baseCartVessel = defineVessel({
         },
         {
           name: 'updateCartQuantity',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Set the quantity of a product already in the cart. A quantity of 0 removes it.',
           parameters: [
@@ -69,7 +70,7 @@ const baseCartVessel = defineVessel({
         },
         {
           name: 'clearCart',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Remove every item from the cart.',
         },
       ],

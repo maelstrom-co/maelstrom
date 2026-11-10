@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+
 import type { Page, TestInfo } from '@playwright/test';
 
 const failurePhases = [
@@ -105,9 +106,9 @@ export async function installAssistantCaptionMutationObserver(
         node instanceof Element ? node : (node.parentElement ?? undefined);
       return Boolean(
         element &&
-          (element.matches('[data-role="assistant"]') ||
-            element.closest('[data-role="assistant"]') ||
-            element.querySelector('[data-role="assistant"]')),
+        (element.matches('[data-role="assistant"]') ||
+          element.closest('[data-role="assistant"]') ||
+          element.querySelector('[data-role="assistant"]')),
       );
     };
     const observer = new MutationObserver((records) => {

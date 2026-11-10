@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   createEngine,
   createInMemoryStore,
@@ -16,6 +17,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   scoreThreeVesselAddition,
   threeVesselAdditionCatalogSchema,
@@ -23,6 +25,10 @@ import {
   threeVesselAdditionInputsSchema,
 } from '../adapters/three-vessel-addition.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import {
+  carriedForwardChartState,
+  postActionLayout,
+} from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -146,13 +152,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForwardChartState(previous, initial.vessels)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent }],
@@ -208,10 +208,10 @@ export function scoreD35Turns(
       },
       state: state(turn.request.layout),
       output: {
-        ...state(turn.response.layout),
+        ...state(postActionLayout(turn.response, initial.vessels)),
         executionPlan: turn.response.executionPlan,
       },
-      resultingState: state(turn.response.layout),
+      resultingState: state(postActionLayout(turn.response, initial.vessels)),
     })),
     state(initial.layout),
     initial.vessels,

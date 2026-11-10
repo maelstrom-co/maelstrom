@@ -99,7 +99,9 @@
           "^default",
           "{projectRoot}/tsconfig.json",
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
-          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
+          "default",
+          "toolchain"
         ]
       },
       "e2e": {
@@ -121,6 +123,15 @@
           "{workspaceRoot}/infra/platform/*.json",
           "{workspaceRoot}/package.json",
           "{workspaceRoot}/bun.lock"
+        ]
+      },
+      "test": {
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
         ]
       }
     }

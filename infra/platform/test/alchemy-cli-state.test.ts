@@ -256,26 +256,25 @@ describe('published Alchemy CLI legacy state reads', () => {
   });
 
   for (const command of ['get', 'stacks'] as const) {
-    test.each([
-      'acquisition',
-      'lazy',
-      'read',
-    ] as const)(`propagates %s failures from ${command} without printing a successful state result`, async (fail) => {
-      const argv =
-        command === 'get'
-          ? legacyGet()
-          : ['state', 'stacks', 'state.run.ts', '--profile', 'preview-ci'];
-      const { run } = await fixture(false, true, { diagnostics: true, fail });
-      const { stdout, stderr, calls } = await run(argv);
-      expect(stdout).not.toContain('workerName');
-      expect(stdout).not.toContain('Alpha\nMaelstromDemoPreview\nZulu');
-      expect(stdout + stderr).toContain('offline-state-failure');
-      expectDiagnostics(
-        stderr,
-        fail === 'acquisition' ? ['acquisition'] : ['acquisition', 'lazy'],
-      );
-      expect(calls).toEqual([]);
-    });
+    test.each(['acquisition', 'lazy', 'read'] as const)(
+      `propagates %s failures from ${command} without printing a successful state result`,
+      async (fail) => {
+        const argv =
+          command === 'get'
+            ? legacyGet()
+            : ['state', 'stacks', 'state.run.ts', '--profile', 'preview-ci'];
+        const { run } = await fixture(false, true, { diagnostics: true, fail });
+        const { stdout, stderr, calls } = await run(argv);
+        expect(stdout).not.toContain('workerName');
+        expect(stdout).not.toContain('Alpha\nMaelstromDemoPreview\nZulu');
+        expect(stdout + stderr).toContain('offline-state-failure');
+        expectDiagnostics(
+          stderr,
+          fail === 'acquisition' ? ['acquisition'] : ['acquisition', 'lazy'],
+        );
+        expect(calls).toEqual([]);
+      },
+    );
   }
 
   test('reads deployment state with the legacy flag grammar', async () => {

@@ -158,33 +158,32 @@ describe('handleEnvelope — chart_request', () => {
       code: 'ValidationError',
       message: 'bad prompt',
     },
-  ])('maps an engine Err ($name) to engine.error with the tag as code', async ({
-    error,
-    code,
-    message,
-  }) => {
-    const sessionId = SessionId('sess-1');
-    const messageId = MessageId('req-err');
-    const engine = stubEngine({
-      handle: async () => errOutput(error),
-    });
+  ])(
+    'maps an engine Err ($name) to engine.error with the tag as code',
+    async ({ error, code, message }) => {
+      const sessionId = SessionId('sess-1');
+      const messageId = MessageId('req-err');
+      const engine = stubEngine({
+        handle: async () => errOutput(error),
+      });
 
-    const reply = await handleEnvelope(
-      engine,
-      ChartRequestMessage({
-        sessionId,
-        id: messageId,
-        request: validChartRequest(),
-      }),
-    );
+      const reply = await handleEnvelope(
+        engine,
+        ChartRequestMessage({
+          sessionId,
+          id: messageId,
+          request: validChartRequest(),
+        }),
+      );
 
-    expect(reply?.type).toBe('engine.error');
-    if (reply?.type !== 'engine.error') return;
-    expect(reply.requestId).toBe(messageId);
-    expect(reply.sessionId).toBe(sessionId);
-    expect(reply.error).toBe(message);
-    expect(reply.code).toBe(code);
-  });
+      expect(reply?.type).toBe('engine.error');
+      if (reply?.type !== 'engine.error') return;
+      expect(reply.requestId).toBe(messageId);
+      expect(reply.sessionId).toBe(sessionId);
+      expect(reply.error).toBe(message);
+      expect(reply.code).toBe(code);
+    },
+  );
 
   test('does not reject when engine.handle throws — maps to engine.error with no code', async () => {
     const sessionId = SessionId('sess-1');
@@ -219,37 +218,37 @@ describe('handleEnvelope — chart_request', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleEnvelope — assistant_message', () => {
-  test.each([
-    'inserted',
-    'deduped',
-  ] as const)('invokes Engine for a legacy %s result and returns no frame', async (outcome) => {
-    const sessionId = SessionId('sess-1');
-    const messageId = MessageId('inj-1');
-    let handled = false;
-    const engine = stubEngine({
-      handle: async (message) => {
-        handled = true;
-        expect(message.type).toBe('assistant_message');
-        return okOutput({
-          type: 'assistant_message_result',
-          sessionId,
-          id: messageId,
-          outcome,
-        });
-      },
-    });
+  test.each(['inserted', 'deduped'] as const)(
+    'invokes Engine for a legacy %s result and returns no frame',
+    async (outcome) => {
+      const sessionId = SessionId('sess-1');
+      const messageId = MessageId('inj-1');
+      let handled = false;
+      const engine = stubEngine({
+        handle: async (message) => {
+          handled = true;
+          expect(message.type).toBe('assistant_message');
+          return okOutput({
+            type: 'assistant_message_result',
+            sessionId,
+            id: messageId,
+            outcome,
+          });
+        },
+      });
 
-    const reply = await handleEnvelope(engine, {
-      type: 'assistant_message',
-      sessionId,
-      id: messageId,
-      timestamp: 1,
-      content: 'seeded note',
-    });
+      const reply = await handleEnvelope(engine, {
+        type: 'assistant_message',
+        sessionId,
+        id: messageId,
+        timestamp: 1,
+        content: 'seeded note',
+      });
 
-    expect(handled).toBe(true);
-    expect(reply).toBeNull();
-  });
+      expect(handled).toBe(true);
+      expect(reply).toBeNull();
+    },
+  );
 
   test.each([
     {
@@ -281,40 +280,40 @@ describe('handleEnvelope — assistant_message', () => {
 });
 
 describe('handleEnvelope — client.assistant_message.acknowledged', () => {
-  test.each([
-    'inserted',
-    'deduped',
-  ] as const)('maps an Ok %s result to a correlated assistant result frame', async (outcome) => {
-    const sessionId = SessionId('sess-1');
-    const messageId = MessageId('inj-1');
-    const engine = stubEngine({
-      handle: async (message) => {
-        expect(message.type).toBe('assistant_message');
-        return okOutput({
-          type: 'assistant_message_result',
+  test.each(['inserted', 'deduped'] as const)(
+    'maps an Ok %s result to a correlated assistant result frame',
+    async (outcome) => {
+      const sessionId = SessionId('sess-1');
+      const messageId = MessageId('inj-1');
+      const engine = stubEngine({
+        handle: async (message) => {
+          expect(message.type).toBe('assistant_message');
+          return okOutput({
+            type: 'assistant_message_result',
+            sessionId,
+            id: messageId,
+            outcome,
+          });
+        },
+      });
+
+      const reply = await handleEnvelope(
+        engine,
+        AcknowledgedAssistantMessage({
           sessionId,
           id: messageId,
-          outcome,
-        });
-      },
-    });
-
-    const reply = await handleEnvelope(
-      engine,
-      AcknowledgedAssistantMessage({
+          timestamp: 1,
+          content: 'seeded note',
+        }),
+      );
+      expect(reply).toEqual({
+        type: 'engine.assistant_message.result',
+        requestId: messageId,
         sessionId,
-        id: messageId,
-        timestamp: 1,
-        content: 'seeded note',
-      }),
-    );
-    expect(reply).toEqual({
-      type: 'engine.assistant_message.result',
-      requestId: messageId,
-      sessionId,
-      outcome,
-    });
-  });
+        outcome,
+      });
+    },
+  );
 
   test('maps an unexpected Ok output type to engine.error UnexpectedOutput', async () => {
     const sessionId = SessionId('sess-1');

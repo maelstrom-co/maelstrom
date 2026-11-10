@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   approveMaintainerPreview,
   deployPreviewApp,
@@ -183,46 +184,47 @@ const deploymentProcess =
   };
 
 describe('maintainer preview authority', () => {
-  test.each([
-    'admin',
-    'maintain',
-  ])('refreshes the exact head after CI for live %s users', async (role) => {
-    const f = fixture();
-    for (const account of f.roles.values()) {
-      account.role_name = role;
-      account.permission = role === 'maintain' ? 'write' : 'admin';
-    }
-    expect(await approve(f)).toBe(true);
-    expect(f.outputs).toEqual(
-      new Map([
-        ['pr-number', '42'],
-        ['head-sha', HEAD],
-      ]),
-    );
-    expect(parsePreviewComment(f.comment.body)).toEqual({
-      approvedSha: HEAD,
-      deployedSha: PREVIOUS,
-    });
-    expect(f.mutations).toEqual([]);
-    expect(f.writes).toEqual([{ path: '/issues/comments/7', method: 'PATCH' }]);
-  });
-
-  test.each([
-    'author',
-    'pusher',
-    'rerunner',
-  ])('does not inherit authority from a maintainer when %s is untrusted', async (login) => {
-    for (const role of ['write', 'triage', 'read', 'none', 'custom']) {
+  test.each(['admin', 'maintain'])(
+    'refreshes the exact head after CI for live %s users',
+    async (role) => {
       const f = fixture();
-      Object.assign(f.roles.get(login)!, {
-        permission: 'write',
-        role_name: role,
+      for (const account of f.roles.values()) {
+        account.role_name = role;
+        account.permission = role === 'maintain' ? 'write' : 'admin';
+      }
+      expect(await approve(f)).toBe(true);
+      expect(f.outputs).toEqual(
+        new Map([
+          ['pr-number', '42'],
+          ['head-sha', HEAD],
+        ]),
+      );
+      expect(parsePreviewComment(f.comment.body)).toEqual({
+        approvedSha: HEAD,
+        deployedSha: PREVIOUS,
       });
-      expect(await approve(f)).toBe(false);
-      expect(f.writes).toEqual([]);
-      expect(f.outputs.size).toBe(0);
-    }
-  });
+      expect(f.mutations).toEqual([]);
+      expect(f.writes).toEqual([
+        { path: '/issues/comments/7', method: 'PATCH' },
+      ]);
+    },
+  );
+
+  test.each(['author', 'pusher', 'rerunner'])(
+    'does not inherit authority from a maintainer when %s is untrusted',
+    async (login) => {
+      for (const role of ['write', 'triage', 'read', 'none', 'custom']) {
+        const f = fixture();
+        Object.assign(f.roles.get(login)!, {
+          permission: 'write',
+          role_name: role,
+        });
+        expect(await approve(f)).toBe(false);
+        expect(f.writes).toEqual([]);
+        expect(f.outputs.size).toBe(0);
+      }
+    },
+  );
 
   test('a bot identity cannot become trusted through an admin-shaped permission response', async () => {
     const f = fixture();
@@ -364,13 +366,16 @@ describe('maintainer preview authority', () => {
     ],
   ] satisfies ReadonlyArray<
     readonly [string, (f: ReturnType<typeof fixture>) => void]
-  >)('rejects %s before writing any approval or deployment output', async (_name, alter) => {
-    const f = fixture();
-    alter(f);
-    expect(await approve(f)).toBe(false);
-    expect(f.writes).toEqual([]);
-    expect(f.outputs.size).toBe(0);
-  });
+  >)(
+    'rejects %s before writing any approval or deployment output',
+    async (_name, alter) => {
+      const f = fixture();
+      alter(f);
+      expect(await approve(f)).toBe(false);
+      expect(f.writes).toEqual([]);
+      expect(f.outputs.size).toBe(0);
+    },
+  );
 
   test('a push or opt-out during approval prevents deployment outputs', async () => {
     for (const action of ['push', 'unlabel']) {
@@ -442,51 +447,48 @@ describe('maintainer preview lifetime', () => {
     expect(f.writes).toEqual([]);
   });
 
-  test.each([
-    'author',
-    'pusher',
-    'rerunner',
-    'CI',
-    'base',
-  ])('a queued deployment stops when %s loses its authority', async (identity) => {
-    const f = fixture();
-    expect(await approve(f)).toBe(true);
-    f.outputs.clear();
-    if (identity === 'CI') f.run.status = 'in_progress';
-    else if (identity === 'base') f.pull.base.ref = 'release';
-    else f.roles.delete(identity);
-    const deploymentDependencies = {
-      ...f.dependencies,
-      runProcess: async (
-        options: Parameters<LifecycleDependencies['runProcess']>[0],
-      ) => {
-        if (options.argv[0] === '/usr/bin/git')
-          return { stdout: options.argv[1] === 'rev-parse' ? HEAD : '' };
-        f.mutations.push('deploy');
-        throw new Error('Unexpected deployment after revocation');
-      },
-    };
-    await expect(
-      deployPreviewApp(
-        {
-          app: 'demo',
-          repository: REPOSITORY,
-          prNumber: '42',
-          approvedSha: HEAD,
-          ciRunId: '123',
-          bunExecutable: '/usr/bin/bun',
-          sourceRoot: '/tmp/source',
-          accountId: 'preview',
-          apiToken: 'fake-token',
-          expectedAccountId: 'preview',
-          workersDevSuffix: 'preview.workers.dev',
+  test.each(['author', 'pusher', 'rerunner', 'CI', 'base'])(
+    'a queued deployment stops when %s loses its authority',
+    async (identity) => {
+      const f = fixture();
+      expect(await approve(f)).toBe(true);
+      f.outputs.clear();
+      if (identity === 'CI') f.run.status = 'in_progress';
+      else if (identity === 'base') f.pull.base.ref = 'release';
+      else f.roles.delete(identity);
+      const deploymentDependencies = {
+        ...f.dependencies,
+        runProcess: async (
+          options: Parameters<LifecycleDependencies['runProcess']>[0],
+        ) => {
+          if (options.argv[0] === '/usr/bin/git')
+            return { stdout: options.argv[1] === 'rev-parse' ? HEAD : '' };
+          f.mutations.push('deploy');
+          throw new Error('Unexpected deployment after revocation');
         },
-        deploymentDependencies,
-      ),
-    ).rejects.toThrow('Automatic preview CI authority is no longer current');
-    expect(f.mutations).toEqual([]);
-    expect(f.outputs.size).toBe(0);
-  });
+      };
+      await expect(
+        deployPreviewApp(
+          {
+            app: 'demo',
+            repository: REPOSITORY,
+            prNumber: '42',
+            approvedSha: HEAD,
+            ciRunId: '123',
+            bunExecutable: '/usr/bin/bun',
+            sourceRoot: '/tmp/source',
+            accountId: 'preview',
+            apiToken: 'fake-token',
+            expectedAccountId: 'preview',
+            workersDevSuffix: 'preview.workers.dev',
+          },
+          deploymentDependencies,
+        ),
+      ).rejects.toThrow('Automatic preview CI authority is no longer current');
+      expect(f.mutations).toEqual([]);
+      expect(f.outputs.size).toBe(0);
+    },
+  );
 
   test('a maintainer push retains opt-in and refreshes approval without deploying before CI', async () => {
     const f = fixture();

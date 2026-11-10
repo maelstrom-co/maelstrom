@@ -127,7 +127,7 @@ describe('finalVariants (mirrors the engine simulate-variant rule)', () => {
                     name: ActionName('showRadar'),
                     description: 'Radar',
                     transitionsTo: VariantName('radar'),
-                    idempotent: true,
+                    effect: 'none',
                   },
                 ],
               },
@@ -137,6 +137,23 @@ describe('finalVariants (mirrors the engine simulate-variant rule)', () => {
     );
     const result = finalVariants([weather], [step('showRadar')], drifted);
     expect(isErr(result) && result.error.kind).toBe('unknown_target');
+  });
+
+  test('seeded with the pre-action Layout Variant, a transition Action reaches its target', () => {
+    const result = finalVariants([weather], [step('showWeekly')], vessels);
+    expect(isOk(result) && String(result.value.get(weather.instanceId))).toBe(
+      'weekly',
+    );
+  });
+
+  test('seeded with a post-action Layout Variant, the same transition Action does not replay', () => {
+    const declaredWeekly = { ...weather, variant: VariantName('weekly') };
+    const result = finalVariants(
+      [declaredWeekly],
+      [step('showWeekly')],
+      vessels,
+    );
+    expect(isErr(result) && result.error.kind).toBe('action_not_valid');
   });
 
   test('an unknown instance is flagged', () => {

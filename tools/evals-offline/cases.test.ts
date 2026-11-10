@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { evaluateSample } from '../../packages/evals/src/core/runtime/evaluate.js';
 import { scenarios } from '../../packages/evals/src/core/scenarios.js';
 import { caseAdapter } from './case-adapter.js';
@@ -324,7 +325,7 @@ test('JSON weather turns, expectations and fixture state actually drive executio
 test('JSON client expectations are scored, never substituted as observed effects', async () => {
   expect((await run('client-order')).evaluation).toBe('pass');
   const data = json('client-order.json');
-  data.expectations.effects[0].variant = 'summary';
+  data.expectations.effects[0].variant = 'breakdown';
   save('client-order.json', data);
   const failed = await run('client-order');
   expect(failed.evaluation).toBe('fail');
@@ -333,7 +334,7 @@ test('JSON client expectations are scored, never substituted as observed effects
     effects: expect.arrayContaining([
       expect.objectContaining({
         action: 'openBreakdown',
-        variant: 'breakdown',
+        variant: 'summary',
       }),
       expect.objectContaining({ action: 'configure', variant: 'current' }),
     ]),
@@ -2416,6 +2417,7 @@ test('scripted variant candidate JSON drives shipped evidence while expectations
   expect(failed.records[0].value).toEqual(missingAction.data);
   expect(failed.provenance).not.toBe(baseline.provenance);
   const healable = structuredClone(original);
+  healable.data.candidate.layout.instances[1].variant = 'current';
   healable.data.candidate.executionPlan.push({
     instanceId: 'weather-main',
     action: 'inventedAction',

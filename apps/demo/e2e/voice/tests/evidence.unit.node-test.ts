@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+
 import type { Page, WebSocket } from '@playwright/test';
+
 import {
   CALENDAR_WORD,
   observeProtocol,

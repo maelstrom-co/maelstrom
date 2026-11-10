@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { createOrderedEmitter } from './ordered-emitter.js';
 
 test('every listener sees events in emission order, including events emitted from inside a listener', () => {

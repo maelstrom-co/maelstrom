@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+
 import { installPostHogRecorder } from './posthog';
 
 async function openHydratedWaitlist(

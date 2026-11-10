@@ -44,7 +44,7 @@ export function EdgeLayer({ currentStep }: { currentStep: LoopStep }) {
   const reverse = dir === 'reverse';
 
   return (
-    // biome-ignore lint/a11y/noAriaHiddenOnFocusable: an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. The beams are decorative and the same relationships are exposed in the role panel, so dropping aria-hidden would only add noise.
+    // oxlint-disable-next-line jsx-a11y/no-aria-hidden-on-focusable -- an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. The beams are decorative and the same relationships are exposed in the role panel, so dropping aria-hidden would only add noise.
     <g className="arch-edges" aria-hidden="true">
       {EDGES.map((edge, i) => {
         const a = POS[edge.from];

@@ -2,6 +2,7 @@
 
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   EMPTY_VOICE_OBSERVATIONS,
   FakeRealtimeSession,
@@ -58,41 +59,41 @@ function renderCaptions() {
 }
 
 describe('Captions', () => {
-  it.each([
-    'user',
-    'assistant',
-  ] as const)('drops the old %s caption on reconnect and shows a fresh one unfaded', async (role) => {
-    vi.useFakeTimers();
-    const { container, session } = renderCaptions();
-    await act(async () => {
-      session.emitState('connected');
-      session.emitCaption({ role, text: 'Same words', final: true });
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(3500);
-    });
-    const faded = () =>
-      container
-        .querySelector(`[data-role="${role}"]`)
-        ?.getAttribute('data-faded');
-    expect(faded()).toBe('true');
-    await act(async () => {
-      session.emitState('idle');
-    });
-    await act(async () => {
-      session.emitObservations({
-        ...EMPTY_VOICE_OBSERVATIONS,
-        generation: 2,
-        connection: 'connected',
+  it.each(['user', 'assistant'] as const)(
+    'drops the old %s caption on reconnect and shows a fresh one unfaded',
+    async (role) => {
+      vi.useFakeTimers();
+      const { container, session } = renderCaptions();
+      await act(async () => {
+        session.emitState('connected');
+        session.emitCaption({ role, text: 'Same words', final: true });
       });
-      session.emitState('connected');
-    });
-    expect(container.querySelector(`[data-role="${role}"]`)).toBeNull();
-    await act(async () => {
-      session.emitCaption({ role, text: 'Same words', final: true });
-    });
-    expect(faded()).toBe('false');
-  });
+      await act(async () => {
+        vi.advanceTimersByTime(3500);
+      });
+      const faded = () =>
+        container
+          .querySelector(`[data-role="${role}"]`)
+          ?.getAttribute('data-faded');
+      expect(faded()).toBe('true');
+      await act(async () => {
+        session.emitState('idle');
+      });
+      await act(async () => {
+        session.emitObservations({
+          ...EMPTY_VOICE_OBSERVATIONS,
+          generation: 2,
+          connection: 'connected',
+        });
+        session.emitState('connected');
+      });
+      expect(container.querySelector(`[data-role="${role}"]`)).toBeNull();
+      await act(async () => {
+        session.emitCaption({ role, text: 'Same words', final: true });
+      });
+      expect(faded()).toBe('false');
+    },
+  );
 
   it('renders captions only from the observation store, not legacy transcripts', async () => {
     const { container, session } = renderCaptions();

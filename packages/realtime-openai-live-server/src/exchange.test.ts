@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+
 import type { LiveExchangeRequest } from '@maelstrom-co/realtime-protocol/openai-live';
+
 import { createLiveSessionExchange } from './index.js';
 
 const offer: LiveExchangeRequest = {
@@ -54,27 +56,28 @@ describe('paid session boundary', () => {
     ).rejects.toMatchObject({ code: 'invalid_offer' });
     expect(calls).toBe(0);
   });
-  test.each([
-    301, 307, 400, 401, 429, 500, 200,
-  ])('does not retry or accept upstream status %i', async (status) => {
-    let calls = 0;
-    const exchange = exchangeWith(async () => {
-      calls++;
-      return new Response('secret-bearing upstream body', {
-        status,
-        headers: {
-          Location: 'https://elsewhere.invalid',
-          'x-request-id': 'req_1',
-        },
+  test.each([301, 307, 400, 401, 429, 500, 200])(
+    'does not retry or accept upstream status %i',
+    async (status) => {
+      let calls = 0;
+      const exchange = exchangeWith(async () => {
+        calls++;
+        return new Response('secret-bearing upstream body', {
+          status,
+          headers: {
+            Location: 'https://elsewhere.invalid',
+            'x-request-id': 'req_1',
+          },
+        });
       });
-    });
-    await expect(exchange(offer, signal())).rejects.toMatchObject({
-      code: 'exchange_rejected',
-      status,
-      requestId: 'req_1',
-    });
-    expect(calls).toBe(1);
-  });
+      await expect(exchange(offer, signal())).rejects.toMatchObject({
+        code: 'exchange_rejected',
+        status,
+        requestId: 'req_1',
+      });
+      expect(calls).toBe(1);
+    },
+  );
   test.each([
     {},
     { ...answer, session: { id: '' } },

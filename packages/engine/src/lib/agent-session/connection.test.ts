@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
@@ -11,6 +12,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { install } from '@sinonjs/fake-timers';
+
 import { createEngine } from '../../index.js';
 import {
   buildGridResponse,
@@ -45,6 +47,7 @@ test('a UI-only reply waits for its own applied acknowledgement before claiming 
       expect(input.request.skipReply).not.toBe(true);
       now = 20;
       return ok({
+        type: 'plan',
         userMessage: 'Your calendar is visible.',
         rationale: 'Keep the requested Instance.',
         executionPlan: [],
@@ -128,6 +131,7 @@ test('the placeholder reaches the browser before a slow Planner is called and ne
       });
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -177,6 +181,7 @@ test('a repeated input never repeats its layout or spends another Planner call',
     planner: async () => {
       plans++;
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -272,6 +277,7 @@ test('closing a connection aborts its Planner and never emits its late result', 
       signal = context.signal;
       await gate.promise;
       return ok({
+        type: 'plan',
         userMessage: 'Late.',
         rationale: '',
         executionPlan: [],
@@ -345,6 +351,7 @@ test('queued utterances plan against the acknowledged Chart rather than an earli
     planner: async (input) => {
       planned.push(input.request.layout);
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -395,6 +402,7 @@ test('a queued utterance plans against its own newer Chart when the run before i
       planned.push(input.request.layout);
       if (planned.length === 1) throw new Error('provider unavailable');
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -430,6 +438,7 @@ test('a run that fails during planning leaves later queued utterances on the ack
       planned.push(input.request.layout);
       if (planned.length === 2) throw new Error('provider unavailable');
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -532,6 +541,7 @@ test('an unacknowledged change times out once and releases the connection instea
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -576,6 +586,7 @@ test('a client that does not acknowledge cannot grow an unbounded queue of paid 
     planner: async () => {
       plans++;
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -617,6 +628,7 @@ test('a throwing observer cannot strand a run or change event order for other ob
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -659,6 +671,7 @@ test('observer-triggered inputs and acknowledgements keep one event order and re
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -720,6 +733,7 @@ test('an unexpected planning-pipeline rejection finishes the run and releases it
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -750,6 +764,7 @@ test('server-minted run diagnostics remain isolated when two connections reuse a
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -822,6 +837,7 @@ test('run diagnostics describe acknowledgement and termination without publishin
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -880,6 +896,7 @@ test('host debug logs follow the event stream with correlation fields only and s
     planner: async () => {
       if (++plans > 1) await gate.promise;
       return ok({
+        type: 'plan',
         userMessage: 'Your private calendar is visible.',
         rationale: '',
         executionPlan: [],
@@ -1027,6 +1044,7 @@ test('a timeout cancels queued work, and the next input uses a fresh Chart inste
     planner: async (input) => {
       planned.push(input.request.layout);
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -1112,6 +1130,7 @@ test('an acknowledgement repeated from the run it finishes is unknown and cannot
     retry: false,
     planner: async () =>
       ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],
@@ -1166,6 +1185,7 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
     planner: async (input) => {
       planned.push(input.request.layout);
       return ok({
+        type: 'plan',
         userMessage: 'Done.',
         rationale: '',
         executionPlan: [],

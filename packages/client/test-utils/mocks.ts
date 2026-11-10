@@ -5,6 +5,7 @@ import {
   type MessageId,
   type TilingLayout,
   VariantName,
+  type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
 
@@ -51,4 +52,28 @@ export const createMockEmptyResponse = (
   rationale: 'test',
   executionPlan: [],
   layout: { type: 'tiling', tree: [], instances: [] },
+});
+
+/**
+ * The `vessel-1` definition that {@link createMockResponse} lays out: one
+ * `default` Variant offering the named Actions. Register it so Engine Actions
+ * resolve against the Variant instead of being skipped for an unknown Vessel.
+ */
+export const createMockResponseVessel = (
+  ...actions: string[]
+): VesselDefinition => ({
+  id: 'vessel-1',
+  name: 'Vessel 1',
+  description: 'test vessel',
+  defaultVariant: 'default',
+  variants: {
+    default: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: (actions.length > 0 ? actions : ['show']).map((name) => ({
+        name,
+        description: name,
+      })),
+    },
+  },
 });

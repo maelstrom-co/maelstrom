@@ -1,4 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+
 import { DEMO_LOCATIONS } from '../lib/locations';
 import { withActionOptions } from '../lib/vessel-options';
 
@@ -17,7 +18,7 @@ const baseMapVessel = defineVessel({
       actions: [
         {
           name: 'showRoute',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Show driving directions and travel time to a destination',
           parameters: [
@@ -31,7 +32,7 @@ const baseMapVessel = defineVessel({
         },
         {
           name: 'focusLocation',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Show a single saved place as a compact card',
           parameters: [
             {
@@ -50,13 +51,13 @@ const baseMapVessel = defineVessel({
       actions: [
         {
           name: 'showOverview',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Show all saved locations',
           transitionsTo: 'overview',
         },
         {
           name: 'showRoute',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Show driving directions and travel time to a destination',
           parameters: [
@@ -69,7 +70,7 @@ const baseMapVessel = defineVessel({
         },
         {
           name: 'focusLocation',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Show a single saved place as a compact card',
           parameters: [
             {
@@ -88,13 +89,13 @@ const baseMapVessel = defineVessel({
       actions: [
         {
           name: 'showOverview',
-          idempotent: true,
+          effect: 'idempotent',
           description: 'Show all saved locations',
           transitionsTo: 'overview',
         },
         {
           name: 'showRoute',
-          idempotent: true,
+          effect: 'idempotent',
           description:
             'Show driving directions and travel time to a destination',
           parameters: [

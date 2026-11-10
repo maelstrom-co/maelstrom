@@ -6,11 +6,12 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   err,
+  GridNeedsClarificationSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
   isErr,
-  NeedsClarificationSchema,
   ok,
+  TilingNeedsClarificationSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
 } from '@maelstrom-co/protocol';
@@ -23,8 +24,10 @@ import type { Logger } from '../logger.js';
 import type { ProcessResponseInput } from '../response/response-processor.js';
 import {
   buildDiagnostics,
+  processPartialChanges,
   processResponse,
 } from '../response/response-processor.js';
+import { isFixableSkip } from '../validation/llm-output/retry-hint.js';
 import type {
   FullDiagnostics,
   FullValidatedCandidate,
@@ -35,9 +38,7 @@ import type {
   PlannerOutput,
   ReplylessCandidate,
 } from './candidate.js';
-import { isNeedsClarification } from './candidate.js';
 import type { PlanValidator } from './plan-validator.js';
-import type { ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
   readonly request: ChartRequest;
@@ -102,25 +103,7 @@ export function createCandidateValidator(
     const cacheable = typeof candidate === 'object' && candidate !== null;
     let result = cacheable ? cache.get(candidate) : undefined;
     if (result === undefined) {
-      if (isNeedsClarification(candidate)) {
-        result = processNeedsClarification(input, candidate);
-      } else {
-        const processed = processCandidate({ ...input, llmOutput: candidate });
-        const userMessage = processed.ok
-          ? processed.value.userMessage
-          : undefined;
-        result =
-          isErr(processed) ||
-          input.validatePlan === undefined ||
-          userMessage === undefined ||
-          userMessage.trim() === ''
-            ? processed
-            : validateApplicationPlan(
-                input,
-                { ...processed.value, userMessage },
-                input.validatePlan,
-              );
-      }
+      result = validateUncached(input, candidate);
       if (cacheable) cache.set(candidate, result);
     }
     input.onValidated?.(result);
@@ -129,23 +112,66 @@ export function createCandidateValidator(
   return validate;
 }
 
-const EMPTY_DIAGNOSTICS: FullDiagnostics = Object.freeze({
-  skippedActions: Object.freeze([]),
-  droppedLayoutEntries: Object.freeze([]),
-  warnings: Object.freeze([]),
-  retryHint: Object.freeze({ severity: 'none', recommend: false }),
-  counts: Object.freeze({
-    skippedActions: 0,
-    droppedLayoutEntries: 0,
-    warnings: 0,
-  }),
-  feedback: '',
-});
+// A misbehaving stage can hand over a primitive or an object with a missing
+// or unknown `type`; each of those is an Err rather than a throw.
+function validateUncached(
+  input: CandidateValidatorInput,
+  candidate: PlannerOutput,
+): Result<FullValidatedPlannerOutput, EngineError> {
+  if (typeof candidate !== 'object' || candidate === null)
+    return rejectUnknownResultType(input, candidate);
+  switch (candidate.type) {
+    case 'needs_clarification':
+      return processNeedsClarification(input, candidate);
+    case 'plan':
+      return processPlan(input, candidate);
+    default: {
+      const unknownResult: never = candidate;
+      return rejectUnknownResultType(input, unknownResult);
+    }
+  }
+}
+
+function processPlan(
+  input: CandidateValidatorInput,
+  candidate: ReplylessCandidate,
+): Result<FullValidatedReplylessCandidate, EngineError> {
+  const processed = processCandidate({ ...input, llmOutput: candidate });
+  if (isErr(processed) || input.validatePlan === undefined) return processed;
+  const { userMessage } = processed.value;
+  if (userMessage === undefined || userMessage.trim() === '') return processed;
+  return validateApplicationPlan(
+    input,
+    { ...processed.value, userMessage },
+    input.validatePlan,
+  );
+}
+
+function rejectUnknownResultType(
+  { messageId, logger }: CandidateValidatorInput,
+  output: unknown,
+): Result<never, EngineError> {
+  const type =
+    typeof output === 'object' && output !== null && 'type' in output
+      ? output.type
+      : undefined;
+  const failure = validationError(
+    `planner result type must be 'plan' or 'needs_clarification', got ${describeType(type)}`,
+    'planner',
+  );
+  logger.error('Planner result has an unknown type', failure, { messageId });
+  return err(failure);
+}
+
+function describeType(type: unknown): string {
+  if (type === undefined) return 'no type';
+  return typeof type === 'string' ? `'${type}'` : typeof type;
+}
 
 // Stages can validate a clarification through ctx.validate, so this check
 // rejects one for a request without skipReply before any stage acts on it.
 function processNeedsClarification(
-  { request, messageId, logger }: CandidateValidatorInput,
+  { request, enumSnapshot, messageId, logger }: CandidateValidatorInput,
   output: NeedsClarification,
 ): Result<FullValidatedNeedsClarification, EngineError> {
   if (request.skipReply !== true) {
@@ -160,7 +186,7 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  const shape = NeedsClarificationSchema.safeParse(output);
+  const shape = clarificationSchemaFor(request).safeParse(output);
   if (!shape.success) {
     const failure = validationError(
       `planner result does not match the needs-clarification schema: ${shape.error.message}`,
@@ -174,7 +200,42 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  return ok({ ...shape.data, diagnostics: EMPTY_DIAGNOSTICS });
+  const { layout, executionPlan, ...clarification } = shape.data;
+  const healed = guardInvariants(logger, messageId, () =>
+    processPartialChanges({
+      request,
+      enumSnapshot,
+      messageId,
+      logger,
+      changes: {
+        ...(layout === undefined ? {} : { layout }),
+        ...(executionPlan === undefined ? {} : { executionPlan }),
+      },
+    }),
+  );
+  if (isErr(healed)) return healed;
+  const { diagnostics } = healed.value;
+  if (hasInvalidPartialChanges(diagnostics)) {
+    const failure = validationError(
+      `planner clarification carries partial changes that fail plan validation${
+        diagnostics.feedback === '' ? '' : `:\n${diagnostics.feedback}`
+      }`,
+      'planner',
+      diagnostics,
+    );
+    logger.error(
+      'Planner clarification carries invalid partial changes',
+      failure,
+      {
+        messageId,
+        droppedLayoutCount: diagnostics.counts.droppedLayoutEntries,
+        skippedActionCount: diagnostics.counts.skippedActions,
+        retryHintSeverity: diagnostics.retryHint.severity,
+      },
+    );
+    return err(failure);
+  }
+  return ok({ ...clarification, ...healed.value });
 }
 
 function validateApplicationPlan(
@@ -227,9 +288,6 @@ function validateApplicationPlan(
   }
 }
 
-// Heal helpers and exhaustiveness guards throw on Engine-internal invariant
-// violations; those become Err(ValidationError) on field 'response' so the
-// caller's Promise<Result> never rejects.
 function processCandidate(
   input: ProcessResponseInput,
 ): Result<FullValidatedReplylessCandidate, EngineError> {
@@ -249,8 +307,32 @@ function processCandidate(
     );
     return err(failure);
   }
+  return guardInvariants(logger, messageId, () => processResponse(input));
+}
+
+// A layout entry healing dropped, an Action skipped for a reason a better
+// model answer would avoid, or a layout that would blank a screen with
+// Instances on it makes partial changes invalid. Repairs that keep every
+// entry, and Actions refused for turn or engine-state reasons, are accepted
+// as they are for a plan.
+function hasInvalidPartialChanges(diagnostics: FullDiagnostics): boolean {
+  return (
+    diagnostics.droppedLayoutEntries.length > 0 ||
+    diagnostics.retryHint.severity === 'unrecoverable' ||
+    diagnostics.skippedActions.some((skip) => isFixableSkip(skip.reason))
+  );
+}
+
+// Heal helpers and exhaustiveness guards throw on Engine-internal invariant
+// violations; those become Err(ValidationError) on field 'response' so the
+// caller's Promise<Result> never rejects.
+function guardInvariants<T>(
+  logger: Logger,
+  messageId: MessageId,
+  process: () => Result<T, EngineError>,
+): Result<T, EngineError> {
   try {
-    const processed = processResponse(input);
+    const processed = process();
     if (isErr(processed)) {
       logger.error('Failed to process LLM response', processed.error, {
         messageId,
@@ -271,6 +353,12 @@ function processCandidate(
       ),
     );
   }
+}
+
+function clarificationSchemaFor(request: ChartRequest) {
+  return request.context.layoutMode === 'grid'
+    ? GridNeedsClarificationSchema
+    : TilingNeedsClarificationSchema;
 }
 
 function responseSchemaFor(request: ChartRequest) {

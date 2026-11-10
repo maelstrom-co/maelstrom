@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+
 import { ok } from '@maelstrom-co/protocol';
+
 import { evaluateSample } from '../core/runtime/evaluate.js';
 import { selectScenarios } from '../core/scenarios.js';
 import { registerStageEval, type StageEvalModule } from '../core/stage-eval.js';

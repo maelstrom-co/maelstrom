@@ -10,11 +10,11 @@ import {
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
 import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
-import { buildJevGatedBatchedPlanner } from './jev-gated-batched.js';
 import { buildJevGatedBatchedPerInstancePlanner } from './jev-gated-batched-per-instance.js';
+import { buildJevGatedBatchedPlanner } from './jev-gated-batched.js';
 import { buildJevGatedStepwisePlanner } from './jev-gated-stepwise.js';
-import { buildJevUngatedBatchedPlanner } from './jev-ungated-batched.js';
 import { buildJevUngatedBatchedPerInstancePlanner } from './jev-ungated-batched-per-instance.js';
+import { buildJevUngatedBatchedPlanner } from './jev-ungated-batched.js';
 
 installMockChat();
 

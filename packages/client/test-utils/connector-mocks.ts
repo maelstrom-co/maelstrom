@@ -1,4 +1,5 @@
 import { mock } from 'bun:test';
+
 import { MessageId, type SessionId } from '@maelstrom-co/protocol';
 
 import type {

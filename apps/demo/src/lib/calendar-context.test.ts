@@ -6,6 +6,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import {
   browserCalendarContext,
   withBrowserCalendarContext,

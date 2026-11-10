@@ -10,6 +10,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { createWebSocketHandlers, type SocketData } from './ws-server';
 
 const chart = {
@@ -65,6 +66,7 @@ describe('local streaming WebSocket boundary', () => {
       retry: false,
       planner: async () =>
         ok({
+          type: 'plan',
           userMessage: 'The Chart is empty.',
           rationale: '',
           executionPlan: [],
@@ -116,6 +118,7 @@ describe('local streaming WebSocket boundary', () => {
         entered.resolve();
         await gate.promise;
         return ok({
+          type: 'plan',
           userMessage: 'Late.',
           rationale: '',
           executionPlan: [],
@@ -161,6 +164,7 @@ describe('local streaming WebSocket boundary', () => {
       retry: false,
       planner: async () =>
         ok({
+          type: 'plan',
           userMessage: 'Done.',
           rationale: '',
           executionPlan: [],

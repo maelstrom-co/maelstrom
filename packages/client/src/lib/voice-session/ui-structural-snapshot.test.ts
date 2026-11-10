@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import {
   type GridLayout,
   getVisibleInstanceIds,
@@ -239,6 +240,37 @@ describe('readStructuralSnapshot', () => {
       );
       expect(retainedInstances.size).toBe(3);
       expect(orchestrator.commandProcessor.store.state.instances.size).toBe(3);
+      expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
+      expect(layout.instances).toEqual(tilingDeclarations);
+    } finally {
+      orchestrator.dispose();
+    }
+  });
+
+  it('reports one Variant per Instance after an Action transition', () => {
+    const { orchestrator } = createTestOrchestrator();
+    const layout = createTilingLayout([calendarLeaf]);
+    const retainedInstances = seedState(orchestrator, layout);
+    const calendar = retainedInstances.get(calendarId);
+    if (calendar === undefined) throw new Error('expected calendar Instance');
+    retainedInstances.set(calendarId, {
+      ...calendar,
+      variant: VariantName('week'),
+    });
+
+    try {
+      const snapshot = readStructuralSnapshot(orchestrator);
+
+      const liveCalendar = {
+        instanceId: calendarId,
+        vesselId: VesselId('calendar'),
+        variant: VariantName('week'),
+      };
+      expect(snapshot.instances).toEqual([liveCalendar]);
+      if (snapshot.layout?.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(snapshot.layout.instances).toEqual([liveCalendar]);
       expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
       expect(layout.instances).toEqual(tilingDeclarations);
     } finally {

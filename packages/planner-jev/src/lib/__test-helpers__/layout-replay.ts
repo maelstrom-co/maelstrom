@@ -9,15 +9,14 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+
 import type { Answer } from '../questions.js';
 import { GATE_THRESHOLD } from '../stages/select-gated.js';
 import type { GateAnswer, GatedActionPlan } from '../stages/stage-types.js';
 import type { SelectedInstance } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { demoVessels } from './demo-vessels.js';
-import demoTurnsJson from './layout-replay-fixtures/demo-turns.json' with {
-  type: 'json',
-};
+import demoTurnsJson from './layout-replay-fixtures/demo-turns.json' with { type: 'json' };
 
 /** One recorded Jev answer, trimmed to what the layout stage reads; options with probability 0 are left out. */
 export interface ReplayAnswer {

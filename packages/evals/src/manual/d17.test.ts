@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
+
 import { buildSystemPrompt, buildUserPrompt } from '@maelstrom-co/planner-llm';
 import {
   ChartRequestSchema,
   type MaelstromResponse,
   MessageId,
-  TilingResponseSchema,
+  TilingModelOutputSchema,
   VariantName,
   VesselSchema,
 } from '@maelstrom-co/protocol';
+
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
 import { d17Request, runD17, scoreD17Response } from './d17.js';
 import { type ManualFetch, manualTransport } from './transport.js';
@@ -435,7 +437,7 @@ test('D17 fails valid single-target mutations, both-target mutations, retained-s
 
 test('D17 exact state comparator covers complete snapshot identity, order and layout type; missing evidence cannot pass', async () => {
   const initial = await d17Request();
-  const candidate = TilingResponseSchema.parse(completed());
+  const candidate = TilingModelOutputSchema.parse(completed());
   const response: MaelstromResponse = {
     ...candidate,
     type: 'maelstrom_response',
@@ -455,7 +457,7 @@ test('D17 exact state comparator covers complete snapshot identity, order and la
   expect(scoreD17Response(reordered, initial).failures).toContain(
     'Chart Instance snapshots changed',
   );
-  const differentVessel = TilingResponseSchema.parse({
+  const differentVessel = TilingModelOutputSchema.parse({
     ...completed(),
     layout: {
       ...completed().layout,

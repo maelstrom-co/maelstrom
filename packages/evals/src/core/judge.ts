@@ -35,11 +35,13 @@ const levels = [
   'The observed output meets all supplied requirements without unsupported changes.',
 ];
 const rubrics: {
-  readonly [Id in
-    | 'stage_output'
-    | 'session_outcome'
-    | 'client_application'
-    | 'legacy_task']: {
+  readonly [
+    Id in
+      | 'stage_output'
+      | 'session_outcome'
+      | 'client_application'
+      | 'legacy_task'
+  ]: {
     readonly identity: { readonly id: Id; readonly version: number };
     readonly dimension: JudgeDimension;
   };

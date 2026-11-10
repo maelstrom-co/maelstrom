@@ -1,4 +1,5 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
+
 import type { appointmentsVessel } from './appointments.vessel';
 
 const BASE: [string, string, boolean][] = [

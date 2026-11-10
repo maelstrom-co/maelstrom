@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import * as Result from 'effect/Result';
+
 import { buildWaitlistInvitationEmail } from '../lib/waitlist-invitation-email';
 import {
   classifyEmailFailure,

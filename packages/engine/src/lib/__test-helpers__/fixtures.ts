@@ -1,4 +1,5 @@
 import type {
+  ActionEffect,
   ChartRequest,
   GridLayout,
   GridPosition,
@@ -50,7 +51,7 @@ type AuthorVesselAction = {
   readonly description: string;
   readonly parameters?: ReadonlyArray<unknown>;
   readonly transitionsTo?: string;
-  readonly idempotent?: boolean;
+  readonly effect?: ActionEffect;
 };
 type AuthorVesselVariant = {
   readonly description?: string;
@@ -80,7 +81,7 @@ export type AuthorVessel = {
 const brandAction = (action: AuthorVesselAction): VesselAction => ({
   name: ActionName(action.name),
   description: action.description,
-  idempotent: action.idempotent ?? false,
+  effect: action.effect ?? 'any',
   // `parameters` is author-typed as `unknown[]`; the schema's element shape
   // (`ActionParameter`) is irrelevant to fixtures that never assert on it.
   ...(action.parameters !== undefined
@@ -374,9 +375,10 @@ export const brandTilingTree = (
   tree: ReadonlyArray<AuthorTilingNode>,
 ): TilingNode[] => tree.map(brandTilingNode);
 
-/** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
+/** Brands a complete grid LLM-output author shape into a `GridResponse` tagged `type: 'plan'`. */
 export function brandGridResponse(author: GridResponseAuthor): GridResponse {
   return {
+    type: 'plan',
     userMessage: author.userMessage,
     rationale: author.rationale,
     executionPlan: author.executionPlan.map(brandActionExecution),
@@ -384,11 +386,12 @@ export function brandGridResponse(author: GridResponseAuthor): GridResponse {
   };
 }
 
-/** Brands a complete tiling LLM-output author shape into a typed `TilingResponse`. */
+/** Brands a complete tiling LLM-output author shape into a `TilingResponse` tagged `type: 'plan'`. */
 export function brandTilingResponse(
   author: TilingResponseAuthor,
 ): TilingResponse {
   return {
+    type: 'plan',
     userMessage: author.userMessage,
     rationale: author.rationale,
     executionPlan: author.executionPlan.map(brandActionExecution),
@@ -422,6 +425,88 @@ export function buildGridResponse(
     },
   });
 }
+
+/**
+ * A `calendar` Vessel whose `month`, `week` and `day` Variants each offer a
+ * switch to the other two plus a parameterless `addEvent` that changes no
+ * Variant, matching the demo calendar's view graph.
+ */
+export const threeViewCalendarVessel: AuthorVessel = {
+  id: 'calendar',
+  name: 'Calendar',
+  description: 'Calendar with three views',
+  defaultVariant: 'month',
+  variants: {
+    month: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
+      ],
+    },
+    week: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        {
+          name: 'showMonth',
+          description: 'Month view',
+          transitionsTo: 'month',
+        },
+        { name: 'showDay', description: 'Day view', transitionsTo: 'day' },
+      ],
+    },
+    day: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'addEvent', description: 'Add an event' },
+        {
+          name: 'showMonth',
+          description: 'Month view',
+          transitionsTo: 'month',
+        },
+        { name: 'showWeek', description: 'Week view', transitionsTo: 'week' },
+      ],
+    },
+  },
+};
+
+/**
+ * A `wizard` Vessel that only moves forward: `start` offers `next` into
+ * `review`, and only `review` offers `finish` into `done`. No Variant offers a
+ * transition straight from `start` to `done`.
+ */
+export const forwardOnlyWizardVessel: AuthorVessel = {
+  id: 'wizard',
+  name: 'Wizard',
+  description: 'Three-step wizard',
+  defaultVariant: 'start',
+  variants: {
+    start: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'next', description: 'Review', transitionsTo: 'review' },
+      ],
+    },
+    review: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [
+        { name: 'finish', description: 'Finish', transitionsTo: 'done' },
+      ],
+    },
+    done: {
+      props: {},
+      minSize: { width: 4, height: 4 },
+      actions: [],
+    },
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Skipped-action builder. `SkippedAction` is a closed discriminated union

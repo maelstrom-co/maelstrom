@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+
 import { createMaelstrom, defineVessel, vessel } from '@maelstrom-co/react';
 
 assert.equal(typeof createMaelstrom, 'function');

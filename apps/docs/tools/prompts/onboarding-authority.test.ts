@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
 import { parsePromptSource, sdkVersionMatches } from './library';
 
 test('copying the onboarding prompt does not grant implementation authority by default', async () => {

@@ -1,10 +1,10 @@
+import { judgeNotRun } from '../core/judge-result.js';
 import {
   type JudgeConfig,
   type JudgeRubric,
   judgeEvidence,
   validateJudgeSelection,
 } from '../core/judge.js';
-import { judgeNotRun } from '../core/judge-result.js';
 import type { Judge } from '../core/plugin.js';
 import type { EvaluationResult } from '../core/runtime/evaluate.js';
 import { configureJudge } from '../plugins/judging/config.js';

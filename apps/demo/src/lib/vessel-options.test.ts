@@ -4,6 +4,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import { defineVessel } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { withActionOptions } from './vessel-options';
 
 // `defineVessel`'s `<const V>` generic infers parameter objects as their

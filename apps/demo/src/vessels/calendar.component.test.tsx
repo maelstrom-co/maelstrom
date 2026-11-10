@@ -4,6 +4,7 @@ import { isErr, isOk, type Result } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   __resetActionActivityForTests,
   getActivitySnapshot,
@@ -42,7 +43,7 @@ function latestHandlers(): CalendarHandlers {
   const calls = vi.mocked(m.useActions).mock.calls;
   const last = calls.at(-1);
   if (!last) throw new Error('m.useActions was not called');
-  return last[2] as CalendarHandlers;
+  return last[2] as unknown as CalendarHandlers;
 }
 
 beforeEach(() => {

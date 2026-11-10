@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   ActionName,
   type ChartRequest,
@@ -10,6 +11,7 @@ import {
   VesselId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+
 import {
   makeGridRequest,
   makeVessel,
@@ -127,6 +129,52 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       action: expandAction,
     });
   });
+});
+
+describe('parseExecutionPlan inherited Variant names', () => {
+  const vesselId = VesselId('panel');
+  const instanceId = InstanceId('panel-1');
+  const panelVessel = makeVessel({
+    id: vesselId,
+    name: 'Panel',
+    description: 'Single-Variant panel',
+    defaultVariant: VariantName('open'),
+    variants: {
+      [VariantName('open')]: {
+        description: 'Open',
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [{ name: ActionName('refresh'), description: 'Refresh' }],
+      },
+    },
+  });
+
+  test.each(['constructor', '__proto__'])(
+    'an Instance simulated in %s is skipped as variant_not_on_vessel',
+    (variant) => {
+      const { plan, skippedActions } = parseExecutionPlan(
+        [{ instanceId, action: ActionName('refresh') }],
+        {
+          instances: [{ instanceId, vesselId, variant: VariantName(variant) }],
+          vessels: [panelVessel],
+          enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+          turn: userIntentTurn,
+          logger: silentLogger,
+        },
+      );
+
+      expect(plan).toEqual([]);
+      expect(skippedActions).toEqual([
+        {
+          reason: 'variant_not_on_vessel',
+          instanceId,
+          action: ActionName('refresh'),
+          vesselId,
+          variant: VariantName(variant),
+        },
+      ]);
+    },
+  );
 });
 
 describe('parseExecutionPlan — self-transition no-op classification', () => {
@@ -608,27 +656,30 @@ describe('parseExecutionPlan — action parameter validation', () => {
     ['enabled', 1, 'boolean', 'number'],
     ['metadata', null, 'object', 'null'],
     ['metadata', [], 'object', 'array'],
-  ] as const)('rejects an invalid value for %s', (parameter, value, expected, actual) => {
-    const params: Record<string, unknown> = {
-      label: 'Example',
-      count: 2,
-      enabled: true,
-      metadata: {},
-      mode: 'safe',
-      [parameter]: value,
-    };
-    const result = parse({
-      instanceId,
-      action: configure,
-      paramsJson: JSON.stringify(params),
-    });
+  ] as const)(
+    'rejects an invalid value for %s',
+    (parameter, value, expected, actual) => {
+      const params: Record<string, unknown> = {
+        label: 'Example',
+        count: 2,
+        enabled: true,
+        metadata: {},
+        mode: 'safe',
+        [parameter]: value,
+      };
+      const result = parse({
+        instanceId,
+        action: configure,
+        paramsJson: JSON.stringify(params),
+      });
 
-    expect(result.plan).toEqual([]);
-    expect(result.skippedActions[0]).toMatchObject({
-      reason: 'params_validation_failed',
-      issues: [{ kind: 'type_mismatch', parameter, expected, actual }],
-    });
-  });
+      expect(result.plan).toEqual([]);
+      expect(result.skippedActions[0]).toMatchObject({
+        reason: 'params_validation_failed',
+        issues: [{ kind: 'type_mismatch', parameter, expected, actual }],
+      });
+    },
+  );
 
   test('rejects values outside the declared enum', () => {
     const result = parse({
@@ -676,21 +727,21 @@ describe('parseExecutionPlan — action parameter validation', () => {
     });
   });
 
-  test.each([
-    { id: 1 },
-    { id: 2 },
-  ])('accepts a prompt-visible normalized object enum value: %p', (value) => {
-    expect(
-      parse({
-        instanceId,
-        action: normalizedEnum,
-        paramsJson: JSON.stringify({ value }),
-      }),
-    ).toEqual({
-      plan: [{ instanceId, action: normalizedEnum, params: { value } }],
-      skippedActions: [],
-    });
-  });
+  test.each([{ id: 1 }, { id: 2 }])(
+    'accepts a prompt-visible normalized object enum value: %p',
+    (value) => {
+      expect(
+        parse({
+          instanceId,
+          action: normalizedEnum,
+          paramsJson: JSON.stringify({ value }),
+        }),
+      ).toEqual({
+        plan: [{ instanceId, action: normalizedEnum, params: { value } }],
+        skippedActions: [],
+      });
+    },
+  );
 
   test('treats an enum with no prompt-renderable values as unconstrained', () => {
     expect(
@@ -1138,11 +1189,11 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
             name: goCompact,
             description: 'Switch to compact',
             transitionsTo: compact,
-            idempotent: true,
+            effect: 'none',
           },
           {
             name: goPlain,
-            description: 'Switch to compact without declaring idempotence',
+            description: 'Switch to compact without declaring an effect',
             transitionsTo: compact,
           },
           {
@@ -1164,7 +1215,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
                 required: false,
               },
             ],
-            idempotent: true,
+            effect: 'idempotent',
           },
         ],
       },
@@ -1177,7 +1228,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
             name: goList,
             description: 'Switch to full',
             transitionsTo: list,
-            idempotent: true,
+            effect: 'none',
           },
         ],
       },
@@ -1266,7 +1317,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     });
   });
 
-  test('an idempotent Variant transition survives a resize-only turn', () => {
+  test('a no-effect Variant transition survives a resize-only turn', () => {
     // Reshaping a Vessel is exactly what a resize should be able to do.
     const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
       { instanceId: existingInstanceId, action: goCompact },
@@ -1281,7 +1332,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
   });
 
   test('a Variant transition left unmarked is refused on a resize-only turn', () => {
-    // `idempotent` defaults to false: silence costs a reshape, never data.
+    // `effect` defaults to `any`: silence costs a reshape, never data.
     const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
       { instanceId: existingInstanceId, action: goPlain },
     ]);
@@ -1340,8 +1391,8 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     ]);
   });
 
-  test('an idempotent action on an introduced instance survives', () => {
-    // Declared idempotence is the whole gate; where the instance came from
+  test('a no-effect action on an introduced instance survives', () => {
+    // The declared effect is the whole gate. Where the instance came from
     // never enters into it.
     const { plan, skippedActions } = parseWith(
       requestWith([resizeReason]),

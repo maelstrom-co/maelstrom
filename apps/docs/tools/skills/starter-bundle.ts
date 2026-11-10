@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import { zipSync } from 'fflate';
 
 const files = [
@@ -10,7 +11,8 @@ const files = [
   'package.json.template',
   'bun.lock.template',
   'tsconfig.json.template',
-  'biome.json.template',
+  '.oxlintrc.json.template',
+  '.oxfmtrc.json.template',
   'index.html',
   'server.ts',
   'server.test.ts',

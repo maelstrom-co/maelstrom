@@ -1,5 +1,6 @@
 import type { Result } from '@maelstrom-co/protocol';
 import type { OperationalOutcome } from '@maelstrom-co/telemetry/integration';
+
 import type { StageError } from './planner/stage.js';
 
 const unexpectedFailures = new WeakSet<object>();

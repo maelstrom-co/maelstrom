@@ -8,6 +8,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
+
 import type {
   ChartRequestMessage,
   GridLayout,
@@ -25,12 +26,13 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { useEffect } from 'react';
+
 import { assertDefined } from '../__tests__/assert-defined.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
 import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMaelstrom } from '../create-maelstrom.js';
-import { vessel } from '../vessel.js';
 import type { TypedVesselProps } from '../vessel-entry-types.js';
+import { vessel } from '../vessel.js';
 import {
   DEFAULT_MOTION,
   EXIT_CLEANUP_BUFFER_MS,
@@ -416,7 +418,11 @@ describe('m.Chart — executeAction routing (regression)', () => {
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function Reader() {
       processIntent = m.useMaelstrom().processIntent;
-      m.useActions('orders', 'inst-1', { selectOrder });
+      m.useActions('orders', 'inst-1', {
+        selectOrder,
+        refresh: () => ok(undefined),
+        close: () => ok(undefined),
+      });
       return null;
     }
 

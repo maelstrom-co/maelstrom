@@ -5,7 +5,6 @@ import {
 } from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry, LayoutWarning } from '../healed-layout.js';
-
 import type { Ast, StackFrame } from './ast.js';
 
 /**
@@ -102,7 +101,7 @@ export function parseTree(
   // slots; a subtree bubbling up from a deeper frame fills the next one.
   let pending: Ast | null = root;
   while (stack.length > 0) {
-    // biome-ignore lint/style/noNonNullAssertion: stack.length > 0 is the loop condition
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- stack.length > 0 is the loop condition
     const frame = stack.pop()!;
     const survivors =
       pending === null
@@ -147,6 +146,6 @@ export function parseTree(
  * still on the stack always has that slot.
  */
 function nextSlotWeight(frame: StackFrame): number {
-  // biome-ignore lint/style/noNonNullAssertion: filled.length < weights.length holds for every frame still on the stack
+  // oxlint-disable-next-line typescript/no-non-null-assertion -- filled.length < weights.length holds for every frame still on the stack
   return frame.weights[frame.filled.length]!;
 }

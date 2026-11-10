@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   conversation,
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
+
 import { selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,

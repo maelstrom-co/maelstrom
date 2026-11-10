@@ -2,6 +2,7 @@
 
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import {
   FIRST_RUN_EXAMPLES,

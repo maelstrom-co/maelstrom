@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import {
   checkEvalsConfiguration,
   checkEvalsRequest,
@@ -138,26 +139,33 @@ test.each([
   'timed_out',
   'action_required',
   'skipped',
-])('consumes the label and creates seven links after %s', async (conclusion) => {
-  const { state, fetcher } = fixture();
-  state.run.conclusion = conclusion;
-  // Advancement or closure after execution must not block cleanup of the original request.
-  state.pull.head.sha = 'b'.repeat(40);
-  state.pull.state = 'closed';
-  await finishEvalsRequest(env, fetcher);
-  expect(
-    state.calls.findIndex((call) => call.startsWith('DELETE')),
-  ).toBeLessThan(state.calls.findIndex((call) => call.includes('/artifacts')));
-  expect(state.comments).toHaveLength(1);
-  const body = state.comments[0]!;
-  expect(body).toContain(`\`${sha}\`: **${conclusion}**`);
-  for (const [index, name] of reportNames.entries())
-    expect(body).toContain(
-      `[${name}](https://github.com/${repository}/actions/runs/123/artifacts/${index + 1})`,
+])(
+  'consumes the label and creates seven links after %s',
+  async (conclusion) => {
+    const { state, fetcher } = fixture();
+    state.run.conclusion = conclusion;
+    // Advancement or closure after execution must not block cleanup of the original request.
+    state.pull.head.sha = 'b'.repeat(40);
+    state.pull.state = 'closed';
+    await finishEvalsRequest(env, fetcher);
+    expect(
+      state.calls.findIndex((call) => call.startsWith('DELETE')),
+    ).toBeLessThan(
+      state.calls.findIndex((call) => call.includes('/artifacts')),
     );
-  expect(state.calls.filter((call) => call.startsWith('POST'))).toHaveLength(1);
-  expect(state.calls.some((call) => call.startsWith('PATCH'))).toBe(false);
-});
+    expect(state.comments).toHaveLength(1);
+    const body = state.comments[0]!;
+    expect(body).toContain(`\`${sha}\`: **${conclusion}**`);
+    for (const [index, name] of reportNames.entries())
+      expect(body).toContain(
+        `[${name}](https://github.com/${repository}/actions/runs/123/artifacts/${index + 1})`,
+      );
+    expect(state.calls.filter((call) => call.startsWith('POST'))).toHaveLength(
+      1,
+    );
+    expect(state.calls.some((call) => call.startsWith('PATCH'))).toBe(false);
+  },
+);
 
 test('missing, expired, duplicate and unrelated artifacts are not trusted report links', async () => {
   const { state, fetcher } = fixture();

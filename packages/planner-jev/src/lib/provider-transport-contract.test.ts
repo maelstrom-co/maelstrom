@@ -289,16 +289,19 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
       'stalled-error',
       { kind: 'http', status: 500 },
     ],
-  ])('%s resolves to its failure soon after the signal aborts', async (_name, step, expected) => {
-    const controller = new AbortController();
-    const pending = send(harness.fetchFor(step), controller.signal);
-    await Bun.sleep(20);
-    controller.abort('timeout');
-    expect(await settlesWithin(pending, 1000)).toEqual({
-      ok: false,
-      failure: expected,
-    });
-  });
+  ])(
+    '%s resolves to its failure soon after the signal aborts',
+    async (_name, step, expected) => {
+      const controller = new AbortController();
+      const pending = send(harness.fetchFor(step), controller.signal);
+      await Bun.sleep(20);
+      controller.abort('timeout');
+      expect(await settlesWithin(pending, 1000)).toEqual({
+        ok: false,
+        failure: expected,
+      });
+    },
+  );
 
   test('an error body that stalls gives the status alone without waiting for the signal', async () => {
     const result = send(harness.fetchFor('stalled-error'));

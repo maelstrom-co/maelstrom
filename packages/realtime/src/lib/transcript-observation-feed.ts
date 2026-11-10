@@ -2,6 +2,7 @@ import type {
   TimedTranscriptFragment,
   Unsubscribe,
 } from '@maelstrom-co/client';
+
 import type {
   AdapterVoiceObservation,
   AdapterVoiceObservations,

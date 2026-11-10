@@ -17,13 +17,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showQueue',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch to the upcoming queue view',
             transitionsTo: 'queue',
           },
           {
             name: 'showLyrics',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch to the lyrics view for the current track',
             transitionsTo: 'lyrics',
           },
@@ -51,7 +51,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'pause',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Pause playback',
           },
         ],
@@ -65,13 +65,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showNowPlaying',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch back to the now-playing view',
             transitionsTo: 'nowPlaying',
           },
           {
             name: 'showLyrics',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch to the lyrics view for the current track',
             transitionsTo: 'lyrics',
           },
@@ -99,7 +99,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'pause',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Pause playback',
           },
         ],
@@ -113,13 +113,13 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showNowPlaying',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch back to the now-playing view',
             transitionsTo: 'nowPlaying',
           },
           {
             name: 'showQueue',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Switch to the upcoming queue view',
             transitionsTo: 'queue',
           },
@@ -147,7 +147,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'pause',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Pause playback',
           },
         ],
@@ -170,7 +170,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showChart',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show the price chart for a symbol',
             parameters: [
               {
@@ -183,7 +183,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showNews',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show related news for a symbol',
             parameters: [
               {
@@ -227,7 +227,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showChart',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show the price chart for a symbol',
             parameters: [
               {
@@ -239,7 +239,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showNews',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show related news for a symbol',
             parameters: [
               {
@@ -252,7 +252,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'setRange',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Set the chart time range',
             parameters: [
               {
@@ -287,7 +287,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'backToList',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Return to the watchlist',
             transitionsTo: 'list',
           },
@@ -302,7 +302,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'showChart',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show the price chart for a symbol',
             parameters: [
               {
@@ -315,7 +315,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showNews',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Show related news for a symbol',
             parameters: [
               {
@@ -349,7 +349,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'backToList',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Return to the watchlist',
             transitionsTo: 'list',
           },
@@ -373,7 +373,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'openContact',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Open a contact to view their details',
             parameters: [
               {
@@ -386,7 +386,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showHistory',
-            idempotent: true,
+            effect: 'idempotent',
             description: "Show a contact's call history",
             parameters: [
               {
@@ -456,7 +456,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'openContact',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Open a contact to view their details',
             parameters: [
               {
@@ -468,7 +468,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showHistory',
-            idempotent: true,
+            effect: 'idempotent',
             description: "Show a contact's call history",
             parameters: [
               {
@@ -529,7 +529,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'backToList',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Return to the contact list',
             transitionsTo: 'list',
           },
@@ -544,7 +544,7 @@ const DEFINITIONS: readonly unknown[] = [
         actions: [
           {
             name: 'openContact',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Open a contact to view their details',
             parameters: [
               {
@@ -557,7 +557,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'showHistory',
-            idempotent: true,
+            effect: 'idempotent',
             description: "Show a contact's call history",
             parameters: [
               {
@@ -617,7 +617,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'backToList',
-            idempotent: true,
+            effect: 'idempotent',
             description: 'Return to the contact list',
             transitionsTo: 'list',
           },

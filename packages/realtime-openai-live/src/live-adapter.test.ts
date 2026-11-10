@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test';
+
 import {
   type EngineConnector,
   Orchestrator,
@@ -24,6 +25,7 @@ import type {
   LiveSessionConfig,
 } from '@maelstrom-co/realtime-protocol/openai-live';
 import FakeTimers from '@sinonjs/fake-timers';
+
 import {
   OpenAILiveAdapter,
   type OpenAILiveAdapterOptions,
@@ -607,61 +609,60 @@ test('terminal loss waits for explicit reconnect and restores unknown applicatio
   expect(h.submissions).toEqual(['show labs']);
 });
 
-test.each([
-  'readiness',
-  'exhaustion',
-  'superseded',
-] as const)('%s before admission retains not_submitted across reconnect', async (mode) => {
-  const retry = deferred<never>();
-  let attempts = 0;
-  const h = await harness({
-    submitIntent: async () => {
-      attempts++;
-      if (mode === 'superseded' && attempts === 2) return retry.promise;
-      throw new RequestInFlightError();
-    },
-    waitForIdle: async () => {
-      if (mode === 'readiness') throw new Error('readiness unavailable');
-    },
-  });
-  h.channel.begin();
-  h.channel.call('preadmission');
-  h.channel.done();
-  await tick();
-  if (mode === 'superseded') {
-    h.channel.begin('new-response', 'new-delegation');
-    h.channel.call(
-      'new-call',
-      'update_ui',
-      '{"intent":"newer"}',
-      'new-delegation',
-    );
-    h.channel.done('new-response', 'new-delegation');
+test.each(['readiness', 'exhaustion', 'superseded'] as const)(
+  '%s before admission retains not_submitted across reconnect',
+  async (mode) => {
+    const retry = deferred<never>();
+    let attempts = 0;
+    const h = await harness({
+      submitIntent: async () => {
+        attempts++;
+        if (mode === 'superseded' && attempts === 2) return retry.promise;
+        throw new RequestInFlightError();
+      },
+      waitForIdle: async () => {
+        if (mode === 'readiness') throw new Error('readiness unavailable');
+      },
+    });
+    h.channel.begin();
+    h.channel.call('preadmission');
+    h.channel.done();
     await tick();
-    retry.reject(new RequestInFlightError());
-  }
-  await new Promise((resolve) =>
-    setTimeout(resolve, mode === 'readiness' ? 0 : 1100),
-  );
-  expect(
-    h.session.memory
-      .getSnapshot()
-      .outcomes.find((outcome) => outcome.intent === 'show labs')?.status,
-  ).toBe('not_submitted');
-  expect(
-    h.channel
-      .outputs()
-      .filter((command) => JSON.stringify(command).includes('preadmission')),
-  ).toHaveLength(1);
-  const before = attempts;
-  await h.session.disconnect();
-  const next = await h.connect();
-  expect(JSON.stringify(h.config().input)).toContain('not_submitted');
-  expect(attempts).toBe(before);
-  expect(next.outputs()).toEqual([]);
-  expect(next.continues()).toEqual([]);
-  expect(h.submissions).toEqual([]);
-});
+    if (mode === 'superseded') {
+      h.channel.begin('new-response', 'new-delegation');
+      h.channel.call(
+        'new-call',
+        'update_ui',
+        '{"intent":"newer"}',
+        'new-delegation',
+      );
+      h.channel.done('new-response', 'new-delegation');
+      await tick();
+      retry.reject(new RequestInFlightError());
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, mode === 'readiness' ? 0 : 1100),
+    );
+    expect(
+      h.session.memory
+        .getSnapshot()
+        .outcomes.find((outcome) => outcome.intent === 'show labs')?.status,
+    ).toBe('not_submitted');
+    expect(
+      h.channel
+        .outputs()
+        .filter((command) => JSON.stringify(command).includes('preadmission')),
+    ).toHaveLength(1);
+    const before = attempts;
+    await h.session.disconnect();
+    const next = await h.connect();
+    expect(JSON.stringify(h.config().input)).toContain('not_submitted');
+    expect(attempts).toBe(before);
+    expect(next.outputs()).toEqual([]);
+    expect(next.continues()).toEqual([]);
+    expect(h.submissions).toEqual([]);
+  },
+);
 
 test('recovery bursts remain bounded quoted data, preserve unknown, and close independently of pending appends', async () => {
   const h = await harness();
@@ -1698,6 +1699,7 @@ for (const endVoice of [false, true]) {
     const engine = createEngine({
       planner: async () =>
         ok({
+          type: 'plan',
           userMessage: 'Engine applied labs',
           rationale: 'fixture',
           layout: {

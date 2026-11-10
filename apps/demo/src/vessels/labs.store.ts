@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
+
 import { LAB_MARKER_SLUGS, type LabMarkerSlug } from './labs.vessel.def';
 
 const selection = z.strictObject({ markerSlug: z.enum(LAB_MARKER_SLUGS) });
@@ -27,9 +28,6 @@ export function useLabsSelection(instanceId: string): LabMarkerSlug | null {
 
 export function createLabsActionRunner(instanceId: string) {
   return {
-    // The Chart owns navigation; handlers must not maintain a second view state.
-    showList: () => ok(undefined),
-    showTrends: () => ok(undefined),
     selectMarker: (params: unknown) => {
       const parsed = selection.safeParse(params);
       if (!parsed.success)

@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+
 import { Orchestrator } from '@maelstrom-co/client';
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
+
 import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { attach, event, mount, cleanups } = createVoicePanelHarness();
@@ -77,33 +79,38 @@ test.each([
   ['legacy unknown', { ok: false }, 'Unknown'],
   ['succeeded', { ok: true }, 'Succeeded'],
   ['reported failure', { outcome: 'failed', ok: false }, 'Failed'],
-] as const)('voice results preserve the %s outcome in table and diagram', (_name, metadata, outcome) => {
-  const tools = createDevtools({ initialIsOpen: true });
-  tools.importCapture(
-    JSON.stringify({
-      schemaVersion: 2,
-      capture: {
-        schemaVersion: 1,
-        events: [event('result', 'voice.tool.result', metadata)],
-      },
-    }),
-  );
-  const { shadow, click, select } = mount(tools);
-  select('Evidence source', 'imported');
-  click('Voice');
-  expect(shadow.querySelector('.voice-events')?.textContent).toContain(outcome);
-  expect(
-    shadow.querySelector<HTMLButtonElement>('.voice-point')?.title,
-  ).toContain(outcome);
-  if (outcome === 'Unknown') {
-    expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
-      'Failed',
+] as const)(
+  'voice results preserve the %s outcome in table and diagram',
+  (_name, metadata, outcome) => {
+    const tools = createDevtools({ initialIsOpen: true });
+    tools.importCapture(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          events: [event('result', 'voice.tool.result', metadata)],
+        },
+      }),
+    );
+    const { shadow, click, select } = mount(tools);
+    select('Evidence source', 'imported');
+    click('Voice');
+    expect(shadow.querySelector('.voice-events')?.textContent).toContain(
+      outcome,
     );
     expect(
       shadow.querySelector<HTMLButtonElement>('.voice-point')?.title,
-    ).not.toContain('Failed');
-  }
-});
+    ).toContain(outcome);
+    if (outcome === 'Unknown') {
+      expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
+        'Failed',
+      );
+      expect(
+        shadow.querySelector<HTMLButtonElement>('.voice-point')?.title,
+      ).not.toContain('Failed');
+    }
+  },
+);
 
 test('voice evidence opens the selected observation and its proven request without starting capture', () => {
   const tools = createDevtools({ initialIsOpen: true });
@@ -351,77 +358,80 @@ test.each([
   ['response', 'Telemetry'],
   ['invocation', 'Close'],
   ['response', 'Close'],
-] as const)('a known %s collision stays unlinked while %s is visible during eviction', (type, view) => {
-  const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 3 });
-  const emit = attach(tools);
-  if (type === 'invocation') {
-    emit('client.request.started', {}, 'request-a');
-    emit('voice.tool.called', {
-      invocationId: 'collapsed',
-      callId: 'reused',
-      marker: 'first',
-    });
-    emit('voice.tool.called', {
-      invocationId: 'collapsed',
-      callId: 'reused',
-      marker: 'second',
-    });
-    emit(
-      'voice.tool.result',
-      { invocationId: 'collapsed', callId: 'reused' },
-      'request-a',
+] as const)(
+  'a known %s collision stays unlinked while %s is visible during eviction',
+  (type, view) => {
+    const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 3 });
+    const emit = attach(tools);
+    if (type === 'invocation') {
+      emit('client.request.started', {}, 'request-a');
+      emit('voice.tool.called', {
+        invocationId: 'collapsed',
+        callId: 'reused',
+        marker: 'first',
+      });
+      emit('voice.tool.called', {
+        invocationId: 'collapsed',
+        callId: 'reused',
+        marker: 'second',
+      });
+      emit(
+        'voice.tool.result',
+        { invocationId: 'collapsed', callId: 'reused' },
+        'request-a',
+      );
+    } else {
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'started',
+        eventType: 'response.created',
+        marker: 'first',
+      });
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'started',
+        eventType: 'response.created',
+        marker: 'second',
+      });
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'finished',
+        eventType: 'response.done',
+        status: 'completed',
+      });
+    }
+    const { shadow, click } = mount(tools);
+    click('Voice');
+    click(
+      type === 'invocation'
+        ? 'Inspect observation 2: Tool called'
+        : 'Inspect observation 2: Provider observation',
     );
-  } else {
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'started',
-      eventType: 'response.created',
-      marker: 'first',
-    });
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'started',
-      eventType: 'response.created',
-      marker: 'second',
-    });
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'finished',
-      eventType: 'response.done',
-      status: 'completed',
-    });
-  }
-  const { shadow, click } = mount(tools);
-  click('Voice');
-  click(
-    type === 'invocation'
-      ? 'Inspect observation 2: Tool called'
-      : 'Inspect observation 2: Provider observation',
-  );
-  expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
-    type === 'invocation' ? 'Tool invocation' : 'Provider response',
-  );
-  if (view !== 'Voice') click(view);
+    expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
+      type === 'invocation' ? 'Tool invocation' : 'Provider response',
+    );
+    if (view !== 'Voice') click(view);
 
-  emit(
-    type === 'invocation' ? 'voice.media' : 'voice.provider.wire',
-    type === 'invocation' ? {} : { providerGeneration: 1 },
-  );
-  if (view !== 'Voice')
-    click(view === 'Close' ? 'Open Maelstrom Devtools' : 'Voice');
+    emit(
+      type === 'invocation' ? 'voice.media' : 'voice.provider.wire',
+      type === 'invocation' ? {} : { providerGeneration: 1 },
+    );
+    if (view !== 'Voice')
+      click(view === 'Close' ? 'Open Maelstrom Devtools' : 'Voice');
 
-  expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
-    type === 'invocation' ? 'Tool invocation' : 'Provider response',
-  );
-  expect(
-    Array.from(shadow.querySelectorAll('button')).some(
-      (node) => node.textContent === 'Open request request-a',
-    ),
-  ).toBe(false);
-});
+    expect(shadow.querySelector('.voice-events')?.textContent).not.toContain(
+      type === 'invocation' ? 'Tool invocation' : 'Provider response',
+    );
+    expect(
+      Array.from(shadow.querySelectorAll('button')).some(
+        (node) => node.textContent === 'Open request request-a',
+      ),
+    ).toBe(false);
+  },
+);
 
 test('replacing an import while unmounted cannot restore its old Voice selection into reused IDs', () => {
   const tools = createDevtools({ initialIsOpen: true });
@@ -497,68 +507,77 @@ test('replacing a recording while unmounted clears its positional Voice cursor',
   );
 });
 
-test.each([
-  'invocation',
-  'response',
-] as const)('a poisoned %s lane cannot recover false ownership after an empty buffer and remount', (type) => {
-  const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 3 });
-  const emit = attach(tools);
-  emit('client.request.started', {}, 'old-request');
-  if (type === 'invocation') {
-    emit('voice.tool.called', { invocationId: 'collapsed', callId: 'reused' });
-    emit('voice.tool.called', { invocationId: 'collapsed', callId: 'reused' });
-  } else {
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'started',
-      eventType: 'response.created',
-    });
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'started',
-      eventType: 'response.created',
-    });
-  }
-  const first = mount(tools);
-  first.click('Voice');
-  for (let index = 0; index < 3; index++)
-    emit(
-      type === 'invocation' ? 'voice.media' : 'voice.provider.wire',
-      type === 'invocation' ? {} : { providerGeneration: 1 },
-    );
-  first.unmount();
-  if (type === 'invocation') {
-    emit(
-      'voice.tool.result',
-      { invocationId: 'collapsed', callId: 'reused' },
-      'old-request',
-    );
-    emit('voice.tool.called', { invocationId: 'collapsed', callId: 'reused' });
-  } else {
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'finished',
-      eventType: 'response.done',
-      status: 'completed',
-    });
-    emit('voice.provider.wire', {
-      providerGeneration: 1,
-      responseId: 'collapsed',
-      responsePhase: 'started',
-      eventType: 'response.created',
-    });
-  }
-  const second = mount(tools);
+test.each(['invocation', 'response'] as const)(
+  'a poisoned %s lane cannot recover false ownership after an empty buffer and remount',
+  (type) => {
+    const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 3 });
+    const emit = attach(tools);
+    emit('client.request.started', {}, 'old-request');
+    if (type === 'invocation') {
+      emit('voice.tool.called', {
+        invocationId: 'collapsed',
+        callId: 'reused',
+      });
+      emit('voice.tool.called', {
+        invocationId: 'collapsed',
+        callId: 'reused',
+      });
+    } else {
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'started',
+        eventType: 'response.created',
+      });
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'started',
+        eventType: 'response.created',
+      });
+    }
+    const first = mount(tools);
+    first.click('Voice');
+    for (let index = 0; index < 3; index++)
+      emit(
+        type === 'invocation' ? 'voice.media' : 'voice.provider.wire',
+        type === 'invocation' ? {} : { providerGeneration: 1 },
+      );
+    first.unmount();
+    if (type === 'invocation') {
+      emit(
+        'voice.tool.result',
+        { invocationId: 'collapsed', callId: 'reused' },
+        'old-request',
+      );
+      emit('voice.tool.called', {
+        invocationId: 'collapsed',
+        callId: 'reused',
+      });
+    } else {
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'finished',
+        eventType: 'response.done',
+        status: 'completed',
+      });
+      emit('voice.provider.wire', {
+        providerGeneration: 1,
+        responseId: 'collapsed',
+        responsePhase: 'started',
+        eventType: 'response.created',
+      });
+    }
+    const second = mount(tools);
 
-  expect(
-    second.shadow.querySelector('.voice-events')?.textContent,
-  ).not.toContain(
-    type === 'invocation' ? 'Tool invocation' : 'Provider response',
-  );
-});
+    expect(
+      second.shadow.querySelector('.voice-events')?.textContent,
+    ).not.toContain(
+      type === 'invocation' ? 'Tool invocation' : 'Provider response',
+    );
+  },
+);
 
 test('a full collision history keeps live grouping unavailable instead of forgetting unsafe lanes', () => {
   const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 3 });

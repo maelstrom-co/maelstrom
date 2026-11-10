@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+
 import { FALLBACK_WEATHER } from '../lib/weather-data';
 import { createWeatherStore } from './weather.store';
 

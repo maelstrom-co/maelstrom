@@ -4,6 +4,7 @@ import type {
 } from '@maelstrom-co/realtime-openai-server';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
@@ -14,9 +15,8 @@ import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 // rather than the mock the rest of this file installs. An empty apiKey
 // short-circuits before any upstream fetch, so this is network-safe.
 process.env.OPENAI_API_KEY = '';
-const { handleRealtimeTokenRequest: handleWithRealMinter } = await import(
-  './realtime-token.js'
-);
+const { handleRealtimeTokenRequest: handleWithRealMinter } =
+  await import('./realtime-token.js');
 
 it('reports a 500 for a malformed body when no API key is configured (real minter)', async () => {
   const res = await handleWithRealMinter(

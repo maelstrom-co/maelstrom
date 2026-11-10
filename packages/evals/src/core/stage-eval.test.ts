@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+
 import { deferred, type Stage } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
+
 import type { Judge } from './plugin.js';
 import { type EvaluationResult, evaluateSample } from './runtime/evaluate.js';
 import { type Scenario, selectScenarios } from './scenarios.js';

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+
 import { GreetingInterruption } from './greeting-interruption.js';
 import { GreetingPresentation } from './greeting-presentation.js';
 import { MicrophonePublicationGate } from './microphone-publication-gate.js';

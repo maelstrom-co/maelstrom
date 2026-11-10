@@ -28,7 +28,7 @@ const EVENT_ACTIONS = [
   },
   {
     name: 'moveEvent',
-    idempotent: true,
+    effect: 'idempotent',
     description: "Reschedule an event on today's schedule to a new time",
     parameters: [
       {
@@ -58,13 +58,13 @@ export const calendarVessel = defineVessel({
       actions: [
         {
           name: 'showWeek',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch to week view for event timeline',
           transitionsTo: 'week',
         },
         {
           name: 'showDay',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch to day view for hourly schedule',
           transitionsTo: 'day',
         },
@@ -80,13 +80,13 @@ export const calendarVessel = defineVessel({
       actions: [
         {
           name: 'showMonth',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch back to month view',
           transitionsTo: 'month',
         },
         {
           name: 'showDay',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch to day view',
           transitionsTo: 'day',
         },
@@ -99,13 +99,13 @@ export const calendarVessel = defineVessel({
       actions: [
         {
           name: 'showMonth',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch to month view',
           transitionsTo: 'month',
         },
         {
           name: 'showWeek',
-          idempotent: true,
+          effect: 'none',
           description: 'Switch to week view',
           transitionsTo: 'week',
         },

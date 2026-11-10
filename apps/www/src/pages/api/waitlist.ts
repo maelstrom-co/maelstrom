@@ -1,9 +1,10 @@
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { Effect, Layer } from 'effect';
 import * as FetchHttpClient from 'effect/http/FetchHttpClient';
+
 import { runOrErrorResponse } from '../../server/run-or-error';
 import {
   decodeSignupRequest,

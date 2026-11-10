@@ -1,25 +1,25 @@
 import type { VoiceObservationSnapshot } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+
 import { DiagnosticCapture } from './diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from './voice-provider';
 
 describe('local diagnostic capture', () => {
-  it.each([
-    'live',
-    'realtime',
-    'livekit',
-  ] as const)('preserves the selected %s voice provider in generic devtools captures', (provider) => {
-    const previous = voiceProviderStore.state.provider;
-    try {
-      selectVoiceProvider(provider);
-      const capture = new DiagnosticCapture();
-      capture.start('maelstrom', 'session', 'provider');
-      expect(JSON.parse(capture.export()).metadata.mode).toBe(provider);
-    } finally {
-      selectVoiceProvider(previous);
-    }
-  });
+  it.each(['live', 'realtime', 'livekit'] as const)(
+    'preserves the selected %s voice provider in generic devtools captures',
+    (provider) => {
+      const previous = voiceProviderStore.state.provider;
+      try {
+        selectVoiceProvider(provider);
+        const capture = new DiagnosticCapture();
+        capture.start('maelstrom', 'session', 'provider');
+        expect(JSON.parse(capture.export()).metadata.mode).toBe(provider);
+      } finally {
+        selectVoiceProvider(previous);
+      }
+    },
+  );
   it('does not present the Realtime default as the model used by a server-owned session', () => {
     const capture = new DiagnosticCapture();
     capture.start('realtime', 'session', 'provider');

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
 import { Orchestrator } from '@maelstrom-co/client';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
+
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 

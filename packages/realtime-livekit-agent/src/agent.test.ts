@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import type { JobContext } from '@livekit/agents';
 
 // Stub the LiveKit SDK + native plugins so importing the agent module never
@@ -611,7 +612,7 @@ describe('pumpTtsStream', () => {
     ];
     const { stream, state } = makeFakeTtsStream(frames);
     const captured: unknown[] = [];
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for SynthesizeStream
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for SynthesizeStream
     await pumpTtsStream(stream as any, async (frame) => {
       captured.push(frame);
     });
@@ -622,7 +623,7 @@ describe('pumpTtsStream', () => {
   test('closes the stream even when frame capture throws', async () => {
     const { stream, state } = makeFakeTtsStream([{ frame: 'a' }]);
     await expect(
-      // biome-ignore lint/suspicious/noExplicitAny: structural test double for SynthesizeStream
+      // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for SynthesizeStream
       pumpTtsStream(stream as any, async () => {
         throw new Error('capture boom');
       }),
@@ -650,7 +651,7 @@ describe('cancelInFlightTts', () => {
 
   test('closes the in-flight stream and clears the queued frames', () => {
     const { stream, source } = makeCancelDoubles();
-    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural doubles for SynthesizeStream/AudioSource
     cancelInFlightTts(stream as any, source as any);
     expect(stream.closeCount).toBe(1);
     expect(source.clearCount).toBe(1);
@@ -658,16 +659,16 @@ describe('cancelInFlightTts', () => {
 
   test('is a no-op on the stream when idle, but still clears the queue', () => {
     const { source } = makeCancelDoubles();
-    // biome-ignore lint/suspicious/noExplicitAny: structural double for AudioSource
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural double for AudioSource
     expect(() => cancelInFlightTts(null, source as any)).not.toThrow();
     expect(source.clearCount).toBe(1);
   });
 
   test('is idempotent when a second cancel arrives on the same stream', () => {
     const { stream, source } = makeCancelDoubles();
-    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural doubles for SynthesizeStream/AudioSource
     cancelInFlightTts(stream as any, source as any);
-    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural doubles for SynthesizeStream/AudioSource
     cancelInFlightTts(stream as any, source as any);
     expect(stream.closeCount).toBe(2);
     expect(source.clearCount).toBe(2);
@@ -880,7 +881,7 @@ function createRecognitionHarness(
   });
   let endTurn: (() => Promise<void>) | null = null;
   const run = runSpeechRecognition({
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for AudioStream
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for AudioStream
     audioStream: (opts.audioStream ?? audio.stream) as any,
     createSpeechStream: () => {
       streamCreationAttempts++;
@@ -894,7 +895,7 @@ function createRecognitionHarness(
         opts.streamOptions?.(id),
       );
       streams.push(fake);
-      // biome-ignore lint/suspicious/noExplicitAny: structural test double for SpeechStream
+      // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for SpeechStream
       return fake.stream as any;
     },
     onFinalTranscript: (text) => {
@@ -1123,50 +1124,53 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       },
     ],
     ['never settles', () => new Promise<void>(() => {})],
-  ])('completes fail-closed cleanup when the queue-failure callback %s', async (_name, callback) => {
-    const rejections = await captureUnhandledRejections(async () => {
-      let callbackCount = 0;
-      const harness = createRecognitionHarness({
-        onHandlerRemoval: () => {
-          callbackCount++;
-          return callback();
-        },
+  ])(
+    'completes fail-closed cleanup when the queue-failure callback %s',
+    async (_name, callback) => {
+      const rejections = await captureUnhandledRejections(async () => {
+        let callbackCount = 0;
+        const harness = createRecognitionHarness({
+          onHandlerRemoval: () => {
+            callbackCount++;
+            return callback();
+          },
+        });
+        await waitFor(
+          () => harness.streams.length === 1,
+          'initial speech stream',
+        );
+        const active = harness.endTurn();
+        harness.audio.push('retained-before-overflow');
+        await waitFor(
+          () => harness.audio.state.yieldCount === 1,
+          'retained frame',
+        );
+        await nextEventLoopTurn();
+        const queued = Array.from({ length: 4 }, () => harness.endTurn());
+        const overflow = harness.endTurn();
+        const expected = new SpeechTurnQueueOverflowError(
+          'successor-segment-limit',
+        );
+
+        await expect(overflow).rejects.toEqual(expected);
+        await expect(active).rejects.toEqual(expected);
+        for (const boundary of queued) {
+          await expect(boundary).rejects.toEqual(expected);
+        }
+        expect(callbackCount).toBe(1);
+        expect(harness.streams[0].state.closeCount).toBe(1);
+        expect(harness.streams[0].state.pushed).toEqual([]);
+        expect(harness.streams).toHaveLength(1);
+
+        harness.audio.push('discarded-after-overflow');
+        await nextEventLoopTurn();
+        expect(harness.streams[0].state.pushed).toEqual([]);
+        harness.audio.end();
+        await harness.run;
       });
-      await waitFor(
-        () => harness.streams.length === 1,
-        'initial speech stream',
-      );
-      const active = harness.endTurn();
-      harness.audio.push('retained-before-overflow');
-      await waitFor(
-        () => harness.audio.state.yieldCount === 1,
-        'retained frame',
-      );
-      await nextEventLoopTurn();
-      const queued = Array.from({ length: 4 }, () => harness.endTurn());
-      const overflow = harness.endTurn();
-      const expected = new SpeechTurnQueueOverflowError(
-        'successor-segment-limit',
-      );
-
-      await expect(overflow).rejects.toEqual(expected);
-      await expect(active).rejects.toEqual(expected);
-      for (const boundary of queued) {
-        await expect(boundary).rejects.toEqual(expected);
-      }
-      expect(callbackCount).toBe(1);
-      expect(harness.streams[0].state.closeCount).toBe(1);
-      expect(harness.streams[0].state.pushed).toEqual([]);
-      expect(harness.streams).toHaveLength(1);
-
-      harness.audio.push('discarded-after-overflow');
-      await nextEventLoopTurn();
-      expect(harness.streams[0].state.pushed).toEqual([]);
-      harness.audio.end();
-      await harness.run;
-    });
-    expect(rejections).toEqual([]);
-  });
+      expect(rejections).toEqual([]);
+    },
+  );
 
   test('fails closed at pending frame 501 in one segment', async () => {
     const harness = createRecognitionHarness();
@@ -1263,19 +1267,25 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       'non-positive samples per channel',
       audioFrame('bad', { samplesPerChannel: 0 }),
     ],
-  ])('fails closed for %s without retaining the frame', async (_name, frame) => {
-    const harness = createRecognitionHarness();
-    await waitFor(() => harness.streams.length === 1, 'initial speech stream');
-    const active = harness.endTurn();
-    harness.audio.push(frame);
-    await expect(active).rejects.toEqual(
-      new SpeechTurnQueueOverflowError('invalid-frame-metadata'),
-    );
-    expect(harness.streams[0].state.closeCount).toBe(1);
-    expect(harness.streams[0].state.pushed).toEqual([]);
-    harness.audio.end();
-    await harness.run;
-  });
+  ])(
+    'fails closed for %s without retaining the frame',
+    async (_name, frame) => {
+      const harness = createRecognitionHarness();
+      await waitFor(
+        () => harness.streams.length === 1,
+        'initial speech stream',
+      );
+      const active = harness.endTurn();
+      harness.audio.push(frame);
+      await expect(active).rejects.toEqual(
+        new SpeechTurnQueueOverflowError('invalid-frame-metadata'),
+      );
+      expect(harness.streams[0].state.closeCount).toBe(1);
+      expect(harness.streams[0].state.pushed).toEqual([]);
+      harness.audio.end();
+      await harness.run;
+    },
+  );
 
   test('does not create a successor when track teardown starts during drain', async () => {
     const harness = createRecognitionHarness();
@@ -1309,29 +1319,32 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       },
     ],
     ['never settles', () => new Promise<void>(() => {})],
-  ])('completes normal EOF cleanup when handler removal %s', async (_name, remove) => {
-    const rejections = await captureUnhandledRejections(async () => {
-      let removalCount = 0;
-      const harness = createRecognitionHarness({
-        onHandlerRemoval: () => {
-          removalCount++;
-          return remove();
-        },
+  ])(
+    'completes normal EOF cleanup when handler removal %s',
+    async (_name, remove) => {
+      const rejections = await captureUnhandledRejections(async () => {
+        let removalCount = 0;
+        const harness = createRecognitionHarness({
+          onHandlerRemoval: () => {
+            removalCount++;
+            return remove();
+          },
+        });
+        await waitFor(
+          () => harness.streams.length === 1,
+          'initial speech stream',
+        );
+
+        harness.audio.end();
+        harness.streams[0].finish();
+        await harness.run;
+
+        expect(removalCount).toBe(1);
+        expect(harness.streams[0].state.closeCount).toBe(1);
       });
-      await waitFor(
-        () => harness.streams.length === 1,
-        'initial speech stream',
-      );
-
-      harness.audio.end();
-      harness.streams[0].finish();
-      await harness.run;
-
-      expect(removalCount).toBe(1);
-      expect(harness.streams[0].state.closeCount).toBe(1);
-    });
-    expect(rejections).toEqual([]);
-  });
+      expect(rejections).toEqual([]);
+    },
+  );
 
   test('preserves an audio iterator failure when handler removal also fails', async () => {
     const rejections = await captureUnhandledRejections(async () => {
@@ -1753,7 +1766,7 @@ describe('runSpeechRecognition per-turn lifecycle', () => {
       boundIdentity: 'user',
       endTurn: () => harness.endTurn(),
       cancelTts: () => {
-        // biome-ignore lint/suspicious/noExplicitAny: structural TTS doubles
+        // oxlint-disable-next-line typescript/no-explicit-any -- structural TTS doubles
         cancelInFlightTts(stream as any, source as any);
       },
       onCancelTtsError: () => {},
@@ -2375,9 +2388,9 @@ describe('createSpeakHandler', () => {
       },
       onSpeakError: () => {},
     });
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
     handler(makeFakeTextStreamReader('first', { delayMs: 20 }) as any);
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
     handler(makeFakeTextStreamReader('second') as any);
     await new Promise((r) => setTimeout(r, 60));
     expect(spoken).toEqual(['first', 'second']);
@@ -2394,7 +2407,7 @@ describe('createSpeakHandler', () => {
     const reader = makeFakeTextStreamReader('hello', {
       attributes: { [SPEAK_UTTERANCE_ID_ATTR]: '7' },
     });
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
     handler(reader as any);
     await new Promise((r) => setTimeout(r, 20));
     expect(spoken).toEqual([{ text: 'hello', utteranceId: 7 }]);
@@ -2429,7 +2442,7 @@ describe('createSpeakHandler', () => {
       },
       onSpeakError: () => {},
     });
-    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
     handler(makeFakeTextStreamReader('hi') as any);
     await new Promise((r) => setTimeout(r, 20));
     expect(ids).toEqual([undefined]);
@@ -2455,7 +2468,7 @@ describe('createSpeakHandler', () => {
           attributes: { [SPEAK_UTTERANCE_ID_ATTR]: '8' },
         }),
       );
-      // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+      // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
       handler(makeFakeTextStreamReader('after-failure') as any);
       await waitFor(
         () => spoken.length === 1 && errors.length === 1,
@@ -2557,7 +2570,7 @@ describe('createSpeakHandler', () => {
         },
       });
       handler(
-        // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+        // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
         makeFakeTextStreamReader(new Error('id-less failure')) as any,
       );
 
@@ -2588,7 +2601,7 @@ describe('createSpeakHandler', () => {
         }),
       );
       handler(
-        // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+        // oxlint-disable-next-line typescript/no-explicit-any -- structural test double for TextStreamReader
         makeFakeTextStreamReader('later success') as any,
       );
 

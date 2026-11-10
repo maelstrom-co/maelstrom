@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { PACKED_PACKAGE_NAMES } from './lib/packed-manifest.ts';
 
 test('verifies each SDK tarball against its own npm 12 singleton metadata', () => {

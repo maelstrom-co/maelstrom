@@ -3,10 +3,11 @@ import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig, fontProviders } from 'astro/config';
 import mermaid from 'astro-mermaid';
+import { defineConfig, fontProviders } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+
 import {
   createGitHubSourceLinkTemplate,
   resolveDocsSourceRef,

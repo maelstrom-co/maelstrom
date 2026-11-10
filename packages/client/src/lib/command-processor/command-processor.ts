@@ -7,6 +7,7 @@ import type {
   TilingLayout,
   VariantName,
   VesselDefinition,
+  VesselId,
 } from '@maelstrom-co/protocol';
 import {
   describeDuplicateTilingLeaf,
@@ -20,18 +21,24 @@ import { Store } from '@tanstack/store';
 import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
-import { ActionManager, type ActionProgress } from './action-manager.js';
+import {
+  ActionManager,
+  type ActionProgress,
+  type ActionVariantResolution,
+  type VariantTransitions,
+} from './action-manager.js';
 import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
-import type { Command, ExecuteActionsCommand } from './command.types.js';
+import { resolveActionOnVariant } from './action-variant-resolution.js';
 import type { CommandBatchResult } from './command-batch-result.js';
 import {
   type CommandProcessingState,
   createInitialCommandProcessingState,
 } from './command-processor.state.js';
 import type { CommandProcessorOptions } from './command-processor.types.js';
+import type { Command, ExecuteActionsCommand } from './command.types.js';
 import { applyLayout } from './layout-manager.js';
 
 /**
@@ -154,6 +161,10 @@ export class CommandProcessor {
   #batchResolvers = new Set<(result: CommandBatchResult) => void>();
   #actionErrors = new WeakMap<Command, Error>();
   #appliedCommands = new WeakSet<Command>();
+  // runLocalAction commands: their caller already applied the transition
+  // optimistically, so the processor must not apply it again.
+  #localActionCommands = new WeakSet<Command>();
+  readonly #variantTransitions: VariantTransitions | undefined;
   #idleResolvers: Set<(result: Result<void, Error>) => void> = new Set();
   // Outlives the return to 'idle' so a wait issued after the fact still sees
   // the failure.
@@ -177,6 +188,20 @@ export class CommandProcessor {
       readinessTimeoutMs: options.defaultActionWaitTimeoutMs,
       executionTimeoutMs: options.actionExecutionTimeoutMs,
     });
+    const { resolveVessel } = options;
+    this.#variantTransitions = resolveVessel
+      ? {
+          resolve: (instanceId, action) =>
+            resolveActionVariant(
+              this.store.state,
+              resolveVessel,
+              instanceId,
+              action,
+            ),
+          apply: (instanceId, expected, next) =>
+            this.setVariantIfCurrent(instanceId, expected, next),
+        }
+      : undefined;
   }
 
   get queueLength(): number {
@@ -303,6 +328,10 @@ export class CommandProcessor {
   /**
    * Convenience method to dispatch an ExecuteActionsCommand.
    *
+   * With `resolveVessel` configured, each Action resolves against its
+   * Instance's Variant at its turn and applies its `transitionsTo` after the
+   * handler succeeds, as for any Engine Execution Plan.
+   *
    * The actions run after this call returns, so neither a failing action nor
    * a failing command throws or rejects a promise here. Subscribe to
    * `action_error` for an individual action and to `processing_error` for the
@@ -319,7 +348,13 @@ export class CommandProcessor {
    * exists and its variant is exactly `expected`; returns whether it applied.
    * The guard is what makes an optimistic-transition revert safe: a newer
    * local invocation or an engine layout landing in between must not be
-   * clobbered.
+   * clobbered. Engine Execution Plan Actions apply their `transitionsTo`
+   * through it too, with `expected` set to the Variant before the Action ran.
+   *
+   * @param instanceId - The Instance to transition.
+   * @param expected - The Variant the Instance must still have.
+   * @param next - The Variant to apply.
+   * @returns Whether the Variant changed.
    */
   setVariantIfCurrent(
     instanceId: InstanceId,
@@ -342,7 +377,8 @@ export class CommandProcessor {
    * Runs a single action through the same queue + ActionManager machinery as
    * an engine execution plan (readiness wait, execution timeout, action_error
    * emission) and resolves with that action's outcome so a caller can arbitrate
-   * an optimistic-transition revert. Does not throw.
+   * an optimistic-transition revert. Never applies the Action's
+   * `transitionsTo`; the caller owns the transition. Does not throw.
    */
   runLocalAction(execution: ActionExecution): Promise<ActionInvocationOutcome> {
     if (this.#emitter.disposed) return Promise.resolve('failed');
@@ -351,6 +387,7 @@ export class CommandProcessor {
       kind: 'execute_actions',
       executionPlan: [execution],
     };
+    this.#localActionCommands.add(command);
     const settled = new Promise<BatchExecutionResult | undefined>((resolve) => {
       this.#actionResultResolvers.set(command, resolve);
     });
@@ -500,6 +537,9 @@ export class CommandProcessor {
             command.executionPlan,
             (progress) =>
               this.#emitter.emit('action_progress', { command, progress }),
+            this.#localActionCommands.has(command)
+              ? undefined
+              : this.#variantTransitions,
           );
           this.#emitter.emit('actions_completed', {
             command,
@@ -511,7 +551,7 @@ export class CommandProcessor {
               this.#actionErrors.set(
                 command,
                 record.result.ok
-                  ? new Error('Action was skipped')
+                  ? new Error(record.reason ?? 'Action was skipped')
                   : record.result.error,
               );
             }
@@ -620,4 +660,23 @@ function assertNoDuplicateTilingLeaf(layout: TilingLayout): void {
   throw new Error(
     `set_layout rejected: tiling tree ${describeDuplicateTilingLeaf(duplicate)}`,
   );
+}
+
+function resolveActionVariant(
+  state: CommandProcessingState,
+  resolveVessel: (vesselId: VesselId) => VesselDefinition | undefined,
+  instanceId: InstanceId,
+  action: ActionName,
+): ActionVariantResolution {
+  const instance = state.instances.get(instanceId);
+  if (!instance) return { status: 'instance_missing' };
+  const vessel = resolveVessel(instance.vesselId);
+  if (!vessel) {
+    return {
+      status: 'vessel_unknown',
+      vesselId: instance.vesselId,
+      variant: instance.variant,
+    };
+  }
+  return resolveActionOnVariant(vessel, instance.variant, action);
 }

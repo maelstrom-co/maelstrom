@@ -101,10 +101,11 @@ export type SkippedAction =
   // but present elsewhere on the vessel with `transitionsTo` equal to that
   // current variant — i.e. a transition action whose target is where the
   // instance already is. The action would be a no-op even if it were valid
-  // on the current variant; the LLM emitted it (often alongside a direct
-  // mutation in layout.instances) and re-prompting the LLM cannot fix the
-  // pattern. `deriveRetryHint` excludes this from `anySkipFixable` so the
-  // retry layer doesn't waste calls on it.
+  // on the current variant. In tiling mode this also covers a layout that
+  // declares a variant the healer cannot restore, where a re-prompt asking for
+  // the pre-action variant could still fix a two-step transition. By policy
+  // `deriveRetryHint` excludes this from `anySkipFixable`, so the skip is not
+  // retried.
   | {
       readonly reason: 'self_transition_noop';
       readonly instanceId: InstanceId;
@@ -112,7 +113,7 @@ export type SkippedAction =
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
     }
-  // Action not declared `idempotent` on a turn whose only trigger was a chart
+  // Action declared with effect `any` on a turn whose only trigger was a chart
   // resize. The Engine cannot see Vessel contents, so it cannot tell such an
   // action apart from one it already ran on an earlier turn, and re-prompting
   // cannot resolve the ambiguity — `deriveRetryHint` excludes this from
@@ -123,12 +124,13 @@ export type SkippedAction =
       readonly action: ActionName;
       readonly vesselId: VesselId;
     }
-  // Action declared `idempotent` but emitted with parameters on a turn whose
-  // only trigger was a chart resize. A resize supplies no intent, so a
-  // parameter value can only have come from the conversation history, which
-  // makes the emission a replay however the declaration reads. Re-prompting
-  // shows the LLM the same state, so `deriveRetryHint` excludes this from
-  // `anySkipFixable` alongside `non_idempotent_on_resize`.
+  // Action declared with effect `none` or `idempotent` but emitted with
+  // parameters on a turn whose only trigger was a chart resize. A resize
+  // supplies no intent, so a parameter value can only have come from the
+  // conversation history, which makes the emission a replay however the
+  // declaration reads. Re-prompting shows the LLM the same state, so
+  // `deriveRetryHint` excludes this from `anySkipFixable` alongside
+  // `non_idempotent_on_resize`.
   | {
       readonly reason: 'parameterized_on_resize';
       readonly instanceId: InstanceId;

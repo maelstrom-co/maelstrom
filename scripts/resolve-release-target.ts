@@ -1,4 +1,5 @@
 import { appendFileSync } from 'node:fs';
+
 import {
   ReleaseTargetError,
   resolveReleaseTarget,

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+
 import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Activity, StrictMode } from 'react';
+
 import { createMaelstrom } from './create-maelstrom.js';
 
 function deferred() {

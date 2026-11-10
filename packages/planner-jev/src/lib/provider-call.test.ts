@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Instrument, InstrumentAttributes } from '@maelstrom-co/engine';
 import { isErr, isOk } from '@maelstrom-co/protocol';
 import type { WireAnswer, WireQuestion } from '@tanstack/ai';
+
 import {
   makeContext,
   makeInput,

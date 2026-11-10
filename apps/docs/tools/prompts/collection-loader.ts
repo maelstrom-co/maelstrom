@@ -1,6 +1,8 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import type { Loader, LoaderContext } from 'astro/loaders';
+
 import type { PromptMetadata, PromptSource } from './library';
 import { loadPromptLibrary } from './library';
 

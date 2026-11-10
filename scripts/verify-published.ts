@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+
 import { readBoundedFile } from './lib/bounded-file.ts';
 import { packedIntegrity } from './lib/packed-integrity.ts';
 import { parsePackedManifest } from './lib/packed-manifest.ts';

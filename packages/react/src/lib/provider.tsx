@@ -12,6 +12,7 @@ import type { TilingLayout, VesselId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
+
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';
 import { resolveConfig } from './config-types.js';
@@ -272,7 +273,6 @@ export function createProvider(
       typeof Orchestrator
     > | null>(null);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live. initialLayout is excluded the same way — it is read once, from whichever render this effect's closure happened to run in (mount, or both mount passes under StrictMode's double-invoke using the *same* closure), and a later value has nothing left to attach to since the Orchestrator is already built.
     useEffect(() => {
       // `layoutMode: 'grid'` with an `initialLayout` is unrepresentable in
       // both this component's props and `OrchestratorOptions`, hence the
@@ -378,6 +378,7 @@ export function createProvider(
         unsubProcessingError();
         unsubBatchAbandoned();
       };
+      // oxlint-disable-next-line react/exhaustive-deps -- onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live. initialLayout is excluded the same way — it is read once, from whichever render this effect's closure happened to run in (mount, or both mount passes under StrictMode's double-invoke using the *same* closure), and a later value has nothing left to attach to since the Orchestrator is already built.
     }, [stableSessionId]);
 
     // Push a connector swap into the live Orchestrator instead of rebuilding
@@ -435,6 +436,7 @@ export function createProvider(
       return () => {
         contextRef.current = null;
       };
+      // oxlint-disable-next-line react/exhaustive-deps -- The context pair retains this ref throughout the provider lifetime.
     }, []);
 
     // TODO(MAE-86): Retain previous orchestrator during a session change to
@@ -457,7 +459,7 @@ export function createProvider(
 function buildRegistries(entries: readonly AnyVesselEntry[]) {
   const componentRegistry = new Map<
     VesselId,
-    // biome-ignore lint/suspicious/noExplicitAny: registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — see context.ts's MaelstromContextValue.componentRegistry for the same constraint.
+    // oxlint-disable-next-line typescript/no-explicit-any -- registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — see context.ts's MaelstromContextValue.componentRegistry for the same constraint.
     ComponentType<TypedVesselProps<any>>
   >();
   const loadingRegistry = new Map<
@@ -467,7 +469,7 @@ function buildRegistries(entries: readonly AnyVesselEntry[]) {
   const lazyVesselIds = new Set<VesselId>();
   const lazyLoaderRegistry = new Map<
     VesselId,
-    // biome-ignore lint/suspicious/noExplicitAny: same erasure requirement as componentRegistry above.
+    // oxlint-disable-next-line typescript/no-explicit-any -- same erasure requirement as componentRegistry above.
     LazyVesselComponentLoader<any>
   >();
 

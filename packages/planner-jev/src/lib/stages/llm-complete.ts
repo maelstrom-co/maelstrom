@@ -1,6 +1,7 @@
 import type { PlannerCandidate, Stage } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
+
 import { outputSchema, parseFill, type Slot } from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
@@ -21,9 +22,10 @@ export interface LlmCompleteOptions {
 /**
  * Turns the Jev decisions into a candidate: one small LLM call writes the
  * `userMessage` and fills `stated_elsewhere` parameters, code builds the
- * layout, execution plan and rationale. The layout declares instances in
- * the variants {@link declaredVariants} settles on, which also drops the
- * view switches a new instance no longer needs. The candidate then goes
+ * layout, execution plan and rationale. The layout declares each instance in
+ * its variant before the actions run, and the execution plan ships every
+ * planned action, so the client applies the layout and then each action's
+ * transition, view switches included. The candidate then goes
  * through `ctx.validate`; a validation error or a recommended retry defers,
  * so a flawed Jev plan falls back instead of shipping healed. Provider
  * failures and cancellation are real errors: the fallback uses the same
@@ -77,6 +79,7 @@ export function llmComplete(
     if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
     const candidate: PlannerCandidate = {
+      type: 'plan',
       userMessage: completion.value.userMessage,
       rationale: rationale(layoutPlan),
       executionPlan: declared.value.actions.map((action) => {

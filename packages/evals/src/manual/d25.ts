@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
 import {
   createEngine,
   createInMemoryStore,
@@ -17,11 +18,16 @@ import {
   VesselSchema,
 } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
+
 import {
   historyAssistantInjectionExpectationsSchema,
   historyAssistantInjectionInputsSchema,
 } from '../adapters/legacy-history-assistant-injection.js';
 import { evalCaseSchema } from '../core/case-schema.js';
+import {
+  carriedForwardChartState,
+  postActionLayout,
+} from '../core/post-action-instances.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
@@ -126,13 +132,7 @@ function turnRequest(
 ): ChartRequest {
   return ChartRequestSchema.parse({
     ...structuredClone(initial),
-    ...(previous && {
-      layout: structuredClone(previous.layout),
-      instances:
-        previous.layout.type === 'tiling'
-          ? structuredClone(previous.layout.instances)
-          : [],
-    }),
+    ...(previous && carriedForwardChartState(previous, initial.vessels)),
     context: {
       ...initial.context,
       updateReasons: [{ type: 'user_intent', intent: intents[index] }],
@@ -165,6 +165,7 @@ export function scoreD25Turns(
         `Prior user/assistant history not delivered at turn ${index + 1}`,
       );
     const response = turn.response;
+    const shipped = postActionLayout(response, initial.vessels);
     if (index === 1) {
       if (
         !response.executionPlan.some(
@@ -177,10 +178,8 @@ export function scoreD25Turns(
       failures.push(`Unexpected Action at turn ${index + 1}`);
     }
     const target =
-      response.layout.type === 'tiling'
-        ? response.layout.instances.find(
-            (entry) => entry.instanceId === 'weather-main',
-          )
+      shipped.type === 'tiling'
+        ? shipped.instances.find((entry) => entry.instanceId === 'weather-main')
         : undefined;
     if (
       target?.vesselId !== 'weather' ||

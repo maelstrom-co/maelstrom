@@ -5,6 +5,7 @@ import type {
   TilingNode,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+
 import type { Judge, JudgeAnswer, ProviderCall } from './plugin.js';
 import {
   intentText,

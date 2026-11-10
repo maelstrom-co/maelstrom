@@ -290,7 +290,7 @@ describe('jevPlanner through createEngine', () => {
     ).toBe('llmComplete/param_unfilled');
   });
 
-  test('a transition to a larger variant ships the post-transition variant and the action', async () => {
+  test('a transition to a larger variant ships the pre-action variant and the action, sized for the larger one', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened Monday.' });
     const request = makeRequest('open the journal entry "Monday"');
     const { result, calls, fallback } = await run(
@@ -315,7 +315,7 @@ describe('jevPlanner through createEngine', () => {
     expect(
       response.layout.instances.find((i) => i.instanceId === 'journal-main')
         ?.variant,
-    ).toBe('entry');
+    ).toBe('list');
     expect(response.executionPlan).toEqual([
       {
         instanceId: 'journal-main',
@@ -333,7 +333,7 @@ describe('jevPlanner through createEngine', () => {
     ]);
   });
 
-  test('a new map with a route ships in the route variant with showRoute', async () => {
+  test('a new map with a route ships in its created variant with showRoute', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a map with the route.' });
     const request = makeRequest(
       'show me a map with a route to Central Station',
@@ -357,7 +357,7 @@ describe('jevPlanner through createEngine', () => {
     expect(
       response.layout.instances.find((i) => i.instanceId === 'map-jev-1')
         ?.variant,
-    ).toBe('route');
+    ).toBe('overview');
     expect(response.executionPlan).toEqual([
       {
         instanceId: 'map-jev-1',
@@ -367,7 +367,7 @@ describe('jevPlanner through createEngine', () => {
     ]);
   });
 
-  test('a new calendar switched to week ships in the week variant without the switch', async () => {
+  test('a new calendar switched to week ships in its created variant with the switch', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Added a week calendar.' });
     const request = makeRequest('add another calendar showing this week');
     const { result, fallback } = await run(
@@ -384,8 +384,10 @@ describe('jevPlanner through createEngine', () => {
     expect(
       response.layout.instances.find((i) => i.instanceId === 'calendar-jev-1')
         ?.variant,
-    ).toBe('week');
-    expect(response.executionPlan).toEqual([]);
+    ).toBe('month');
+    expect(response.executionPlan).toEqual([
+      { instanceId: 'calendar-jev-1', action: 'showWeek' },
+    ]);
   });
 
   test('a provider timeout reaches the fallback', async () => {
