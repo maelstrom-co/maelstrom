@@ -4,7 +4,12 @@ import type { RunRecord } from '../../core/run.js';
 import { nothingToFill } from './record.js';
 
 const completion = { stage: 'llmComplete', ms: 1, outcome: 'ok' } as const;
-const completeCall = { role: 'complete', latencyMs: 30 } as const;
+const completeCall = {
+  role: 'complete',
+  model: 'test-model',
+  latencyMs: 30,
+  completed: true,
+} as const;
 
 function record(overrides: Partial<RunRecord>): RunRecord {
   return {
@@ -26,7 +31,16 @@ describe('nothingToFill', () => {
   test('is true for a loop-driven turn whose completion stage made no completion call', () => {
     expect(
       nothingToFill(
-        record({ llmCalls: [{ role: 'fallback', latencyMs: 20 }] }),
+        record({
+          llmCalls: [
+            {
+              role: 'fallback',
+              model: 'test-model',
+              latencyMs: 20,
+              completed: true,
+            },
+          ],
+        }),
       ),
     ).toBe(true);
   });

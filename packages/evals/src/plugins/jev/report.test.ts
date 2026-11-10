@@ -177,7 +177,14 @@ describe('the skipReply nothing-to-fill rate', () => {
       scenarioId: 'filled',
       skipReply: true,
       stages: [completion],
-      llmCalls: [{ role: 'complete', latencyMs: 30 }],
+      llmCalls: [
+        {
+          role: 'complete',
+          model: 'test-model',
+          latencyMs: 30,
+          completed: true,
+        },
+      ],
     }),
     record({
       scenarioId: 'composed',
