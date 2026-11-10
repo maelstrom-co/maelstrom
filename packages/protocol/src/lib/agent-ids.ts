@@ -39,8 +39,9 @@ export const RunIdSchema = z
   .transform((s) => s as RunId);
 
 /**
- * Identifies one call the agent loop makes and expects an answer to, such as
- * a question for the user or an approval request. Deliberately distinct from
+ * Identifies one call the agent loop makes, such as a server tool call or a
+ * question it expects the user to answer. Server tool calls and
+ * answer-awaiting calls share one id space within a run. Deliberately distinct from
  * {@link ToolCallId}: a realtime provider's tool call ids and agent loop call
  * ids are separate id spaces that can meet in one session.
  */

@@ -73,7 +73,7 @@ Every identifier in Maelstrom is a branded string — structurally `string`, nom
 | `VariantName`  | No                  | A state within a vessel                   |
 | `ActionName`   | No                  | A transition exposed by a variant         |
 | `RunId`        | No                  | One Agent Run                             |
-| `CallId`       | No                  | One agent loop call awaiting an answer    |
+| `CallId`       | No                  | One call the agent loop makes             |
 | `ChangeId`     | No                  | One UI change the browser acknowledges    |
 
 ```ts
@@ -202,7 +202,10 @@ type AgentEvent =
   | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
   | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
   | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string };
+  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
+  | { type: 'started'; version: 1; runId: RunId }
+  | { type: 'tool_call'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string }
+  | { type: 'tool_result'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
 ```
 
 `AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
@@ -215,6 +218,8 @@ ws.send(encodeEnvelope(frame));
 Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is unstable until the client event applier ships, and version bumps apply from then on. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 UI-only utterances start a server-minted run without a model loop. Their event order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after a valid `ui_applied`. In `accepted`, only `noise` has a null `runId`. The acknowledgement must contain one outcome per Action, in Execution Plan order. Failed outcomes end the run without a successful reply.
+
+Agent runs send `placeholder`, then `accepted` with disposition `agent` and a non-null `runId`. `started` follows once the loop actually begins, which may be after a queue wait. `started` is sent for agent runs only, never for `ui_only` runs. While the loop runs, `message` deltas stream per `turnId` and each `tool_call` is followed by one `tool_result` with the same `callId`. A non-null `runId` in `accepted` is followed by exactly one `finished` for that run. A `tool_call` names the tool but carries no arguments. A `tool_result` reports `ok` and a `summary` that is not whitespace-only and at most 200 characters, and a failed call describes its cause in `summary`.
 
 ---
 
