@@ -99,3 +99,39 @@ diff --git a/lib/Workers/WorkerProvider.js b/lib/Workers/WorkerProvider.js
  });
 -//# sourceMappingURL=WorkerProvider.js.map
 \ No newline at end of file
+diff --git a/lib/Ruleset/Ruleset.js b/lib/Ruleset/Ruleset.js
+index 7a1d7fcd59935ea4c02424b4af315d62e4c3b561..2373848f763753defada209394490ca37c259f37 100644
+--- a/lib/Ruleset/Ruleset.js
++++ b/lib/Ruleset/Ruleset.js
+@@ -72,6 +72,12 @@ export const RulesetProvider = () => Provider.succeed(Ruleset, {
+             !deepEqual(olds.rules, news.rules)) {
+             return { action: "update" };
+         }
++        if (desiredZoneId !== undefined &&
++            desiredZoneId.length > 0 &&
++            output?.zoneId === desiredZoneId &&
++            output.phase === news.phase) {
++            return { action: "noop" };
++        }
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+         const zoneId = output?.zoneId ?? zoneIdOf(news.zone);
+diff --git a/src/Ruleset/Ruleset.ts b/src/Ruleset/Ruleset.ts
+index 33ec499b05fa2720c8d27070f0ca331397df1ea0..369f3f22a873d7e51df66e352123235f369bb583 100644
+--- a/src/Ruleset/Ruleset.ts
++++ b/src/Ruleset/Ruleset.ts
+@@ -146,6 +146,14 @@ export const RulesetProvider = () =>
+       ) {
+         return { action: "update" } as const;
+       }
++      if (
++        desiredZoneId !== undefined &&
++        desiredZoneId.length > 0 &&
++        output?.zoneId === desiredZoneId &&
++        output.phase === news.phase
++      ) {
++        return { action: "noop" } as const;
++      }
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+       const zoneId = output?.zoneId ?? zoneIdOf(news.zone);
