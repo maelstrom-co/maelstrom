@@ -136,12 +136,13 @@ describe('summary.json and records.json parity with a pre-seam run', () => {
     const recorded = new Set(records.flatMap((record) => Object.keys(record)));
     const written = new Set<string>([...RUN_RECORD_FIELDS, ...JEV_FIELDS]);
     expect([...recorded].filter((key) => !written.has(key))).toEqual([]);
-    // Fields this recording has no occasion to write: no turn errored and none was graded.
+    // Fields this recording has no occasion to write: no turn errored, none was graded and none sent skipReply.
     expect([...written].filter((key) => !recorded.has(key)).sort()).toEqual([
       'error',
       'grader',
       'judge',
       'operational',
+      'skipReply',
     ]);
   });
 

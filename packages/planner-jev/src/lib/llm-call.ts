@@ -21,6 +21,19 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
 - When there are values to ask for, ask the user for them in the same reply.
 - For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
 
+const REPLYLESS_SYSTEM_PROMPT = `You fill the structured fields for a dashboard assistant after its planner already decided what to change. Someone else writes the reply to the user, so do not write one.
+- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.
+- When the prompt has a layout to write, fill the layout tree it describes.`;
+
+/** Options for {@link callLlm}. */
+export interface CallLlmOptions {
+  /**
+   * Whether the system prompt asks the model to write the reply to the user.
+   * Defaults to `true`. Pass `false` with a schema that has no `userMessage`.
+   */
+  readonly withMessage?: boolean;
+}
+
 /**
  * Runs a structured completion with caller cancellation and engine error logging.
  * Reports one `llm.call` event with the model, request correlation, duration,
@@ -31,6 +44,7 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
  * Cache counters do not change input-token totals.
  * The event excludes prompts, output, errors, and credentials.
  * Counters normalized or omitted by an adapter cannot be recovered here.
+ * With `withMessage: false` the system prompt asks for the structured fields (parameter values and the layout tree) and no reply.
  */
 export async function callLlm<T>(
   llm: CompletionLlm,
@@ -38,6 +52,7 @@ export async function callLlm<T>(
   schema: z.ZodType<T>,
   history: readonly LLMContextMessage[],
   ctx: StageContext,
+  { withMessage = true }: CallLlmOptions = {},
 ): Promise<Result<T, CancellationError | ProviderError>> {
   const { signal, logger } = ctx;
   const { messageId, sessionId } = ctx.origin;
@@ -82,7 +97,7 @@ export async function callLlm<T>(
         ...recentHistory(history),
         { role: 'user' as const, content: prompt },
       ],
-      systemPrompts: [SYSTEM_PROMPT],
+      systemPrompts: [withMessage ? SYSTEM_PROMPT : REPLYLESS_SYSTEM_PROMPT],
       // TanStack 1.0 stops before terminal usage when its validator rejects a result.
       // Keep provider constraints, then validate locally after the stream drains.
       outputSchema: preserveNullableBranches(convertSchemaToJsonSchema(schema)),

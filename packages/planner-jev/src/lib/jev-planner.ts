@@ -14,7 +14,10 @@ import type { AnyTextAdapter } from '@tanstack/ai';
 import type { Ask } from './ask.js';
 import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
-import { FALLBACK_RETRIES } from './planners/jev-stage-planner.js';
+import {
+  asReplyRequiredPlanner,
+  FALLBACK_RETRIES,
+} from './planners/jev-stage-planner.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
 import { llmComplete } from './stages/llm-complete.js';
@@ -79,14 +82,16 @@ export function buildJevPlanner(
   overrides: PocStageOverrides = {},
 ): Planner {
   const select = overrides.select ?? selectGatedScreenScope;
-  return withFallback(
-    pipeline(
-      named(STAGE_NAME.jevSelect, select(deps.ask)),
-      named(STAGE_NAME.jevActions, jevActions(deps.ask)),
-      named(STAGE_NAME.jevLayout, jevLayout(deps.ask)),
-      named(STAGE_NAME.llmComplete, llmComplete(deps.llm)),
+  return asReplyRequiredPlanner(
+    withFallback(
+      pipeline(
+        named(STAGE_NAME.jevSelect, select(deps.ask)),
+        named(STAGE_NAME.jevActions, jevActions(deps.ask)),
+        named(STAGE_NAME.jevLayout, jevLayout(deps.ask)),
+        named(STAGE_NAME.llmComplete, llmComplete(deps.llm)),
+      ),
+      withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
     ),
-    withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
 }
 

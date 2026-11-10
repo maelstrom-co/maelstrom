@@ -37,6 +37,7 @@ import {
 } from '../__test-helpers__/mock-chat.js';
 import type {
   JevLayoutPlan,
+  ParameterAsk,
   PendingParameter,
   PlannedAction,
 } from '../types.js';
@@ -50,6 +51,12 @@ const LOCATION: PendingParameter = {
   name: 'location',
   type: 'string',
   description: 'City or place to request weather for',
+};
+
+const TITLE_ASK: ParameterAsk = {
+  instanceId: InstanceId('tasks-main'),
+  action: ActionName('addTask'),
+  parameter: { name: 'title', type: 'string', description: 'Task title' },
 };
 
 async function run(
@@ -333,9 +340,28 @@ describe('llmComplete', () => {
     expect(candidate.executionPlan.map((a) => a.action)).toEqual([
       'showWeekly',
     ]);
+    expect(candidate.type).toBe('plan');
+    expect(candidate.userMessage).toBe('What should the task say?');
     expect(candidate.rationale).toContain(
       'Asked the user for: tasks-main.addTask.title',
     );
+  });
+
+  test('with skipReply false, asks still appear in the prompt and the question is the userMessage', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'What should the task say?' });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('add a task and show the weekly forecast'), false),
+        { actions: [planned('weather-main/showWeekly')], asks: [TITLE_ASK] },
+      ),
+    );
+    expect(chatPrompt()).toContain('## Ask the user');
+    const candidate = candidateOf(result);
+    expect(candidate.type).toBe('plan');
+    expect(candidate.userMessage).toBe('What should the task say?');
+    expect(candidate.executionPlan.map((a) => a.action)).toEqual([
+      'showWeekly',
+    ]);
   });
 
   test('declares pre-action variants and a code-built rationale', async () => {
@@ -492,3 +518,182 @@ describe('llmComplete', () => {
     expect(errorTagOf(result)).toBe('CancellationError');
   });
 });
+
+describe('llmComplete with skipReply', () => {
+  test('without pending slots makes no call and ships no userMessage', async () => {
+    const { result } = await run(
+      completionPlan(skipping(makeRequest('hide the tasks'), true)),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    expect(isOk(result)).toBe(true);
+    expect(candidateOf(result)).not.toHaveProperty('userMessage');
+  });
+
+  test('with a pending slot fills it without asking for a reply', async () => {
+    mockChat.mockResolvedValue({ params: { p0: 'Tokyo' } });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('weather for the capital of Japan'), true),
+        { actions: [planned('weather-main/setLocation', {}, [LOCATION])] },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'params',
+    ]);
+    const candidate = candidateOf(result);
+    expect(candidate).not.toHaveProperty('userMessage');
+    expect(candidate.executionPlan).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Tokyo"}',
+      },
+    ]);
+    const systemPrompt = chatCall().systemPrompts.join('\n');
+    expect(systemPrompt).toContain('do not write one');
+    expect(systemPrompt).not.toContain('You write the reply');
+    expect(chatPrompt()).not.toMatch(/reply/i);
+  });
+
+  test('false behaves exactly like an absent flag', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Tokyo' } });
+    const plan = (request: ChartRequest) =>
+      completionPlan(request, {
+        actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+      });
+    const absent = await run(plan(makeRequest('weather for Tokyo')));
+    const explicit = await run(
+      plan(skipping(makeRequest('weather for Tokyo'), false)),
+    );
+    expect(candidateOf(explicit.result)).toEqual(candidateOf(absent.result));
+    expect(candidateOf(explicit.result).userMessage).toBe('ok');
+    expect(Object.keys(chatCall(1).outputSchema.properties ?? {})).toEqual([
+      'userMessage',
+      'params',
+    ]);
+    expect(chatCall(1).outputSchema).toEqual(chatCall(0).outputSchema);
+    expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
+    expect(chatPrompt(1)).toBe(chatPrompt(0));
+  });
+});
+
+describe('llmComplete with skipReply and asks', () => {
+  test('ships the partial plan as a needs-clarification result without a call', async () => {
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('add a task and show the weekly forecast'), true),
+        { actions: [planned('weather-main/showWeekly')], asks: [TITLE_ASK] },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    const clarification = clarificationOf(result);
+    expect(clarification.type).toBe('needs_clarification');
+    expect(clarification.question).toContain('title');
+    expect(clarification.executionPlan).toEqual([
+      { instanceId: 'weather-main', action: 'showWeekly' },
+    ]);
+    expect(clarification).not.toHaveProperty('userMessage');
+    expect(clarification).not.toHaveProperty('rationale');
+    expect(clarification).not.toHaveProperty('options');
+  });
+
+  test('with only asks and an unchanged layout ships just the question', async () => {
+    const { result } = await run(
+      completionPlan(skipping(makeRequest('add a task'), true), {
+        asks: [TITLE_ASK],
+      }),
+    );
+    expect(mockChat.mock.calls.length).toBe(0);
+    expect(Object.keys(clarificationOf(result)).sort()).toEqual([
+      'question',
+      'type',
+    ]);
+  });
+
+  test('an ask whose parameter has enum values offers them as options', async () => {
+    const { result } = await run(
+      completionPlan(skipping(makeRequest('show a route'), true), {
+        asks: [
+          {
+            instanceId: InstanceId('map-main'),
+            action: ActionName('showRoute'),
+            parameter: {
+              name: 'destination',
+              type: 'string',
+              description: 'Name of the destination location',
+              enum: ['Studio Vortex HQ', 'Central Station'],
+            },
+          },
+        ],
+      }),
+    );
+    const clarification = clarificationOf(result);
+    expect(clarification.type).toBe('needs_clarification');
+    expect(clarification.options).toEqual([
+      'Studio Vortex HQ',
+      'Central Station',
+    ]);
+  });
+
+  test('with a pending slot fills it in a replyless call and ships it in the clarification', async () => {
+    mockChat.mockResolvedValue({ params: { p0: 'Tokyo' } });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('add a task and show weather for Tokyo'), true),
+        {
+          actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+          asks: [TITLE_ASK],
+        },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'params',
+    ]);
+    expect(chatPrompt()).not.toContain('## Ask the user');
+    const clarification = clarificationOf(result);
+    expect(clarification.type).toBe('needs_clarification');
+    expect(clarification.executionPlan).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Tokyo"}',
+      },
+    ]);
+  });
+
+  test('a pending slot left null defers param_unfilled instead of asking', async () => {
+    mockChat.mockResolvedValue({ params: { p0: null } });
+    const { result } = await run(
+      completionPlan(
+        skipping(makeRequest('add a task and show the weather'), true),
+        {
+          actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+          asks: [TITLE_ASK],
+        },
+      ),
+    );
+    expect(mockChat.mock.calls.length).toBe(1);
+    expect(deferralOf(result)).toBe('llmComplete/param_unfilled');
+  });
+});
+
+function clarificationOf(result: Awaited<ReturnType<typeof run>>['result']) {
+  if (!isOk(result))
+    throw new Error(`expected a result: ${deferralOf(result)}`);
+  return plain(result.value) as {
+    type: string;
+    question?: string;
+    options?: string[];
+    executionPlan?: {
+      instanceId: string;
+      action: string;
+      paramsJson?: string;
+    }[];
+  };
+}
+
+function skipping(request: ChartRequest, skipReply: boolean): ChartRequest {
+  return { ...request, skipReply };
+}

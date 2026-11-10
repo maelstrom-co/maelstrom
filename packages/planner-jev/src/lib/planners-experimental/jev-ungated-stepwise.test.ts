@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
+  type ClarifyingPlanner,
   createEngine,
-  type Planner,
   type PlannerCandidate,
   type PlanningInput,
   pipeline,
@@ -95,7 +95,7 @@ async function run(request: ChartRequest, script: Script) {
 }
 
 /** The jev-ungated-stepwise-preset-inline stages, with the layout stage handing the tree to the LLM. */
-function handOffPlanner(deps: JevDeps): Planner {
+function handOffPlanner(deps: JevDeps): ClarifyingPlanner {
   const live = layoutPreset(deps.ask);
   const handOff: LayoutStage = async (plan, ctx) => {
     const result = await live(plan, ctx);

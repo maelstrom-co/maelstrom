@@ -15,37 +15,46 @@ export type Completion = {
   readonly params?: Readonly<Record<string, unknown>>;
 };
 
+/** What the completion call returns when no reply to the user is requested. */
+export type ReplylessCompletion = Omit<Completion, 'userMessage'>;
+
+/** Options for {@link outputSchema}. */
+export interface OutputSchemaOptions {
+  /** Whether the schema asks for `userMessage`. Defaults to `true`. */
+  readonly withMessage?: boolean;
+}
+
 /**
  * `{ userMessage }`, plus `params` with one nullable key per pending slot
  * typed from its parameter, plus any `extra` fields. Object parameters
- * travel as JSON strings.
+ * travel as JSON strings. With `withMessage: false` the schema leaves out
+ * `userMessage` and keeps the rest.
  */
 export function outputSchema(
   slots: readonly Slot[],
+  extra?: z.ZodRawShape,
+  options?: OutputSchemaOptions & { readonly withMessage?: true },
+): z.ZodType<Completion>;
+export function outputSchema(
+  slots: readonly Slot[],
+  extra: z.ZodRawShape | undefined,
+  options: OutputSchemaOptions & { readonly withMessage: false },
+): z.ZodType<ReplylessCompletion>;
+export function outputSchema(
+  slots: readonly Slot[],
+  extra?: z.ZodRawShape,
+  options?: OutputSchemaOptions,
+): z.ZodType<Completion | ReplylessCompletion>;
+export function outputSchema(
+  slots: readonly Slot[],
   extra: z.ZodRawShape = {},
-): z.ZodType<Completion> {
-  const userMessage = z
-    .string()
-    .describe(
-      'The reply to the user, displayed in the chat and spoken aloud. Short and friendly.',
-    );
-  if (slots.length === 0) return z.object({ userMessage, ...extra });
-  return z.object({
-    userMessage,
-    params: z.object(
-      Object.fromEntries(
-        slots.map((slot) => [
-          slot.key,
-          valueSchema(slot.parameter)
-            .nullable()
-            .describe(
-              `${slot.parameter.name} for ${slot.action.action} on ${slot.action.instanceId}: ${slot.parameter.description}`,
-            ),
-        ]),
-      ),
-    ),
-    ...extra,
-  });
+  { withMessage = true }: OutputSchemaOptions = {},
+): z.ZodType<Completion | ReplylessCompletion> {
+  const params: z.ZodRawShape =
+    slots.length > 0 ? { params: paramsSchema(slots) } : {};
+  return withMessage
+    ? z.object({ userMessage: USER_MESSAGE_SCHEMA, ...params, ...extra })
+    : z.object({ ...params, ...extra });
 }
 
 /** The value the LLM filled for `parameter`, or `undefined` when it gave none usable. */
@@ -61,6 +70,27 @@ export function parseFill(parameter: PendingParameter, raw: unknown): unknown {
   } catch {
     return undefined;
   }
+}
+
+const USER_MESSAGE_SCHEMA = z
+  .string()
+  .describe(
+    'The reply to the user, displayed in the chat and spoken aloud. Short and friendly.',
+  );
+
+function paramsSchema(slots: readonly Slot[]) {
+  return z.object(
+    Object.fromEntries(
+      slots.map((slot) => [
+        slot.key,
+        valueSchema(slot.parameter)
+          .nullable()
+          .describe(
+            `${slot.parameter.name} for ${slot.action.action} on ${slot.action.instanceId}: ${slot.parameter.description}`,
+          ),
+      ]),
+    ),
+  );
 }
 
 function valueSchema(parameter: PendingParameter): z.ZodType {

@@ -1,11 +1,19 @@
-import type { PlannerCandidate, Stage } from '@maelstrom-co/engine';
-import { isErr, ok } from '@maelstrom-co/protocol';
+import type { ReplylessCandidate, Stage } from '@maelstrom-co/engine';
+import { isErr, type NeedsClarification, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import { outputSchema, parseFill, type Slot } from '../completion-schema.js';
+import { completionMode } from '../completion-mode.js';
+import {
+  type Completion,
+  outputSchema,
+  parseFill,
+  type ReplylessCompletion,
+  type Slot,
+} from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { callLlm } from '../llm-call.js';
+import { parameterClarification } from '../parameter-clarification.js';
 import { intentText } from '../questions.js';
 import type { JevLayoutPlan, ParameterAsk, PlannedAction } from '../types.js';
 
@@ -21,19 +29,26 @@ export interface LlmCompleteOptions {
 
 /**
  * Turns the Jev decisions into a candidate: one small LLM call writes the
- * `userMessage` and fills `stated_elsewhere` parameters, code builds the
- * layout, execution plan and rationale. The layout declares each instance in
- * its variant before the actions run, and the execution plan ships every
- * planned action, so the client applies the layout and then each action's
- * transition, view switches included. The candidate then goes
- * through `ctx.validate`; a validation error or a recommended retry defers,
- * so a flawed Jev plan falls back instead of shipping healed. Provider
- * failures and cancellation are real errors: the fallback uses the same
- * provider.
+ * `userMessage` (unless the request sets `skipReply`) and fills
+ * `stated_elsewhere` parameters, code builds the layout, execution plan and
+ * rationale. The layout declares each instance in its variant before the
+ * actions run, and the execution plan ships every planned action, so the
+ * client applies the layout and then each action's transition, view
+ * switches included. The candidate then goes through `ctx.validate`; a
+ * validation error or a recommended retry defers, so a flawed Jev plan falls
+ * back instead of shipping healed. Provider failures and cancellation are
+ * real errors: the fallback uses the same provider.
+ *
+ * On a request with `skipReply: true` the candidate has no `userMessage`:
+ * the call only fills parameters, and with none to fill it is not made.
+ * When the plan also asks the user for parameters, the validated candidate
+ * becomes a needs-clarification result that asks for them and carries the
+ * actions and layout already planned. Without `skipReply` the candidate
+ * always carries the reply, which asks for those parameters itself.
  */
 export function llmComplete(
   options: LlmCompleteOptions,
-): Stage<JevLayoutPlan, PlannerCandidate> {
+): Stage<JevLayoutPlan, ReplylessCandidate | NeedsClarification> {
   return async (layoutPlan, ctx) => {
     const { plan } = layoutPlan;
     const input = plan.selection.input;
@@ -43,14 +58,28 @@ export function llmComplete(
       )
       .map((slot, index) => ({ ...slot, key: `p${index}` }));
 
-    const completion = await callLlm(
-      options,
-      buildPrompt(layoutPlan, slots),
-      outputSchema(slots),
-      input.history,
-      ctx,
-    );
+    const mode = completionMode({
+      skipReply: input.request.skipReply,
+      slotCount: slots.length,
+      layoutHandOff: false,
+    });
+    const withMessage = mode === 'full';
+    const completion =
+      mode === 'skip'
+        ? ok<Completion | ReplylessCompletion>({})
+        : await callLlm(
+            options,
+            buildPrompt(layoutPlan, slots, withMessage),
+            outputSchema(slots, undefined, { withMessage }),
+            input.history,
+            ctx,
+            { withMessage },
+          );
     if (isErr(completion)) return completion;
+    const userMessage =
+      'userMessage' in completion.value
+        ? completion.value.userMessage
+        : undefined;
 
     const filled = new Map<Slot, unknown>();
     for (const slot of slots) {
@@ -78,9 +107,9 @@ export function llmComplete(
     );
     if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
-    const candidate: PlannerCandidate = {
+    const candidate: ReplylessCandidate = {
       type: 'plan',
-      userMessage: completion.value.userMessage,
+      ...(userMessage !== undefined && { userMessage }),
       rationale: rationale(layoutPlan),
       executionPlan: declared.value.actions.map((action) => {
         const params: Record<string, unknown> = { ...action.params };
@@ -109,6 +138,8 @@ export function llmComplete(
     if (isErr(report)) return deferAt(ctx, STAGE, 'invalid_candidate');
     if (report.value.diagnostics.retryHint.recommend)
       return deferAt(ctx, STAGE, 'retry_recommended');
+    if (input.request.skipReply === true && plan.asks.length > 0)
+      return ok(parameterClarification(plan.asks, candidate, input.request));
     return ok(candidate);
   };
 }
@@ -116,6 +147,7 @@ export function llmComplete(
 function buildPrompt(
   layoutPlan: JevLayoutPlan,
   slots: readonly Slot[],
+  includeAsks: boolean,
 ): string {
   const { plan } = layoutPlan;
   const { request } = plan.selection.input;
@@ -136,7 +168,7 @@ function buildPrompt(
       'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
       ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
-  if (plan.asks.length > 0)
+  if (includeAsks && plan.asks.length > 0)
     lines.push(
       '',
       '## Ask the user',

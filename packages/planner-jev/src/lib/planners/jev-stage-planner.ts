@@ -1,4 +1,5 @@
 import {
+  type ClarifyingPlanner,
   named,
   type Planner,
   type PlannerCandidate,
@@ -25,6 +26,19 @@ import type {
 
 /** How many times the fallback is re-run when validation recommends a retry. */
 export const FALLBACK_RETRIES = 1;
+
+/**
+ * Types a Jev planner whose completion stage may omit `userMessage` or ask
+ * a question as a reply-required {@link Planner}, so the builders keep
+ * their strict type. The completion stages return a replyless candidate or
+ * a needs-clarification result only when the request sets
+ * `skipReply: true`, which a caller that needs a strict `Planner` never
+ * sends. The Engine still validates every result against its request, so
+ * neither is ever shipped unchecked. Returns `planner` itself.
+ */
+export function asReplyRequiredPlanner(planner: ClarifyingPlanner): Planner {
+  return planner as Planner;
+}
 
 /** The provider-neutral options {@link createStageDeps} validates, shaped like `JevPlannerOptions`. */
 export interface StageDepsOptions {
@@ -94,17 +108,19 @@ export function buildJevStagePlanner<Selected extends Selection2>(
   stages: JevStages<Selected>,
   deps: JevDeps,
 ): Planner {
-  return withFallback(
-    pipeline(
-      named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
-      named(
-        STAGE_NAME.jevActions,
-        keepingGates<Selected>(stages.actions(deps.ask)),
+  return asReplyRequiredPlanner(
+    withFallback(
+      pipeline(
+        named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
+        named(
+          STAGE_NAME.jevActions,
+          keepingGates<Selected>(stages.actions(deps.ask)),
+        ),
+        named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
+        named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
       ),
-      named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
-      named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
+      withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
     ),
-    withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
 }
 

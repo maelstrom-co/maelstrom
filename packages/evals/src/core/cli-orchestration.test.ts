@@ -134,10 +134,48 @@ test('both CLIs dispatch native reporting through shared orchestration without c
     repeats: 2,
     arms: 'fake',
   });
+  expect('skipReply' in summary.meta).toBe(false);
   expect(await readFile(join(plannerOut, 'report.md'), 'utf8')).toContain(
     'Fake picks',
   );
   expect(await readFile(join(stageOut, 'report.md'), 'utf8')).toContain(
     'Synthetic native section',
+  );
+});
+
+test('--skip-reply sends skipReply requests and notes it in the run meta and records', async () => {
+  const out = join(directory, 'skip-reply');
+  const requests: boolean[] = [];
+  await runEvalCli(
+    [
+      {
+        ...fakePluginWith({
+          candidate: (input) => {
+            requests.push(input.request.skipReply === true);
+            return TOKYO_CANDIDATE;
+          },
+        }),
+        fallback: () => async () => ok(TOKYO_CANDIDATE),
+      },
+    ],
+    [
+      'bun',
+      'eval',
+      '--case=quoted-location',
+      '--arm=fake',
+      '--repeats=1',
+      '--skip-reply',
+      `--out=${out}`,
+    ],
+  );
+  expect(requests).toEqual([true]);
+  const summary = JSON.parse(await readFile(join(out, 'summary.json'), 'utf8'));
+  expect(summary.meta.skipReply).toBe(true);
+  const records = JSON.parse(await readFile(join(out, 'records.json'), 'utf8'));
+  expect(
+    records.map((record: { skipReply?: true }) => record.skipReply),
+  ).toEqual([true]);
+  expect(await readFile(join(out, 'report.md'), 'utf8')).toContain(
+    '- skipReply: true',
   );
 });

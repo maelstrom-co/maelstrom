@@ -1,6 +1,7 @@
 import type {
   Deferred,
   PlannerCandidate,
+  ReplylessCandidate,
   StageContext,
 } from '@maelstrom-co/engine';
 import {
@@ -15,16 +16,19 @@ import {
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
 
+import { completionMode } from '../completion-mode.js';
 import {
   type Completion,
   outputSchema,
   parseFill,
+  type ReplylessCompletion,
   type Slot,
 } from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
 import { callLlm } from '../llm-call.js';
+import { parameterClarification } from '../parameter-clarification.js';
 import { intentText } from '../questions.js';
 import type {
   ParameterAsk,
@@ -39,31 +43,57 @@ const STAGE = STAGE_NAME.llmComplete;
 
 export { callLlm } from '../llm-call.js';
 
-type HandOffCompletion = Completion & {
+type HandOffCompletion = (Completion | ReplylessCompletion) & {
   readonly layout?: { readonly tree?: readonly (string | null)[] };
 };
 
 /**
  * Turns a layout decision into a candidate like `llmComplete`: one small
- * LLM call writes the `userMessage` and fills `stated_elsewhere`
- * parameters, code builds the execution plan, layout and rationale, and
- * `ctx.validate` gates the result. A decision without a tree hands the
- * layout to the same call: its output gains `layout.tree`, which must place
- * exactly the visible instances, each at least at its minimum size, or the
- * stage defers with `invalid_layout`.
+ * LLM call writes the `userMessage` (unless the request sets `skipReply`)
+ * and fills `stated_elsewhere` parameters, code builds the execution plan,
+ * layout and rationale, and `ctx.validate` gates the result. A decision
+ * without a tree hands the layout to the same call: its output gains
+ * `layout.tree`, which must place exactly the visible instances, each at
+ * least at its minimum size, or the stage defers with `invalid_layout`.
+ *
+ * On a request with `skipReply: true` the candidate has no `userMessage`:
+ * the call only fills parameters and writes a handed-off tree, and with
+ * neither to produce it is not made. When the plan also asks the user for
+ * parameters, the validated candidate becomes a needs-clarification result
+ * that asks for them and carries the actions and layout already planned.
+ * Without `skipReply` the candidate always carries the reply, which asks
+ * for those parameters itself.
  */
 export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
     const prep = prepareCompletion(decision);
     const { slots, visible, handOff } = prep;
+    const { request, history } = decision.plan.selection.input;
 
-    const completion = await callLlm<Completion>(
-      llm,
-      buildPrompt(decision, slots, handOff ? visible : undefined),
-      outputSchema(slots, handOff ? { layout: LAYOUT_SCHEMA } : {}),
-      decision.plan.selection.input.history,
-      ctx,
-    );
+    const mode = completionMode({
+      skipReply: request.skipReply,
+      slotCount: slots.length,
+      layoutHandOff: handOff,
+    });
+    const withMessage = mode === 'full';
+    const completion =
+      mode === 'skip'
+        ? ok<Completion | ReplylessCompletion>({})
+        : await callLlm(
+            llm,
+            buildPrompt(
+              decision,
+              slots,
+              handOff ? visible : undefined,
+              withMessage,
+            ),
+            outputSchema(slots, handOff ? { layout: LAYOUT_SCHEMA } : {}, {
+              withMessage,
+            }),
+            history,
+            ctx,
+            { withMessage },
+          );
     if (isErr(completion)) return completion;
 
     const tree =
@@ -71,7 +101,22 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
       ((completion.value as HandOffCompletion).layout?.tree as
         | readonly TilingNode[]
         | undefined);
-    return assembleCandidate(ctx, decision, completion.value, prep, tree);
+    const candidate = assembleCandidate(
+      ctx,
+      decision,
+      completion.value,
+      prep,
+      tree,
+    );
+    if (
+      isErr(candidate) ||
+      request.skipReply !== true ||
+      decision.plan.asks.length === 0
+    )
+      return candidate;
+    return ok(
+      parameterClarification(decision.plan.asks, candidate.value, request),
+    );
   };
 }
 
@@ -143,7 +188,8 @@ export function invalidTree(
  * instance, name and filled parameters repeat an earlier one's, simulates
  * the variants the actions kept leave, checks `tree` against them, then
  * builds, validates and returns the candidate. The candidate's layout
- * declares each instance in its variant before the actions run.
+ * declares each instance in its variant before the actions run. The
+ * candidate carries `userMessage` only when `completion` does.
  */
 export function assembleCandidate(
   ctx: StageContext,
@@ -151,7 +197,21 @@ export function assembleCandidate(
   completion: Completion,
   prep: CompletionPrep,
   tree: readonly TilingNode[] | undefined,
-): Result<PlannerCandidate, Deferred> {
+): Result<PlannerCandidate, Deferred>;
+export function assembleCandidate(
+  ctx: StageContext,
+  decision: LayoutDecision,
+  completion: Completion | ReplylessCompletion,
+  prep: CompletionPrep,
+  tree: readonly TilingNode[] | undefined,
+): Result<ReplylessCandidate, Deferred>;
+export function assembleCandidate(
+  ctx: StageContext,
+  decision: LayoutDecision,
+  completion: Completion | ReplylessCompletion,
+  prep: CompletionPrep,
+  tree: readonly TilingNode[] | undefined,
+): Result<ReplylessCandidate, Deferred> {
   const { plan } = decision;
   const { request } = plan.selection.input;
   const { slots, retained, visible, handOff } = prep;
@@ -205,9 +265,11 @@ export function assembleCandidate(
   const paramsOf = new Map(
     unique.kept.map(({ action, params }) => [action, params]),
   );
-  const candidate: PlannerCandidate = {
+  const userMessage =
+    'userMessage' in completion ? completion.userMessage : undefined;
+  const candidate: ReplylessCandidate = {
     type: 'plan',
-    userMessage: completion.userMessage,
+    ...(userMessage !== undefined && { userMessage }),
     rationale: rationale(decision),
     executionPlan: declared.value.actions.map((action) => {
       const params = paramsOf.get(action) ?? action.params;
@@ -249,11 +311,12 @@ function buildPrompt(
   decision: LayoutDecision,
   slots: readonly Slot[],
   handOffInstances: readonly VesselInstanceSnapshot[] | undefined,
+  includeAsks: boolean,
 ): string {
   const label = handOffInstances
     ? 'you write it, see Layout to write'
     : layoutLabel(decision);
-  const base = buildMessagePrompt(decision, slots, label);
+  const base = buildMessagePrompt(decision, slots, label, includeAsks);
   return handOffInstances
     ? [base, '', ...layoutSection(decision, handOffInstances)].join('\n')
     : base;
@@ -264,12 +327,14 @@ function buildPrompt(
  * slots to fill and asks. `layoutLabelText` is what the decisions section
  * says under "Layout:", so a caller that writes the tree with a separate
  * call can describe it in its own words instead of pointing at a "Layout to
- * write" section this prompt does not carry.
+ * write" section this prompt does not carry. `includeAsks` false leaves the
+ * asks out, for a call that writes no reply to ask them in.
  */
 export function buildMessagePrompt(
   decision: LayoutDecision,
   slots: readonly Slot[],
   layoutLabelText: string,
+  includeAsks = true,
 ): string {
   const { plan } = decision;
   const { request } = plan.selection.input;
@@ -290,7 +355,7 @@ export function buildMessagePrompt(
       'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
       ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
-  if (plan.asks.length > 0)
+  if (includeAsks && plan.asks.length > 0)
     lines.push(
       '',
       '## Ask the user',
