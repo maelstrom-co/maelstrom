@@ -624,9 +624,13 @@ export async function executeMaintenance(
         true,
       );
     }
-  } catch {
+  } catch (cleanupError) {
+    const message = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
+    const originalFailure =
+      failure === undefined ? '' : ` Original failure: ${message(failure)}`;
     failure = new Error(
-      `Canary cleanup needs operator repair: stack=MaelstromStateStoreCanary stage=${stage} worker=${name}. Keep all callers paused.`,
+      `Canary cleanup needs operator repair: stack=MaelstromStateStoreCanary stage=${stage} worker=${name}. Keep all callers paused.${originalFailure} Cleanup failure: ${message(cleanupError)}`,
     );
   }
   const removals = await Promise.allSettled(

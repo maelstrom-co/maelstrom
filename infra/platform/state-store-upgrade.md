@@ -122,13 +122,17 @@ Alchemy's production apply command.
 
 Wait for the complete production run to pass. Check its
 `alchemy-state-maintenance-production` receipt and review the platform plan.
+If an earlier run stopped during or after bootstrap, complete the independent
+reconciliation in [Recover a failed run](#recover-a-failed-run) before accepting
+this receipt. Its state comparison covers only the current invocation.
 Application deployment plans still run through the normal production workflow
 before their respective applies.
 
 ## Resume callers
 
 Freeze unrelated `main` merges during the maintenance window. After both
-verification runs pass, confirm that the current PR head still equals
+verification runs pass and any required independent reconciliation is complete,
+confirm that the current PR head still equals
 `upgrade_sha` and that `main` still matches the production receipt's `controlSha`.
 If either changed, rebase and review the candidate, then repeat preview and
 production verification before requesting merge approval.
@@ -169,8 +173,33 @@ is still 7. After bootstrap starts, cleanup uses beta.85 only when protocol 8 is
 confirmed. If the protocol is uncertain, the workflow stops cleanup and reports
 the exact canary stack, stage, and Worker name for operator repair.
 
+Cancellation or a job timeout can prevent that final diagnostic. In the preview
+account, locate the canary using the interrupted run's `GITHUB_RUN_ID` and
+`GITHUB_RUN_ATTEMPT`:
+
+- Stack: `MaelstromStateStoreCanary`.
+- Stage: `maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`.
+- Worker: `maelstrom-state-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`.
+
+Use the original attempt's identity when cleaning up after a rerun. Follow the
+protocol checks above before choosing a cleanup CLI.
+
 Resolve the reported phase before dispatching another run. A failed run produces
-no successful verification receipt. Normal workflows stay disabled; the
+no successful verification receipt. A retry can read its baseline from a store
+that the failed run already upgraded. Its `existingStatePreserved` result proves
+only that the record matched within the retry; it does not prove preservation
+across the original bootstrap.
+
+After an interruption during or after bootstrap, independently reconcile the
+affected records against authoritative evidence from before the original
+bootstrap. A new baseline, a passing canary, or a successful retry receipt cannot
+replace that evidence. Keep callers paused if the evidence is unavailable or
+preservation cannot be established. Do not put state contents or encryption
+material in receipts or public logs.
+
+Complete this reconciliation before accepting a retry receipt or resuming any
+caller. The workflow does not retain durable evidence of the original baseline
+or enforce this operator check. Normal workflows stay disabled; the
 maintenance workflow never enables them or merges the upgrade PR.
 
 See [Alchemy's v7 upgrade instructions](https://alchemy.run/blog/2026-11-01-beta-85/#upgrade-from-v7)

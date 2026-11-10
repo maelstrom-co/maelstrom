@@ -1279,10 +1279,6 @@ export const teardownPreview = async (
   validatePrNumber(options.prNumber);
   validateBunExecutable(options.bunExecutable);
   assertExpectedAccount(options.accountId, options.expectedAccountId);
-  assertWorkspaceAlchemyVersion(
-    options.root,
-    process.env.ALCHEMY_REQUIRED_VERSION,
-  );
   if (
     !['closed', 'manual', 'schedule', 'unlabeled'].includes(options.trigger)
   ) {

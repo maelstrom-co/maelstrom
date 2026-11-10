@@ -365,6 +365,22 @@ for (const protocol of [7, 8] as const) {
   });
 }
 
+test('refused cleanup preserves the bootstrap failure and the repair identity', async () => {
+  const result = await fixture({ failBootstrap: 7 });
+  expect(result.failure).toBeInstanceOf(Error);
+  const message = (result.failure as Error).message;
+  expect(message).toContain('simulated partial bootstrap');
+  expect(message).toContain(
+    'State-store protocol is uncertain after bootstrap',
+  );
+  expect(message).toContain('stack=MaelstromStateStoreCanary');
+  expect(message).toContain('stage=maintenance-600-1');
+  expect(message).toContain('worker=maelstrom-state-canary-600-1');
+  expect(message).toContain('Keep all callers paused');
+  expect(message).not.toContain('not-for-logs');
+  expect(result.receipt).toBeUndefined();
+});
+
 test('a moved PR head cannot prevent cleanup of the immutable deployed canary', async () => {
   const result = await fixture({ moveHead: true });
   expect(result.failure).toBeUndefined();
