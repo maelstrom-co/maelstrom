@@ -32,6 +32,12 @@
       "types": "./dist/usage.d.ts",
       "import": "./dist/usage.js",
       "default": "./dist/usage.js"
+    },
+    "./usage-adapter": {
+      "@maelstrom-co/source": "./src/usage-adapter.ts",
+      "types": "./dist/usage-adapter.d.ts",
+      "import": "./dist/usage-adapter.js",
+      "default": "./dist/usage-adapter.js"
     }
   },
   "files": [
@@ -53,8 +59,17 @@
     "access": "public"
   },
   "dependencies": {},
+  "peerDependencies": {
+    "@tanstack/ai": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/ai": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:",
+    "@tanstack/ai": "catalog:",
     "@types/sinonjs__fake-timers": "^15.0.1"
   },
   "nx": {

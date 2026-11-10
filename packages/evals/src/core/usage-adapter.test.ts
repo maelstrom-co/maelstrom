@@ -1,312 +1,47 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { AnyTextAdapter, StreamChunk } from '@tanstack/ai';
+import { withUsage as telemetryWithUsage } from '@maelstrom-co/telemetry/usage-adapter';
+import type { AnyTextAdapter } from '@tanstack/ai';
 
-import { type LlmCall, withUsage } from './usage-adapter.js';
+import { LLM_ROLES, type LlmCall, withUsage } from './usage-adapter.js';
 
-const usage = { promptTokens: 120, completionTokens: 30, totalTokens: 150 };
+describe('evals usage adapter', () => {
+  test('lists every role in report order', () => {
+    expect(LLM_ROLES).toEqual([
+      'planner',
+      'fallback',
+      'complete',
+      'layout',
+      'grader',
+    ]);
+  });
 
-class FakeAdapter {
-  readonly kind = 'text';
-  readonly name = 'fake';
-  readonly model = 'fake-model';
-  readonly #chunks: readonly StreamChunk[];
-  constructor(chunks: readonly StreamChunk[]) {
-    this.#chunks = chunks;
-  }
-  async *chatStream() {
-    yield* this.#chunks;
-  }
-  async *structuredOutputStream() {
-    yield* this.#chunks;
-  }
-  async structuredOutput() {
-    return { data: { ok: true }, rawText: '{"ok":true}', usage };
-  }
-  supportsCombinedToolsAndSchema() {
-    return this.#chunks.length > 0;
-  }
-}
+  test('re-exports the telemetry withUsage', () => {
+    expect(withUsage).toBe(telemetryWithUsage);
+  });
 
-const finished = [
-  { type: 'RUN_STARTED', runId: 'r', threadId: 't', timestamp: 1 },
-  { type: 'TEXT_MESSAGE_CONTENT', messageId: 'm', delta: '{}', timestamp: 2 },
-  {
-    type: 'RUN_FINISHED',
-    runId: 'r',
-    threadId: 't',
-    timestamp: 3,
-    finishReason: 'stop',
-    usage,
-  },
-] as unknown as StreamChunk[];
-
-function wrap(inner: FakeAdapter | Record<string, unknown>) {
-  const calls: LlmCall[] = [];
-  const adapter = withUsage(
-    inner as unknown as AnyTextAdapter,
-    'complete',
-    (call) => calls.push(call),
-  );
-  return { adapter, calls };
-}
-
-async function drain(stream: AsyncIterable<StreamChunk>) {
-  const chunks: StreamChunk[] = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  return chunks;
-}
-
-describe('withUsage', () => {
-  test.each([
-    {
-      name: 'aggregate counters',
-      reported: {
-        ...usage,
-        promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
-        cost: 0.012,
-      },
-      expected: {
-        inputTokens: 120,
-        outputTokens: 30,
-        totalTokens: 150,
-        cachedInputTokens: 80,
-        cacheWriteInputTokens: 20,
-        cost: 0.012,
-      },
-    },
-    {
-      name: 'AG-UI entries with duplicated cache-write leftovers',
-      reported: [
-        {
-          inputTokens: 100,
-          outputTokens: 20,
-          cachedInputTokens: 60,
-          cacheWriteInputTokens: 10,
-        },
-        {
-          inputTokens: 20,
-          outputTokens: 10,
-          cachedInputTokens: 20,
-          cacheWriteInputTokens: 10,
-        },
-      ],
-      leftover: {
-        promptTokensDetails: { cacheWriteTokens: 20 },
-        cost: 0.012,
-        providerUsageDetails: { secret: 'private-key' },
-      },
-      expected: {
-        inputTokens: 120,
-        outputTokens: 30,
-        cachedInputTokens: 80,
-        cacheWriteInputTokens: 20,
-        cost: 0.012,
-      },
-    },
-    {
-      name: 'metadata-only usage',
-      reported: undefined,
-      leftover: {
-        promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
-        cost: 0.012,
-      },
-      expected: {
-        cachedInputTokens: 80,
-        cacheWriteInputTokens: 20,
-        cost: 0.012,
-      },
-    },
-    {
-      name: 'reported zero is not missing',
-      reported: [{ cachedInputTokens: 0, cacheWriteInputTokens: 0 }],
-      leftover: { cost: 0 },
-      expected: { cachedInputTokens: 0, cacheWriteInputTokens: 0, cost: 0 },
-    },
-    {
-      name: 'unknown cache and cost remain absent',
-      reported: usage,
-      expected: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
-    },
-    {
-      name: 'invalid values cannot poison benchmark sums',
-      reported: [{ cachedInputTokens: Number.NaN, cacheWriteInputTokens: -1 }],
-      leftover: { cost: Number.POSITIVE_INFINITY },
-      expected: undefined,
-    },
-  ])(
-    'preserves cache accounting without inflating input tokens: $name',
-    async ({ reported, leftover, expected }) => {
-      const terminal = {
-        type: 'RUN_FINISHED',
-        runId: 'r',
-        threadId: 't',
-        timestamp: 1,
-        usage: reported,
-        metadata: { tanstack: { usage: leftover } },
-      } as unknown as StreamChunk;
-      const { adapter, calls } = wrap(new FakeAdapter([terminal, terminal]));
-      await drain(adapter.chatStream({} as never));
-      expect(calls).toHaveLength(1);
-      expect(calls[0]?.usage).toEqual(expected);
-      expect(JSON.stringify(calls)).not.toContain('private-key');
-    },
-  );
-
-  test('direct structured output retains cache counters and quoted cost too', async () => {
-    const { adapter, calls } = wrap({
-      async structuredOutput() {
-        return {
-          data: { ok: true },
-          rawText: '{}',
-          usage: {
-            ...usage,
-            promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
-            cost: 0,
-          },
-        };
-      },
-    });
+  test('labels calls with an evals role', async () => {
+    const calls: LlmCall[] = [];
+    const adapter = withUsage(
+      {
+        kind: 'text',
+        name: 'fake',
+        model: 'fake-model',
+        structuredOutput: async () => ({
+          data: 1,
+          rawText: '1',
+          usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+        }),
+      } as unknown as AnyTextAdapter,
+      'grader',
+      (call) => calls.push(call),
+    );
     await adapter.structuredOutput({} as never);
+    expect(calls[0]?.role).toBe('grader');
     expect(calls[0]?.usage).toEqual({
-      inputTokens: 120,
-      outputTokens: 30,
-      totalTokens: 150,
-      cachedInputTokens: 80,
-      cacheWriteInputTokens: 20,
-      cost: 0,
+      inputTokens: 1,
+      outputTokens: 2,
+      totalTokens: 3,
     });
-  });
-
-  test('records a streamed call once, with the finishing chunk’s usage', async () => {
-    const { adapter, calls } = wrap(new FakeAdapter(finished));
-    const structuredOutputStream = adapter.structuredOutputStream;
-    if (!structuredOutputStream) throw new Error('method missing');
-    const chunks = await drain(
-      structuredOutputStream({ chatOptions: {}, outputSchema: {} } as never),
-    );
-    expect(chunks).toEqual(finished);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      role: 'complete',
-      usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
-    });
-    expect(calls[0]?.latencyMs).toBeGreaterThanOrEqual(0);
-  });
-
-  test('records chatStream and structuredOutput calls too', async () => {
-    const { adapter, calls } = wrap(new FakeAdapter(finished));
-    await drain(adapter.chatStream({} as never));
-    const result = await adapter.structuredOutput({} as never);
-    expect(result.data).toEqual({ ok: true });
-    expect(calls.map((call) => call.usage?.inputTokens)).toEqual([120, 120]);
-  });
-
-  test('includes every AG-UI usage entry so evaluation totals do not undercount model work', async () => {
-    const chunks = finished.map((chunk) =>
-      chunk.type === 'RUN_FINISHED'
-        ? {
-            ...chunk,
-            usage: [
-              { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
-              { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
-            ],
-          }
-        : chunk,
-    );
-    const { adapter, calls } = wrap(new FakeAdapter(chunks));
-    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.usage).toEqual({
-      inputTokens: 160,
-      outputTokens: 40,
-      totalTokens: 200,
-    });
-  });
-
-  test('does not report missing provider usage as zero token work', async () => {
-    const { adapter, calls } = wrap(
-      new FakeAdapter(
-        finished.map((chunk) =>
-          chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [] } : chunk,
-        ),
-      ),
-    );
-    await drain(adapter.chatStream({} as never));
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.usage).toBeUndefined();
-  });
-
-  test.each([
-    { entries: [{}], expected: undefined },
-    {
-      entries: [{ provider: 'offline', model: 'offline' }],
-      expected: undefined,
-    },
-    { entries: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
-    { entries: [{ outputTokens: 0 }], expected: { outputTokens: 0 } },
-    { entries: [{ totalTokens: 3 }], expected: { totalTokens: 3 } },
-    {
-      entries: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }],
-      expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
-    },
-  ])(
-    'keeps unreported counters absent in evaluation records: $entries',
-    async ({ entries, expected }) => {
-      const chunks = finished.map((chunk) =>
-        chunk.type === 'RUN_FINISHED'
-          ? { ...chunk, usage: [...entries] }
-          : chunk,
-      );
-      const { adapter, calls } = wrap(new FakeAdapter(chunks));
-      expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
-      expect(calls).toHaveLength(1);
-      expect(calls[0]?.usage).toEqual(expected);
-    },
-  );
-
-  test('records a call without usage, and one that stops early', async () => {
-    const { adapter, calls } = wrap(
-      new FakeAdapter(finished.slice(0, 2) as StreamChunk[]),
-    );
-    await drain(adapter.chatStream({} as never));
-    for await (const _chunk of adapter.chatStream({} as never)) break;
-    expect(calls).toHaveLength(2);
-    expect(calls[0]?.usage).toBe(undefined);
-  });
-
-  test('retains failed-call usage without adding a repeated terminal snapshot', async () => {
-    const failed = {
-      type: 'RUN_ERROR',
-      runId: 'r',
-      threadId: 't',
-      timestamp: 4,
-      message: 'synthetic failure',
-      usage: [{ inputTokens: 120, outputTokens: 30, totalTokens: 150 }],
-    } as unknown as StreamChunk;
-    const chunks = [finished[0]!, failed, failed, { ...failed, usage: [] }];
-    const { adapter, calls } = wrap(new FakeAdapter(chunks));
-    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.usage).toEqual({
-      inputTokens: 120,
-      outputTokens: 30,
-      totalTokens: 150,
-    });
-  });
-
-  test('keeps the adapter’s shape and binds its methods', () => {
-    const { adapter } = wrap(new FakeAdapter(finished));
-    expect(adapter.model).toBe('fake-model');
-    expect(adapter.name).toBe('fake');
-    expect(adapter.supportsCombinedToolsAndSchema?.()).toBe(true);
-    const bare = wrap({
-      kind: 'text',
-      name: 'bare',
-      model: 'm',
-      chatStream: () => [],
-      structuredOutput: async () => ({ data: 1, rawText: '1' }),
-    });
-    expect(bare.adapter.structuredOutputStream).toBe(undefined);
   });
 });
