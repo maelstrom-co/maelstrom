@@ -53,6 +53,7 @@
   "dependencies": {
     "@maelstrom-co/telemetry": "0.2.1",
     "@maelstrom-co/protocol": "0.2.1",
+    "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
   "nx": {
@@ -68,7 +69,16 @@
         "command": "bun test",
         "options": {
           "cwd": "{projectRoot}"
-        }
+        },
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/.oxlintrc.json",
+          "{workspaceRoot}/packages/*/.oxlintrc.json",
+          "{workspaceRoot}/packages/*/src/**/*",
+          "{workspaceRoot}/apps/*/src/**/*"
+        ]
       }
     }
   }

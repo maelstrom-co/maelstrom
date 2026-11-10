@@ -31,6 +31,13 @@ export interface ProviderCallRecord<Role extends string = string> {
   readonly completed: boolean;
   /** Absent when the provider reported no counter, never filled with zeros. */
   readonly usage?: ReportedLlmUsage;
+  /**
+   * Present only when a streamed call ended with a `RUN_ERROR` carrying
+   * `retryAfterMs` before any chunk other than `RUN_STARTED`. The provider
+   * refused the call before generating anything, so a record without usage
+   * spent zero tokens.
+   */
+  readonly rateLimited?: true;
 }
 
 /**
@@ -40,8 +47,16 @@ export interface ProviderCallRecord<Role extends string = string> {
 export interface UsageLedgerSnapshot {
   /** Records included in this snapshot. */
   readonly calls: number;
-  /** Records without any reported usage, including incomplete calls. */
+  /**
+   * Records without any reported usage, including incomplete calls, except
+   * rate-limited ones counted in {@link rateLimitedCalls}.
+   */
   readonly unreportedCalls: number;
+  /**
+   * Rate-limited records without reported usage, known to have spent zero
+   * tokens. A rate-limited record that reported usage is summed instead.
+   */
+  readonly rateLimitedCalls: number;
   /**
    * Records that completed without reported usage. A nonzero value points at
    * an adapter that drops its provider's usage.
@@ -160,10 +175,15 @@ export function createUsageLedger<
           : records.filter((call) => call.role === filter.role);
       const usage: Partial<Record<keyof ReportedLlmUsage, number>> = {};
       let unreportedCalls = 0;
+      let rateLimitedCalls = 0;
       let completedWithoutUsage = 0;
       let partialUsageCalls = 0;
       for (const call of selected) {
         if (!call.usage) {
+          if (call.rateLimited) {
+            rateLimitedCalls++;
+            continue;
+          }
           unreportedCalls++;
           if (call.completed) completedWithoutUsage++;
           continue;
@@ -181,6 +201,7 @@ export function createUsageLedger<
       return {
         calls: selected.length,
         unreportedCalls,
+        rateLimitedCalls,
         completedWithoutUsage,
         partialUsageCalls,
         usage,
@@ -193,13 +214,14 @@ export function createUsageLedger<
  * Returns input plus output tokens spent across a snapshot, retries and
  * finalization included. Returns `undefined` when any call reported no usage
  * or lacked an input or output counter, or when either summed counter is
- * absent, so an unknown spend is never read as zero. An empty snapshot returns 0.
+ * absent, so an unknown spend is never read as zero. A snapshot whose only
+ * records are rate-limited calls without usage, or an empty one, returns 0.
  * @internal
  */
 export function totalTokens(snapshot: UsageLedgerSnapshot): number | undefined {
   if (snapshot.unreportedCalls > 0 || snapshot.partialUsageCalls > 0)
     return undefined;
-  if (snapshot.calls === 0) return 0;
+  if (snapshot.calls === snapshot.rateLimitedCalls) return 0;
   const { inputTokens, outputTokens } = snapshot.usage;
   if (inputTokens === undefined || outputTokens === undefined) return undefined;
   return inputTokens + outputTokens;
@@ -226,8 +248,16 @@ async function* recordStream<Role extends string>(
   let usage: ReportedLlmUsage | undefined;
   let model: string | undefined;
   let completed = false;
+  let output = false;
+  let rateLimited = false;
   try {
     for await (const chunk of open()) {
+      if (chunk.type === 'RUN_ERROR' && !output)
+        rateLimited = chunk.retryAfterMs !== undefined;
+      else if (chunk.type !== 'RUN_STARTED' && chunk.type !== 'RUN_ERROR') {
+        output = true;
+        rateLimited = false;
+      }
       if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR') {
         usage ??= normalizeLlmUsage(
           chunk.usage,
@@ -239,10 +269,10 @@ async function* recordStream<Role extends string>(
       yield chunk;
     }
   } finally {
-    report(
-      sink,
-      providerCall(role, model ?? adapter.model, started, completed, usage),
-    );
+    report(sink, {
+      ...providerCall(role, model ?? adapter.model, started, completed, usage),
+      ...(rateLimited && { rateLimited: true }),
+    });
   }
 }
 

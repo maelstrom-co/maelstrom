@@ -444,6 +444,7 @@ describe('createUsageLedger', () => {
     expect(ledger.snapshot({ role: 'agent' })).toEqual({
       calls: 1,
       unreportedCalls: 0,
+      rateLimitedCalls: 0,
       completedWithoutUsage: 0,
       partialUsageCalls: 0,
       usage: { inputTokens: 10, outputTokens: 0 },
@@ -452,6 +453,7 @@ describe('createUsageLedger', () => {
     expect(graded).toEqual({
       calls: 2,
       unreportedCalls: 1,
+      rateLimitedCalls: 0,
       completedWithoutUsage: 1,
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
       partialUsageCalls: 0,
@@ -466,6 +468,7 @@ describe('createUsageLedger', () => {
     expect(snapshot).toEqual({
       calls: 0,
       unreportedCalls: 0,
+      rateLimitedCalls: 0,
       completedWithoutUsage: 0,
       partialUsageCalls: 0,
       usage: {},
@@ -589,6 +592,7 @@ describe('completion flag', () => {
     expect(ledger.snapshot()).toEqual({
       calls: 1,
       unreportedCalls: 1,
+      rateLimitedCalls: 0,
       completedWithoutUsage: 1,
       partialUsageCalls: 0,
       usage: {},
@@ -611,6 +615,7 @@ describe('completion flag', () => {
     for (const call of calls) ledger.record(call);
     expect(ledger.snapshot()).toMatchObject({
       unreportedCalls: 1,
+      rateLimitedCalls: 0,
       completedWithoutUsage: 0,
     });
   });
@@ -869,5 +874,104 @@ describe('partial usage', () => {
     expect(totalTokens(ledger.snapshot({ role: 'agent' }))).toBe(15);
     expect(ledger.snapshot({ role: 'grader' }).partialUsageCalls).toBe(1);
     expect(totalTokens(ledger.snapshot({ role: 'grader' }))).toBeUndefined();
+  });
+});
+
+describe('rate-limited calls', () => {
+  const started = finished[0]!;
+  const rateLimitError = (overrides: Record<string, unknown> = {}) =>
+    ({
+      type: 'RUN_ERROR',
+      runId: 'r',
+      threadId: 't',
+      timestamp: 2,
+      message: 'rate limited',
+      ...overrides,
+    }) as unknown as StreamChunk;
+
+  test('a refusal with retryAfterMs before any output is marked rate-limited', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([started, rateLimitError({ retryAfterMs: 0 })]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls).toEqual([
+      {
+        role: 'complete',
+        model: 'fake-model',
+        latencyMs: expect.any(Number),
+        completed: false,
+        rateLimited: true,
+      },
+    ]);
+  });
+
+  test('output before the error leaves the call unmarked', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([
+        started,
+        finished[1]!,
+        rateLimitError({ retryAfterMs: 0 }),
+      ]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).not.toHaveProperty('rateLimited');
+  });
+
+  test('a later error without retryAfterMs clears the mark', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([
+        started,
+        rateLimitError({ retryAfterMs: 0 }),
+        rateLimitError(),
+      ]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).not.toHaveProperty('rateLimited');
+  });
+
+  test('a later error with retryAfterMs sets the mark', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([
+        started,
+        rateLimitError(),
+        rateLimitError({ retryAfterMs: 0 }),
+      ]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).toHaveProperty('rateLimited', true);
+  });
+
+  test('an error without retryAfterMs stays unreported', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter([started, rateLimitError()]),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls[0]).not.toHaveProperty('rateLimited');
+    const ledger = createUsageLedger<'complete'>();
+    for (const call of calls) ledger.record(call);
+    expect(ledger.snapshot()).toMatchObject({
+      unreportedCalls: 1,
+      rateLimitedCalls: 0,
+    });
+    expect(totalTokens(ledger.snapshot())).toBeUndefined();
+  });
+
+  test('a rate-limited record without usage counts as zero spend', () => {
+    const ledger = createUsageLedger<'agent'>();
+    const call = { role: 'agent', model: 'm', latencyMs: 1 } as const;
+    ledger.record({ ...call, completed: false, rateLimited: true });
+    expect(totalTokens(ledger.snapshot())).toBe(0);
+    ledger.record({
+      ...call,
+      completed: true,
+      usage: { inputTokens: 4, outputTokens: 1 },
+    });
+    const snapshot = ledger.snapshot();
+    expect(snapshot).toMatchObject({
+      calls: 2,
+      unreportedCalls: 0,
+      rateLimitedCalls: 1,
+    });
+    expect(totalTokens(snapshot)).toBe(5);
   });
 });

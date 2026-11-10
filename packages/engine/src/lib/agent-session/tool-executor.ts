@@ -118,18 +118,19 @@ export function toModelToolPayload(result: ToolCallResult): unknown {
 /**
  * Validates a result envelope substituted for a real tool run, for example by
  * middleware that skips or replaces a call. A success envelope's `value` must
- * pass the tool's output schema. The accepted result carries the parsed value
- * and a summary capped at {@link TOOL_SUMMARY_MAX_LENGTH}. The envelope's
- * summary is trusted as given and only capped, never sanitized or rebuilt with
- * the tool's `summarize`. Never throws.
+ * pass the tool's output schema, parsed asynchronously so async refinements
+ * run and settle. The accepted result carries the parsed value and a summary
+ * capped at {@link TOOL_SUMMARY_MAX_LENGTH}. The envelope's summary is trusted
+ * as given and only capped, never sanitized or rebuilt with the tool's
+ * `summarize`. The returned promise never rejects.
  */
-export function validateToolResultEnvelope(
+export async function validateToolResultEnvelope(
   entry: ToolRegistryEntry,
   value: unknown,
-): ToolResultEnvelopeValidation {
+): Promise<ToolResultEnvelopeValidation> {
   const envelope = safeParseNeverThrowing(ToolResultEnvelopeSchema, value);
   if (!envelope.success) {
-    return { valid: false, reason: 'not a tool result envelope' };
+    return { valid: false, reason: NOT_AN_ENVELOPE_REASON };
   }
   if (!envelope.data.ok) {
     return {
@@ -137,7 +138,10 @@ export function validateToolResultEnvelope(
       result: failure(envelope.data.code, envelope.data.summary),
     };
   }
-  const output = safeParseNeverThrowing(entry.tool.output, envelope.data.value);
+  const output = await safeParseAsyncNeverThrowing(
+    entry.tool.output,
+    envelope.data.value,
+  );
   if (!output.success) {
     return {
       valid: false,
@@ -153,6 +157,30 @@ export function validateToolResultEnvelope(
     },
   };
 }
+
+/**
+ * Validates a failure envelope synchronously. It accepts exactly the failure
+ * envelopes {@link validateToolResultEnvelope} accepts and rejects every
+ * success envelope, since checking a success value needs the tool's output
+ * schema. Never throws.
+ */
+export function validateToolFailureEnvelope(
+  value: unknown,
+): ToolResultEnvelopeValidation {
+  const envelope = safeParseNeverThrowing(ToolResultEnvelopeSchema, value);
+  if (!envelope.success) {
+    return { valid: false, reason: NOT_AN_ENVELOPE_REASON };
+  }
+  if (envelope.data.ok) {
+    return { valid: false, reason: 'not a failure envelope' };
+  }
+  return {
+    valid: true,
+    result: failure(envelope.data.code, envelope.data.summary),
+  };
+}
+
+const NOT_AN_ENVELOPE_REASON = 'not a tool result envelope';
 
 const TOOL_CALL_FAILURE_CODES = [
   'invalid_arguments',

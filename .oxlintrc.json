@@ -237,7 +237,19 @@
       }
     ],
     "eslint/no-new-native-nonconstructor": "error",
-    "unicorn/new-for-builtins": "off"
+    "unicorn/new-for-builtins": "off",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@tanstack/ai",
+            "importNames": ["chat"],
+            "message": "Import chat only in the agent run seam (packages/engine/src/lib/agent-session/agent-run-chat.ts, behind runAgent in agent-run.ts) or the two planner LLM call files. See packages/engine/src/lib/agent-session/chat-import-boundary.test.ts."
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "**/node_modules/**",

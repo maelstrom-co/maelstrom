@@ -14,6 +14,7 @@ import {
 import {
   executeToolCall,
   toModelToolPayload,
+  validateToolFailureEnvelope,
   validateToolResultEnvelope,
 } from './tool-executor.js';
 import { createToolRegistry, type ToolRegistryEntry } from './tool-registry.js';
@@ -116,11 +117,6 @@ test('output failing the output schema returns invalid_output', async () => {
 });
 
 describe('schemas that throw or need async parsing', () => {
-  const schemaFailures = [
-    ['a throwing refine', throwingRefine],
-    ['an async refine', asyncRefine],
-  ] as const;
-
   const executionSchemaFailures = [
     ['a throwing refine', throwingRefine],
     ['a rejecting async refine', rejectingAsyncRefine],
@@ -233,13 +229,14 @@ describe('schemas that throw or need async parsing', () => {
     });
   });
 
-  test.each(schemaFailures)(
+  test.each(executionSchemaFailures)(
     'an envelope checked against an output schema with %s is rejected',
-    (_label, withFailure) => {
+    async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
       const entry = entryFor({ output: withFailure(orderOutput) });
 
       expect(
-        validateToolResultEnvelope(entry, {
+        await validateToolResultEnvelope(entry, {
           ok: true,
           value: { orderId: 'o-1', total: 3 },
           summary: 'Order o-1',
@@ -248,8 +245,28 @@ describe('schemas that throw or need async parsing', () => {
         valid: false,
         reason: 'value does not match the latest_order output schema',
       });
+      expect(await unhandled.settle()).toEqual([]);
     },
   );
+
+  test('an envelope checked against an output schema with a resolving async refine is accepted', async () => {
+    const entry = entryFor({ output: asyncRefine(orderOutput) });
+
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({
+      valid: true,
+      result: {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      },
+    });
+  });
 });
 
 describe('failures', () => {
@@ -476,9 +493,9 @@ describe('cancellation', () => {
 describe('validateToolResultEnvelope', () => {
   const entry = entryFor({});
 
-  test('rejects a success envelope whose value fails the output schema', () => {
+  test('rejects a success envelope whose value fails the output schema', async () => {
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: true,
         value: { orderId: 'o-1', total: 'twelve' },
         summary: 'Order o-1',
@@ -486,13 +503,13 @@ describe('validateToolResultEnvelope', () => {
     ).toEqual({ valid: false, reason: expect.any(String) });
   });
 
-  test('rejects a value that is not an envelope', () => {
-    expect(validateToolResultEnvelope(entry, 'cached!')).toEqual({
+  test('rejects a value that is not an envelope', async () => {
+    expect(await validateToolResultEnvelope(entry, 'cached!')).toEqual({
       valid: false,
       reason: expect.any(String),
     });
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: false,
         code: 'made_up',
         summary: 'x',
@@ -506,7 +523,7 @@ describe('validateToolResultEnvelope', () => {
       reason: 'not a tool result envelope',
     } as const;
 
-    test('a getter on ok throws', () => {
+    test('a getter on ok throws', async () => {
       const value = {
         get ok(): boolean {
           throw new Error('ok getter failed');
@@ -514,10 +531,12 @@ describe('validateToolResultEnvelope', () => {
         value: { orderId: 'o-1', total: 3 },
         summary: 'Order o-1',
       };
-      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
     });
 
-    test('a getter on summary throws', () => {
+    test('a getter on summary throws', async () => {
       const value = {
         ok: true,
         value: { orderId: 'o-1', total: 3 },
@@ -525,10 +544,12 @@ describe('validateToolResultEnvelope', () => {
           throw new Error('summary getter failed');
         },
       };
-      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
     });
 
-    test('a Proxy whose get trap throws', () => {
+    test('a Proxy whose get trap throws', async () => {
       const value = new Proxy(
         { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
         {
@@ -537,29 +558,33 @@ describe('validateToolResultEnvelope', () => {
           },
         },
       );
-      expect(validateToolResultEnvelope(entry, value)).toEqual(notAnEnvelope);
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
     });
 
-    test('a revoked Proxy', () => {
+    test('a revoked Proxy', async () => {
       const { proxy, revoke } = Proxy.revocable(
         { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
         {},
       );
       revoke();
-      expect(validateToolResultEnvelope(entry, proxy)).toEqual(notAnEnvelope);
+      expect(await validateToolResultEnvelope(entry, proxy)).toEqual(
+        notAnEnvelope,
+      );
     });
   });
 
-  test('rejects an envelope whose summary is whitespace-only', () => {
+  test('rejects an envelope whose summary is whitespace-only', async () => {
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: true,
         value: { orderId: 'o-1', total: 3 },
         summary: '   ',
       }),
     ).toEqual({ valid: false, reason: expect.any(String) });
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: false,
         code: 'tool_failed',
         summary: '   ',
@@ -567,9 +592,9 @@ describe('validateToolResultEnvelope', () => {
     ).toEqual({ valid: false, reason: expect.any(String) });
   });
 
-  test('accepts a well-formed failure envelope', () => {
+  test('accepts a well-formed failure envelope', async () => {
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: false,
         code: 'tool_failed',
         summary: 'Order history is unavailable',
@@ -584,9 +609,9 @@ describe('validateToolResultEnvelope', () => {
     });
   });
 
-  test('accepts a well-formed success envelope with the parsed value', () => {
+  test('accepts a well-formed success envelope with the parsed value', async () => {
     expect(
-      validateToolResultEnvelope(entry, {
+      await validateToolResultEnvelope(entry, {
         ok: true,
         value: { orderId: 'o-1', total: 3, extra: true },
         summary: 'Order o-1',
@@ -598,6 +623,35 @@ describe('validateToolResultEnvelope', () => {
         value: { orderId: 'o-1', total: 3 },
         summary: 'Order o-1',
       },
+    });
+  });
+});
+
+describe('validateToolFailureEnvelope', () => {
+  test('accepts a well-formed failure envelope', () => {
+    expect(
+      validateToolFailureEnvelope({
+        ok: false,
+        code: 'cancelled',
+        summary: 'Not run',
+      }),
+    ).toEqual({
+      valid: true,
+      result: { ok: false, code: 'cancelled', summary: 'Not run' },
+    });
+  });
+
+  test('rejects a success envelope and a value that is not an envelope', () => {
+    expect(
+      validateToolFailureEnvelope({
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({ valid: false, reason: 'not a failure envelope' });
+    expect(validateToolFailureEnvelope('cached!')).toEqual({
+      valid: false,
+      reason: 'not a tool result envelope',
     });
   });
 });
