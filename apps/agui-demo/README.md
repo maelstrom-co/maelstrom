@@ -58,7 +58,7 @@ their Action handlers until removal or replacement.
 | Result | Meaning | Continuation |
 | --- | --- | --- |
 | Application `applied` | The matching Layout and Actions settled and their evidence was accepted | The goal runtime may inspect the result and plan another step |
-| Goal `completed` | The requested work is confirmed, or an authorized read answered the question | A new goal may start |
+| Goal `completed` | Every declared mutation passed verification, and the goal model reports the work complete or answers an authorized read | A new goal may start |
 | Goal `incomplete` | Some requested work remains unavailable or needs clarification | A new goal may start; earlier confirmed writes remain saved |
 | Goal `unknown` | Transport or application uncertainty prevents confirmation | The binding stops and requires explicit reconciliation |
 
@@ -66,6 +66,16 @@ A visible Chart establishes structure and variants. It does not prove loaded
 weather values, Map tiles, or a durable business write. This app proves writes
 with server-owned records and receipts. A factual read-only goal needs no UI
 application.
+
+Each `apply_workspace` call declares `expectedMutation`: one exact record command,
+or `null` when no records should change. Before continuation, the server compares
+that declaration with the accepted plan's command and committed receipt.
+An empty plan cannot satisfy a declared write. A mismatch ends the goal as
+`incomplete` before another model call. The result preserves the Engine message
+and actual command evidence. Missing receipt evidence remains `unknown`.
+
+The goal model still interprets the request and checks requested views. Command
+verification does not independently prove that it included every requested step.
 
 The server commits each record mutation and its receipt in one SQLite
 transaction. It checks the exact issued plan, ordered Action index, binding,

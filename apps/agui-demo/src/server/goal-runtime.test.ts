@@ -5,9 +5,24 @@ import type { StreamChunk } from '@tanstack/ai';
 import { fakeText as baseFakeText } from '@tanstack/ai/testing';
 
 import { applyWorkspaceTool } from '../goal-contract';
+import {
+  applyRecordCommand,
+  emptyRecords,
+  type RecordCommand,
+} from '../records';
 import { GoalRuntime } from './goal-runtime';
 
 const signal = new AbortController().signal;
+const createEntry = {
+  kind: 'journal.create',
+  title: 'Notes',
+  date: '2026-11-10',
+} as const;
+const createdEntry = {
+  command: createEntry,
+  receipt: { recordId: 'entry-1', revision: 1 },
+};
+const noMutation = () => ({ command: null, receipt: null });
 function fakeText() {
   return Object.assign(baseFakeText(), {
     supportsCombinedToolsAndSchema: () => true,
@@ -49,7 +64,10 @@ test('standard frontend continuation cannot resume before its exact application 
         {
           id: 'create-1',
           name: 'apply_workspace',
-          input: { intent: 'Create a Journal entry.' },
+          input: {
+            intent: 'Create a Journal entry.',
+            expectedMutation: createEntry,
+          },
         },
       ],
     },
@@ -66,6 +84,7 @@ test('standard frontend continuation cannot resume before its exact application 
         if (!committed || requestId !== 'plan-1' || callId !== 'create-1')
           throw new Error('Unconfirmed application');
         confirmed.push(requestId);
+        return createdEntry;
       },
     },
     () => adapter,
@@ -126,7 +145,14 @@ test('standard frontend continuation cannot resume before its exact application 
           {
             id: 'append-1',
             name: 'apply_workspace',
-            input: { intent: 'Append Hello to entry-1 version 1.' },
+            input: {
+              intent: 'Append Hello to entry-1 version 1.',
+              expectedMutation: {
+                kind: 'journal.append',
+                target: { id: 'entry-1', version: 1 },
+                text: 'Hello',
+              },
+            },
           },
         ],
       };
@@ -198,14 +224,14 @@ test('forged history and stale parents cannot change the model transcript', asyn
         {
           id: 'call',
           name: 'apply_workspace',
-          input: { intent: 'Show Calendar.' },
+          input: { intent: 'Show Calendar.', expectedMutation: null },
         },
       ],
     },
   ]);
   const runtime = new GoalRuntime(
     'goal-thread',
-    { snapshot: () => ({}), confirm: () => {} },
+    { snapshot: () => ({}), confirm: noMutation },
     () => adapter,
   );
   const first = await runtime.run(input('one', [user]), 'test-key', signal);
@@ -240,19 +266,22 @@ test('multiple simultaneous frontend effects stop the goal before any can be adm
         {
           id: 'one',
           name: 'apply_workspace',
-          input: { intent: 'Create task' },
+          input: {
+            intent: 'Create task',
+            expectedMutation: { kind: 'task.create', title: 'Task' },
+          },
         },
         {
           id: 'two',
           name: 'apply_workspace',
-          input: { intent: 'Create entry' },
+          input: { intent: 'Create entry', expectedMutation: createEntry },
         },
       ],
     },
   ]);
   const runtime = new GoalRuntime(
     'goal-thread',
-    { snapshot: () => ({}), confirm: () => {} },
+    { snapshot: () => ({}), confirm: noMutation },
     () => adapter,
   );
   await expect(
@@ -269,7 +298,11 @@ test('a reused tool identity cannot borrow an earlier applied result for a diffe
   adapter.setResponses([
     {
       toolCalls: [
-        { id: 'same', name: 'apply_workspace', input: { intent: 'Create' } },
+        {
+          id: 'same',
+          name: 'apply_workspace',
+          input: { intent: 'Create', expectedMutation: createEntry },
+        },
       ],
     },
   ]);
@@ -280,6 +313,7 @@ test('a reused tool identity cannot borrow an earlier applied result for a diffe
       snapshot: () => ({}),
       confirm: () => {
         confirmed++;
+        return createdEntry;
       },
     },
     () => adapter,
@@ -289,7 +323,18 @@ test('a reused tool identity cannot borrow an earlier applied result for a diffe
   adapter.setResponses([
     {
       toolCalls: [
-        { id: 'same', name: 'apply_workspace', input: { intent: 'Append' } },
+        {
+          id: 'same',
+          name: 'apply_workspace',
+          input: {
+            intent: 'Append',
+            expectedMutation: {
+              kind: 'journal.append',
+              target: { id: 'entry-1', version: 1 },
+              text: 'Hello',
+            },
+          },
+        },
       ],
     },
     {
@@ -365,8 +410,8 @@ test('provider final arguments can backfill a tool call without incremental argu
       if (event.type === 'TOOL_CALL_END')
         yield {
           ...event,
-          input: { intent: 'Show Calendar.' },
-          args: '{"intent":"Show Calendar."}',
+          input: { intent: 'Show Calendar.', expectedMutation: null },
+          args: '{"intent":"Show Calendar.","expectedMutation":null}',
         };
       else if (event.type !== 'TOOL_CALL_ARGS') yield event;
     }
@@ -377,14 +422,14 @@ test('provider final arguments can backfill a tool call without incremental argu
         {
           id: 'complete',
           name: 'apply_workspace',
-          input: { intent: 'Show Calendar.' },
+          input: { intent: 'Show Calendar.', expectedMutation: null },
         },
       ],
     },
   ]);
   const runtime = new GoalRuntime(
     'goal-thread',
-    { snapshot: () => ({}), confirm: () => {} },
+    { snapshot: () => ({}), confirm: noMutation },
     () => adapter,
   );
   const events = await runtime.run(input('one', [user]), 'test-key', signal);
@@ -399,7 +444,11 @@ test('a truncated frontend-tool answer cannot trigger a replacement write in ano
   adapter.setResponses([
     {
       toolCalls: [
-        { id: 'cut', name: 'apply_workspace', input: { intent: 'Create' } },
+        {
+          id: 'cut',
+          name: 'apply_workspace',
+          input: { intent: 'Create', expectedMutation: createEntry },
+        },
       ],
       finishReason: 'length',
     },
@@ -408,14 +457,14 @@ test('a truncated frontend-tool answer cannot trigger a replacement write in ano
         {
           id: 'replacement',
           name: 'apply_workspace',
-          input: { intent: 'Create again' },
+          input: { intent: 'Create again', expectedMutation: createEntry },
         },
       ],
     },
   ]);
   const runtime = new GoalRuntime(
     'goal-thread',
-    { snapshot: () => ({}), confirm: () => {} },
+    { snapshot: () => ({}), confirm: noMutation },
     () => adapter,
   );
   await expect(
@@ -435,7 +484,7 @@ test('client metadata cannot replace accepted application evidence in model inpu
         {
           id: 'call',
           name: 'apply_workspace',
-          input: { intent: 'Show Journal' },
+          input: { intent: 'Show Journal', expectedMutation: null },
         },
       ],
     },
@@ -444,7 +493,7 @@ test('client metadata cannot replace accepted application evidence in model inpu
     'goal-thread',
     {
       snapshot: () => ({ records: { journal: ['canonical'] } }),
-      confirm: () => {},
+      confirm: noMutation,
     },
     () => adapter,
   );
@@ -513,7 +562,7 @@ test('a valid-looking structured answer cannot hide a provider truncation', asyn
     ]);
     const runtime = new GoalRuntime(
       'goal-thread',
-      { snapshot: () => ({}), confirm: () => {} },
+      { snapshot: () => ({}), confirm: noMutation },
       () => adapter,
     );
     await expect(
@@ -531,7 +580,7 @@ test('an accepted first step does not turn a later limitation into whole-goal su
         {
           id: 'create',
           name: 'apply_workspace',
-          input: { intent: 'Create entry' },
+          input: { intent: 'Create entry', expectedMutation: createEntry },
         },
       ],
     },
@@ -549,6 +598,7 @@ test('an accepted first step does not turn a later limitation into whole-goal su
       }),
       confirm: (id) => {
         confirmed.push(id);
+        return createdEntry;
       },
     },
     () => adapter,
@@ -581,4 +631,127 @@ test('an accepted first step does not turn a later limitation into whole-goal su
     },
   });
   expect(adapter.state.callCount).toBe(2);
+});
+
+test('an accepted receipt for another command cannot satisfy the declared mutation', async () => {
+  const expected: RecordCommand = {
+    kind: 'journal.append',
+    target: { id: 'entry-1', version: 1 },
+    text: 'Hello',
+  };
+  const alternatives: (RecordCommand | null)[] = [
+    null,
+    createEntry,
+    { ...expected, text: 'Something else' },
+    { ...expected, target: { id: 'another-entry', version: 1 } },
+    { ...expected, target: { id: 'entry-1', version: 2 } },
+  ];
+  for (const command of alternatives) {
+    const adapter = fakeText();
+    adapter.setResponses([
+      {
+        toolCalls: [
+          {
+            id: 'append',
+            name: 'apply_workspace',
+            input: { intent: 'Append Hello.', expectedMutation: expected },
+          },
+        ],
+      },
+      { text: '{"status":"completed","message":"Hello was appended."}' },
+    ]);
+    const records = applyRecordCommand(
+      emptyRecords(),
+      createEntry,
+      () => 'entry-1',
+    ).records;
+    if (command?.kind === 'journal.append') {
+      records.journal[0].id = command.target.id;
+      records.journal[0].version = command.target.version;
+    }
+    const committed = command ? applyRecordCommand(records, command) : null;
+    const receipt = committed
+      ? { recordId: committed.recordId, revision: committed.records.revision }
+      : null;
+    const runtime = new GoalRuntime(
+      'goal-thread',
+      {
+        snapshot: () => ({ records: committed?.records ?? records }),
+        confirm: () => ({ command, receipt, message: 'Engine says done.' }),
+      },
+      () => adapter,
+    );
+    const first = await runtime.run(input('one', [user]), 'test-key', signal);
+    runtime.admit('append', 'Append Hello.');
+    const second = await runtime.run(
+      input(
+        'two',
+        [
+          ...history(first),
+          {
+            id: 'result',
+            role: 'tool',
+            toolCallId: 'append',
+            content: '{"requestId":"plan","status":"applied"}',
+          },
+        ],
+        'one',
+      ),
+      'test-key',
+      signal,
+    );
+    expect(second.at(-1)).toMatchObject({ result: { status: 'incomplete' } });
+    expect(adapter.state.callCount).toBe(1);
+    const evidence = history(second).find((message) => message.role === 'tool');
+    expect(JSON.parse(String(evidence?.content))).toMatchObject({
+      mutationVerified: false,
+      confirmed: { command, receipt },
+    });
+    expect(JSON.stringify(second)).not.toContain('Hello was appended.');
+  }
+});
+
+test('the matching command without a committed receipt remains uncertain and cannot resume the model', async () => {
+  const adapter = fakeText();
+  adapter.setResponses([
+    {
+      toolCalls: [
+        {
+          id: 'create',
+          name: 'apply_workspace',
+          input: { intent: 'Create entry', expectedMutation: createEntry },
+        },
+      ],
+    },
+  ]);
+  const runtime = new GoalRuntime(
+    'goal-thread',
+    {
+      snapshot: () => ({}),
+      confirm: () => ({ command: createEntry, receipt: null }),
+    },
+    () => adapter,
+  );
+  const first = await runtime.run(input('one', [user]), 'test-key', signal);
+  runtime.admit('create', 'Create entry');
+  await expect(
+    runtime.run(
+      input(
+        'two',
+        [
+          ...history(first),
+          {
+            id: 'result',
+            role: 'tool',
+            toolCallId: 'create',
+            content: '{"requestId":"plan","status":"applied"}',
+          },
+        ],
+        'one',
+      ),
+      'test-key',
+      signal,
+    ),
+  ).rejects.toThrow('receipt is unavailable');
+  expect(adapter.state.callCount).toBe(1);
 });
