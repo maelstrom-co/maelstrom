@@ -46,6 +46,10 @@ import {
   parseOpenAITranscriptItem,
 } from './parse-openai-event.js';
 import { WebRtcPlayoutDiagnostics } from './playout-diagnostics.js';
+import {
+  type OpenAIAudioPlaybackStatus,
+  RemoteAudioPlayback,
+} from './remote-audio-playback.js';
 import { ResponseArbiter } from './response-arbiter.js';
 import {
   createUnexpectedEventTracker,
@@ -202,6 +206,7 @@ export class OpenAIAdapter
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   readonly #transcripts = new TranscriptObservationFeed();
+  readonly #remotePlayback = new RemoteAudioPlayback();
 
   /**
    * Transcript fragments on a local receipt-time timeline, one per provider
@@ -561,6 +566,37 @@ export class OpenAIAdapter
     this.#greetingPresentation.activate();
   }
 
+  /**
+   * Last observed remote media-element attempt for the current stream.
+   * Browser acceptance does not establish audible or continuous playback.
+   */
+  getAudioPlaybackStatus(): OpenAIAudioPlaybackStatus {
+    return this.#remotePlayback.getStatus();
+  }
+
+  /**
+   * Observes subsequent remote playback-attempt state changes. Read the current
+   * value with {@link OpenAIAdapter.getAudioPlaybackStatus}; subscription does not emit immediately.
+   * Observer failures do not affect playback or connection cleanup.
+   */
+  subscribeAudioPlayback(handler: () => void): Unsubscribe {
+    return this.#remotePlayback.subscribe(handler);
+  }
+
+  /**
+   * Retries the existing remote audio element within the caller's user gesture.
+   * Does not mint a grant, reconnect, acquire a microphone, or replay speech.
+   * A current failure rejects with its original reason as `cause`; retired
+   * attempts settle without changing current state. No attached stream is a no-op.
+   * Acceptance is not proof of audibility.
+   */
+  resumeAudioPlayback(): Promise<void> {
+    if (this.#remotePlayback.getStatus() === 'unavailable')
+      return Promise.resolve();
+    this.activateAudio();
+    return this.#remotePlayback.resume();
+  }
+
   /** Delegates provider handoff and local presentation to its package-private owner. */
   speakAssistantText(args: {
     readonly id: MessageId;
@@ -590,6 +626,8 @@ export class OpenAIAdapter
       this.#playbackStream = event.streams[0];
       if (event.streams[0]) this.#playbackBargeIn?.attach(event.streams[0]);
       audio.srcObject = event.streams[0] ?? null;
+      if (connection === this.#pc)
+        this.#remotePlayback.attach(audio, event.streams[0]);
     };
     connection.oniceconnectionstatechange = () => {
       // Ignore events from a superseded/abandoned connection.
@@ -940,6 +978,7 @@ export class OpenAIAdapter
     this.#unexpectedEvents = createUnexpectedEventTracker();
     this.#playoutDiagnostics?.clear();
     this.#startConnectionGeneration();
+    this.#remotePlayback.clear();
   }
 
   #handleDataChannelMessage(raw: unknown, generation: number): void {
