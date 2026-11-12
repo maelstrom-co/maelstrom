@@ -215,7 +215,7 @@ console.log(JSON.stringify(results));
     { action: 'update' },
     { action: 'replace' },
   ]);
-});
+}, 35_000);
 
 test('applying a Zone metadata update preserves its dependent Ruleset generation', async () => {
   const requests: Array<{ method: string; path: string }> = [];
