@@ -10,8 +10,8 @@
     "./community-contract": "./src/CommunityContract.ts"
   },
   "scripts": {
-    "test": "bun test test",
-    "typecheck": "tsc --noEmit -p tsconfig.lib.json && tsc -p tsconfig.infra.json",
+    "test": "bun test test operator-test",
+    "typecheck": "tsc --noEmit -p tsconfig.lib.json && tsc -p tsconfig.infra.json && tsc -p tsconfig.isolation.json",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "validate": "bun run typecheck && bun run test"
   },

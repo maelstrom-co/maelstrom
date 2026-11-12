@@ -11,6 +11,7 @@
     "check": "nx run-many -t lint && nx format:check --all"
   },
   "private": true,
+  "maelstromPreviewStateStore": "alchemy-state-store-maelstrom-oss-preview",
   "engines": {
     "node": ">=24"
   },
