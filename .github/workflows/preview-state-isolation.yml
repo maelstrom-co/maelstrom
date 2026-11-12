@@ -1,0 +1,141 @@
+name: OSS Preview State Isolation
+
+run-name: OSS preview state ${{ inputs.mode }} at ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Inventory reads only; copy creates a fresh named backend
+        type: choice
+        options: [inventory, copy]
+        default: inventory
+        required: true
+      source_sha:
+        description: Full reviewed beta.85 candidate head
+        type: string
+        required: true
+      source_pr:
+        description: Open same-repository candidate PR
+        type: string
+        default: '413'
+        required: true
+      source_reviewed:
+        description: Candidate and transfer client reviewed for preview credentials
+        type: boolean
+        default: false
+        required: true
+      callers_paused:
+        description: All OSS preview callers stopped; five repository writers disabled and drained
+        type: boolean
+        default: false
+      confirm_isolation:
+        description: Authorize a new named store and copying selected OSS state
+        type: boolean
+        default: false
+      additional_stages:
+        description: Additional known manual pr-N stages, separated by commas
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: alchemy-state-maintenance
+  cancel-in-progress: false
+
+jobs:
+  isolate:
+    if: github.repository == 'maelstrom-co/maelstrom' && github.ref == 'refs/heads/main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: preview
+    env:
+      CI: 'true'
+      ISOLATION_MODE: ${{ inputs.mode }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      SOURCE_PR: ${{ inputs.source_pr }}
+      SOURCE_REVIEWED: ${{ inputs.source_reviewed }}
+      CALLERS_PAUSED: ${{ inputs.callers_paused }}
+      CONFIRM_ISOLATION: ${{ inputs.confirm_isolation }}
+      ADDITIONAL_PREVIEW_STAGES: ${{ inputs.additional_stages }}
+      ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+      ALCHEMY_PREVIEW_STATE_STORE_WORKER: ${{ vars.ALCHEMY_PREVIEW_STATE_STORE_WORKER }}
+      CONTROL_ROOT: ${{ github.workspace }}/control
+      SOURCE_ROOT: ${{ github.workspace }}/source
+      RECEIPT_OUTPUT: ${{ github.workspace }}/${{ inputs.mode }}.json
+    steps:
+      - name: Checkout trusted control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: control
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: control/.bun-version
+
+      - name: Check operator, revisions, CI and copy window
+        run: bun --no-env-file control/scripts/preview-state-isolation.ts check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Checkout exact reviewed candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Install control without hooks
+        working-directory: control
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install candidate without hooks
+        working-directory: source
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Check exact candidate tree, versions and store capability
+        run: bun --no-env-file control/scripts/preview-state-isolation.ts check-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Read or copy selected preview state
+        working-directory: source
+        run: bun --config=${{ github.workspace }}/control/scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install infra/platform/preview-state-isolation.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUN_OPTIONS: ''
+          NODE_OPTIONS: ''
+          ALCHEMY_HOME: ${{ runner.temp }}/oss-preview-isolation-${{ github.run_id }}-${{ github.run_attempt }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          EXPECTED_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+
+      - name: Record verified fresh copy
+        if: inputs.mode == 'copy'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oss-preview-state-isolation
+          path: ${{ github.workspace }}/copy.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+      - name: Record redacted inventory
+        if: inputs.mode == 'inventory'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oss-preview-state-inventory
+          path: ${{ github.workspace }}/inventory.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
