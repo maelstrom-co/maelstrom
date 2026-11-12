@@ -231,6 +231,9 @@ drive. The comparison docs carry the full tables and
 
 ## Packages
 
+The [AG-UI library impact explanation](docs/agui-library-impact.md) describes
+the public experimental adapters, core-library changes, and compatibility limits.
+
 | Package | Use it for |
 | --- | --- |
 | [`@maelstrom-co/react`](https://docs.maelstrom-ai.co/reference/react/readme/) | React bindings: `createMaelstrom`, `vessel`, Provider, Chart, hooks |
