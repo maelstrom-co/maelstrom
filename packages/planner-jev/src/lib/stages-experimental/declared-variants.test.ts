@@ -143,7 +143,8 @@ describe('declared variants', () => {
             const decision = await layout(ask)(plan, ctx);
             if (!isOk(decision)) throw new Error('expected a layout decision');
             const candidate = await complete(decision.value, ctx);
-            if (!isOk(candidate)) throw new Error('expected a candidate');
+            if (!isOk(candidate) || candidate.value.type !== 'plan')
+              throw new Error('expected a candidate');
             const { layout: shipped, executionPlan } = candidate.value;
             if (!('instances' in shipped))
               throw new Error('expected a tiling layout');

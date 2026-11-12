@@ -27,6 +27,7 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'buildJevUngatedStepwisePlanner',
       'buildJevComposedPairsPlanner',
       'buildJevStagePlanner',
+      'asReplyRequiredPlanner',
       'intentText',
       'isScoreAnswer',
       'score',

@@ -255,6 +255,7 @@ export function createEngine(config: EngineConfig): Engine {
     history: historyConfig,
     instrument,
     retry,
+    agent,
   } = resolveConfig(validated);
   const planner: ClarifyingPlanner =
     retry === false
@@ -460,6 +461,7 @@ export function createEngine(config: EngineConfig): Engine {
             readContent,
           ),
         logger,
+        agent,
       ),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>

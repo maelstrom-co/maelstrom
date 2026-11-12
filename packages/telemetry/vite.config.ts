@@ -20,6 +20,7 @@ export default defineConfig({
         index: 'src/index.ts',
         integration: 'src/integration.ts',
         usage: 'src/usage.ts',
+        'usage-adapter': 'src/usage-adapter.ts',
       },
       fileName: (_format, name) => `${name}.js`,
       formats: ['es'],

@@ -12,7 +12,10 @@ import type {
   UserSectionOverrides,
 } from './sections.js';
 import { isSectionExtension } from './sections.js';
-import { getDefaultSystemSections } from './system-prompts.js';
+import {
+  getDefaultSystemSections,
+  type SystemSectionReplyVariant,
+} from './system-prompts.js';
 
 const DEFAULT_VARS: PromptVars = {
   assistantName: 'Maelstrom',
@@ -162,12 +165,21 @@ export function buildUserPromptWithSnapshot(
   );
 }
 
+/** @internal Builds the system prompt for requests that skip the user reply. */
+export function buildReplylessSystemPrompt(
+  mode: LayoutMode,
+  options?: Pick<PromptOptions, 'vars' | 'system'>,
+): string {
+  return joinSections(buildSystemSections(mode, options, 'without-reply'));
+}
+
 function buildSystemSections(
   mode: LayoutMode,
   options?: Pick<PromptOptions, 'vars' | 'system'>,
+  reply: SystemSectionReplyVariant = 'with-reply',
 ): readonly PromptSection[] {
   const vars = resolveVars(options?.vars);
-  const defaults = recordToSections(getDefaultSystemSections(mode));
+  const defaults = recordToSections(getDefaultSystemSections(mode, reply));
   const interpolated = interpolateVars(defaults, vars);
   return applySectionOverrides(interpolated, options?.system);
 }

@@ -328,4 +328,20 @@ describe('completion call instrumentation', () => {
       'gen_ai.usage.input_tokens': 40,
     });
   });
+
+  test('the replyless system prompt covers the layout output and forbids a reply', async () => {
+    mockChat.mockResolvedValue({});
+    await callLlm(
+      { adapter: dummyAdapter },
+      'private prompt',
+      z.object({}),
+      [],
+      context().ctx,
+      { withMessage: false },
+    );
+    const systemPrompt = chatCall(0).systemPrompts.join('\n');
+    expect(systemPrompt).toContain('layout');
+    expect(systemPrompt).toContain('do not write one');
+    expect(systemPrompt).not.toContain('You write the reply');
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ok } from '@maelstrom-co/protocol';
+import { fakeText } from '@tanstack/ai/testing';
 
 import {
   buildGridResponse,
@@ -185,6 +186,48 @@ describe('validateEngineConfig', () => {
           retry: invalid<false>(retry),
         }),
       ).toThrow(/retry/);
+    });
+  });
+
+  describe('agent', () => {
+    const model = fakeText({ model: 'static' });
+
+    test('keeps the configured instance when every known key is set', () => {
+      const agent = {
+        model,
+        instructions: 'Be brief.',
+        tools: [],
+        budgets: { maxTurns: 3 },
+        retry: { maxRetries: 1 },
+      };
+      const config = { planner: stubPlanner, agent };
+      const result = validateEngineConfig(config);
+      expect(result).toBe(config);
+    });
+
+    test.each([
+      ['instruction', 'Be brief.'],
+      ['budget', { maxTokens: 500 }],
+      ['tool', []],
+    ])('rejects the misspelled %s key', (key, value) => {
+      expect(() =>
+        validateEngineConfig({
+          planner: stubPlanner,
+          agent: invalid<never>({ model, [key]: value }),
+        }),
+      ).toThrow(new RegExp(`agent.*unrecognized.*${key}`, 'i'));
+    });
+
+    test.each([
+      ['null', null],
+      ['a string', 'agent'],
+    ])('rejects %s', (_case, agent) => {
+      expect(() =>
+        validateEngineConfig({
+          planner: stubPlanner,
+          agent: invalid<never>(agent),
+        }),
+      ).toThrow(/agent/);
     });
   });
 

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import {
+  type CallId,
+  CallIdSchema,
   type ChangeId,
   ChangeIdSchema,
   type RunId,
@@ -395,6 +397,113 @@ export interface AgentErrorEvent {
 }
 
 /**
+ * The start of an Agent Run, sent when the loop actually begins, which may be
+ * after a queue wait following `accepted`. Sent for agent runs only, never for
+ * `ui_only` runs. Every other event of the run carries the same `runId`.
+ */
+export const AgentStartedEventSchema = z.object({
+  type: z.literal('started'),
+  version: z.literal(AGENT_WIRE_VERSION),
+  runId: RunIdSchema,
+});
+
+/** The start of an Agent Run. */
+export interface AgentStartedEvent {
+  /** Member discriminator. */
+  type: 'started';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run that started. */
+  runId: RunId;
+}
+
+/**
+ * A breadcrumb that the loop model called a tool. It names the tool but
+ * carries no arguments, which stay in the run's transcript. A
+ * `tool_result` event with the same `callId` follows when the call settles.
+ */
+export const AgentToolCallEventSchema = z.object({
+  type: z.literal('tool_call'),
+  version: z.literal(AGENT_WIRE_VERSION),
+  runId: RunIdSchema,
+  turnId: z.string().min(1),
+  callId: CallIdSchema,
+  name: z
+    .string()
+    .min(1)
+    .refine((s) => s.trim().length > 0, {
+      message: 'name must not be whitespace-only',
+    }),
+});
+
+/** A breadcrumb that the loop model called a tool. */
+export interface AgentToolCallEvent {
+  /** Member discriminator. */
+  type: 'tool_call';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run making the call. */
+  runId: RunId;
+  /** The model turn that issued the call. */
+  turnId: string;
+  /** Id that pairs this call with its `tool_result` event. */
+  callId: CallId;
+  /** Name of the tool that was called. */
+  name: string;
+}
+
+/**
+ * A breadcrumb that a tool call settled. `ok` says whether the tool
+ * succeeded and `summary` is a short human-readable description of the
+ * outcome, not whitespace-only and at most 200 characters. A failure
+ * carries its cause in `summary`, so there is no separate error field.
+ */
+export const AgentToolResultEventSchema = z.object({
+  type: z.literal('tool_result'),
+  version: z.literal(AGENT_WIRE_VERSION),
+  runId: RunIdSchema,
+  turnId: z.string().min(1),
+  callId: CallIdSchema,
+  name: z
+    .string()
+    .min(1)
+    .refine((s) => s.trim().length > 0, {
+      message: 'name must not be whitespace-only',
+    }),
+  ok: z.boolean(),
+  summary: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((s) => s.trim().length > 0, {
+      message: 'summary must not be whitespace-only',
+    }),
+});
+
+/** A breadcrumb that a tool call settled. */
+export interface AgentToolResultEvent {
+  /** Member discriminator. */
+  type: 'tool_result';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run that made the call. */
+  runId: RunId;
+  /** The model turn that issued the call. */
+  turnId: string;
+  /** Echoes the `callId` of the `tool_call` event. */
+  callId: CallId;
+  /** Name of the tool that was called. */
+  name: string;
+  /** Whether the tool call succeeded. */
+  ok: boolean;
+  /**
+   * Short description of the outcome, not whitespace-only and at most 200
+   * characters. For a failed call it describes the failure.
+   */
+  summary: string;
+}
+
+/**
  * Every event the Engine may send on the agent event stream, discriminated on
  * `type`. Each member carries `version` equal to {@link AGENT_WIRE_VERSION}.
  */
@@ -405,6 +514,9 @@ export const AgentEventSchema = z.discriminatedUnion('type', [
   AgentUiChangeEventSchema,
   AgentFinishedEventSchema,
   AgentErrorEventSchema,
+  AgentStartedEventSchema,
+  AgentToolCallEventSchema,
+  AgentToolResultEventSchema,
 ]);
 
 /** Every event the Engine may send on the agent event stream. */
@@ -414,7 +526,10 @@ export type AgentEvent =
   | AgentMessageEvent
   | AgentUiChangeEvent
   | AgentFinishedEvent
-  | AgentErrorEvent;
+  | AgentErrorEvent
+  | AgentStartedEvent
+  | AgentToolCallEvent
+  | AgentToolResultEvent;
 
 // The reused schemas infer mutable arrays, so values typed with the read-only
 // `ChartRequest` / `MaelstromResponse` interfaces would not be assignable.
@@ -523,6 +638,30 @@ const _errorEventBwd: AgentErrorEvent extends _InferredAgentErrorEvent
   ? true
   : false = true;
 
+type _InferredAgentStartedEvent = z.infer<typeof AgentStartedEventSchema>;
+const _startedEventFwd: _InferredAgentStartedEvent extends AgentStartedEvent
+  ? true
+  : false = true;
+const _startedEventBwd: AgentStartedEvent extends _InferredAgentStartedEvent
+  ? true
+  : false = true;
+
+type _InferredAgentToolCallEvent = z.infer<typeof AgentToolCallEventSchema>;
+const _toolCallEventFwd: _InferredAgentToolCallEvent extends AgentToolCallEvent
+  ? true
+  : false = true;
+const _toolCallEventBwd: AgentToolCallEvent extends _InferredAgentToolCallEvent
+  ? true
+  : false = true;
+
+type _InferredAgentToolResultEvent = z.infer<typeof AgentToolResultEventSchema>;
+const _toolResultEventFwd: _InferredAgentToolResultEvent extends AgentToolResultEvent
+  ? true
+  : false = true;
+const _toolResultEventBwd: AgentToolResultEvent extends _InferredAgentToolResultEvent
+  ? true
+  : false = true;
+
 type _InferredAgentEvent = z.infer<typeof AgentEventSchema>;
 const _eventFwd: _InferredAgentEvent extends AgentEvent ? true : false = true;
 const _eventBwd: AgentEvent extends _InferredAgentEvent ? true : false = true;
@@ -550,6 +689,12 @@ void [
   _finishedEventBwd,
   _errorEventFwd,
   _errorEventBwd,
+  _startedEventFwd,
+  _startedEventBwd,
+  _toolCallEventFwd,
+  _toolCallEventBwd,
+  _toolResultEventFwd,
+  _toolResultEventBwd,
   _eventFwd,
   _eventBwd,
 ];

@@ -127,6 +127,19 @@ describe('jevComposedPairsPlanner through createEngine', () => {
     expect(response?.userMessage).toBe('from the fallback');
   });
 
+  test('a deferring stage hands the fallback a request that keeps skipReply', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'unused' });
+    const { fallbackRequests } = await run(
+      {
+        ...makeRequest(STACKED_REQUEST, { columns: 4, rows: 4 }),
+        skipReply: true,
+      },
+      answering('above', 0.9),
+    );
+    expect(fallbackRequests).toHaveLength(1);
+    expect(fallbackRequests[0]?.skipReply).toBe(true);
+  });
+
   test('rejects options without a fallback stage', () => {
     expect(() =>
       jevComposedPairsPlanner({
@@ -241,10 +254,12 @@ async function plan(
   ) => Planner,
 ) {
   let fallbackCalls = 0;
+  const fallbackRequests: ChartRequest[] = [];
   const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
     input,
   ) => {
     fallbackCalls += 1;
+    fallbackRequests.push(input.request);
     return ok(fallbackCandidate(input.request));
   };
   const engine = createEngine({
@@ -266,5 +281,5 @@ async function plan(
           readonly layout: { readonly tree: readonly string[] };
         })
       : undefined;
-  return { response, fallbackCalls, calls };
+  return { response, fallbackCalls, fallbackRequests, calls };
 }

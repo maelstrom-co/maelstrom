@@ -302,6 +302,7 @@
       "dependencies": {
         "@maelstrom-co/protocol": "0.2.1",
         "@maelstrom-co/telemetry": "0.2.1",
+        "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
     },
@@ -525,8 +526,15 @@
       "version": "0.2.1",
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
+        "@tanstack/ai": "catalog:",
         "@types/sinonjs__fake-timers": "^15.0.1",
       },
+      "peerDependencies": {
+        "@tanstack/ai": "^1.0.0",
+      },
+      "optionalPeers": [
+        "@tanstack/ai",
+      ],
     },
     "tools/astro-plugin": {
       "name": "@maelstrom-co/astro-plugin",

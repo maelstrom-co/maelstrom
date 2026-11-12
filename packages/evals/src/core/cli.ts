@@ -60,6 +60,7 @@ export async function runEvalCli(
       'judge-model': { type: 'string' },
       'judge-rubric': { type: 'string' },
       'grader-validation': { type: 'string' },
+      'skip-reply': { type: 'boolean', default: false },
     },
   });
 
@@ -219,6 +220,7 @@ export async function runEvalCli(
     scenarios,
     arms,
     repeats,
+    ...(values['skip-reply'] && { skipReply: true }),
     adapter: createOpenaiChat(model as OpenAIChatModel, openaiKey),
     fallback: fallback ?? unusedFallback,
     out,
@@ -241,6 +243,7 @@ export async function runEvalCli(
           ...pluginMeta,
           date: new Date().toISOString(),
           ...(replay && { replay: replay.meta }),
+          ...(values['skip-reply'] && { skipReply: true }),
           ...(judge && {
             grader: graderValidationPath ?? 'not validated',
           }),

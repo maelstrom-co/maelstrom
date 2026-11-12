@@ -140,6 +140,24 @@ export function jevTurnFields(
 }
 
 /**
+ * Whether a loop-driven turn had nothing left to fill: its request set
+ * `skipReply`, it ran the completion stage live, and that stage made no
+ * `complete` LLM call. `undefined` for a turn without `skipReply`, one
+ * that never ran the completion stage live, or one whose completion stage
+ * ended in error, since a failed stage says nothing about what was left.
+ */
+export function nothingToFill(record: RunRecord): boolean | undefined {
+  if (record.skipReply !== true) return undefined;
+  const completion = (record.stages ?? []).find(
+    (entry) => entry.stage === STAGE_NAME.llmComplete && !entry.replayed,
+  );
+  if (completion === undefined || completion.outcome === 'error') {
+    return undefined;
+  }
+  return !(record.llmCalls ?? []).some((call) => call.role === 'complete');
+}
+
+/**
  * What a layout stage returns: the POC's plan, or a stage-library decision
  * that carries its `source` and leaves `tree` undefined to hand the layout
  * to the completion call.

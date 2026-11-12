@@ -1,3 +1,4 @@
+// oxlint-disable-next-line eslint/no-restricted-imports -- provider usage probe that must call chat() directly
 import { chat, type RunFinishedEvent } from '@tanstack/ai';
 import { createGeminiChat } from '@tanstack/ai-gemini';
 import { afterEach, expect, test, vi } from 'vitest';

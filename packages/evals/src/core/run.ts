@@ -95,6 +95,8 @@ export interface RunRecord {
   readonly repeat: number;
   /** Wall time of `engine.handle` for the turn. */
   readonly turnMs: number;
+  /** The turn's request set `skipReply`, as the agent loop's planner calls do. */
+  readonly skipReply?: true;
   readonly userMessage?: string;
   readonly error?: { readonly tag: string; readonly message: string };
   /** The scenario expects a deferral; excluded from every arm's overall pass rate. */
@@ -139,6 +141,7 @@ export const RUN_RECORD_FIELDS = [
   'kind',
   'repeat',
   'turnMs',
+  'skipReply',
   'userMessage',
   'error',
   'expectedDeferral',
@@ -165,6 +168,12 @@ export interface EvalOptions {
   /** Run in this order for every scenario and repeat. */
   readonly arms: readonly RegisteredArm[];
   readonly repeats: number;
+  /**
+   * Sends every scenario's request with `skipReply: true`, as the agent
+   * loop does. The Engine refuses a replyless outcome, so such a turn
+   * records a `ValidationError` naming `skipReply`.
+   */
+  readonly skipReply?: boolean;
   /** Shared-lifecycle run identity; generated once when omitted. */
   readonly runId?: string;
   /** Finalized native-policy sample evidence, separate from the native report. */
@@ -200,16 +209,21 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 /**
  * Runs every scenario `repeats` times through each arm and scores the
  * shipped response. Every arm plans through `createEngine` with history off
- * and `retry: false`, so the arms differ only in their pipelines.
+ * and `retry: false`, so the arms differ only in their pipelines. With
+ * `input.skipReply` every request, including the one a replay is checked
+ * against, carries `skipReply: true`.
  *
  * @throws {Error} Before any turn runs, when the plugin of a staged arm
  *   maps no stage to a scenario's `deferStage` phase (see
- *   {@link unmappedPhases}), or when `options.replay` did not record every
+ *   {@link unmappedPhases}), or when `input.replay` did not record every
  *   scenario and repeat from the same request and history, or lacks fields
  *   an arm reads from a replayed stage.
  * @throws {Error} When a plugin's `recordTurn` sets a field the runner owns.
  */
-export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+export async function runEval(input: EvalOptions): Promise<RunRecord[]> {
+  const options = input.skipReply
+    ? { ...input, scenarios: input.scenarios.map(withSkipReply) }
+    : input;
   const run = await runEvaluationRun({
     runId: options.runId,
     policy: 'native:planner/v1',
@@ -369,6 +383,10 @@ function describeError(error: unknown): string {
   return error.cause === undefined
     ? error.message
     : `${error.message} (cause: ${describeError(error.cause)})`;
+}
+
+function withSkipReply(scenario: Scenario): Scenario {
+  return { ...scenario, request: { ...scenario.request, skipReply: true } };
 }
 
 function isStaged({ arm }: RegisteredArm): boolean {
@@ -703,6 +721,7 @@ function base(
     kind: arm.baseline ? 'baseline' : (arm.kind ?? plugin.name),
     repeat,
     turnMs: turn.ms,
+    ...(scenario.request.skipReply === true && { skipReply: true }),
     expectedDeferral: scenario.expected.status === 'deferred',
     arrangementRules: scenario.expected.arrangement !== undefined,
     ...(scenario.spatial !== undefined && { spatial: scenario.spatial }),

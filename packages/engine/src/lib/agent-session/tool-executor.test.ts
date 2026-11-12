@@ -1,0 +1,848 @@
+import { describe, expect, test } from 'bun:test';
+
+import { z } from 'zod';
+
+import { defer } from '../__test-helpers__/defer.js';
+import { summarizeAsTruncatedJson } from './__test-helpers__/summarize-as-truncated-json.js';
+import type { ToolCallIdentity } from './server-tool-runner.js';
+import {
+  serverTool,
+  ToolError,
+  type ServerTool,
+  type ServerToolContext,
+} from './server-tool.js';
+import {
+  executeToolCall,
+  toModelToolPayload,
+  validateToolFailureEnvelope,
+  validateToolResultEnvelope,
+} from './tool-executor.js';
+import { createToolRegistry, type ToolRegistryEntry } from './tool-registry.js';
+
+const orderInput = z.object({ orderId: z.string() });
+const orderOutput = z.object({ orderId: z.string(), total: z.number() });
+
+const identity: ToolCallIdentity = { user: { id: 'user-7' }, token: 'tok-9' };
+
+describe('identity', () => {
+  test('reaches the tool only through ctx and never through the parsed input', async () => {
+    const seen: { input: unknown; ctx: ServerToolContext }[] = [];
+    const entry = entryFor({
+      execute: async (input, ctx) => {
+        seen.push({ input, ctx });
+        return { orderId: input.orderId, total: 12 };
+      },
+    });
+    const signal = new AbortController().signal;
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1', user: 'forged', token: 'forged' },
+      identity,
+      signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.input).toEqual({ orderId: 'o-1' });
+    expect(seen[0]?.ctx.user).toBe(identity.user);
+    expect(seen[0]?.ctx.token).toBe('tok-9');
+    expect(seen[0]?.ctx.signal).toBe(signal);
+  });
+
+  test('ctx carries no token when the identity has none', async () => {
+    let seenCtx: ServerToolContext | undefined;
+    const entry = entryFor({
+      execute: async (input, ctx) => {
+        seenCtx = ctx;
+        return { orderId: input.orderId, total: 1 };
+      },
+    });
+
+    await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      { user: 'anon' },
+      new AbortController().signal,
+    );
+
+    expect(seenCtx?.user).toBe('anon');
+    expect(seenCtx && 'token' in seenCtx).toBe(false);
+  });
+});
+
+test('invalid arguments return invalid_arguments without running the tool', async () => {
+  let runs = 0;
+  const entry = entryFor({
+    execute: async () => {
+      runs += 1;
+      return { orderId: 'o-1', total: 1 };
+    },
+  });
+
+  const result = await executeToolCall(
+    entry,
+    { orderId: 42 },
+    identity,
+    new AbortController().signal,
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    code: 'invalid_arguments',
+    summary: expect.any(String),
+    cause: expect.any(z.ZodError),
+  });
+  expect(runs).toBe(0);
+});
+
+test('output failing the output schema returns invalid_output', async () => {
+  const entry = entryFor({
+    execute: async () => ({ orderId: 'o-1', total: 'twelve' }) as never,
+  });
+
+  const result = await executeToolCall(
+    entry,
+    { orderId: 'o-1' },
+    identity,
+    new AbortController().signal,
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    code: 'invalid_output',
+    summary: expect.any(String),
+    cause: expect.any(z.ZodError),
+  });
+});
+
+describe('schemas that throw or need async parsing', () => {
+  const executionSchemaFailures = [
+    ['a throwing refine', throwingRefine],
+    ['a rejecting async refine', rejectingAsyncRefine],
+  ] as const;
+
+  test.each(executionSchemaFailures)(
+    'an input schema with %s returns invalid_arguments without running the tool',
+    async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
+      let runs = 0;
+      const entry = entryFor({
+        input: withFailure(orderInput),
+        execute: async () => {
+          runs += 1;
+          return { orderId: 'o-1', total: 1 };
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'invalid_arguments',
+        summary: 'latest_order received invalid arguments',
+        cause: expect.any(Error),
+      });
+      expect(runs).toBe(0);
+      expect(await unhandled.settle()).toEqual([]);
+    },
+  );
+
+  test.each(executionSchemaFailures)(
+    'an output schema with %s returns invalid_output after the tool ran',
+    async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
+      let runs = 0;
+      const entry = entryFor({
+        output: withFailure(orderOutput),
+        execute: async () => {
+          runs += 1;
+          return { orderId: 'o-1', total: 1 };
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        code: 'invalid_output',
+        summary: 'latest_order returned an invalid result',
+        cause: expect.any(Error),
+      });
+      expect(runs).toBe(1);
+      expect(await unhandled.settle()).toEqual([]);
+    },
+  );
+
+  test('an input schema with a resolving async refine accepts valid arguments', async () => {
+    const seen: unknown[] = [];
+    const entry = entryFor({
+      input: asyncRefine(orderInput),
+      execute: async (input) => {
+        seen.push(input);
+        return { orderId: input.orderId, total: 4 };
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 4 },
+      summary: expect.any(String),
+    });
+    expect(seen).toEqual([{ orderId: 'o-1' }]);
+  });
+
+  test('an output schema with a resolving async refine accepts a valid result', async () => {
+    const entry = entryFor({
+      output: asyncRefine(orderOutput),
+      execute: async () => ({ orderId: 'o-1', total: 4 }),
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 4 },
+      summary: expect.any(String),
+    });
+  });
+
+  test.each(executionSchemaFailures)(
+    'an envelope checked against an output schema with %s is rejected',
+    async (_label, withFailure) => {
+      const unhandled = recordUnhandledRejections();
+      const entry = entryFor({ output: withFailure(orderOutput) });
+
+      expect(
+        await validateToolResultEnvelope(entry, {
+          ok: true,
+          value: { orderId: 'o-1', total: 3 },
+          summary: 'Order o-1',
+        }),
+      ).toEqual({
+        valid: false,
+        reason: 'value does not match the latest_order output schema',
+      });
+      expect(await unhandled.settle()).toEqual([]);
+    },
+  );
+
+  test('an envelope checked against an output schema with a resolving async refine is accepted', async () => {
+    const entry = entryFor({ output: asyncRefine(orderOutput) });
+
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({
+      valid: true,
+      result: {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      },
+    });
+  });
+});
+
+describe('failures', () => {
+  test('a ToolError message passes through to the summary and the model payload', async () => {
+    const entry = entryFor({
+      execute: async () => {
+        throw new ToolError('Order history is unavailable');
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'tool_failed',
+      summary: 'Order history is unavailable',
+      cause: expect.any(ToolError),
+    });
+    expect(toModelToolPayload(result)).toEqual({
+      ok: false,
+      error: 'Order history is unavailable',
+    });
+  });
+
+  test('a whitespace-only ToolError message is replaced by "<tool> failed"', async () => {
+    const entry = entryFor({
+      execute: async () => {
+        throw new ToolError('  ');
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe('latest_order failed');
+  });
+
+  test('a plain throw is replaced by "<tool> failed" and its message reaches only cause', async () => {
+    const sentinel = 'SENTINEL-db-password-5f3a';
+    const thrown = new Error(`connection refused for ${sentinel}`);
+    const entry = entryFor({
+      execute: async () => {
+        throw thrown;
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'tool_failed',
+      summary: 'latest_order failed',
+      cause: thrown,
+    });
+    expect(result.ok ? undefined : result.cause).toBe(thrown);
+    const payload = toModelToolPayload(result);
+    expect(payload).toEqual({ ok: false, error: 'latest_order failed' });
+    expect(Object.keys(payload as object)).not.toContain('cause');
+    expect(JSON.stringify(payload)).not.toContain(sentinel);
+  });
+
+  test('a thrown non-Error value is sanitized too', async () => {
+    const entry = entryFor({
+      execute: async () => {
+        throw 'raw string with SENTINEL';
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'tool_failed',
+      summary: 'latest_order failed',
+      cause: 'raw string with SENTINEL',
+    });
+    expect(JSON.stringify(toModelToolPayload(result))).not.toContain(
+      'SENTINEL',
+    );
+  });
+
+  test.each([
+    [
+      'a revoked Proxy',
+      () => {
+        const { proxy, revoke } = Proxy.revocable({}, {});
+        revoke();
+        return proxy;
+      },
+    ],
+    [
+      'a Proxy whose getPrototypeOf trap throws',
+      () =>
+        new Proxy(
+          {},
+          {
+            getPrototypeOf() {
+              throw new Error('trap exploded');
+            },
+          },
+        ),
+    ],
+    [
+      'a ToolError-shaped object whose message getter throws',
+      () =>
+        Object.create(ToolError.prototype, {
+          message: {
+            get() {
+              throw new Error('getter exploded');
+            },
+          },
+        }),
+    ],
+  ])(
+    'a tool throwing %s still resolves to "<tool> failed"',
+    async (_label, makeThrown) => {
+      const thrown: unknown = makeThrown();
+      const entry = entryFor({
+        execute: async () => {
+          throw thrown;
+        },
+      });
+
+      const result = await executeToolCall(
+        entry,
+        { orderId: 'o-1' },
+        identity,
+        new AbortController().signal,
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? undefined : result.code).toBe('tool_failed');
+      expect(result.summary).toBe('latest_order failed');
+      expect(result.ok ? undefined : result.cause).toBe(thrown);
+      expect(toModelToolPayload(result)).toEqual({
+        ok: false,
+        error: 'latest_order failed',
+      });
+    },
+  );
+});
+
+describe('cancellation', () => {
+  test('an already aborted signal returns cancelled without running the tool', async () => {
+    let runs = 0;
+    const entry = entryFor({
+      execute: async () => {
+        runs += 1;
+        return { orderId: 'o-1', total: 1 };
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      controller.signal,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'cancelled',
+      summary: expect.any(String),
+    });
+    expect(runs).toBe(0);
+  });
+
+  test('the tool sees the caller signal as ctx.signal and observes its abort', async () => {
+    const started = defer<AbortSignal>();
+    const aborted = defer<void>();
+    const entry = entryFor({
+      execute: async (input, ctx) => {
+        started.resolve(ctx.signal);
+        await new Promise<void>((resolve) =>
+          ctx.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          }),
+        );
+        aborted.resolve();
+        return { orderId: input.orderId, total: 0 };
+      },
+    });
+    const controller = new AbortController();
+
+    const pending = executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      controller.signal,
+    );
+    const toolSignal = await started.promise;
+    expect(toolSignal).toBe(controller.signal);
+    expect(toolSignal.aborted).toBe(false);
+
+    controller.abort();
+    await aborted.promise;
+    expect(toolSignal.aborted).toBe(true);
+    await pending;
+  });
+});
+
+describe('validateToolResultEnvelope', () => {
+  const entry = entryFor({});
+
+  test('rejects a success envelope whose value fails the output schema', async () => {
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 'twelve' },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+  });
+
+  test('rejects a value that is not an envelope', async () => {
+    expect(await validateToolResultEnvelope(entry, 'cached!')).toEqual({
+      valid: false,
+      reason: expect.any(String),
+    });
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: false,
+        code: 'made_up',
+        summary: 'x',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+  });
+
+  describe('rejects instead of throwing when reading the value throws', () => {
+    const notAnEnvelope = {
+      valid: false,
+      reason: 'not a tool result envelope',
+    } as const;
+
+    test('a getter on ok throws', async () => {
+      const value = {
+        get ok(): boolean {
+          throw new Error('ok getter failed');
+        },
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      };
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
+    });
+
+    test('a getter on summary throws', async () => {
+      const value = {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        get summary(): string {
+          throw new Error('summary getter failed');
+        },
+      };
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
+    });
+
+    test('a Proxy whose get trap throws', async () => {
+      const value = new Proxy(
+        { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
+        {
+          get() {
+            throw new Error('get trap failed');
+          },
+        },
+      );
+      expect(await validateToolResultEnvelope(entry, value)).toEqual(
+        notAnEnvelope,
+      );
+    });
+
+    test('a revoked Proxy', async () => {
+      const { proxy, revoke } = Proxy.revocable(
+        { ok: true, value: { orderId: 'o-1', total: 3 }, summary: 'Order o-1' },
+        {},
+      );
+      revoke();
+      expect(await validateToolResultEnvelope(entry, proxy)).toEqual(
+        notAnEnvelope,
+      );
+    });
+  });
+
+  test('rejects an envelope whose summary is whitespace-only', async () => {
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: '   ',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: false,
+        code: 'tool_failed',
+        summary: '   ',
+      }),
+    ).toEqual({ valid: false, reason: expect.any(String) });
+  });
+
+  test('accepts a well-formed failure envelope', async () => {
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: false,
+        code: 'tool_failed',
+        summary: 'Order history is unavailable',
+      }),
+    ).toEqual({
+      valid: true,
+      result: {
+        ok: false,
+        code: 'tool_failed',
+        summary: 'Order history is unavailable',
+      },
+    });
+  });
+
+  test('accepts a well-formed success envelope with the parsed value', async () => {
+    expect(
+      await validateToolResultEnvelope(entry, {
+        ok: true,
+        value: { orderId: 'o-1', total: 3, extra: true },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({
+      valid: true,
+      result: {
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      },
+    });
+  });
+});
+
+describe('validateToolFailureEnvelope', () => {
+  test('accepts a well-formed failure envelope', () => {
+    expect(
+      validateToolFailureEnvelope({
+        ok: false,
+        code: 'cancelled',
+        summary: 'Not run',
+      }),
+    ).toEqual({
+      valid: true,
+      result: { ok: false, code: 'cancelled', summary: 'Not run' },
+    });
+  });
+
+  test('rejects a success envelope and a value that is not an envelope', () => {
+    expect(
+      validateToolFailureEnvelope({
+        ok: true,
+        value: { orderId: 'o-1', total: 3 },
+        summary: 'Order o-1',
+      }),
+    ).toEqual({ valid: false, reason: 'not a failure envelope' });
+    expect(validateToolFailureEnvelope('cached!')).toEqual({
+      valid: false,
+      reason: 'not a tool result envelope',
+    });
+  });
+});
+
+describe('summaries', () => {
+  test('a 300-character summary is cut to 200 characters with an ellipsis', async () => {
+    const entry = entryFor({ summarize: () => 'x'.repeat(300) });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.summary).toHaveLength(200);
+    expect(result.summary.endsWith('…')).toBe(true);
+    expect(result.summary.startsWith('x'.repeat(199))).toBe(true);
+  });
+
+  test('the cap never splits a surrogate pair', async () => {
+    const entry = entryFor({
+      summarize: () => `${'x'.repeat(198)}\u{1F600}${'y'.repeat(50)}`,
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.summary).toBe(`${'x'.repeat(198)}…`);
+  });
+
+  test('a long ToolError message is capped the same way', async () => {
+    const entry = entryFor({
+      execute: async () => {
+        throw new ToolError('y'.repeat(300));
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.summary).toHaveLength(200);
+    expect(result.summary.endsWith('…')).toBe(true);
+  });
+
+  test('a throwing summarize leaves the result ok with "<tool> succeeded"', async () => {
+    const entry = entryFor({
+      summarize: () => {
+        throw new Error('summarize blew up with SENTINEL');
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 12 },
+      summary: 'latest_order succeeded',
+    });
+  });
+
+  test('an empty summary falls back to "<tool> succeeded"', async () => {
+    const entry = entryFor({ summarize: () => '' });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.summary).toBe('latest_order succeeded');
+  });
+
+  test('a whitespace-only summary falls back to "<tool> succeeded"', async () => {
+    const entry = entryFor({ summarize: () => '  ' });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.summary).toBe('latest_order succeeded');
+  });
+
+  test('summarize receives the validated output', async () => {
+    const received: unknown[] = [];
+    const entry = entryFor({
+      execute: async (input) =>
+        ({ orderId: input.orderId, total: 12, internal: 'drop me' }) as never,
+      summarize: (output) => {
+        received.push(output);
+        return `Order ${output.orderId} totals ${output.total}`;
+      },
+    });
+
+    const result = await executeToolCall(
+      entry,
+      { orderId: 'o-1' },
+      identity,
+      new AbortController().signal,
+    );
+
+    expect(received).toEqual([{ orderId: 'o-1', total: 12 }]);
+    expect(result).toEqual({
+      ok: true,
+      value: { orderId: 'o-1', total: 12 },
+      summary: 'Order o-1 totals 12',
+    });
+    expect(toModelToolPayload(result)).toEqual({ orderId: 'o-1', total: 12 });
+  });
+});
+
+test('the truncated JSON test summarizer caps its output at 200 characters', () => {
+  expect(summarizeAsTruncatedJson({ a: 1 })).toBe('{"a":1}');
+  const long = summarizeAsTruncatedJson({ text: 'z'.repeat(300) });
+  expect(long).toHaveLength(200);
+  expect(long.endsWith('…')).toBe(true);
+});
+
+type OrderTool = ServerTool<
+  z.infer<typeof orderInput>,
+  z.infer<typeof orderOutput>
+>;
+
+function entryFor(
+  overrides: Partial<
+    Pick<OrderTool, 'input' | 'output' | 'execute' | 'summarize'>
+  >,
+): ToolRegistryEntry {
+  const tool = serverTool({
+    name: 'latest_order',
+    description: 'Returns the latest order',
+    input: orderInput,
+    output: orderOutput,
+    execute: async (input) => ({ orderId: input.orderId, total: 12 }),
+    summarize: summarizeAsTruncatedJson,
+    ...overrides,
+  });
+  const entry = createToolRegistry([tool]).get(tool.name);
+  if (!entry) throw new Error('test tool did not register');
+  return entry;
+}
+
+function throwingRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(() => {
+    throw new Error('refine blew up');
+  });
+}
+
+function asyncRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(async () => true);
+}
+
+function rejectingAsyncRefine<T>(schema: z.ZodType<T>): z.ZodType<T> {
+  return schema.refine(async () => {
+    throw new Error('async refine rejected');
+  });
+}
+
+function recordUnhandledRejections(): { settle(): Promise<unknown[]> } {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on('unhandledRejection', record);
+  return {
+    async settle() {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return unhandled;
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+    },
+  };
+}
