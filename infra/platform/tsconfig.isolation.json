@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["bun", "node"]
+  },
+  "include": ["preview-state-isolation.ts", "operator-test/**/*.ts"]
+}
