@@ -27,12 +27,20 @@ export function rejectWorkspaceRun(
   });
 }
 
-/** Host-independent admission and acknowledgment state for one socket session. */
+/**
+ * Host-independent admission and acknowledgment state for one authorized session.
+ * @experimental
+ */
 export class AguiWorkspaceSession {
   private state: WorkspaceCheckpoint;
   private running = false;
 
-  /** Restore non-content evidence through a host-owned synchronous checkpoint store. */
+  /**
+   * Restore non-content evidence through a host-owned synchronous checkpoint store.
+   * @param threadId - Session identity already authorized by the host.
+   * @param checkpoint - Saved evidence; invalid or mismatched sessions throw.
+   * @param save - Synchronous durable checkpoint writer; errors retire admission.
+   */
   constructor(
     threadId: string,
     checkpoint?: unknown,
@@ -55,7 +63,12 @@ export class AguiWorkspaceSession {
     this.save(this.state);
   }
 
-  /** Dispatch a validated operation, preserving Engine entry and application gating. */
+  /**
+   * Dispatch a validated operation, preserving Engine entry and application gating.
+   * @param input - Input parsed with WorkspaceRunSchema or readWorkspaceRun.
+   * @param getEngine - Host-authorized Engine supplier; null stops the run.
+   * @param send - Receives ordered event objects for host-owned serialization.
+   */
   async run(
     input: WorkspaceRun,
     getEngine: () => Engine | null | Promise<Engine | null>,

@@ -161,6 +161,9 @@
           {
             "target": "build",
             "projects": [
+              "@maelstrom-co/agui",
+              "@maelstrom-co/agui-protocol",
+              "@maelstrom-co/agui-server",
               "@maelstrom-co/client",
               "@maelstrom-co/connectors",
               "@maelstrom-co/devtools",
@@ -189,6 +192,9 @@
         ],
         "inputs": [
           "{workspaceRoot}/scripts/assert-sdk-validation.ts",
+          "{workspaceRoot}/packages/agui/package.json",
+          "{workspaceRoot}/packages/agui-protocol/package.json",
+          "{workspaceRoot}/packages/agui-server/package.json",
           "{workspaceRoot}/packages/client/package.json",
           "{workspaceRoot}/packages/connectors/package.json",
           "{workspaceRoot}/packages/devtools/package.json",

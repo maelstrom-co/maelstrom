@@ -6,7 +6,10 @@ import type { ChartRequestMessage } from '@maelstrom-co/protocol';
 
 import { AguiWorkspaceClient } from './workspace-client.js';
 
-/** Experimental AG-UI workspace transport with native history control frames. */
+/**
+ * AG-UI workspace transport with native history control frames.
+ * @experimental
+ */
 export class AguiWebSocketConnector extends WebSocketConnector {
   /** Observable protocol failure state, independent of React. */
   readonly workspace: AguiWorkspaceClient;

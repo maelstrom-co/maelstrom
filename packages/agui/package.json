@@ -1,21 +1,51 @@
 {
   "name": "@maelstrom-co/agui",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.1",
   "description": "Experimental browser workspace AG-UI connector and application acknowledgment.",
+  "keywords": [
+    "maelstrom",
+    "ag-ui",
+    "generative-ui",
+    "experimental"
+  ],
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/browser.js",
+  "module": "./dist/browser.js",
+  "types": "./dist/browser.d.ts",
   "sideEffects": false,
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "@maelstrom-co/source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
+      "import": "./dist/browser.js",
+      "default": "./dist/browser.js"
     },
     "./browser": {
       "@maelstrom-co/source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
+      "import": "./dist/browser.js",
+      "default": "./dist/browser.js"
     }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/agui"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
     "@ag-ui/core": "1.0.0",
@@ -39,7 +69,14 @@
         "command": "bun --conditions=@maelstrom-co/source test",
         "options": {
           "cwd": "{projectRoot}"
-        }
+        },
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "{workspaceRoot}/packages/agui-server/src/**/*",
+          "{workspaceRoot}/packages/agui-protocol/src/**/*"
+        ]
       }
     }
   }
