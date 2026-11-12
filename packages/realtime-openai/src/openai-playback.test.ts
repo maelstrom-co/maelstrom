@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+
 import type { AdapterConnectOptions } from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
+
 import { OpenAIAdapter } from './openai-adapter.js';
 
 class Channel {
