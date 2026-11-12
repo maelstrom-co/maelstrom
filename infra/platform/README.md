@@ -389,6 +389,9 @@ outside the repository.
 
 ### State-store bootstrap rules
 
+For the beta.83 to beta.85 upgrade, follow [the protocol-8 maintenance procedure](state-store-upgrade.md).
+The manual bootstrap commands below use the beta.83 CLI.
+
 Verify the shared state store before each Alchemy upgrade. Its protocol version
 is independent of the package version. In beta.83,
 [`STATE_STORE_VERSION`](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.83/packages/alchemy/src/Cloudflare/StateStore/Api.ts)

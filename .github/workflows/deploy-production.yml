@@ -62,6 +62,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Require the coordinated Alchemy version
+        if: vars.ALCHEMY_REQUIRED_VERSION != ''
+        run: bun --no-env-file scripts/alchemy-version.ts
+        env:
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+
       # This check is adjacent to the privileged mutation so a queued older
       # platform run cannot deploy after a newer revision becomes green.
       - name: Recheck platform deployment revision
@@ -158,6 +164,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Require the coordinated Alchemy version
+        if: vars.ALCHEMY_REQUIRED_VERSION != ''
+        run: bun --no-env-file scripts/alchemy-version.ts
+        env:
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
 
       # A newer workflow can finish CI before an older run acquires this app's
       # deployment slot. Deploy only the newest commit whose `main` job passed.

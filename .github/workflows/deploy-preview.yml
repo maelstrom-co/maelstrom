@@ -227,6 +227,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
           EXPECTED_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
           ENV: /dev/null
           GH_TOKEN: ${{ github.token }}
           LD_PRELOAD: ''
@@ -239,7 +240,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
-          for runtime_file in scripts/preview-lifecycle.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+          for runtime_file in scripts/preview-lifecycle.ts scripts/alchemy-version.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
             test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
@@ -268,6 +269,7 @@ jobs:
           DEMO_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
           ENV: /dev/null
           EXPECTED_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
           GH_TOKEN: ${{ github.token }}
           LD_PRELOAD: ''
           NODE_OPTIONS: ''
@@ -279,7 +281,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
-          for runtime_file in scripts/preview-lifecycle.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+          for runtime_file in scripts/preview-lifecycle.ts scripts/alchemy-version.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
             test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"

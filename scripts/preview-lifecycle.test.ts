@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   approvePreview,
@@ -857,6 +859,69 @@ describe('deployPreviewApp', () => {
 });
 
 describe('teardown policy and execution', () => {
+  for (const scope of ['all', 'legacy'] as const) {
+    test(`a version mismatch blocks Alchemy but preserves authorized ${scope} Worker cleanup`, async () => {
+      const root = await mkdtemp('/tmp/preview-version-mismatch-');
+      const alchemy = join(root, 'infra/platform/node_modules/alchemy');
+      const previous = process.env.ALCHEMY_REQUIRED_VERSION;
+      const processes: string[] = [];
+      const scopes: string[] = [];
+      const state = baseState({
+        labeled: scope === 'legacy',
+        comments: [
+          {
+            id: 1,
+            body: markerBody(SHA_A, SHA_A),
+            user: { login: BOT_LOGIN, type: 'Bot' },
+          },
+        ],
+      });
+      try {
+        await mkdir(alchemy, { recursive: true });
+        await writeFile(
+          join(alchemy, 'package.json'),
+          JSON.stringify({ version: '2.0.0-beta.83' }),
+        );
+        process.env.ALCHEMY_REQUIRED_VERSION = '2.0.0-beta.85';
+        const result = await teardownPreview(
+          {
+            repository: REPOSITORY,
+            prNumber: '42',
+            trigger: scope === 'all' ? 'unlabeled' : 'schedule',
+            bunExecutable: '/trusted/bun',
+            accountId: 'account',
+            expectedAccountId: 'account',
+            apiToken: 'secret',
+            root,
+          },
+          dependencies(githubFetch(state, []), {
+            runProcess: async ({ cwd }) => {
+              processes.push(cwd);
+              return { stdout: '' };
+            },
+            deleteWorkers: async (options, authorize) => {
+              scopes.push(options.workerScope ?? 'all');
+              expect(await authorize('maelstrom-www-pr-42')).toBeTrue();
+              expect(await authorize('maelstrom-www-alchemy-pr-42')).toBe(
+                scope === 'all',
+              );
+              return true;
+            },
+          }),
+        );
+        expect(processes).toEqual([]);
+        expect(scopes).toEqual([scope]);
+        expect(result).toEqual({ scope, complete: scope === 'legacy' });
+        if (scope === 'all')
+          expect(state.comments[0]!.body).toContain('teardown incomplete');
+      } finally {
+        if (previous === undefined) delete process.env.ALCHEMY_REQUIRED_VERSION;
+        else process.env.ALCHEMY_REQUIRED_VERSION = previous;
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('decision table distinguishes active schedule cleanup from destructive teardown', () => {
     const current = {
       state: 'open' as const,

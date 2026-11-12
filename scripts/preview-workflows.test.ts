@@ -1,11 +1,42 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
+
+import ts from 'typescript';
 
 const root = resolve(import.meta.dir, '..');
 const read = (name: string) =>
   readFileSync(resolve(root, '.github/workflows', name), 'utf8');
 const expression = (value: string) => ['$', `{{ ${value} }}`].join('');
+const localRuntimeFiles = (
+  entry: string,
+  seen = new Set<string>(),
+): string[] => {
+  const path = resolve(root, entry);
+  if (seen.has(path)) return [];
+  seen.add(path);
+  const source = ts.createSourceFile(
+    path,
+    readFileSync(path, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const dependencies = source.statements.flatMap((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      statement.importClause?.isTypeOnly ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !statement.moduleSpecifier.text.startsWith('.')
+    )
+      return [];
+    return localRuntimeFiles(
+      relative(root, resolve(dirname(path), statement.moduleSpecifier.text)),
+      seen,
+    );
+  });
+  return [relative(root, path), ...dependencies];
+};
+
 const approvalNoticeLookup =
   'select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->")))';
 const step = (workflow: string, name: string) => {
@@ -481,12 +512,11 @@ describe('preview workflows', () => {
     }
   });
 
-  test('every credentialed deploy verifies trusted runtime files in the same shell step', () => {
+  test('credentialed deploys verify every local runtime import after untrusted builds', () => {
     const workflow = read('deploy-preview.yml');
     const runtimeFiles = [
-      'scripts/preview-lifecycle.ts',
-      'scripts/delete-preview-workers.ts',
-      'scripts/preview-worker-url.ts',
+      ...localRuntimeFiles('scripts/preview-lifecycle.ts'),
+      'scripts/preview-lifecycle.bunfig.toml',
     ];
     for (const [name, command] of [
       ['Deploy demo preview', 'deploy-app demo'],
