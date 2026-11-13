@@ -79,7 +79,14 @@ test('authorized HTTP goals perform dependent writes through real canonical sett
                   {
                     id: 'create',
                     name: 'apply_workspace',
-                    input: { intent: 'Create a Journal entry.' },
+                    input: {
+                      intent: 'Create a Journal entry.',
+                      expectedMutation: {
+                        kind: 'journal.create',
+                        title: 'Notes',
+                        date: '2026-11-07',
+                      },
+                    },
                   },
                 ],
               },
@@ -108,6 +115,11 @@ test('authorized HTTP goals perform dependent writes through real canonical sett
                         name: 'apply_workspace',
                         input: {
                           intent: `Append Hello to ${entry.id} version ${entry.version}.`,
+                          expectedMutation: {
+                            kind: 'journal.append',
+                            target: { id: entry.id, version: entry.version },
+                            text: 'Hello',
+                          },
                         },
                       },
                     ],
@@ -267,6 +279,173 @@ test('authorized HTTP goals perform dependent writes through real canonical sett
   }
 });
 
+test('a refused append ends incomplete before a false model answer or replacement write can run', async () => {
+  const adapter = Object.assign(fakeText(), {
+    supportsCombinedToolsAndSchema: () => true,
+  });
+  adapter.setResponses([
+    {
+      toolCalls: [
+        {
+          id: 'create',
+          name: 'apply_workspace',
+          input: {
+            intent: 'Create Demo notes.',
+            expectedMutation: {
+              kind: 'journal.create',
+              title: 'Demo notes',
+              date: '2026-11-10',
+            },
+          },
+        },
+      ],
+    },
+    ({ request }) => {
+      const result = request.messages.find(
+        (message) => message.role === 'tool' && message.toolCallId === 'create',
+      );
+      const entry = JSON.parse(String(result?.content)).workspace.records
+        .journal[0];
+      return {
+        toolCalls: [
+          {
+            id: 'append',
+            name: 'apply_workspace',
+            input: {
+              intent: `Append Ready to record. to ${entry.id} version ${entry.version}.`,
+              expectedMutation: {
+                kind: 'journal.append',
+                target: { id: entry.id, version: entry.version },
+                text: 'Ready to record.',
+              },
+            },
+          },
+        ],
+      };
+    },
+    {
+      text: '{"status":"completed","message":"Created Demo notes and appended Ready to record."}',
+    },
+  ]);
+  const host = new LocalWorkspaceHost(origin, {
+    adapter: () => adapter,
+    engine: (_key, records) =>
+      createEngine({
+        retry: false,
+        logger: { debug() {}, info() {}, warn() {}, error() {} },
+        planner: async () =>
+          ok(
+            TilingResponseSchema.parse({
+              type: 'plan',
+              userMessage: records.journal.length
+                ? 'The record ID does not match. Append refused.'
+                : 'Entry created.',
+              rationale:
+                'An accepted empty plan does not prove that the requested append happened.',
+              layout: {
+                tree: ['ID:journal'],
+                instances: [
+                  {
+                    instanceId: 'journal',
+                    vesselId: 'journal',
+                    variant: 'entry',
+                  },
+                ],
+              },
+              executionPlan: records.journal.length
+                ? []
+                : [
+                    {
+                      instanceId: 'journal',
+                      action: 'createEntry',
+                      paramsJson: '{"title":"Demo notes","date":"2026-11-10"}',
+                    },
+                  ],
+            }),
+          ),
+      }),
+  });
+  const client = browser(host);
+  const bootstrap = await (
+    await client.request('/api/workspace/bootstrap', {})
+  ).json();
+  client.setBinding(bootstrap.bindingId);
+  const connector = new WorkspaceConnector(async (input, signal) => {
+    const response = await client.request(
+      '/api/workspace/exchange',
+      input,
+      signal,
+    );
+    if (!response.ok) throw new Error('Exchange rejected');
+    return response.json();
+  });
+  const orchestrator = new Orchestrator(connector, {
+    sessionId: SessionId(bootstrap.sessionId),
+    vessels: [journalVessel],
+  });
+  const state = new WorkspaceState(
+    bootstrap.records,
+    connector,
+    client.request,
+  );
+  const dispose = bindWorkspaceActions(orchestrator.commandProcessor, state);
+  try {
+    await orchestrator.connect();
+    const runner = new GoalRunner(
+      bootstrap.threadId,
+      client.request,
+      connector,
+      orchestrator,
+    );
+    const outcome = await runner.run(
+      'Create Demo notes and append Ready to record.',
+    );
+    expect(outcome.status).toBe('incomplete');
+    expect(outcome.message).not.toContain('appended Ready to record.');
+    expect(outcome.applications).toHaveLength(2);
+    expect(adapter.state.callCount).toBe(2);
+    expect(state.snapshot().records).toMatchObject({
+      revision: 1,
+      journal: [{ title: 'Demo notes', version: 1, content: '' }],
+    });
+    const snapshot = await (
+      await client.request('/api/workspace/records', {})
+    ).json();
+    expect(snapshot.application).toMatchObject({
+      status: 'applied',
+      actions: [],
+    });
+    expect(snapshot.records).toEqual(state.snapshot().records);
+
+    adapter.setResponses([
+      {
+        text: '{"status":"completed","message":"One empty Journal entry remains."}',
+      },
+    ]);
+    expect(await runner.run('What remains saved?')).toMatchObject({
+      status: 'completed',
+      applications: [],
+    });
+    const review = await (
+      await client.request('/api/workspace/bootstrap', {})
+    ).json();
+    expect(review.records).toEqual(snapshot.records);
+    expect(
+      review.operations.filter(
+        (operation: { recordId?: string }) => operation.recordId,
+      ),
+    ).toHaveLength(1);
+    const reconciled = await (
+      await client.request('/api/workspace/bootstrap', { reconcile: true })
+    ).json();
+    expect(reconciled.records).toEqual(snapshot.records);
+  } finally {
+    dispose();
+    state.dispose();
+    await orchestrator.dispose();
+  }
+});
+
 test('workspace reset deletes the records and revokes its cookie authorization', async () => {
   const client = browser(new LocalWorkspaceHost(origin));
   const first = await (
@@ -293,7 +472,7 @@ test('a retained hidden Task can commit once and supply its version to a depende
         {
           id: 'hide',
           name: 'apply_workspace',
-          input: { intent: 'Hide Tasks' },
+          input: { intent: 'Hide Tasks', expectedMutation: null },
         },
       ],
     },
@@ -302,7 +481,13 @@ test('a retained hidden Task can commit once and supply its version to a depende
         {
           id: 'create',
           name: 'apply_workspace',
-          input: { intent: 'Create Task' },
+          input: {
+            intent: 'Create Task',
+            expectedMutation: {
+              kind: 'task.create',
+              title: 'Verify isolation',
+            },
+          },
         },
       ],
     },
@@ -322,7 +507,14 @@ test('a retained hidden Task can commit once and supply its version to a depende
           {
             id: 'append',
             name: 'apply_workspace',
-            input: { intent: `Append to ${task.id} version ${task.version}` },
+            input: {
+              intent: `Append to ${task.id} version ${task.version}`,
+              expectedMutation: {
+                kind: 'task.addSubtask',
+                target: { id: task.id, version: task.version },
+                title: 'Inspect receipt',
+              },
+            },
           },
         ],
       };

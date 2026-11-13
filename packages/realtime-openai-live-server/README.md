@@ -8,15 +8,15 @@ OpenAI project key and must never be imported into a browser bundle.
 `createLiveSessionExchange(options)` returns a `LiveSessionExchange` function
 that accepts an exchange request and an `AbortSignal`. It validates the request,
 performs one upstream session-creation attempt, and validates the answer.
-It rejects redirects and does not retry.
+It requests manual redirect handling and rejects redirect responses without retrying.
 
 `LiveSessionExchangeOptions` accepts:
 
 - `apiKey`: a non-empty, server-held OpenAI project key.
 - `timeoutMs`: a positive timeout in milliseconds, defaulting to 30,000.
   The timeout includes reading the response body.
-- `fetch`: an optional trusted fetch implementation that must honor redirect
-  rejection.
+- `fetch`: an optional trusted fetch implementation that must honor
+  `redirect: 'manual'`.
 
 The browser companion, `@maelstrom-co/realtime-openai-live`, receives the
 exchange through a host-owned callback. Shared request and response schemas,

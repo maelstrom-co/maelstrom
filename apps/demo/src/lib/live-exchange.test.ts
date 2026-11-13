@@ -228,7 +228,7 @@ describe('demo Live credential boundaries', () => {
       expect(new Headers(init?.headers).get('authorization')).toBe(
         'Bearer fixture-server-key',
       );
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       return Response.json(answer, { status: 201 });
     });
     const response = await createLocalLiveHandler(

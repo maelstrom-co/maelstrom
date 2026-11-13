@@ -32,7 +32,7 @@ describe('paid session boundary', () => {
     const exchange = exchangeWith(async (url, init) => {
       calls++;
       expect(url).toBe('https://api.openai.com/v1/live/sessions');
-      expect(init?.redirect).toBe('error');
+      expect(init?.redirect).toBe('manual');
       expect(init?.credentials).toBe('omit');
       expect(JSON.parse(String(init?.body))).toEqual(offer);
       return Response.json(answer, { status: 201 });

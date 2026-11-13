@@ -116,7 +116,17 @@ export class WorkspaceBinding {
           },
         }),
         confirm: (requestId, toolCallId) => {
-          plans.confirmed(requestId, toolCallId);
+          const plan = plans.confirmed(requestId, toolCallId);
+          return {
+            command: plan.effect?.command ?? null,
+            receipt: plan.receipt
+              ? {
+                  recordId: plan.receipt.recordId,
+                  revision: plan.receipt.records.revision,
+                }
+              : null,
+            message: plan.response.userMessage,
+          };
         },
       },
       dependencies.adapter,
