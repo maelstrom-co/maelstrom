@@ -148,6 +148,12 @@ export type {
   IntentSnapshot,
   IntentSubmission,
 } from './lib/orchestrator/intent-scheduler.types.js';
+export type {
+  AgentConversationEvents,
+  ConversationLostEvent,
+  ConversationLostReason,
+  SendUtteranceOptions,
+} from './lib/orchestrator/conversation-event.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {
   GridOrchestratorOptions,

@@ -16,7 +16,9 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/pr
 
 ## What it does
 
-- **Orchestrator** — applies layout then executes actions — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
+- **Orchestrator** — applies layout then executes actions, in two modes — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
+  - Request and reply: `processIntent` sends one intent and resolves with the engine response. It throws `RequestInFlightError` while another request is in flight.
+  - Agent conversation: `sendUtterance` hands text to the engine agent and returns an input id. It never reports busy. Agent events arrive through `orchestrator.agent.on`.
 - **Vessel registry** — registers vessel definitions so the engine knows what components are available
 - **Chart Manager** — tracks grid dimensions and applies engine layout directives as CSS positioning
 - **Connectors** — transport-agnostic contract:
@@ -55,6 +57,29 @@ await orchestrator.processIntent('show me a greeting');
 ```
 
 Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
+
+## Agent conversation
+
+```ts
+const inputId = await orchestrator.sendUtterance('show me a greeting');
+
+const offPlaceholder = orchestrator.agent.on('placeholder', (event) => {
+  // Show a pending state
+});
+const offMessage = orchestrator.agent.on('message', (event) => {
+  // Append the streamed text delta
+});
+const offFinished = orchestrator.agent.on('finished', (event) => {
+  // The run is done
+});
+const offLost = orchestrator.agent.on('conversation_lost', (event) => {
+  // event.reason is 'disconnected' or 'connector_replaced'
+});
+```
+
+Each `on` call returns an unsubscribe function. On each `ui_change` the Orchestrator applies the layout, runs the actions, then reports the result to the engine. The agent session ends with the socket, so `conversation_lost` fires on every disconnect after agent activity. An `error` event reports failures such as an admission rejection.
+
+`HttpConnector` cannot carry the agent conversation. `sendUtterance` rejects with `AgentWireUnsupportedError` there, so use `WebSocketConnector`.
 
 ## Operational telemetry
 
