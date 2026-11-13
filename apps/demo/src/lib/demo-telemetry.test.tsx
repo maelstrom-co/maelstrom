@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import type { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -15,13 +16,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const connector: EngineConnector = {
-  capabilities: { voice: false, streaming: false, stateful: false },
-  connect: async () => {},
-  disconnect: async () => {},
-  subscribe: () => () => {},
-  addAssistantMessage: async () => {},
-  getHistory: async () => [],
+const connector = createTestConnector({
   process: async (request) => ({
     type: 'maelstrom_response',
     requestId: request.id,
@@ -30,7 +25,7 @@ const connector: EngineConnector = {
     rationale: 'private response text',
     userMessage: 'private message',
   }),
-};
+});
 
 async function mountClient(owner: ReturnType<typeof createDemoTelemetry>) {
   const m = createMaelstrom({ vessels: [] })

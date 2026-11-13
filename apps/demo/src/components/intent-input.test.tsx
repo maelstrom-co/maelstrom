@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
 import {
-  type EngineConnector,
   type IntentQueueOptions,
   type Orchestrator,
   WireEngineError,
 } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
   type ChartRequestMessage,
@@ -69,20 +69,14 @@ async function setup(
     resolve: (response: MaelstromResponse) => void;
     reject: (error: Error) => void;
   }> = [];
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    subscribe: () => () => {},
+  const connector = createTestConnector({
     process: (request) => {
       sent.push(request);
       return new Promise((resolve, reject) =>
         pending.push({ resolve, reject }),
       );
     },
-  };
+  });
   let client!: Orchestrator;
   const onMintError = vi.fn();
   const onBlockedSubmit = vi.fn();
