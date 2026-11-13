@@ -12,6 +12,7 @@ import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   ActionName,
   AGENT_WIRE_VERSION,
+  type AgentInput,
   AgentEventMessage,
   decodeClientEnvelope,
   EngineErrorMessage,
@@ -31,7 +32,7 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectorEvent } from '../../connector.types.js';
-import { WireEngineError } from '../../connector.types.js';
+import { ConnectorError, WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
 import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
@@ -814,37 +815,114 @@ describe('WebSocketConnector engine.error', () => {
   });
 });
 
-describe('WebSocketConnector engine.agent.event', () => {
-  test('warns once, does not throw, and leaves a pending request untouched', async () => {
+const buildAgentEventFrame = (delta: string): ServerEnvelope =>
+  AgentEventMessage({
+    sessionId: SessionId('session-1'),
+    event: {
+      type: 'message',
+      version: AGENT_WIRE_VERSION,
+      runId: RunId('run-1'),
+      turnId: 'turn-1',
+      delta,
+    },
+  });
+
+const buildUtteranceInput = (text: string): AgentInput => ({
+  type: 'utterance',
+  version: AGENT_WIRE_VERSION,
+  inputId: MessageId('input-1'),
+  text,
+  source: 'text',
+  chart: buildEnvelope(MessageId('chart-1')).request,
+});
+
+describe('WebSocketConnector sendAgentInput', () => {
+  test('sends one client.agent.input frame carrying the session id and the exact input', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
+    const input = buildUtteranceInput('show me weather');
 
+    await connector.sendAgentInput(input);
+
+    expect(ws.sent).toHaveLength(1);
+    const decoded = decodeClientEnvelope(ws.sent[0] as string);
+    if (!isOk(decoded)) throw new Error('frame did not decode');
+    const frame = decoded.value;
+    if (frame.type !== 'client.agent.input') throw new Error(frame.type);
+    expect(frame.sessionId).toBe(SessionId('session-1'));
+    expect(frame.input).toEqual(input);
+    await connector.disconnect();
+  });
+
+  test('rejects with a transport ConnectorError before connect and sends nothing', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+
+    const rejection = await connector
+      .sendAgentInput(buildUtteranceInput('hi'))
+      .catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(ConnectorError);
+    expect((rejection as ConnectorError).kind).toBe('transport');
+    expect(FakeWebSocket.instances.every((w) => w.sent.length === 0)).toBe(
+      true,
+    );
+  });
+
+  test('rejects with a transport ConnectorError after the socket closed and sends nothing', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    ws.emitClose(1006, '');
+
+    const rejection = await connector
+      .sendAgentInput(buildUtteranceInput('hi'))
+      .catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(ConnectorError);
+    expect((rejection as ConnectorError).kind).toBe('transport');
+    expect(ws.sent).toHaveLength(0);
+  });
+});
+
+describe('WebSocketConnector engine.agent.event', () => {
+  test('delivers an agent event to every handler in arrival order and stops after unsubscribe', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const seen: string[] = [];
+    connector.onAgentEvent((event) => {
+      if (event.type === 'message') seen.push(`a:${event.delta}`);
+    });
+    const unsubscribeSecond = connector.onAgentEvent((event) => {
+      if (event.type === 'message') seen.push(`b:${event.delta}`);
+    });
+
+    emitServer(ws, buildAgentEventFrame('one'));
+    emitServer(ws, buildAgentEventFrame('two'));
+    unsubscribeSecond();
+    emitServer(ws, buildAgentEventFrame('three'));
+
+    expect(seen).toEqual(['a:one', 'b:one', 'a:two', 'b:two', 'a:three']);
+    await connector.disconnect();
+  });
+
+  test('a throwing handler does not stop later handlers or a pending request', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const delivered: string[] = [];
+    connector.onAgentEvent(() => {
+      throw new Error('handler boom');
+    });
+    connector.onAgentEvent((event) => {
+      if (event.type === 'message') delivered.push(event.delta);
+    });
     const envelope = buildEnvelope(MessageId('agent-pending-1'));
     const promise = connector.process(envelope);
 
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      expect(() =>
-        emitServer(
-          ws,
-          AgentEventMessage({
-            sessionId: SessionId('session-1'),
-            event: {
-              type: 'message',
-              version: AGENT_WIRE_VERSION,
-              runId: RunId('run-1'),
-              turnId: 'turn-1',
-              delta: 'Hello',
-            },
-          }),
-        ),
-      ).not.toThrow();
-
+      expect(() => emitServer(ws, buildAgentEventFrame('Hello'))).not.toThrow();
+      expect(delivered).toEqual(['Hello']);
       expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy.mock.calls[0][0]).toContain(
-        '[WebSocketConnector] engine.agent.event',
-      );
-      expect(warnSpy.mock.calls[0][0]).toContain('event=message');
+      expect(warnSpy.mock.calls[0][0]).toContain('[WebSocketConnector]');
     } finally {
       warnSpy.mockRestore();
     }
@@ -858,6 +936,23 @@ describe('WebSocketConnector engine.agent.event', () => {
     );
     const response = await promise;
     expect(response.userMessage).toBe('still pending');
+    await connector.disconnect();
+  });
+
+  test('does not deliver a frame from a socket a later connect() replaced', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const staleWs = await connectAndOpen(connector);
+    await connector.disconnect();
+    const liveWs = await connectAndOpen(connector);
+    const delivered: string[] = [];
+    connector.onAgentEvent((event) => {
+      if (event.type === 'message') delivered.push(event.delta);
+    });
+
+    emitServer(staleWs, buildAgentEventFrame('stale'));
+    emitServer(liveWs, buildAgentEventFrame('live'));
+
+    expect(delivered).toEqual(['live']);
     await connector.disconnect();
   });
 
