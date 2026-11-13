@@ -195,7 +195,7 @@ Illustrative grid-mode response payload:
 
 #### Engine behavior and boundaries
 
-- **Session state is optional.** With `history` configured, the Engine reads and records session history and deduplicates identical chart requests by `(sessionId, messageId)`. Without history, requests are processed without retained conversation history.
+- **Session state is optional.** With `history` configured, request/reply and UI-only connections read and record planning history. Only request/reply deduplicates identical chart requests using stored responses keyed by `(sessionId, messageId)`. Without history, the UI Planner receives no retained conversation history.
 - **Request-level flow.** A chart request passes through history loading, the configured Planner (with retries when enabled), response healing and validation, and history recording when configured.
 - **No direct UI mutation.** The Engine returns a response; the client applies its layout and executes accepted Actions. Configured history stores, loggers, instrumentation, and planner code may perform their own side effects.
 - **Transport agnostic**: The protocol can travel over WebSocket, HTTP, or another compatible transport.
@@ -205,7 +205,11 @@ The response processor heals recoverable layout and Action problems. Unrecoverab
 
 `Engine.openConnection()` provides a separate native UI-only event route. It serializes planning through whole-batch application acknowledgement. A known Layout refusal fails one run and permits queued work; uncertain application or acknowledgement timeout permanently stops that connection. A new connection does not reconcile earlier effects or authorize replay.
 
-The native event route currently passes empty planning history and accepts no automatic-update input. The demo's native mode uses legacy request/reply, as does the Engine entrypoint behind the AG-UI workspace binding. Those paths retain configured history and client-owned dispatch-time snapshots. A native browser event applier must preserve those properties and define resize/mutation handling before replacing them.
+The native UI-only event route loads configured history at planning time and records a validated plan before emitting its UI change. Stored turns are planning evidence; they cannot prove application or authorize replay. Queued runs observe preceding recorded turns after acknowledgement. History read failures fail that run; write failures are advisory. An already-started history write can finish after closure, but it cannot emit a later UI change. See the [Engine reference](https://docs.maelstrom-ai.co/reference/engine/interfaces/engine/#openconnection) for the entry point's contract.
+
+With `agent` configured, `openConnection()` runs the utterance/tool loop with a connection-local transcript. That route does not read or record configured `history`.
+
+The native event route accepts no automatic-update input. The demo's native mode uses legacy request/reply, as does the Engine entrypoint behind the AG-UI workspace binding. Those paths retain client-owned dispatch-time snapshots. A native browser event applier must preserve fresh snapshots and define resize/mutation handling before replacing them.
 
 ---
 

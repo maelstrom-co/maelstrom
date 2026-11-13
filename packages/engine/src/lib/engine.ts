@@ -30,13 +30,11 @@ import {
 } from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
-import type {
-  HistoryManager,
-  LLMContextMessage,
-} from './history/history-manager.js';
+import type { HistoryManager } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
+import { recordPlannedTurn } from './history/record-planned-turn.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import {
@@ -117,7 +115,15 @@ function isChartRequestCandidate(message: unknown): boolean {
  * requests that may reach different instances.
  */
 export interface Engine {
-  /** Opens an isolated Agent Session with host-authorized identity. The UI-only route does not use the legacy history store. */
+  /**
+   * Opens an isolated Agent Session with host-authorized identity. Without
+   * {@link EngineConfig.agent}, reads configured session history and records
+   * validated planning turns before emitting UI changes.
+   * History records proposed responses, not application evidence. Storage writes
+   * are advisory; this route never looks up or replays cached responses.
+   * With `agent` configured, runs use a connection-local transcript instead of
+   * reading or recording configured history.
+   */
   openConnection(options: OpenConnectionOptions): AgentConnection;
   /** Observes development evidence. Overlapping legacy request IDs suppress request-correlated events except engine.request.finished. Run-owned events and metadata observers are unaffected. Hosts must opt in before forwarding. */
   observeDiagnostics?: (observer: EngineDiagnosticObserver) => () => void;
@@ -268,9 +274,10 @@ export function createEngine(config: EngineConfig): Engine {
   const runChartRequest = async (
     message: ChartRequestMessage,
     signal?: AbortSignal,
-    sessionHistory?: readonly LLMContextMessage[],
     runId?: RunId,
   ): Promise<Result<ChartResponseOutput, EngineError>> => {
+    if (signal?.aborted)
+      return err(cancellationError('Request cancelled', signal.reason));
     const { request } = message;
     const diagnosticOwner = runId ? { runId, inputId: message.id } : message.id;
     logger.debug('Processing chart_request', {
@@ -301,15 +308,14 @@ export function createEngine(config: EngineConfig): Engine {
     // returned promise and break the documented `Promise<Result<…>>`
     // contract — surface it as a HistoryError so callers see the same Err
     // shape they see for assistant_message persistence failures.
-    const historyContext =
-      sessionHistory !== undefined
-        ? ok(sessionHistory)
-        : await loadHistoryContext(
-            history,
-            message.sessionId,
-            message.id,
-            logger,
-          );
+    const historyContext = await loadHistoryContext(
+      history,
+      message.sessionId,
+      message.id,
+      logger,
+    );
+    if (signal?.aborted)
+      return err(cancellationError('Request cancelled', signal.reason));
     if (isErr(historyContext)) {
       return historyContext;
     }
@@ -438,19 +444,25 @@ export function createEngine(config: EngineConfig): Engine {
       createAgentConnection(
         options,
         async (input) => {
+          const message: ChartRequestMessage = {
+            type: 'chart_request',
+            id: input.messageId,
+            sessionId: options.sessionId,
+            timestamp: Date.now(),
+            request: input.request,
+          };
           const result = await runChartRequest(
-            {
-              type: 'chart_request',
-              id: input.messageId,
-              sessionId: options.sessionId,
-              timestamp: Date.now(),
-              request: input.request,
-            },
+            message,
             input.signal,
-            [],
             input.runId,
           );
-          return isErr(result) ? result : ok(result.value.response);
+          if (isErr(result)) return result;
+          if (input.signal.aborted)
+            return err(
+              cancellationError('Request cancelled', input.signal.reason),
+            );
+          await recordPlannedTurn(history, message, result.value, logger);
+          return ok(result.value.response);
         },
         (runId, inputId, kind, metadata, readContent) =>
           diagnosticsEmitter.emit(
