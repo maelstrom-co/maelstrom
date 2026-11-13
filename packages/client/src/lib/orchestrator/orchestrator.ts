@@ -106,7 +106,9 @@ type FencedSend =
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
  *
- * The Orchestrator owns **zero private state** and emits **zero events**.
+ * The Orchestrator owns **zero private state** and emits no events of its own
+ * beyond the agent conversation events exposed through `agent`. All other
+ * events stay on the microkernel emitters.
  * It sequences calls across microkernels in the right order.
  * Consumers interact with microkernels directly for domain operations.
  *
