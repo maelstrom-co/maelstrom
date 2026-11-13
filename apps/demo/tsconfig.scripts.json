@@ -14,6 +14,9 @@
   "include": [
     "scripts/**/*.ts",
     "src/vessels/*.vessel.def.ts",
+    "src/shop/vessels/*.vessel.def.ts",
+    "src/shop/stores/fixtures.ts",
+    "src/shop/default-layout.ts",
     "src/lib/locations.ts",
     "src/lib/vessel-options.ts"
   ],
@@ -21,6 +24,9 @@
   "references": [
     {
       "path": "../../packages/protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/client/tsconfig.lib.json"
     }
   ]
 }
