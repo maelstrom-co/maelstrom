@@ -663,6 +663,97 @@ describe('Orchestrator agent path', () => {
       }
     });
 
+    it('reports the loss on an explicit disconnect even when the old transport never reports its close', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const actionStarted = Promise.withResolvers<void>();
+        const releaseAction = Promise.withResolvers<void>();
+        orchestrator.commandProcessor.registerRunner(slowBoard, {
+          step: async () => {
+            actionStarted.resolve();
+            await releaseAction.promise;
+            return ok(undefined);
+          },
+        });
+        await orchestrator.sendUtterance('hello');
+        agent.emit(
+          uiChange(
+            'change-before-disconnect',
+            boardLayout([{ instanceId: slowBoard, variant: 'collapsed' }]),
+            [step(slowBoard, 'step')],
+          ),
+        );
+        await actionStarted.promise;
+
+        await orchestrator.disconnect();
+        await orchestrator.connect();
+        releaseAction.resolve();
+        await orchestrator.commandProcessor.waitForIdle();
+        await settleBriefly();
+        agent.close({ clean: true });
+
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'disconnected' },
+        ]);
+        expect(uiAppliedInputs(agent)).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('reports the loss of an utterance whose send is still in flight at the close', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const send = holdNextSend(agent.connector);
+
+        const sent = orchestrator.sendUtterance('hello');
+        agent.close({ clean: false });
+        send.release();
+        await sent;
+
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'disconnected' },
+        ]);
+        agent.close({ clean: false });
+        expect(losses).toHaveLength(1);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('sends no ui_applied into a new session when a command_start listener closes the transport', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        await orchestrator.sendUtterance('hello');
+        let closed = false;
+        orchestrator.commandProcessor.events.on('command_start', () => {
+          if (closed) return;
+          closed = true;
+          agent.close({ clean: false });
+        });
+
+        agent.emit(
+          uiChange(
+            'change-across-close',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [],
+          ),
+        );
+        await orchestrator.commandProcessor.waitForIdle();
+        await settleBriefly();
+
+        expect(closed).toBe(true);
+        expect(uiAppliedInputs(agent)).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
     it('emits nothing on close when no conversation exists', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
@@ -677,6 +768,28 @@ describe('Orchestrator agent path', () => {
         await orchestrator.dispose();
       }
     });
+  });
+
+  it('emits connector_replaced when the connector is swapped while the first utterance is still sending', async () => {
+    const oldAgent = createMockAgentConnector();
+    const newAgent = createMockAgentConnector();
+    const orchestrator = await connectedOrchestrator(oldAgent.connector);
+    try {
+      const losses = recordConversationLosses(orchestrator);
+      const send = holdNextSend(oldAgent.connector);
+
+      const sent = orchestrator.sendUtterance('hello');
+      orchestrator.setConnector(newAgent.connector);
+      send.release();
+      await sent;
+      newAgent.close({ clean: false });
+
+      expect(losses).toEqual([
+        { type: 'conversation_lost', reason: 'connector_replaced' },
+      ]);
+    } finally {
+      await orchestrator.dispose();
+    }
   });
 
   it('emits connector_replaced on a connector swap and ignores UI changes from the old connector', async () => {
@@ -912,6 +1025,19 @@ function uiAppliedInputs(agent: MockAgentConnector): AgentUiAppliedInput[] {
   return agent.inputs.filter(
     (input): input is AgentUiAppliedInput => input.type === 'ui_applied',
   );
+}
+
+function holdNextSend(connector: EngineConnector): { release(): void } {
+  const send = connector.sendAgentInput.bind(connector);
+  const held = Promise.withResolvers<void>();
+  let holding = true;
+  connector.sendAgentInput = async (input) => {
+    if (!holding) return send(input);
+    holding = false;
+    await held.promise;
+    return send(input);
+  };
+  return { release: () => held.resolve() };
 }
 
 function recordConversationLosses(

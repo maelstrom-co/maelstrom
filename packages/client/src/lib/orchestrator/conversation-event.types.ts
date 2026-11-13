@@ -9,7 +9,7 @@ import type {
 /**
  * Why the Agent Session conversation can no longer continue.
  *
- * - `'disconnected'`: the transport closed.
+ * - `'disconnected'`: the transport closed, or the Orchestrator disconnected.
  * - `'connector_replaced'`: the Orchestrator switched to a different connector.
  */
 export type ConversationLostReason = 'disconnected' | 'connector_replaced';

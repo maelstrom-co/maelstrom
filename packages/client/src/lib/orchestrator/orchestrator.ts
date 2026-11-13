@@ -957,6 +957,7 @@ export class Orchestrator {
 
   async disconnect(): Promise<void> {
     this.#intentScheduler.setConnected(false);
+    this.#agentConversation.reportDisconnected();
     // Preserve unflushed vessel_mutations across the disconnect so a click that
     // hasn't reached the wire replays on reconnect instead of vanishing.
     // takeCoalesced() drains + clears the coordinator (buffer + timers) like

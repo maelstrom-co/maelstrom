@@ -79,6 +79,7 @@ export class AgentConversation {
   readonly #events = new TypedEmitter<AgentConversationEvents>();
   #attachment: Attachment | null = null;
   #conversationExists = false;
+  #pendingUtterances = 0;
   #sessionGeneration = 0;
 
   /** Creates a detached conversation. Call {@link attach} to start listening. */
@@ -124,7 +125,7 @@ export class AgentConversation {
    * conversation held on the previous one.
    */
   replaceConnector(): void {
-    const hadConversation = this.#conversationExists;
+    const hadConversation = this.#hasConversation();
     this.#conversationExists = false;
     this.attach();
     if (hadConversation)
@@ -145,16 +146,32 @@ export class AgentConversation {
     const attachment = this.#attachment;
     if (attachment === null) throw new Error('Agent conversation is detached');
     const inputId = MessageId();
-    await attachment.connector.sendAgentInput({
-      type: 'utterance',
-      version: AGENT_WIRE_VERSION,
-      inputId,
-      text,
-      chart: this.#dependencies.buildChart(),
-      source: options?.source ?? 'text',
-    });
-    if (this.#attachment === attachment) this.#conversationExists = true;
+    const sessionGeneration = this.#sessionGeneration;
+    this.#pendingUtterances++;
+    try {
+      await attachment.connector.sendAgentInput({
+        type: 'utterance',
+        version: AGENT_WIRE_VERSION,
+        inputId,
+        text,
+        chart: this.#dependencies.buildChart(),
+        source: options?.source ?? 'text',
+      });
+    } finally {
+      if (sessionGeneration === this.#sessionGeneration)
+        this.#pendingUtterances--;
+    }
+    if (sessionGeneration === this.#sessionGeneration)
+      this.#conversationExists = true;
     return inputId;
+  }
+
+  /**
+   * Reports the conversation as lost because the Orchestrator disconnected on
+   * purpose. A transport close for the same disconnect reports nothing more.
+   */
+  reportDisconnected(): void {
+    this.#reportLoss('disconnected');
   }
 
   /** Detaches from the connector and disposes the emitter without reporting a loss. */
@@ -171,12 +188,18 @@ export class AgentConversation {
 
   #startNewSession(): void {
     this.#sessionGeneration++;
+    this.#pendingUtterances = 0;
+  }
+
+  #hasConversation(): boolean {
+    return this.#conversationExists || this.#pendingUtterances > 0;
   }
 
   #reportLoss(reason: 'disconnected'): void {
-    this.#startNewSession();
-    if (!this.#conversationExists) return;
+    const hadConversation = this.#hasConversation();
     this.#conversationExists = false;
+    this.#startNewSession();
+    if (!hadConversation) return;
     this.#events.emit('conversation_lost', {
       type: 'conversation_lost',
       reason,
@@ -219,6 +242,7 @@ export class AgentConversation {
     connector: EngineConnector,
     isFenced: FenceCheck,
   ): void {
+    const sessionGeneration = this.#sessionGeneration;
     let settlement: Promise<SettledAgentChange>;
     try {
       settlement = this.#dependencies.dispatchChange(event.response);
@@ -229,7 +253,7 @@ export class AgentConversation {
       event,
       connector,
       isFenced,
-      this.#sessionGeneration,
+      sessionGeneration,
       settlement,
     );
   }
