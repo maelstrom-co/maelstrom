@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  type AgentInput,
   MessageId,
   type SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import { AgentWireUnsupportedError } from '../../connector.types.js';
 import { HttpConnector } from '../http-connector.js';
 
 type FetchMock = (input: string, init?: RequestInit) => Promise<Response>;
@@ -110,5 +112,31 @@ describe('HttpConnector.getHistory', () => {
     await expect(connector.getHistory(SessionId('s-1'))).rejects.toThrow(
       /malformed payload/i,
     );
+  });
+});
+
+describe('HttpConnector agent wire', () => {
+  test('sendAgentInput rejects with AgentWireUnsupportedError and makes no fetch call', async () => {
+    installFetch(async () => new Response('{}', { status: 200 }));
+
+    const connector = new HttpConnector({ baseUrl: 'https://api.example.com' });
+
+    const rejection = connector.sendAgentInput({} as AgentInput);
+    await expect(rejection).rejects.toBeInstanceOf(AgentWireUnsupportedError);
+    await expect(rejection).rejects.toThrow(
+      'Agent inputs are not supported over HTTP',
+    );
+    expect(lastCall).toBeNull();
+  });
+
+  test('onAgentEvent returns a callable unsubscribe and never fires', () => {
+    const connector = new HttpConnector({ baseUrl: 'https://api.example.com' });
+    const received: unknown[] = [];
+
+    const unsubscribe = connector.onAgentEvent((event) => received.push(event));
+
+    expect(typeof unsubscribe).toBe('function');
+    expect(() => unsubscribe()).not.toThrow();
+    expect(received).toEqual([]);
   });
 });

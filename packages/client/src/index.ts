@@ -119,6 +119,7 @@ export type {
   PushConnector,
 } from './lib/connection-manager/connector.types.js';
 export {
+  AgentWireUnsupportedError,
   ConnectorError,
   isAcknowledgedAssistantConnector,
   WireEngineError,
