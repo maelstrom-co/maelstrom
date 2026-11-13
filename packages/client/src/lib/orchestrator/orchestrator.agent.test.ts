@@ -612,6 +612,57 @@ describe('Orchestrator agent path', () => {
       }
     });
 
+    it('applies a change still running at an unclean close but sends no ui_applied into the reconnected session', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        connection: { initialDelayMs: 1 },
+      });
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const actionStarted = Promise.withResolvers<void>();
+        const releaseAction = Promise.withResolvers<void>();
+        let actionFinished = false;
+        orchestrator.commandProcessor.registerRunner(slowBoard, {
+          step: async () => {
+            actionStarted.resolve();
+            await releaseAction.promise;
+            actionFinished = true;
+            return ok(undefined);
+          },
+        });
+        await orchestrator.sendUtterance('hello');
+        agent.emit(
+          uiChange(
+            'change-from-lost-session',
+            boardLayout([{ instanceId: slowBoard, variant: 'collapsed' }]),
+            [step(slowBoard, 'step')],
+          ),
+        );
+        await actionStarted.promise;
+
+        const connect = agent.connector.connect as unknown as {
+          mock: { calls: unknown[] };
+        };
+        const connectsBeforeClose = connect.mock.calls.length;
+        agent.close({ clean: false });
+        await waitUntil(() => connect.mock.calls.length > connectsBeforeClose);
+        releaseAction.resolve();
+        await waitUntil(() => actionFinished);
+        await orchestrator.commandProcessor.waitForIdle();
+        await settleBriefly();
+
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'disconnected' },
+        ]);
+        expect(
+          orchestrator.commandProcessor.store.state.instances.has(slowBoard),
+        ).toBe(true);
+        expect(uiAppliedInputs(agent)).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
     it('emits nothing on close when no conversation exists', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);

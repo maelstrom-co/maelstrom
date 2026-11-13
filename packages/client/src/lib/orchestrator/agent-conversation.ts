@@ -76,6 +76,7 @@ export class AgentConversation {
   readonly #events = new TypedEmitter<AgentConversationEvents>();
   #attachment: Attachment | null = null;
   #conversationExists = false;
+  #sessionGeneration = 0;
 
   /** Creates a detached conversation. Call {@link attach} to start listening. */
   constructor(dependencies: AgentConversationDependencies) {
@@ -90,6 +91,7 @@ export class AgentConversation {
   /** Subscribes to agent and connection events of the current connector. */
   attach(): void {
     this.#detach();
+    this.#startNewSession();
     const connector = this.#dependencies.currentConnector();
     const isFenced = this.#dependencies.captureFence('Agent event');
     const releaseAgentEvents = connector.onAgentEvent((event) => {
@@ -164,7 +166,12 @@ export class AgentConversation {
     this.#attachment = null;
   }
 
+  #startNewSession(): void {
+    this.#sessionGeneration++;
+  }
+
   #reportLoss(reason: 'disconnected'): void {
+    this.#startNewSession();
     if (!this.#conversationExists) return;
     this.#conversationExists = false;
     this.#events.emit('conversation_lost', {
@@ -215,13 +222,20 @@ export class AgentConversation {
     } catch (error) {
       settlement = Promise.reject(toError(error));
     }
-    void this.#acknowledgeUiChange(event, connector, isFenced, settlement);
+    void this.#acknowledgeUiChange(
+      event,
+      connector,
+      isFenced,
+      this.#sessionGeneration,
+      settlement,
+    );
   }
 
   async #acknowledgeUiChange(
     event: AgentUiChangeEvent,
     connector: EngineConnector,
     isFenced: FenceCheck,
+    sessionGeneration: number,
     settlement: Promise<SettledAgentChange>,
   ): Promise<void> {
     let settled: SettledAgentChange;
@@ -235,6 +249,12 @@ export class AgentConversation {
       };
     }
     if (isFenced(`ui_applied for ${event.changeId} not sent`)) return;
+    if (sessionGeneration !== this.#sessionGeneration) {
+      console.warn(
+        `Agent conversation: ui_applied for ${event.changeId} not sent, its Agent Session ended`,
+      );
+      return;
+    }
 
     const acknowledgement: AgentUiAppliedInput = {
       type: 'ui_applied',
