@@ -1,4 +1,9 @@
-import type { AgentEvent, MessageId, RunId } from '@maelstrom-co/protocol';
+import type {
+  AgentEvent,
+  ChangeId,
+  MessageId,
+  RunId,
+} from '@maelstrom-co/protocol';
 
 /** The input or Agent Run whose silence window ran out. */
 export type StaleSubject =
@@ -29,8 +34,7 @@ export class StaleRunWatch {
   readonly #onStale: (subject: StaleSubject) => void;
   readonly #inputs = new Map<MessageId, InputWatch>();
   readonly #runs = new Map<RunId, RunWatch>();
-  readonly #finishedRunChangesApplying = new Map<RunId, number>();
-  #changesApplying = 0;
+  readonly #changesApplying = new Map<ChangeId, RunId | null>();
 
   /**
    * Creates an empty watch. With an infinite window no subject is watched.
@@ -45,7 +49,7 @@ export class StaleRunWatch {
     if (!Number.isFinite(this.#windowMs)) return;
     const watch: InputWatch = { kind: 'input', inputId, timer: undefined };
     this.#inputs.set(inputId, watch);
-    if (this.#changesApplying === 0) this.#arm(watch);
+    if (this.#changesApplying.size === 0) this.#arm(watch);
   }
 
   /** Updates the windows for one agent event received from the connector. */
@@ -54,7 +58,7 @@ export class StaleRunWatch {
     switch (event.type) {
       case 'placeholder': {
         const input = this.#inputs.get(event.inputId);
-        if (input !== undefined && this.#changesApplying === 0) {
+        if (input !== undefined && this.#changesApplying.size === 0) {
           this.#arm(input);
         }
         return;
@@ -72,13 +76,15 @@ export class StaleRunWatch {
         this.#recordRunActivity(event.runId);
         return;
       case 'ui_change': {
-        if (event.runId === null) return;
-        const run = this.#runs.get(event.runId);
-        if (run === undefined) return;
-        run.sawOwnEvent = true;
-        run.changesApplying += 1;
-        this.#changesApplying += 1;
-        this.#disarm(run);
+        if (this.#changesApplying.has(event.changeId)) return;
+        this.#changesApplying.set(event.changeId, event.runId);
+        const run =
+          event.runId === null ? undefined : this.#runs.get(event.runId);
+        if (run !== undefined) {
+          run.sawOwnEvent = true;
+          run.changesApplying += 1;
+          this.#disarm(run);
+        }
         this.#pauseWaiting();
         return;
       }
@@ -88,18 +94,17 @@ export class StaleRunWatch {
     }
   }
 
-  /** Restarts the window of a run once its client-applied change was acknowledged. */
-  changeAcknowledged(runId: RunId | null): void {
-    if (runId === null) return;
-    const run = this.#runs.get(runId);
+  /** Restarts the paused windows once a client-applied change was acknowledged. */
+  changeAcknowledged(changeId: ChangeId): void {
+    if (!this.#changesApplying.has(changeId)) return;
+    const runId = this.#changesApplying.get(changeId) ?? null;
+    this.#changesApplying.delete(changeId);
+    const run = runId === null ? undefined : this.#runs.get(runId);
     if (run !== undefined && run.changesApplying > 0) {
       run.changesApplying -= 1;
       if (run.changesApplying === 0) this.#arm(run);
-    } else if (!this.#settleFinishedRunChange(runId)) {
-      return;
     }
-    this.#changesApplying -= 1;
-    if (this.#changesApplying === 0) this.#restartWaiting();
+    if (this.#changesApplying.size === 0) this.#restartWaiting();
   }
 
   /** Stops watching one input, such as one whose frame was never sent. */
@@ -116,8 +121,7 @@ export class StaleRunWatch {
     for (const watch of this.#runs.values()) this.#disarm(watch);
     this.#inputs.clear();
     this.#runs.clear();
-    this.#finishedRunChangesApplying.clear();
-    this.#changesApplying = 0;
+    this.#changesApplying.clear();
   }
 
   #acceptInput(inputId: MessageId, runId: RunId | null): void {
@@ -139,7 +143,7 @@ export class StaleRunWatch {
       changesApplying: 0,
     };
     this.#runs.set(runId, run);
-    if (this.#changesApplying === 0) this.#arm(run);
+    if (this.#changesApplying.size === 0) this.#arm(run);
   }
 
   #recordRunActivity(runId: RunId): void {
@@ -152,7 +156,7 @@ export class StaleRunWatch {
   // A run the agent has not started yet may be queued behind another, so any
   // traffic on the stream shows the agent is still alive on its behalf.
   #restartQueuedRuns(): void {
-    if (this.#changesApplying > 0) return;
+    if (this.#changesApplying.size > 0) return;
     for (const run of this.#runs.values()) {
       if (!run.sawOwnEvent) this.#arm(run);
     }
@@ -177,19 +181,6 @@ export class StaleRunWatch {
     if (run === undefined) return;
     this.#disarm(run);
     this.#runs.delete(runId);
-    if (run.changesApplying > 0) {
-      this.#finishedRunChangesApplying.set(runId, run.changesApplying);
-    }
-  }
-
-  // A run can finish while its last change is still being applied, and the
-  // agent stays silent until that change is acknowledged.
-  #settleFinishedRunChange(runId: RunId): boolean {
-    const remaining = this.#finishedRunChangesApplying.get(runId);
-    if (remaining === undefined) return false;
-    if (remaining === 1) this.#finishedRunChangesApplying.delete(runId);
-    else this.#finishedRunChangesApplying.set(runId, remaining - 1);
-    return true;
   }
 
   #arm(watch: InputWatch | RunWatch): void {

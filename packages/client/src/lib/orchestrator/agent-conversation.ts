@@ -321,7 +321,7 @@ export class AgentConversation {
       chart: settled.chart ?? this.#dependencies.buildChart(),
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
-    this.#staleRunWatch.changeAcknowledged(event.runId);
+    this.#staleRunWatch.changeAcknowledged(event.changeId);
     try {
       await connector.sendInput(acknowledgement);
     } catch (error) {

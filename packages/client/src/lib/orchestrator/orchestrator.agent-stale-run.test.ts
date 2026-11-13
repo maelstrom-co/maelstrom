@@ -381,6 +381,87 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
+  describe('keeps waiting subjects paused while a change outside any watched run applies', () => {
+    it('when the change arrives after its run finished, then times the queued run from the ui_applied', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        agentRunStaleTimeoutMs: shortStaleWindowMs,
+      });
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const release = Promise.withResolvers<void>();
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: async () => {
+            await release.promise;
+            return ok(undefined);
+          },
+        });
+        const inputA = await orchestrator.sendUtterance('first');
+        agent.emit(acceptedEvent(inputA, runA));
+        agent.emit(startedEvent(runA));
+        const inputB = await orchestrator.sendUtterance('second');
+        agent.emit(acceptedEvent(inputB, runB));
+        agent.emit(finishedEvent(runA));
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(uiChangeEvent(runA, 'change-late', [step(mainBoard)]));
+        await clock.tickAsync(shortStaleWindowMs * 2);
+
+        expect(losses).toEqual([]);
+
+        release.resolve();
+        await applied;
+
+        await clock.tickAsync(shortStaleWindowMs - 1);
+        expect(losses).toEqual([]);
+
+        await clock.tickAsync(1);
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'stale_run', runId: runB },
+        ]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('when the change names no run, then times the waiting input from the ui_applied', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        agentRunStaleTimeoutMs: shortStaleWindowMs,
+      });
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const release = Promise.withResolvers<void>();
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: async () => {
+            await release.promise;
+            return ok(undefined);
+          },
+        });
+        const inputId = await orchestrator.sendUtterance('show the board');
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(uiChangeEvent(null, 'change-unowned', [step(mainBoard)]));
+        await clock.tickAsync(shortStaleWindowMs * 2);
+
+        expect(losses).toEqual([]);
+
+        release.resolve();
+        await applied;
+
+        await clock.tickAsync(shortStaleWindowMs - 1);
+        expect(losses).toEqual([]);
+
+        await clock.tickAsync(1);
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'stale_run', inputId },
+        ]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('reports no loss when the connector delivers the reply before the send resolves', () => {
     it('with accepted, then times the run instead of the input', async () => {
       const agent = createMockAgentConnector();
@@ -844,7 +925,7 @@ function step(instanceId: InstanceId): ActionExecution {
 }
 
 function uiChangeEvent(
-  runId: RunId,
+  runId: RunId | null,
   changeId: string,
   executionPlan: ActionExecution[],
 ): AgentUiChangeEvent {
