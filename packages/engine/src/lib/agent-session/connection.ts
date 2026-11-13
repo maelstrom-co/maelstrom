@@ -5,7 +5,10 @@ import type { ResolvedAgentConfig } from './agent-config.js';
 import { type AgentRunQueue, createAgentRunQueue } from './agent-run-queue.js';
 import type { AgentRunClock } from './agent-run.js';
 import { createInputAdmission } from './input-admission.js';
-import { createOrderedEmitter } from './ordered-emitter.js';
+import {
+  createOrderedEmitter,
+  type OrderedEmitter,
+} from './ordered-emitter.js';
 import {
   createRunScheduler,
   type RunObserver,
@@ -117,6 +120,7 @@ export function createAgentConnection(
           }),
           options.sessionId,
           logger,
+          events,
         );
   return {
     subscribe: (listener) => events.subscribe(listener),
@@ -130,7 +134,7 @@ export function createAgentConnection(
     async send(raw) {
       if (controller.signal.aborted) return;
       const admitted = admission.admit(raw, runs.pendingRuns());
-      if (admitted.kind === 'rejected') events.emit(admitted.event);
+      if (admitted.kind === 'rejected') runs.reject(admitted.event);
       else if (admitted.kind === 'acknowledgement')
         runs.acknowledge(admitted.input);
       else if (admitted.kind === 'utterance')
@@ -143,9 +147,11 @@ function agentRuns(
   queue: AgentRunQueue,
   sessionId: SessionId,
   logger: Logger,
+  events: OrderedEmitter<AgentEvent>,
 ): RunScheduler {
   return {
     pendingRuns: () => queue.pendingRuns(),
+    reject: (event) => events.emit(event),
     enqueue: (input) => queue.enqueue(input),
     acknowledge: (input) =>
       logger.warn('Ignored ui_applied on an agent connection', {

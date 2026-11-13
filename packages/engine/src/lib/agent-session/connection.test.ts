@@ -1237,3 +1237,124 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
     time.uninstall();
   }
 });
+
+const expectErrorObserverSendIsPlanned = async (trigger: unknown) => {
+  const events: AgentEvent[] = [];
+  let plans = 0;
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () => {
+      plans++;
+      return ok({
+        type: 'plan',
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({ sessionId: SessionId('error-observer'), user: null });
+  let followUp: Promise<void> | undefined;
+  connection.subscribe((event) => {
+    if (event.type === 'error' && followUp === undefined)
+      followUp = connection.send(utterance());
+  });
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+  try {
+    await connection.send(trigger);
+    expect(followUp).toBeDefined();
+    await followUp;
+    expect(plans).toBe(1);
+    expect(events.map((event) => event.type).slice(0, 4)).toEqual([
+      'error',
+      'placeholder',
+      'accepted',
+      'ui_change',
+    ]);
+  } finally {
+    connection.close();
+  }
+};
+
+test('an utterance sent from an unknown acknowledgement error observer is planned without further input', async () => {
+  await expectErrorObserverSendIsPlanned({
+    type: 'ui_applied',
+    version: AGENT_WIRE_VERSION,
+    changeId: 'unknown-change',
+    chart: utterance().chart,
+    actionOutcomes: [],
+  });
+});
+
+test('an utterance sent from an admission rejection error observer is planned without further input', async () => {
+  await expectErrorObserverSendIsPlanned({
+    type: 'unknown',
+    version: AGENT_WIRE_VERSION,
+    inputId: 'bad-input',
+  });
+});
+
+test('an utterance queued behind a run is planned when an error observer sends a corrected acknowledgement', async () => {
+  const events: AgentEvent[] = [];
+  const chart = makeGridRequest();
+  let plans = 0;
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () => {
+      plans++;
+      return ok(
+        buildGridResponse({
+          executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+        }),
+      );
+    },
+  }).openConnection({ sessionId: SessionId('corrected-ack'), user: null });
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+  try {
+    await connection.send({ ...utterance(), chart });
+    const change = events.find((event) => event.type === 'ui_change');
+    if (!change) throw new Error('Missing change');
+    const queued = connection.send({
+      ...utterance(),
+      inputId: MessageId('input-2'),
+      chart,
+    });
+    let corrected = false;
+    connection.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.code === 'invalid_action_outcomes' &&
+        !corrected
+      ) {
+        corrected = true;
+        void connection.send({
+          type: 'ui_applied',
+          version: AGENT_WIRE_VERSION,
+          changeId: change.changeId,
+          chart,
+          actionOutcomes: [{ ok: true }],
+        });
+      }
+    });
+    await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      chart,
+      actionOutcomes: [],
+    });
+    await queued;
+    expect(plans).toBe(2);
+    expect(events.filter((event) => event.type === 'ui_change')).toHaveLength(
+      2,
+    );
+  } finally {
+    connection.close();
+  }
+});
