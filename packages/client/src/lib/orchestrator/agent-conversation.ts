@@ -26,14 +26,19 @@ import { orderActionOutcomes } from './order-action-outcomes.js';
 
 /**
  * Settlement of one agent-authored response batch, with the per-Action records
- * when the Actions ran. `actions` is absent when the batch never reached its
- * Actions, such as a refused Layout.
+ * when the Actions ran and the Chart as the batch left it. `actions` is absent
+ * when the batch never reached its Actions, such as a refused Layout.
  */
 export type SettledAgentChange = {
   /** Outcome of the batch as a whole. */
   readonly batch: CommandBatchResult;
   /** Records of the executed Actions, when the Actions ran. */
   readonly actions: readonly ActionRecord[] | undefined;
+  /**
+   * Chart snapshot taken when the batch settled, before any later queued
+   * batch ran. Absent when the batch never reached the command queue.
+   */
+  readonly chart: ChartRequest | undefined;
 };
 
 /**
@@ -226,6 +231,7 @@ export class AgentConversation {
       settled = {
         batch: { status: 'unknown', error: toError(error) },
         actions: undefined,
+        chart: undefined,
       };
     }
     if (isFenced(`ui_applied for ${event.changeId} not sent`)) return;
@@ -234,7 +240,7 @@ export class AgentConversation {
       type: 'ui_applied',
       version: AGENT_WIRE_VERSION,
       changeId: event.changeId,
-      chart: this.#dependencies.buildChart(),
+      chart: settled.chart ?? this.#dependencies.buildChart(),
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
     try {

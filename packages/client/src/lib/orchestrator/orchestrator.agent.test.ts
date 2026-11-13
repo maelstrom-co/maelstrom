@@ -370,6 +370,45 @@ describe('Orchestrator agent path', () => {
     }
   });
 
+  it('reports the Chart from before a refused Layout even when another change is queued behind it', async () => {
+    const agent = createMockAgentConnector();
+    const seed = boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]);
+    const orchestrator = await connectedOrchestrator(agent.connector, {
+      initialLayout: seed,
+    });
+    try {
+      const duplicateLeafLayout: TilingLayout = {
+        type: 'tiling',
+        tree: ['H', tilingLeafToken(newBoard), tilingLeafToken(newBoard)],
+        instances: [
+          {
+            instanceId: newBoard,
+            vesselId: VesselId('board'),
+            variant: VariantName('collapsed'),
+          },
+        ],
+      };
+
+      agent.emit(uiChange('change-refused', duplicateLeafLayout, []));
+      agent.emit(
+        uiChange(
+          'change-next',
+          boardLayout([{ instanceId: fastBoard, variant: 'collapsed' }]),
+          [],
+        ),
+      );
+      await waitUntil(() => uiAppliedInputs(agent).length === 2);
+
+      const [refusedApplied] = uiAppliedInputs(agent);
+      expect(refusedApplied?.changeId).toBe(ChangeId('change-refused'));
+      expect(
+        refusedApplied?.chart.instances.map((instance) => instance.instanceId),
+      ).toEqual([mainBoard]);
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
   it('echoes each changeId and acknowledges consecutive changes in arrival order', async () => {
     const agent = createMockAgentConnector();
     const orchestrator = await connectedOrchestrator(agent.connector);
@@ -400,10 +439,15 @@ describe('Orchestrator agent path', () => {
       );
       await waitUntil(() => uiAppliedInputs(agent).length === 2);
 
-      expect(uiAppliedInputs(agent).map((input) => input.changeId)).toEqual([
-        ChangeId('change-first'),
-        ChangeId('change-second'),
-      ]);
+      const [firstApplied, secondApplied] = uiAppliedInputs(agent);
+      expect(firstApplied?.changeId).toBe(ChangeId('change-first'));
+      expect(secondApplied?.changeId).toBe(ChangeId('change-second'));
+      expect(
+        firstApplied?.chart.instances.map((instance) => instance.instanceId),
+      ).toEqual([slowBoard]);
+      expect(
+        secondApplied?.chart.instances.map((instance) => instance.instanceId),
+      ).toEqual([fastBoard]);
     } finally {
       await orchestrator.dispose();
     }

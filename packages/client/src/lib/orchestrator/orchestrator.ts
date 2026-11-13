@@ -1380,11 +1380,14 @@ export class Orchestrator {
   }
 
   // A Layout refusal settles `failed` and abandons the Actions, so
-  // `onActionsCompleted` never fires for it.
+  // `onActionsCompleted` never fires for it. `onCommandComplete` runs
+  // synchronously after each command of this batch, so its last call precedes
+  // the next queued batch.
   #dispatchSettledResponse(
     response: MaelstromResponse,
     requestId?: MessageId,
     onActionsCompleted?: (result: BatchExecutionResult) => void,
+    onCommandComplete?: () => void,
   ): Promise<CommandBatchResult> {
     const layoutCommand = {
       kind: 'set_layout' as const,
@@ -1463,11 +1466,19 @@ export class Orchestrator {
           if (e.command === actionsCommand) onActionsCompleted(e.result);
         })
       : undefined;
+    const releaseCompleteListener = onCommandComplete
+      ? this.#commandProcessor.events.on('command_complete', (e) => {
+          if (e.command === layoutCommand || e.command === actionsCommand)
+            onCommandComplete();
+        })
+      : undefined;
     const settlement = this.#commandProcessor.dispatchSettled(
       layoutCommand,
       actionsCommand,
     );
     if (releaseActionsListener) void settlement.finally(releaseActionsListener);
+    if (releaseCompleteListener)
+      void settlement.finally(releaseCompleteListener);
     return settlement;
   }
 
@@ -1483,17 +1494,22 @@ export class Orchestrator {
           error: new Error('Orchestrator is disposed'),
         },
         actions: undefined,
+        chart: undefined,
       };
     }
     let actions: readonly ActionRecord[] | undefined;
+    let chart: ChartRequest | undefined;
     const batch = await this.#dispatchSettledResponse(
       response,
       response.requestId,
       (result) => {
         actions = result.actions;
       },
+      () => {
+        chart = this.#buildChart([]);
+      },
     );
-    return { batch, actions };
+    return { batch, actions, chart };
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
