@@ -39,7 +39,7 @@ export class StaleRunWatch {
     this.#onStale = onStale;
   }
 
-  /** Starts the window of an input once its frame reached the connector. */
+  /** Starts the window of an input as its frame is handed to the connector. */
   inputSent(inputId: MessageId): void {
     if (!Number.isFinite(this.#windowMs)) return;
     const watch: InputWatch = { kind: 'input', inputId, timer: undefined };
@@ -59,7 +59,7 @@ export class StaleRunWatch {
         return;
       }
       case 'error':
-        if (event.inputId !== undefined) this.#stopInput(event.inputId);
+        if (event.inputId !== undefined) this.stopInput(event.inputId);
         return;
       case 'accepted':
         this.#acceptInput(event.inputId, event.runId);
@@ -98,6 +98,14 @@ export class StaleRunWatch {
     if (this.#changesApplying === 0) this.#restartWaiting();
   }
 
+  /** Stops watching one input, such as one whose frame was never sent. */
+  stopInput(inputId: MessageId): void {
+    const input = this.#inputs.get(inputId);
+    if (input === undefined) return;
+    this.#disarm(input);
+    this.#inputs.delete(inputId);
+  }
+
   /** Stops watching every subject. */
   clear(): void {
     for (const watch of this.#inputs.values()) this.#disarm(watch);
@@ -109,7 +117,7 @@ export class StaleRunWatch {
 
   #acceptInput(inputId: MessageId, runId: RunId | null): void {
     if (!this.#inputs.has(inputId)) return;
-    this.#stopInput(inputId);
+    this.stopInput(inputId);
     if (runId === null) return;
     const existing = this.#runs.get(runId);
     if (existing !== undefined) {
@@ -157,13 +165,6 @@ export class StaleRunWatch {
   #restartWaiting(): void {
     for (const input of this.#inputs.values()) this.#arm(input);
     this.#restartQueuedRuns();
-  }
-
-  #stopInput(inputId: MessageId): void {
-    const input = this.#inputs.get(inputId);
-    if (input === undefined) return;
-    this.#disarm(input);
-    this.#inputs.delete(inputId);
   }
 
   #stopRun(runId: RunId): void {

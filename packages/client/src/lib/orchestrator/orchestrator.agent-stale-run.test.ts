@@ -6,6 +6,7 @@ import {
   AGENT_WIRE_VERSION,
   type AgentAcceptedEvent,
   type AgentErrorEvent,
+  type AgentEvent,
   type AgentFinishedEvent,
   type AgentMessageEvent,
   type AgentPlaceholderEvent,
@@ -26,7 +27,10 @@ import {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import { createMockAgentConnector } from '../../../test-utils/agent-connector-mock.js';
+import {
+  createMockAgentConnector,
+  type MockAgentConnector,
+} from '../../../test-utils/agent-connector-mock.js';
 import type { EngineConnector } from '../connection-manager/connector.types.js';
 import type {
   AgentConversationEvents,
@@ -333,6 +337,66 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
+  describe('reports no loss when the connector delivers the reply before the send resolves', () => {
+    it('with accepted, then times the run instead of the input', async () => {
+      const agent = createMockAgentConnector();
+      replyBeforeSendResolves(agent, (inputId) => acceptedEvent(inputId, runA));
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        await orchestrator.sendUtterance('show the board');
+        agent.emit(startedEvent(runA));
+        await clock.tickAsync(1000);
+        agent.emit(finishedEvent(runA));
+
+        await clock.tickAsync(farPastWindowMs);
+
+        expect(losses).toEqual([]);
+        expect(clock.countTimers()).toBe(0);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('with error', async () => {
+      const agent = createMockAgentConnector();
+      replyBeforeSendResolves(agent, (inputId) => errorEvent(inputId));
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        await orchestrator.sendUtterance('show the board');
+
+        await clock.tickAsync(farPastWindowMs);
+
+        expect(losses).toEqual([]);
+        expect(clock.countTimers()).toBe(0);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+  });
+
+  it('leaves no timer for an utterance whose send rejects', async () => {
+    const agent = createMockAgentConnector();
+    agent.connector.sendAgentInput = () =>
+      Promise.reject(new Error('transport refused the frame'));
+    const orchestrator = await connectedOrchestrator(agent.connector);
+    try {
+      const losses = recordConversationLosses(orchestrator);
+
+      const timersBefore = clock.countTimers();
+      await expect(
+        orchestrator.sendUtterance('show the board'),
+      ).rejects.toThrow('transport refused the frame');
+
+      expect(clock.countTimers()).toBe(timersBefore);
+      await clock.tickAsync(farPastWindowMs);
+      expect(losses).toEqual([]);
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
   describe('keeps one window for a run a second accepted names again', () => {
     it('reports no loss after the run finished', async () => {
       const agent = createMockAgentConnector();
@@ -520,6 +584,17 @@ async function connectedOrchestrator(
   await orchestrator.commandProcessor.waitForIdle();
   await orchestrator.connect();
   return orchestrator;
+}
+
+function replyBeforeSendResolves(
+  agent: MockAgentConnector,
+  reply: (inputId: MessageId) => AgentEvent,
+): void {
+  const send = agent.connector.sendAgentInput.bind(agent.connector);
+  agent.connector.sendAgentInput = async (input) => {
+    if (input.type === 'utterance') agent.emit(reply(input.inputId));
+    await send(input);
+  };
 }
 
 function recordConversationLosses(

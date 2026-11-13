@@ -156,6 +156,10 @@ export class AgentConversation {
     if (attachment === null) throw new Error('Agent conversation is detached');
     const inputId = MessageId();
     const sessionGeneration = this.#sessionGeneration;
+    const chart = this.#dependencies.buildChart();
+    // The connector may deliver the reply before its send resolves, so the
+    // input must be watched before the await or that reply finds no watch.
+    this.#staleRunWatch.inputSent(inputId);
     this.#pendingUtterances++;
     try {
       await attachment.connector.sendInput({
@@ -163,16 +167,20 @@ export class AgentConversation {
         version: AGENT_WIRE_VERSION,
         inputId,
         text,
-        chart: this.#dependencies.buildChart(),
+        chart,
         source: options?.source ?? 'text',
       });
-    } finally {
+    } catch (error) {
       if (sessionGeneration === this.#sessionGeneration)
         this.#pendingUtterances--;
+      this.#staleRunWatch.stopInput(inputId);
+      throw error;
     }
     if (sessionGeneration === this.#sessionGeneration) {
+      this.#pendingUtterances--;
       this.#conversationExists = true;
-      this.#staleRunWatch.inputSent(inputId);
+    } else {
+      this.#staleRunWatch.stopInput(inputId);
     }
     return inputId;
   }
