@@ -13,6 +13,11 @@
  * `@maelstrom-co/client` to workspace source instead of a possibly stale
  * build.
  *
+ * By default the server runs the pet shop agent, which answers with Server
+ * Tools and text and sends no `ui_change`. Start the server with
+ * `MAELSTROM_AGENT=off` to get the UI-only route, where each utterance is
+ * planned into a `ui_change` the Orchestrator applies and acknowledges.
+ *
  * Options:
  *   --stale <ms|off>  initial `agentRunStaleTimeoutMs` (default: the client
  *                     default, `off` disables the stale run safety net)

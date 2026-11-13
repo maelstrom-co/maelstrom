@@ -4,6 +4,9 @@
  * `jev-composed-pairs` (the experimental Jev planner that composes the
  * layout from pair answers). The hosted Worker never reads this; it always
  * plans with the LLM.
+ *
+ * `MAELSTROM_AGENT=off` leaves the demo agent out of the server-key engine,
+ * so utterances take the UI-only route and answer with `ui_change`.
  */
 import type { Engine } from '@maelstrom-co/engine';
 
@@ -52,6 +55,7 @@ export interface LocalEngine extends SharedEngineResult {
 export function buildSharedEngine(
   apiKey: string,
   secrets: readonly string[] = [apiKey],
+  withAgent = true,
 ): SharedEngineResult {
   try {
     // Same redacting logger as hosted: OpenAI 401s can echo the key into
@@ -62,7 +66,7 @@ export function buildSharedEngine(
       engine: createPlaygroundEngine({
         adapter,
         logger: createRedactingLogger(secrets),
-        agent: createDemoAgentConfig(adapter),
+        ...(withAgent ? { agent: createDemoAgentConfig(adapter) } : {}),
       }),
       initError: null,
     };
@@ -96,10 +100,11 @@ export function buildLocalEngine(
   const typesafeKey = env.TYPESAFE_API_KEY?.trim() ?? '';
   const secrets = [openaiKey, typesafeKey].filter((key) => key.length > 0);
   const logger = createRedactingLogger(secrets);
+  const withAgent = readAgentSwitch(env, secrets);
 
   if (planner === 'llm') {
     const shared = openaiKey
-      ? buildSharedEngine(openaiKey, secrets)
+      ? buildSharedEngine(openaiKey, secrets, withAgent)
       : { engine: null, initError: 'No server OpenAI key configured.' };
     logger.info('local_planner.ready', {
       planner: 'llm',
@@ -142,7 +147,7 @@ export function buildLocalEngine(
       planner,
       adapter,
       logger,
-      agent: createDemoAgentConfig(adapter),
+      ...(withAgent ? { agent: createDemoAgentConfig(adapter) } : {}),
       typesafe: {
         apiKey: typesafeKey,
         model,
@@ -171,6 +176,18 @@ export function buildLocalEngine(
     helloReceived: true,
     secrets,
   };
+}
+
+function readAgentSwitch(
+  env: Readonly<Record<string, string | undefined>>,
+  secrets: readonly string[],
+): boolean {
+  const value = env.MAELSTROM_AGENT?.trim() || 'on';
+  if (value === 'on') return true;
+  if (value === 'off') return false;
+  throw new Error(
+    `MAELSTROM_AGENT must be on or off, got "${redactSecrets(value, secrets)}".`,
+  );
 }
 
 function isJevPlanner(planner: string): planner is JevPlannerName {
