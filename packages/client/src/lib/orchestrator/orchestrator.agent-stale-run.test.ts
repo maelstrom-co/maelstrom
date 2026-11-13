@@ -437,6 +437,65 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
+  describe('applies and acknowledges a change of a run that already finished', () => {
+    it('when the change arrives after finished', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const inputId = await orchestrator.sendUtterance('show the board');
+        agent.emit(acceptedEvent(inputId, runA));
+        agent.emit(startedEvent(runA));
+        agent.emit(finishedEvent(runA));
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(uiChangeEvent(runA, 'change-late', []));
+        const acknowledgement = await applied;
+        await clock.tickAsync(farPastWindowMs);
+
+        expect(acknowledgement.changeId).toBe(ChangeId('change-late'));
+        expect(
+          orchestrator.commandProcessor.store.state.instances.has(mainBoard),
+        ).toBe(true);
+        expect(losses).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('when finished arrives while the change is still applying', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const release = Promise.withResolvers<void>();
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: async () => {
+            await release.promise;
+            return ok(undefined);
+          },
+        });
+        const inputId = await orchestrator.sendUtterance('show the board');
+        agent.emit(acceptedEvent(inputId, runA));
+        agent.emit(startedEvent(runA));
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(uiChangeEvent(runA, 'change-slow', [step(mainBoard)]));
+        await clock.tickAsync(0);
+        agent.emit(finishedEvent(runA));
+        release.resolve();
+        const acknowledgement = await applied;
+        await clock.tickAsync(farPastWindowMs);
+
+        expect(acknowledgement.changeId).toBe(ChangeId('change-slow'));
+        expect(acknowledgement.actionOutcomes).toEqual([{ ok: true }]);
+        expect(losses).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('keeps one window for a run a second accepted names again', () => {
     it('reports no loss after the run finished', async () => {
       const agent = createMockAgentConnector();
