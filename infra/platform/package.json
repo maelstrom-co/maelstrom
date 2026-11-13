@@ -23,8 +23,46 @@
         "options": {
           "cwd": "{projectRoot}",
           "command": "bun run validate"
-        }
+        },
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "externalValidationSources"
+        ]
+      },
+      "test": {
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "externalValidationSources"
+        ]
+      },
+      "typecheck": {
+        "inputs": [
+          "default",
+          "^default",
+          "toolchain",
+          "externalValidationSources"
+        ]
       }
+    },
+    "namedInputs": {
+      "externalValidationSources": [
+        "{workspaceRoot}/scripts/**/*",
+        "{workspaceRoot}/apps/*/alchemy*.run.ts",
+        "{workspaceRoot}/apps/*/infra/**/*",
+        "{workspaceRoot}/apps/*/migrations/**/*",
+        "{workspaceRoot}/apps/*/project.json",
+        "{workspaceRoot}/{apps,infra,packages,tools}/*/package.json",
+        "{workspaceRoot}/.github/**/*",
+        "{workspaceRoot}/apps/*/src/env.d.ts",
+        "{workspaceRoot}/wrangler.{json,jsonc,toml}",
+        "{workspaceRoot}/{apps,infra,packages,tools}/**/wrangler.{json,jsonc,toml}",
+        "{workspaceRoot}/worker-configuration.d.ts",
+        "{workspaceRoot}/{apps,infra,packages,tools}/**/worker-configuration.d.ts"
+      ]
     }
   },
   "dependencies": {

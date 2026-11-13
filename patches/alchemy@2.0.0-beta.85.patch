@@ -373,16 +373,17 @@ diff --git a/src/Apply.ts b/src/Apply.ts
          deletedFirst = true;
        }
  
-@@ -1397,7 +1460,7 @@
+@@ -1397,7 +1460,8 @@
  
        if (inCycle && node.provider.precreate && attr === undefined) {
++        yield* checkpoint(precreateProps);
          yield* report("pre-creating");
 -        attr = yield* node.provider
 +        const stub = yield* node.provider
            .precreate({
              id: logicalId,
              fqn,
-@@ -1407,25 +1470,10 @@
+@@ -1407,25 +1471,10 @@
              bindings: excludeDeletedBindings(node.bindings),
            })
            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
@@ -412,7 +413,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
        }
  
        // See create-flow note: while we're waiting on upstream outputs
-@@ -1441,12 +1489,15 @@
+@@ -1441,12 +1490,15 @@
        const news = (yield* Output.evaluate(node.props, outputs)) as Record<string, any>;
  
        const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
@@ -429,7 +430,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
        }
  
        attr = yield* node.provider
-@@ -1761,6 +1812,7 @@
+@@ -1761,6 +1813,7 @@
    >,
    reportEvent: Reporter,
    state: {
@@ -437,7 +438,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
      set: <V extends PersistedState>(req: {
        stack: string;
        stage: string;
-@@ -1797,13 +1849,16 @@
+@@ -1797,13 +1850,16 @@
        const instanceId = tracker[fqn].instanceId;
  
        const scopedSession = resourceSession(reportEvent, fqn, logicalId);
@@ -455,7 +456,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            node,
            newProps,
            fqn,
-@@ -1844,12 +1899,17 @@
+@@ -1844,12 +1900,17 @@
          instanceId,
        });
  
@@ -474,7 +475,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
            fqn,
            logicalId,
            instanceId,
-@@ -1870,7 +1930,7 @@
+@@ -1870,7 +1931,7 @@
            removalPolicy: node.resource.RemovalPolicy,
            providerMode: node.mode,
            adoptionBlocked: node.adoptionBlocked,
@@ -483,7 +484,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
        });
  
        terminalStatuses.set(fqn, {
-@@ -2132,6 +2192,8 @@
+@@ -2132,6 +2193,8 @@
                providerMode: generation.providerMode,
              };
  
@@ -492,7 +493,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
          const adoptionBlocked = isDeleteNode(node)
            ? node.state.adoptionBlocked
            : generation.adoptionBlocked;
-@@ -2239,6 +2301,10 @@
+@@ -2239,6 +2302,10 @@
  
          function deleteResourceBody() {
            return Effect.gen(function* () {
@@ -503,7 +504,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
              if (isDeleteNode(node)) {
                yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
                if (node.action === "orphaned") {
-@@ -2281,7 +2347,7 @@
+@@ -2281,7 +2348,7 @@
                      "migrated predecessor. Any interrupted new physical " +
                      "resource must be identified and cleaned up manually.",
                  );
@@ -512,7 +513,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
                  yield* scopedSession.note(
                    "Skipping recovery: unresolved properties were omitted from " +
                      "this interrupted create's state, so they cannot identify it. " +
-@@ -2349,6 +2415,8 @@
+@@ -2349,6 +2416,8 @@
                  removalPolicy: node.resource.RemovalPolicy,
                  providerMode,
                  adoptionBlocked,
@@ -521,7 +522,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
                  propsIncomplete: incompleteProps,
                });
              }
-@@ -2420,6 +2488,8 @@
+@@ -2420,6 +2489,8 @@
                    bindings: excludeDeletedBindings(node.bindings),
                    removalPolicy: node.removalPolicy,
                    providerMode: node.providerMode,
@@ -1157,16 +1158,17 @@ diff --git a/lib/Apply.js b/lib/Apply.js
              deletedFirst = true;
          }
          if (attr !== undefined) {
-@@ -994,7 +1036,7 @@
+@@ -994,7 +1036,8 @@
          }
          if (inCycle && node.provider.precreate && attr === undefined) {
++            yield* checkpoint(precreateProps);
              yield* report("pre-creating");
 -            attr = yield* node.provider
 +            const stub = yield* node.provider
                  .precreate({
                  id: logicalId,
                  fqn,
-@@ -1004,25 +1046,10 @@
+@@ -1004,25 +1047,10 @@
                  bindings: excludeDeletedBindings(node.bindings),
              })
                  .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
@@ -1196,7 +1198,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
          }
          // See create-flow note: while we're waiting on upstream outputs
          // the replacement isn't actually being created yet.
-@@ -1033,11 +1060,14 @@
+@@ -1033,11 +1061,14 @@
          yield* report("creating replacement");
          const news = (yield* Output.evaluate(node.props, outputs));
          const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
@@ -1212,7 +1214,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
          }
          attr = yield* node.provider
              .reconcile({
-@@ -1287,12 +1317,15 @@
+@@ -1287,12 +1318,15 @@
              const namespace = node.resource.Namespace;
              const instanceId = tracker[fqn].instanceId;
              const scopedSession = resourceSession(reportEvent, fqn, logicalId);
@@ -1229,7 +1231,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                  if (observed !== undefined && Unowned.is(observed) && !deferredAdoption.adopt) {
                      return yield* new OwnedBySomeoneElse({
                          message: `Cannot converge resource '${fqn}' (${node.resource.Type}): ` +
-@@ -1322,12 +1355,17 @@
+@@ -1322,12 +1356,17 @@
                  bindings: newBindings,
                  instanceId,
              });
@@ -1248,7 +1250,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                      fqn,
                      logicalId,
                      instanceId,
-@@ -1533,6 +1571,8 @@
+@@ -1533,6 +1572,8 @@
                      }))),
                      providerMode: generation.providerMode,
                  };
@@ -1257,7 +1259,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
              const adoptionBlocked = isDeleteNode(node)
                  ? node.state.adoptionBlocked
                  : generation.adoptionBlocked;
-@@ -1606,6 +1646,10 @@
+@@ -1606,6 +1647,10 @@
              })));
              function deleteResourceBody() {
                  return Effect.gen(function* () {
@@ -1268,7 +1270,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                      if (isDeleteNode(node)) {
                          yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
                          if (node.action === "orphaned") {
-@@ -1644,7 +1688,7 @@
+@@ -1644,7 +1689,7 @@
                                  "migrated predecessor. Any interrupted new physical " +
                                  "resource must be identified and cleaned up manually.");
                          }
@@ -1277,7 +1279,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                              yield* scopedSession.note("Skipping recovery: unresolved properties were omitted from " +
                                  "this interrupted create's state, so they cannot identify it. " +
                                  "Any interrupted physical resource must be identified and " +
-@@ -1702,6 +1746,8 @@
+@@ -1702,6 +1747,8 @@
                              removalPolicy: node.resource.RemovalPolicy,
                              providerMode,
                              adoptionBlocked,
@@ -1286,7 +1288,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                              propsIncomplete: incompleteProps,
                          });
                      }
-@@ -1764,6 +1810,8 @@
+@@ -1764,6 +1811,8 @@
                                  bindings: excludeDeletedBindings(node.bindings),
                                  removalPolicy: node.removalPolicy,
                                  providerMode: node.providerMode,
@@ -1295,7 +1297,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
                                  propsIncomplete: node.propsIncomplete,
                              });
                          }
-@@ -1868,4 +1916,3 @@
+@@ -1868,4 +1917,3 @@
      const sa = new Set(a);
      return sa.size === new Set(b).size && b.every((fqn) => sa.has(fqn));
  };

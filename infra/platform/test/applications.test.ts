@@ -569,7 +569,7 @@ describe('application infrastructure contract', () => {
     const patchPath = 'patches/alchemy@2.0.0-beta.85.patch';
     expect(root.patchedDependencies?.['alchemy@2.0.0-beta.85']).toBe(patchPath);
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
-      '985f99862cf7087ed0d26557f0a928734f8e548a2ffd0139a6bdfbc99bf68936',
+      'c44de344916c559071d5e3f9aeb62623425a6bee0949a362b7e055fb2ca76b5c',
     );
     const lockfile = read('bun.lock');
     expect(lockfile).toContain('alchemy@2.0.0-beta.85');

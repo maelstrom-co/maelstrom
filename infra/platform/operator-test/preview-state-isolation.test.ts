@@ -187,7 +187,6 @@ test('library logs and Interaction errors cannot disclose an SDK secret-probe bo
       `
     import * as Effect from 'effect/Effect';
     import * as Interaction from 'alchemy/Interaction';
-    import * as Interaction from 'alchemy/Interaction';
     import {makePreviewIsolationRuntime} from './preview-state-isolation.ts';
     const r=makePreviewIsolationRuntime(${JSON.stringify(config)});
     try { await r.run(Effect.gen(function*(){ yield* Effect.logError('secret-sentinel'); const i=yield* Interaction.Interaction; yield* i.output.error('secret-sentinel'); return yield* Effect.fail(new Error('secret-sentinel')); }),'ISOLATION_FIXED'); }
