@@ -779,7 +779,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
       case 'engine.agent.event': {
         if (socket !== this.#ws) return;
-        for (const handler of this.#agentEventHandlers) {
+        for (const handler of [...this.#agentEventHandlers]) {
+          if (!this.#agentEventHandlers.has(handler)) continue;
           try {
             handler(envelope.event);
           } catch (error) {

@@ -12,6 +12,7 @@ import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   ActionName,
   AGENT_WIRE_VERSION,
+  type AgentEvent,
   type AgentInput,
   AgentEventMessage,
   decodeClientEnvelope,
@@ -901,6 +902,42 @@ describe('WebSocketConnector engine.agent.event', () => {
     emitServer(ws, buildAgentEventFrame('three'));
 
     expect(seen).toEqual(['a:one', 'b:one', 'a:two', 'b:two', 'a:three']);
+    await connector.disconnect();
+  });
+
+  test('delivers each frame once to a handler that re-subscribes itself during dispatch', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const seen: string[] = [];
+    const handler = (event: AgentEvent) => {
+      if (event.type === 'message') seen.push(event.delta);
+      if (seen.length > 5) return;
+      unsubscribe();
+      unsubscribe = connector.onAgentEvent(handler);
+    };
+    let unsubscribe = connector.onAgentEvent(handler);
+
+    emitServer(ws, buildAgentEventFrame('one'));
+    emitServer(ws, buildAgentEventFrame('two'));
+
+    expect(seen).toEqual(['one', 'two']);
+    await connector.disconnect();
+  });
+
+  test('skips a handler that an earlier handler unsubscribed during the same dispatch', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const seen: string[] = [];
+    connector.onAgentEvent(() => {
+      unsubscribeSecond();
+    });
+    const unsubscribeSecond = connector.onAgentEvent((event) => {
+      if (event.type === 'message') seen.push(event.delta);
+    });
+
+    emitServer(ws, buildAgentEventFrame('one'));
+
+    expect(seen).toEqual([]);
     await connector.disconnect();
   });
 
