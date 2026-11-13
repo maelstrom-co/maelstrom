@@ -150,31 +150,31 @@ test('the runtime rejects source mutations, undeclared target outputs and defaul
   }
 });
 
-test('a state response larger than the memory budget fails before JSON decoding or writes', async () => {
-  const runtime = makePreviewIsolationRuntime(
-    config,
-    HttpClient.make((request) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          new Response('x'.repeat(16 * 1024 * 1024 + 1)),
+test('valid state JSON succeeds below the response limit and fails above it', async () => {
+  for (const size of [1024, 16 * 1024 * 1024 + 1]) {
+    const value = { payload: 'x'.repeat(size) };
+    const runtime = makePreviewIsolationRuntime(
+      config,
+      HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(request, Response.json(value)),
         ),
       ),
-    ),
-  );
-  try {
-    const reader = await previewWirePort(
-      runtime,
-      config,
-      'alchemy-state-store',
-      source,
-      'state-token',
     );
-    await expect(reader.get({ ...scope, fqn: 'Website' })).rejects.toThrow(
-      'ISOLATION_RESOURCE_READ_FAILED',
-    );
-  } finally {
-    await runtime.dispose();
+    try {
+      const reader = await previewWirePort(
+        runtime,
+        config,
+        'alchemy-state-store',
+        source,
+        'state-token',
+      );
+      const read = reader.get({ ...scope, fqn: 'Website' });
+      if (size === 1024) expect(await read).toEqual(value);
+      else await expect(read).rejects.toThrow('ISOLATION_RESOURCE_READ_FAILED');
+    } finally {
+      await runtime.dispose();
+    }
   }
 });
 
