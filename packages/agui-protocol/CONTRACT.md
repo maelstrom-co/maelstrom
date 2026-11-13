@@ -1,6 +1,6 @@
 # AG-UI workspace contract
 
-The experimental AG-UI binding carries workspace planning and application results over WebSocket. The [adapter README](../agui/README.md) describes the browser, server, and contract packages. This contract is private to the workspace and is not a stable public runtime API.
+The experimental AG-UI binding carries workspace planning and application results over a host-owned transport. The [adapter README](../agui/README.md) describes the public browser, server, and contract packages. This Maelstrom-specific contract remains experimental. Both endpoints must use matching package versions.
 
 ## Transport and ownership
 
@@ -8,9 +8,9 @@ The experimental AG-UI binding carries workspace planning and application result
 
 The Engine remains the planning entry point. Its configured Planner, validation, retry policy, and history remain in use. The client Orchestrator admits intents through one FIFO and builds the authoritative request snapshot at dispatch. Resize and mutation updates retain their existing coalescing behavior. Native history reads and acknowledged message insertion retain their existing control frames on the same WebSocket.
 
-## Private input mapping
+## Workspace input mapping
 
-Each workspace frame has `type: 'demo.agui.run'` and an `input` validated as AG-UI `RunAgentInput`. The `demo.*` names are compatibility identifiers for this private WebSocket binding. AG-UI does not define these names or these `forwardedProps` operations.
+Each workspace frame has `type: 'demo.agui.run'` and an `input` validated as AG-UI `RunAgentInput`. The `demo.*` names remain compatibility identifiers for this binding. AG-UI does not define these names or these `forwardedProps` operations.
 
 `threadId` identifies the application session. Each operation has a fresh `runId` and an increasing `sequence`. `messages`, `tools`, and `context` are empty; `state` is null. `forwardedProps` accepts either:
 
@@ -19,11 +19,11 @@ Each workspace frame has `type: 'demo.agui.run'` and an `input` validated as AG-
 
 Typed and voice utterances received during active work wait in the client FIFO. Automatic updates wait and coalesce locally. They become later planning runs. Application feedback starts a separate run after command settlement. This mapping preserves the current demo's admission policy; it does not introduce a general interruption classifier or standard mid-run AG-UI input channel.
 
-[AG-UI frontend tool results](https://docs.ag-ui.com/spec/1.0/events/tool-calls.md#frontend-tools) normally return in the next run's tool messages. The private operations above are not frontend tool results. Vessel Actions and layout commands are not loop tools.
+[AG-UI frontend tool results](https://docs.ag-ui.com/spec/1.0/events/tool-calls.md#frontend-tools) normally return in the next run's tool messages. The workspace operations above are separate from frontend tool results. Vessel Actions and layout commands are not loop tools.
 
 ## Output and application acknowledgment
 
-A successful run emits `RUN_STARTED`, one `CUSTOM` result, then `RUN_FINISHED` as separate WebSocket messages.
+A successful run emits `RUN_STARTED`, one `CUSTOM` result, then `RUN_FINISHED`. WebSocket hosts send separate messages; the dedicated app returns an ordered event array over HTTP.
 
 `RUN_FINISHED` may omit `outcome` or report `success` with no pending tool calls. Interruptions, cancellation, and pending tool calls stop this binding before it accepts the result.
 
@@ -34,7 +34,7 @@ Action identities in application evidence use the same nonempty string domain as
 
 The connector validates the complete run before returning a workspace response. The Orchestrator applies layout before Actions. Its canonical batch settlement supplies Action outcomes and the structural snapshot through `EngineConnector.applicationSettled`. The client awaits this callback before admitting later planning. A failed or incomplete application stops this protocol session. Partial execution is reported as `unknown`. React subscribes to protocol errors for display; acknowledgment requires no component attachment.
 
-`RUN_ERROR` carries a safe message and `WORKSPACE_STOPPED`. Its `rawEvent` contains the private thread/run correlation. A terminal event alone never establishes application success. Native Chart-request frames are rejected once that connection has entered the AG-UI workspace flow.
+`RUN_ERROR` carries a safe message and `WORKSPACE_STOPPED`. Its `rawEvent` contains the binding's thread/run correlation. A terminal event alone never establishes application success. Hosts must keep native Chart-request frames from bypassing workspace admission on the same connection.
 
 ## Checkpoints and uncertain outcomes
 
@@ -48,7 +48,7 @@ The checkpoint is admission evidence, not durable recovery. Engine conversation 
 
 ## Verification boundaries
 
-Package tests cover correlation, sequence, duplicate acknowledgments, incomplete evidence, checkpoint restoration, and headless application settlement. The [demo integration](../../apps/demo/AGUI.md) exercises the exported connector with host authentication, native voice, Worker lifecycle, and browser rendering.
+Package tests cover correlation, sequence, duplicate acknowledgments, incomplete evidence, checkpoint restoration, and headless application settlement. The [dedicated app](../../apps/agui-demo/README.md) composes the exported client and server with durable records and voice. The [historical demo integration](../../apps/demo/AGUI.md) records earlier WebSocket lifecycle evidence.
 
 ## Local failure reasons
 

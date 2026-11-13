@@ -32,7 +32,10 @@ type PendingRun = {
 
 const eventTypes = new Set<string>(Object.values(EventType));
 
-/** Framework-independent run validation and application acknowledgment state. */
+/**
+ * Framework-independent run validation and application acknowledgment state.
+ * @experimental
+ */
 export class AguiWorkspaceClient {
   private send: ((data: string) => void) | undefined;
   private threadId = '';

@@ -1,16 +1,45 @@
 {
   "name": "@maelstrom-co/agui-server",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.1",
   "description": "Experimental server AG-UI workspace admission and Engine dispatch.",
+  "keywords": [
+    "maelstrom",
+    "ag-ui",
+    "server",
+    "experimental"
+  ],
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/server.js",
+  "module": "./dist/server.js",
+  "types": "./dist/server.d.ts",
   "sideEffects": false,
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "@maelstrom-co/source": "./src/server.ts",
       "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
     }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/agui-server"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
     "@maelstrom-co/agui-protocol": "workspace:*",

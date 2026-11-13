@@ -5,8 +5,8 @@ Map, and Labs [Vessels](../../docs/architecture.md). Typed input and GPT-Live
 share one app-owned goal runner. The app owns authorization, records, receipts,
 and recovery.
 
-The integration remains experimental. Its three AG-UI packages are private
-workspace packages. The Cloudflare resources and deployment workflows are
+The integration remains experimental. Its three AG-UI packages are public SDK
+packages with an experimental API contract. The Cloudflare resources and deployment workflows are
 configured; deployed live-provider and recovery verification remain release gates.
 
 ## Supported configuration
@@ -16,14 +16,14 @@ configured; deployed live-provider and recovery verification remain release gate
 | `@tanstack/ai` | `1.0.0` | Goal planning, authorized read tools, and frontend-tool continuation |
 | `@tanstack/ai-openai` | `1.0.0` | OpenAI text adapter |
 | `@ag-ui/core` | `1.0.0` | Outer goal events and schemas |
-| `@maelstrom-co/agui`, `agui-server`, `agui-protocol` | `0.1.0`, private | Inner workspace plan and acknowledgment exchange |
-| Maelstrom client, Engine, protocol, and React packages | `0.2.0`, built from this checkout | UI planning, application, and settlement |
+| `@maelstrom-co/agui`, `agui-server`, `agui-protocol` | `0.2.1`, experimental, built from this checkout | Inner workspace plan and acknowledgment exchange |
+| Maelstrom client, Engine, protocol, and React packages | `0.2.1`, built from this checkout | UI planning, application, and settlement |
 | Goal and Engine model | `gpt-5.4-mini` | Separate goal and UI planning calls |
 | Voice model | `gpt-live-1`, managed backend `gpt-6-luna` | Speech and delegation to the shared goal runner |
 | Local durable runtime | Miniflare `5.20261012.0-beta` | The Worker and SQLite Durable Objects |
 | Cloudflare compatibility | `2026-07-22`, `nodejs_compat` | Hosted runtime configuration |
 
-The tested SDK artifacts include local changes beyond the published `0.2.0`
+The SDK artifacts include local changes beyond the published `0.2.1`
 release. Installing that release alone does not reproduce this checkout.
 Other agent runtimes, AG-UI versions, and provider adapters have no compatibility
 claim from this example.
@@ -43,7 +43,7 @@ match the server-owned history.
 The inner `/api/workspace/exchange` transport uses `AguiWorkspaceClient` and
 `AguiWorkspaceSession`. Its custom `demo.agui.run` plan and acknowledgment runs
 follow the [workspace wire contract](../../packages/agui-protocol/CONTRACT.md).
-They are private operations with their own session identities. They do not define
+They are Maelstrom-specific operations with their own session identities. They do not define
 general AG-UI mid-run input semantics. Compatibility requires both the outer
 continuation interface and this inner application contract.
 
@@ -52,6 +52,8 @@ Dependent writes require successive continuations. Automatic Chart resize
 requests cannot perform application effects or complete a pending frontend tool.
 Layout application precedes Action execution. Retained hidden Instances keep
 their Action handlers until removal or replacement.
+The response Layout declares pre-action Variants. Successful Actions apply
+their transitions afterward, and continuation observes the settled Variants.
 
 ## Completion evidence
 
