@@ -29,6 +29,7 @@ export class StaleRunWatch {
   readonly #onStale: (subject: StaleSubject) => void;
   readonly #inputs = new Map<MessageId, InputWatch>();
   readonly #runs = new Map<RunId, RunWatch>();
+  readonly #finishedRunChangesApplying = new Map<RunId, number>();
   #changesApplying = 0;
 
   /**
@@ -91,10 +92,13 @@ export class StaleRunWatch {
   changeAcknowledged(runId: RunId | null): void {
     if (runId === null) return;
     const run = this.#runs.get(runId);
-    if (run === undefined || run.changesApplying === 0) return;
-    run.changesApplying -= 1;
+    if (run !== undefined && run.changesApplying > 0) {
+      run.changesApplying -= 1;
+      if (run.changesApplying === 0) this.#arm(run);
+    } else if (!this.#settleFinishedRunChange(runId)) {
+      return;
+    }
     this.#changesApplying -= 1;
-    if (run.changesApplying === 0) this.#arm(run);
     if (this.#changesApplying === 0) this.#restartWaiting();
   }
 
@@ -112,6 +116,7 @@ export class StaleRunWatch {
     for (const watch of this.#runs.values()) this.#disarm(watch);
     this.#inputs.clear();
     this.#runs.clear();
+    this.#finishedRunChangesApplying.clear();
     this.#changesApplying = 0;
   }
 
@@ -172,9 +177,19 @@ export class StaleRunWatch {
     if (run === undefined) return;
     this.#disarm(run);
     this.#runs.delete(runId);
-    if (run.changesApplying === 0) return;
-    this.#changesApplying -= run.changesApplying;
-    if (this.#changesApplying === 0) this.#restartWaiting();
+    if (run.changesApplying > 0) {
+      this.#finishedRunChangesApplying.set(runId, run.changesApplying);
+    }
+  }
+
+  // A run can finish while its last change is still being applied, and the
+  // agent stays silent until that change is acknowledged.
+  #settleFinishedRunChange(runId: RunId): boolean {
+    const remaining = this.#finishedRunChangesApplying.get(runId);
+    if (remaining === undefined) return false;
+    if (remaining === 1) this.#finishedRunChangesApplying.delete(runId);
+    else this.#finishedRunChangesApplying.set(runId, remaining - 1);
+    return true;
   }
 
   #arm(watch: InputWatch | RunWatch): void {
