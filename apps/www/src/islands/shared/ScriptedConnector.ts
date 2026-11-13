@@ -5,6 +5,7 @@ import type {
   EngineConnector,
   Unsubscribe,
 } from '@maelstrom-co/client';
+import { AgentWireUnsupportedError } from '@maelstrom-co/client';
 import type {
   ActionExecution,
   ChartRequestMessage,
@@ -119,7 +120,11 @@ export class ScriptedConnector implements EngineConnector {
     return () => {};
   }
 
-  async sendAgentInput(): Promise<void> {}
+  async sendAgentInput(): Promise<void> {
+    throw new AgentWireUnsupportedError(
+      'Agent inputs are not supported by the scripted connector',
+    );
+  }
 
   onAgentEvent(): Unsubscribe {
     return () => {};

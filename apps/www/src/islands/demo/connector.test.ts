@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
+import { AgentWireUnsupportedError } from '@maelstrom-co/client';
 import type { ChartRequestMessage, TilingLayout } from '@maelstrom-co/protocol';
 import {
+  AGENT_WIRE_VERSION,
   MessageId,
   ChartRequestMessage as makeChartRequestMessage,
   SessionId,
@@ -212,5 +214,21 @@ describe('createDemoConnector', () => {
     const connector = createDemoConnector(false);
     const initial = await connector.process(makeRequest());
     expect(asTiling(initial.layout).instances).toHaveLength(4);
+  });
+});
+
+describe('ScriptedConnector agent wire', () => {
+  it('rejects agent inputs with AgentWireUnsupportedError', async () => {
+    const connector = new ScriptedConnector(DEMO_STEPS);
+    await expect(
+      connector.sendAgentInput({
+        type: 'utterance',
+        version: AGENT_WIRE_VERSION,
+        inputId: MessageId('input-1'),
+        text: 'hello',
+        chart: makeRequest().request,
+        source: 'text',
+      }),
+    ).rejects.toBeInstanceOf(AgentWireUnsupportedError);
   });
 });
