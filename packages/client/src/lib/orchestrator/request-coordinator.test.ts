@@ -8,40 +8,14 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import { createMockConnector } from '../../../test-utils/connector-mocks.js';
 import { createMockResponse } from '../../../test-utils/mocks.js';
-import { createTestConnector } from '../__test-helpers__/test-connector.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
-} from '../connection-manager/connector.types.js';
-import type { Unsubscribe } from '../types.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestCoordinator } from './request-coordinator.js';
 
 // ============================================================================
 // Test helpers
 // ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return createTestConnector({
-    connect: mock(() => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() =>
-      Promise.resolve(
-        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
-      ),
-    ),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
-        () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  });
-}
 
 function createMockRequest(id = MessageId('req-1')): ChartRequestMessage {
   const request: ChartRequest = {
