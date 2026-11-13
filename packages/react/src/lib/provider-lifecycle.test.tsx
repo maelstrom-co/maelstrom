@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
-import type { ConnectorEvent } from '@maelstrom-co/client';
+import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
 import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Activity, StrictMode } from 'react';
