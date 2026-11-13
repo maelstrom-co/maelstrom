@@ -31,9 +31,10 @@ export interface OrchestratorOptionsBase {
    * Silence window in ms after which an Agent Run that has seen no
    * `finished` event is treated as lost, emitting `conversation_lost` with
    * reason `'stale_run'` (default: 150000). Pass `Infinity` to disable the
-   * safety net. Zero, negative, or `NaN` values throw at construction. The
-   * default is the Engine's 120 s Agent Run budget plus its 30 s Layout
-   * acknowledgement wait, so a live server always sends `finished` first.
+   * safety net. Zero, negative, or `NaN` values throw at construction, as do
+   * finite values above 2147483647 (the largest delay a timer accepts).
+   * The default is the Engine's 120 s Agent Run budget plus its 30 s Layout
+   * acknowledgement wait, so a live server normally sends `finished` first.
    */
   agentRunStaleTimeoutMs?: number;
   /** Connection options for the ConnectionManager */
@@ -157,6 +158,14 @@ export function resolveOrchestratorOptions(
       `agentRunStaleTimeoutMs must be a positive number or Infinity, received ${agentRunStaleTimeoutMs}`,
     );
   }
+  if (
+    Number.isFinite(agentRunStaleTimeoutMs) &&
+    agentRunStaleTimeoutMs > MAX_TIMER_DELAY_MS
+  ) {
+    throw new Error(
+      `agentRunStaleTimeoutMs must not exceed ${MAX_TIMER_DELAY_MS} (the largest timer delay), received ${agentRunStaleTimeoutMs}. Pass Infinity to disable the safety net`,
+    );
+  }
   return {
     sessionId: options.sessionId ?? SessionId(),
     layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
@@ -188,3 +197,4 @@ export interface OrchestratorViewState {
 }
 
 const DEFAULT_AGENT_RUN_STALE_TIMEOUT_MS = 150_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
