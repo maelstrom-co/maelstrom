@@ -348,6 +348,7 @@ export class Orchestrator {
       dispatchChange: (response) => this.#dispatchAgentChange(response),
       captureFence: (subject) => this.#captureFence(subject),
       logger: this.#logger,
+      agentRunStaleTimeoutMs: this.#config.agentRunStaleTimeoutMs,
     });
 
     this.#setupSubscriptions();
@@ -393,6 +394,11 @@ export class Orchestrator {
    *   when the transport closes, cleanly or not, or when {@link setConnector}
    *   replaces the connector, and only while a conversation exists, meaning at
    *   least one input was sent or one agent event arrived since the last loss.
+   *   Also fires with reason `stale_run` when an input or Agent Run stays
+   *   silent for the `agentRunStaleTimeoutMs` window, naming the `runId`, or
+   *   the `inputId` when no run was accepted yet. Time the client spends
+   *   applying a UI change does not count as silence. Events that arrive for
+   *   that run afterwards are still delivered here.
    *
    * UI changes the agent sends are applied and acknowledged internally and
    * never surface here. Subscribing after {@link dispose} throws.
@@ -636,6 +642,11 @@ export class Orchestrator {
    *   queued for {@link processIntent} or {@link flushUpdates}.
    * - The returned input id is the one the agent's `placeholder` and `error`
    *   events for this message carry.
+   * - Starts the `agentRunStaleTimeoutMs` silence window for the message.
+   *   If the agent neither accepts nor answers it in time, or the accepted
+   *   Agent Run goes silent before `finished`, {@link agent} emits
+   *   `conversation_lost` with reason `stale_run`. Pass `Infinity` for the
+   *   option to disable this.
    */
   async sendMessage(
     text: string,

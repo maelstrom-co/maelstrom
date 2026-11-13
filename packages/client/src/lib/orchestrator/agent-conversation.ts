@@ -24,6 +24,7 @@ import type {
   SendMessageOptions,
 } from './conversation-event.types.js';
 import { orderActionOutcomes } from './order-action-outcomes.js';
+import { type StaleSubject, StaleRunWatch } from './stale-run-watch.js';
 
 /**
  * Settlement of one agent-authored response batch, with the per-Action records
@@ -62,6 +63,8 @@ export type AgentConversationDependencies = {
   readonly captureFence: (subject: string) => FenceCheck;
   /** Receives warnings about acknowledgements that could not be delivered. */
   readonly logger: Logger;
+  /** Silence window after which an input or Agent Run counts as stale. */
+  readonly agentRunStaleTimeoutMs: number;
 };
 
 type Attachment = {
@@ -77,6 +80,7 @@ type Attachment = {
 export class AgentConversation {
   readonly #dependencies: AgentConversationDependencies;
   readonly #events = new TypedEmitter<AgentConversationEvents>();
+  readonly #staleRunWatch: StaleRunWatch;
   #attachment: Attachment | null = null;
   #conversationExists = false;
   #pendingUtterances = 0;
@@ -85,6 +89,10 @@ export class AgentConversation {
   /** Creates a detached conversation. Call {@link attach} to start listening. */
   constructor(dependencies: AgentConversationDependencies) {
     this.#dependencies = dependencies;
+    this.#staleRunWatch = new StaleRunWatch(
+      dependencies.agentRunStaleTimeoutMs,
+      (subject) => this.#reportStale(subject),
+    );
   }
 
   /** Read-only subscription to the surfaced conversation events. */
@@ -102,6 +110,7 @@ export class AgentConversation {
       if (this.#attachment?.connector !== connector) return;
       if (isFenced(`${event.type} dropped`)) return;
       this.#conversationExists = true;
+      this.#staleRunWatch.observe(event);
       this.#handleAgentEvent(event, connector, isFenced);
     });
     const releaseConnectionEvents = connector.subscribe(
@@ -161,8 +170,10 @@ export class AgentConversation {
       if (sessionGeneration === this.#sessionGeneration)
         this.#pendingUtterances--;
     }
-    if (sessionGeneration === this.#sessionGeneration)
+    if (sessionGeneration === this.#sessionGeneration) {
       this.#conversationExists = true;
+      this.#staleRunWatch.inputSent(inputId);
+    }
     return inputId;
   }
 
@@ -182,6 +193,7 @@ export class AgentConversation {
   }
 
   #detach(): void {
+    this.#staleRunWatch.clear();
     this.#attachment?.release();
     this.#attachment = null;
   }
@@ -195,10 +207,20 @@ export class AgentConversation {
     return this.#conversationExists || this.#pendingUtterances > 0;
   }
 
+  #reportStale(subject: StaleSubject): void {
+    this.#conversationExists = false;
+    this.#events.emit('conversation_lost', {
+      type: 'conversation_lost',
+      reason: 'stale_run',
+      ...subject,
+    });
+  }
+
   #reportLoss(reason: 'disconnected'): void {
     const hadConversation = this.#hasConversation();
     this.#conversationExists = false;
     this.#startNewSession();
+    this.#staleRunWatch.clear();
     if (!hadConversation) return;
     this.#events.emit('conversation_lost', {
       type: 'conversation_lost',
@@ -290,6 +312,7 @@ export class AgentConversation {
       chart: settled.chart ?? this.#dependencies.buildChart(),
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
+    this.#staleRunWatch.changeAcknowledged(event.runId);
     try {
       await connector.sendInput(acknowledgement);
     } catch (error) {
