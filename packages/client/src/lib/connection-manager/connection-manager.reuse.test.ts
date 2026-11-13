@@ -4,9 +4,10 @@ import { SessionId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
+import { createTestConnector } from '../__test-helpers__/test-connector.js';
 import { ConnectionManager } from './connection-manager.js';
 import type { ConnectionOptions } from './connection-manager.types.js';
-import type { ConnectorEvent, EngineConnector } from './connector.types.js';
+import type { ConnectorEvent } from './connector.types.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -22,8 +23,7 @@ function controlledConnector() {
   const shutdowns: Array<ReturnType<typeof deferred>> = [];
   const handlers = new Set<(event: ConnectorEvent) => void>();
   const connect = mock(async () => {});
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: true },
+  const connector = createTestConnector({
     connect,
     async disconnect() {
       const gate = deferred();
@@ -39,11 +39,7 @@ function controlledConnector() {
     async process() {
       throw new Error('Connection lifecycle tests make no planning requests.');
     },
-    async addAssistantMessage() {},
-    async getHistory() {
-      return [];
-    },
-  };
+  });
   return {
     connector,
     connect,

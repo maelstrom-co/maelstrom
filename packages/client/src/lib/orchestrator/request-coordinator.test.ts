@@ -9,6 +9,7 @@ import {
 } from '@maelstrom-co/protocol';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
+import { createTestConnector } from '../__test-helpers__/test-connector.js';
 import type {
   ConnectorEvent,
   EngineConnector,
@@ -24,8 +25,7 @@ import { RequestCoordinator } from './request-coordinator.js';
 function createMockConnector(
   overrides: Partial<EngineConnector> = {},
 ): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
+  return createTestConnector({
     connect: mock(() => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
@@ -40,7 +40,7 @@ function createMockConnector(
     addAssistantMessage: mock(() => Promise.resolve()),
     getHistory: mock(() => Promise.resolve([])),
     ...overrides,
-  };
+  });
 }
 
 function createMockRequest(id = MessageId('req-1')): ChartRequestMessage {

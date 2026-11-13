@@ -2,6 +2,7 @@ import { mock } from 'bun:test';
 
 import { MessageId, type SessionId } from '@maelstrom-co/protocol';
 
+import { createTestConnector } from '../src/lib/__test-helpers__/test-connector.js';
 import type {
   ConnectorEvent,
   EngineConnector,
@@ -14,8 +15,7 @@ import { createMockResponse } from './mocks.js';
 export function createMockConnector(
   overrides: Partial<EngineConnector> = {},
 ): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
+  return createTestConnector({
     connect: mock((_sessionId: SessionId) => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
@@ -29,8 +29,10 @@ export function createMockConnector(
     ),
     addAssistantMessage: mock(() => Promise.resolve()),
     getHistory: mock(() => Promise.resolve([])),
+    sendAgentInput: mock(() => Promise.resolve()),
+    onAgentEvent: mock((): Unsubscribe => () => {}),
     ...overrides,
-  };
+  });
 }
 
 export function createTestOrchestrator(
