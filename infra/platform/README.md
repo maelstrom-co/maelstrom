@@ -304,6 +304,18 @@ through reconciliation. Resolve identity from stable inputs outside the cycle.
 Providers can normalize Effect-valued runtime wiring in their `diff` when that
 wiring does not identify the physical resource. Binding-only changes remain supported.
 
+A resumed delete-first replacement in a cycle needs an explicit in-place decision
+before changed inputs can trigger deletion. This includes fully resolved inputs
+when bindings create the cycle. An inconclusive decision preserves the replacement
+checkpoint and old generation for operator recovery.
+
+Generic retries cannot make unresolved peer inputs safe to mutate. Resolve the
+necessary inputs outside the cycle, or use a provider that proves unchanged
+identity from the known inputs. Otherwise the retry remains refused. Do not clear
+state or weaken the guard to force progress. Delaying deletion or exposing recorded
+attributes before admission requires a separate recovery design.
+
+
 Live Worker checkpoints record the Cloudflare account before mutation. Planning,
 apply, and cleanup reject a missing or changed account across all generations.
 Legacy rows may use an account recorded in complete attributes. An attribute-free

@@ -39,6 +39,9 @@ export const attributes = (value: { name: string; scope?: string }) => ({
 
 export async function scenario(options: {
   cycle: boolean;
+  cyclePeer?: boolean;
+  resumeScope?: string;
+  resumePolicy?: 'inconclusive' | 'partial';
   replace: boolean;
   fail?: boolean;
   read?: boolean;
@@ -59,6 +62,7 @@ export async function scenario(options: {
   if (options.absent) owners.delete('tenant/api');
   const outputs: Array<Scoped['Attributes'] | undefined> = [];
   const bindings: string[] = [];
+  const mutations: string[] = [];
   let fail = options.fail ?? false;
   const stack = Stack.of({
     name: 'ObservedAttributes',
@@ -80,7 +84,19 @@ export async function scenario(options: {
       diff: ({ olds, news }) =>
         Effect.succeed(
           options.resume
-            ? { action: 'update' as const }
+            ? options.resumePolicy === 'inconclusive' ||
+              (options.resumePolicy === 'partial' && !isResolved(news))
+              ? undefined
+              : typeof news !== 'object' ||
+                  news === null ||
+                  !('name' in news) ||
+                  !('scope' in news) ||
+                  typeof news.name !== 'string' ||
+                  typeof news.scope !== 'string'
+                ? undefined
+                : olds.name !== news.name || olds.scope !== news.scope
+                  ? { action: 'replace' as const }
+                  : { action: 'update' as const }
             : !isResolved(news) || olds.scope !== news.scope
               ? { action: 'replace' as const, deleteFirst: options.deleteFirst }
               : undefined,
@@ -111,6 +127,7 @@ export async function scenario(options: {
         Effect.sync(() => {
           if (!isResolved(news.scope))
             return { name: news.name, physicalId: '' };
+          mutations.push('precreate:' + key(news));
           owners.set(key(news), id);
           if (options.precreateThrows)
             throw new Error('Interrupted physical precreate');
@@ -118,6 +135,7 @@ export async function scenario(options: {
         }),
       reconcile: ({ id, news, output, bindings: resolved }) =>
         Effect.gen(function* () {
+          mutations.push('reconcile:' + key(output ?? news));
           outputs.push(output);
           for (const binding of resolved) bindings.push(binding.data.self);
           if (fail && !options.writeBeforeFailure)
@@ -134,6 +152,7 @@ export async function scenario(options: {
         }),
       delete: ({ output }) =>
         Effect.sync(() => {
+          mutations.push('delete:' + key(output));
           owners.delete(key(output));
         }),
     }),
@@ -144,8 +163,11 @@ export async function scenario(options: {
         const scope = yield* Scope('Scope', { value: 'tenant' });
         const subject = yield* Scoped('Subject', {
           name: 'api',
-          scope: scope.value,
-          ...(options.wholeResource ? { source: scope } : {}),
+          scope:
+            options.resumeScope ?? (options.cyclePeer ? 'tenant' : scope.value),
+          ...(options.wholeResource || options.cyclePeer
+            ? { source: scope }
+            : {}),
           ...(options.effectWiring ? { wiring: Effect.void } : {}),
         });
         if (options.cycle) {
@@ -215,12 +237,15 @@ export async function scenario(options: {
             : old,
         });
       }
+      const initialCheckpoint = structuredClone(yield* store.get(stateKey));
       const first = yield* Plan.make(compiled).pipe(
         Effect.flatMap(Apply.apply),
         Effect.exit,
       );
       const checkpoint = yield* store.get(stateKey);
       const firstOutputs = [...outputs];
+      const firstMutations = [...mutations];
+      const firstOwners = [...owners];
       fail = false;
       const retry = options.retry
         ? yield* Plan.make(compiled).pipe(
@@ -232,9 +257,12 @@ export async function scenario(options: {
       yield* Plan.destroy(compiled).pipe(Effect.flatMap(Apply.apply));
       return {
         first,
+        initialCheckpoint,
         retry,
         checkpoint,
         firstOutputs,
+        firstMutations,
+        firstOwners,
         bindings,
         owners,
         ownersBeforeDestroy,

@@ -366,7 +366,7 @@ diff --git a/src/Apply.ts b/src/Apply.ts
        let deletedFirst = false;
        if (node.deleteFirst && inCycle) {
 -        yield* deleteFirst();
-+        if (resumedAttrs && !isResolved(node.props) && havePropsChanged(replState.props, precreateProps)) {
++        if (resumedAttrs && havePropsChanged(replState.props, precreateProps)) {
 +          yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: replState.props, news: precreateProps, output: attr, oldBindings: replState.bindings ?? [], newBindings: excludeDeletedBindings(node.bindings) });
 +        }
 +        yield* deleteFirst(precreateProps);
@@ -1151,7 +1151,7 @@ diff --git a/lib/Apply.js b/lib/Apply.js
          let deletedFirst = false;
          if (node.deleteFirst && inCycle) {
 -            yield* deleteFirst();
-+            if (resumedAttrs && !isResolved(node.props) && havePropsChanged(replState.props, precreateProps)) {
++            if (resumedAttrs && havePropsChanged(replState.props, precreateProps)) {
 +                yield* verifyInPlace(node, { id: logicalId, fqn, instanceId, olds: replState.props, news: precreateProps, output: attr, oldBindings: replState.bindings ?? [], newBindings: excludeDeletedBindings(node.bindings) });
 +            }
 +            yield* deleteFirst(precreateProps);

@@ -216,3 +216,93 @@ test('the compiled engine recovers an interrupted replacement without losing its
   expect(report.checkpoint).not.toHaveProperty('propsIncomplete', true);
   expect(report.owners).toEqual([['account/api', 'SomeoneElse']]);
 }, 35_000);
+
+test('a provider can authorize a resumed cycle with known identity and unresolved peer inputs', async () => {
+  const result = await scenario({
+    cycle: true,
+    replace: true,
+    read: true,
+    resume: true,
+    cyclePeer: true,
+  });
+  expect(Exit.isSuccess(result.first)).toBe(true);
+  expect(result.firstMutations).toContain('reconcile:tenant/api');
+  expect(result.checkpoint).toMatchObject({
+    props: { name: 'api', scope: 'tenant', source: { value: 'tenant' } },
+  });
+  expect(result.owners.get('account/api')).toBe('SomeoneElse');
+});
+
+for (const partial of [true, false]) {
+  test(`an inconclusive resumed cycle preserves identity before mutation (partial=${partial})`, async () => {
+    const result = await scenario({
+      cycle: true,
+      replace: true,
+      read: true,
+      resume: true,
+      cyclePeer: partial,
+      outsideScope: !partial,
+      resumeScope: partial ? undefined : 'account',
+      resumePolicy: partial ? 'partial' : 'inconclusive',
+    });
+    expect(Exit.isFailure(result.first)).toBe(true);
+    expect(JSON.stringify(result.first)).toContain('UnverifiableReplacement');
+    expect(result.firstMutations).toEqual([]);
+    expect(result.checkpoint).toEqual(result.initialCheckpoint);
+    expect(result.checkpoint).toMatchObject({
+      status: 'replacing',
+      instanceId: 'replacement',
+      props: { name: 'api', scope: 'tenant' },
+      attr: attributes({ name: 'api', scope: 'tenant' }),
+      old: { instanceId: 'old' },
+    });
+    expect(result.firstOwners).toContainEqual(['old/api', 'Subject']);
+    expect(result.firstOwners).toContainEqual(['tenant/api', 'Subject']);
+    expect(result.firstOwners).toContainEqual(['account/api', 'SomeoneElse']);
+    expect(result.owners.get('account/api')).toBe('SomeoneElse');
+  });
+}
+
+test('the compiled engine refuses inconclusive cycle resumes before touching either generation', () => {
+  const node = Bun.which('node');
+  if (!node) throw new Error('Node is required to verify the compiled engine');
+  const marker = 'cycle-report:';
+  const child = spawnSync(
+    node,
+    [
+      '--experimental-strip-types',
+      '--input-type=module',
+      '--eval',
+      `
+    import {scenario} from './test/helpers/observation-scenario.ts';
+    const reports=[];
+    for(const partial of [true,false]) {
+      const r=await scenario({cycle:true,replace:true,read:true,resume:true,cyclePeer:partial,outsideScope:!partial,resumeScope:partial?undefined:'account',resumePolicy:partial?'partial':'inconclusive'});
+      reports.push({outcome:r.first._tag,error:JSON.stringify(r.first),mutations:r.firstMutations,checkpoint:r.checkpoint,initialCheckpoint:r.initialCheckpoint,owners:r.firstOwners});
+    }
+    console.log(${JSON.stringify(marker)}+JSON.stringify(reports));
+  `,
+    ],
+    { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8', timeout: 30_000 },
+  );
+  expect(child.status, child.stderr).toBe(0);
+  const line = child.stdout.split('\n').find((line) => line.startsWith(marker));
+  if (!line) throw new Error('Compiled cycle probe returned no report');
+  const reports = JSON.parse(line.slice(marker.length));
+  expect(reports).toHaveLength(2);
+  for (const report of reports) {
+    expect(report.outcome).toBe('Failure');
+    expect(report.error).toContain('UnverifiableReplacement');
+    expect(report.mutations).toEqual([]);
+    expect(report.checkpoint).toEqual(report.initialCheckpoint);
+    expect(report.checkpoint).toMatchObject({
+      status: 'replacing',
+      instanceId: 'replacement',
+      props: { name: 'api', scope: 'tenant' },
+      old: { instanceId: 'old' },
+    });
+    expect(report.owners).toContainEqual(['account/api', 'SomeoneElse']);
+    expect(report.owners).toContainEqual(['old/api', 'Subject']);
+    expect(report.owners).toContainEqual(['tenant/api', 'Subject']);
+  }
+}, 35_000);
