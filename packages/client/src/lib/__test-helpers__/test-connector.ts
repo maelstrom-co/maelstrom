@@ -1,4 +1,4 @@
-import type { EngineConnector } from "../connection-manager/connector.types.js";
+import type { EngineConnector } from '../connection-manager/connector.types.js';
 
 /**
  * Builds a complete {@link EngineConnector} for tests.
@@ -19,7 +19,7 @@ export function createTestConnector(
     connect: () => Promise.resolve(),
     disconnect: () => Promise.resolve(),
     process: () =>
-      Promise.reject(new Error("createTestConnector: process was not stubbed")),
+      Promise.reject(new Error('createTestConnector: process was not stubbed')),
     subscribe: () => noopUnsubscribe,
     addAssistantMessage: () => Promise.resolve(),
     getHistory: () => Promise.resolve([]),
