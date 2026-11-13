@@ -1,4 +1,3 @@
-import { AguiWebSocketConnector } from '@maelstrom-co/agui/browser';
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   WebSocketConnector,
@@ -19,11 +18,8 @@ import { playgroundKeyStore } from './playground-key-store';
 
 function createTransport(
   options: ConstructorParameters<typeof WebSocketConnector>[0],
-  protocol?: 'native' | 'agui',
-): WebSocketConnector | AguiWebSocketConnector {
-  const Base =
-    protocol === 'agui' ? AguiWebSocketConnector : WebSocketConnector;
-  class DemoConnector extends Base {
+): WebSocketConnector {
+  class DemoConnector extends WebSocketConnector {
     private readonly metadataOwner: symbol;
     constructor(options: ConstructorParameters<typeof WebSocketConnector>[0]) {
       const owner = Symbol('engine connection');
@@ -73,7 +69,6 @@ function createTransport(
 }
 
 export interface CreateDemoConnectorOptions {
-  readonly protocol?: 'native' | 'agui';
   /**
    * Source of truth for the visitor's key. Defaults to reading
    * `playgroundKeyStore` — the same store the key drawer and custody UI
@@ -202,50 +197,47 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   const diagnosticsUrl = new URL(wsUrl);
   if (import.meta.env.DEV) diagnosticsUrl.searchParams.set('diagnostics', '1');
-  return createTransport(
-    {
-      url: diagnosticsUrl.toString(),
-      // Client-side liveness detection: the DO answers each ping via
-      // setWebSocketAutoResponse without waking the object, so this costs
-      // nothing server-side and just lets WebSocketConnector notice a dead
-      // connection (a proxy drop, a network change) and reconnect. Local dev
-      // has no proxy in front of it to drop the socket, so the heartbeat only
-      // runs in hosted mode.
-      heartbeatIntervalMs: hosted ? DEFAULT_HEARTBEAT_INTERVAL_MS : undefined,
-      onOpen: browserKeyMode
-        ? (send, sessionId) => {
-            const apiKey = getApiKey();
-            // No key yet: don't send a malformed handshake. The app
-            // composition root is responsible for prompting the key drawer
-            // before the first Send/mic press when no key is set — this
-            // function only guards against sending garbage over the wire.
-            if (!apiKey) return;
-            send(buildPlaygroundHello(sessionId, apiKey));
-          }
-        : undefined,
-      // The DO drops the visitor's key when it hibernates — deliberately, so
-      // the key is never persisted anywhere — and asks for it again on wake.
-      // The socket stayed open throughout, so onOpen never fires and this is
-      // the only path that can restore the session.
-      onFrame: hosted
-        ? (raw, send, sessionId) => {
-            if (!isRehelloFrame(raw)) return false;
-            const apiKey = getApiKey();
-            // Always answer, even empty-handed. The server is holding the
-            // frame that triggered this rehello and cannot tell a silent
-            // client from a slow one: staying quiet strands that request
-            // until the correlator times out with no diagnostic, whereas an
-            // explicit decline lets the server answer it immediately with the
-            // "open the key drawer" error the visitor can actually act on.
-            send(
-              apiKey
-                ? buildPlaygroundHello(sessionId, apiKey)
-                : PLAYGROUND_NOKEY_FRAME,
-            );
-            return true;
-          }
-        : undefined,
-    },
-    options.protocol,
-  );
+  return createTransport({
+    url: diagnosticsUrl.toString(),
+    // Client-side liveness detection: the DO answers each ping via
+    // setWebSocketAutoResponse without waking the object, so this costs
+    // nothing server-side and just lets WebSocketConnector notice a dead
+    // connection (a proxy drop, a network change) and reconnect. Local dev
+    // has no proxy in front of it to drop the socket, so the heartbeat only
+    // runs in hosted mode.
+    heartbeatIntervalMs: hosted ? DEFAULT_HEARTBEAT_INTERVAL_MS : undefined,
+    onOpen: browserKeyMode
+      ? (send, sessionId) => {
+          const apiKey = getApiKey();
+          // No key yet: don't send a malformed handshake. The app
+          // composition root is responsible for prompting the key drawer
+          // before the first Send/mic press when no key is set — this
+          // function only guards against sending garbage over the wire.
+          if (!apiKey) return;
+          send(buildPlaygroundHello(sessionId, apiKey));
+        }
+      : undefined,
+    // The DO drops the visitor's key when it hibernates — deliberately, so
+    // the key is never persisted anywhere — and asks for it again on wake.
+    // The socket stayed open throughout, so onOpen never fires and this is
+    // the only path that can restore the session.
+    onFrame: hosted
+      ? (raw, send, sessionId) => {
+          if (!isRehelloFrame(raw)) return false;
+          const apiKey = getApiKey();
+          // Always answer, even empty-handed. The server is holding the
+          // frame that triggered this rehello and cannot tell a silent
+          // client from a slow one: staying quiet strands that request
+          // until the correlator times out with no diagnostic, whereas an
+          // explicit decline lets the server answer it immediately with the
+          // "open the key drawer" error the visitor can actually act on.
+          send(
+            apiKey
+              ? buildPlaygroundHello(sessionId, apiKey)
+              : PLAYGROUND_NOKEY_FRAME,
+          );
+          return true;
+        }
+      : undefined,
+  });
 }

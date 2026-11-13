@@ -1,0 +1,80 @@
+@import 'tailwindcss';
+@source '../../../packages/demo-vessels/src';
+
+@theme {
+  --color-brand: #0091ff;
+  --color-brand-2: #00c2ff;
+  --color-brand-3: #6e5bff;
+  --color-green: #2bd46b;
+  --color-amber: #f5a524;
+  --color-pink: #ff5c8a;
+  --color-bg: #070b12;
+  --color-bg-1: #0b101a;
+  --color-bg-2: #121b29;
+  --color-ink: #e7ecf3;
+  --color-ink-2: #a2afc0;
+  --color-ink-3: #8290a4;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(ellipse at 70% 0%, #102940 0%, transparent 55%), var(--color-bg); color: var(--color-ink); font-family: var(--font-sans); }
+button, input { font: inherit; }
+button { padding: 10px 16px; border: 1px solid #30405a; border-radius: 10px; cursor: pointer; background: #152133; color: var(--color-ink); }
+button:disabled { opacity: .55; cursor: default; }
+button:hover:enabled { border-color: var(--color-brand-2); }
+input { min-width: 0; border: 1px solid #30405a; border-radius: 10px; padding: 12px; color: var(--color-ink); background: #070c14; }
+input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--color-brand-2); outline-offset: 3px; }
+.primary { color: #06111c; background: #57c4ff; border-color: #57c4ff; font-weight: 600; }
+.app-shell { height: 100dvh; display: flex; flex-direction: column; }
+.app-header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 30px; border-bottom: 1px solid #ffffff12; }
+.app-header h1 { margin: 4px 0 0; font-size: 22px; font-weight: 500; letter-spacing: -.04em; }
+.eyebrow { font-size: 10px; font-family: var(--font-mono); letter-spacing: .16em; color: #6bc9ff; }
+.header-actions { display: flex; align-items: center; gap: 14px; }
+.status-badge { color: var(--color-ink-2); font-family: var(--font-mono); font-size: 11px; }
+.welcome { max-width: 1200px; width: 100%; margin: auto; padding: 50px 30px; display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; gap: 65px; }
+.welcome h2 { margin: 20px 0; font-size: clamp(30px, 4vw, 48px); line-height: 1.1; font-weight: 500; letter-spacing: -.045em; }
+.welcome p { color: var(--color-ink-2); line-height: 1.7; font-size: 15px; }
+.vessel-list { margin-top: 30px; color: #a6d8f5; font-family: var(--font-mono); font-size: 12px; line-height: 2; }
+.setup-panel { padding: 28px; border: 1px solid #ffffff16; border-radius: 18px; background: #111c2a80; }
+.setup-panel h2 { font-size: 25px; margin-top: 0; }
+.setup-panel form { display: flex; flex-direction: column; gap: 14px; }
+.setup-panel label { font-size: 13px; margin-top: 12px; }
+.setup-panel pre { max-height: 300px; overflow: auto; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workspace-chart { flex: 1; min-height: 1px; padding: 16px 22px; overflow: hidden; }
+.goal-panel { flex-shrink: 0; padding: 12px 30px 16px; border-top: 1px solid #ffffff12; background: #070b12b0; }
+.goal-status { color: var(--color-ink-2); font-size: 13px; line-height: 1.5; max-height: 62px; overflow: auto; margin: 0 auto 10px; max-width: 1000px; }
+.goal-form { display: flex; gap: 12px; max-width: 1000px; margin: auto; }
+.goal-form input { flex: 1; }
+.goal-note { color: var(--color-ink-3); font-size: 10px; text-align: center; margin: 12px 0 0; }
+.voice-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: 1000px; margin: 12px auto 0; font-size: 12px; }
+.voice-panel button { padding: 6px 12px; }
+.voice-status, .voice-caption { color: var(--color-ink-2); }
+.voice-caption { flex: 1; min-width: 160px; max-height: 36px; overflow: auto; }
+.voice-error { color: #ffbca6; width: 100%; }
+.maplibregl-popup-content { color: #152133; }
+.error-message { color: #ffbca6; padding: 12px 30px; }
+.calendar-host { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.calendar-host > .vessel-card { flex: 1; min-height: 0; }
+.calendar-date { color: var(--color-ink-2); font-size: 11px; display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
+.calendar-date input { padding: 3px 8px; color-scheme: dark; }
+
+@layer components {
+  .vessel-card { border: 1px solid #ffffff16; border-radius: 12px; background: linear-gradient(180deg, #ffffff08, #ffffff02); box-shadow: 0 16px 40px -24px #000; }
+  .vessel-card-edge { background: linear-gradient(90deg, transparent, var(--edge), transparent); }
+  .vessel-card-dot { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+  .sky-wash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at top right, #0091ff12, transparent 65%); }
+}
+
+@media (max-width: 700px) {
+  .app-header { padding: 14px 16px; }
+  .status-badge { display: none; }
+  .welcome { display: flex; flex-direction: column; gap: 30px; padding: 28px 20px; }
+  .welcome h2 { font-size: 32px; }
+  .setup-panel { padding: 22px; width: 100%; }
+  .workspace-chart { padding: 10px; }
+  .goal-panel { padding: 12px; }
+  .goal-form { gap: 8px; }
+  .goal-form button { padding: 10px; }
+}

@@ -3,6 +3,7 @@
   "compileOnSave": false,
   "files": [],
   "references": [
+    { "path": "./apps/agui-demo" },
     { "path": "./packages/demo-vessels" },
     { "path": "./apps/agui-workspace-poc" },
     { "path": "./tools/evals-langfuse" },

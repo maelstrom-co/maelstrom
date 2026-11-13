@@ -1,4 +1,8 @@
-# Run the experimental AG-UI mode
+# Historical experimental AG-UI mode
+
+This experiment has been removed from `apps/demo`. Use the [dedicated AG-UI demo](../agui-demo/) for current development.
+
+The instructions below apply only to the [recorded implementation at revision `36d9f602`](https://github.com/maelstrom-co/maelstrom/tree/36d9f60269e274477de35507660b8a053421890b/apps/demo). Its source and tests remain available at that revision. The [headless proof](../agui-workspace-poc/PROOF.md) remains in this checkout.
 
 For the normal hosted demo with typed input and voice, use **Workspace → AG-UI**. Its [WebSocket contract](../../packages/agui-protocol/CONTRACT.md) is separate from this bounded local experiment.
 

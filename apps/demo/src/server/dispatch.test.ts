@@ -41,7 +41,7 @@ const base = {
 describe('dispatchFrame', () => {
   it('rejects oversized UTF-8 input before JSON parsing', async () => {
     const raw = JSON.stringify({
-      type: 'demo.agui.run',
+      type: 'chart_request',
       input: '界'.repeat(400_000),
     });
     const parse = vi.spyOn(JSON, 'parse');

@@ -10,7 +10,7 @@
  * is never written to storage or to `serializeAttachment`, both of which the
  * platform retains; only the non-secret {@link ConnectionMarker} survives.
  *
- * One native frame and one workspace frame per socket may await rehello,
+ * One frame per socket may await rehello,
  * cleared on that socket's hello and on its close. Keyed by WebSocket (not a
  * single object-scoped slot) because two sockets on the same object can each
  * wake from hibernation and need a rehello independently — a single slot
@@ -19,17 +19,12 @@
  * the rehello.
  */
 
-import {
-  type WorkspaceCheckpoint,
-  WorkspaceCheckpointSchema,
-} from '@maelstrom-co/agui-protocol';
 import { Context, Layer } from 'effect';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */
 export interface ConnectionMarker {
   readonly helloed: true;
   readonly sessionId: string;
-  readonly workspace?: WorkspaceCheckpoint;
 }
 
 export interface ConnectionsService {
@@ -69,17 +64,13 @@ export interface ConnectionsService {
   ) => void;
 
   /**
-   * Reserves one frame per kind until authentication returns. The first
-   * reservation requests hello; further frames of the same kind are refused.
+   * Reserves one frame until authentication returns. The first reservation
+   * requests hello; further frames are refused.
    */
-  readonly bufferPending: (
-    ws: WebSocket,
-    raw: string,
-    kind: 'native' | 'workspace',
-  ) => 'first' | 'buffered' | 'full';
+  readonly bufferPending: (ws: WebSocket, raw: string) => 'first' | 'full';
 
-  /** Removes buffered frames in arrival order. */
-  readonly takePending: (ws: WebSocket) => readonly string[];
+  /** Removes the buffered frame. */
+  readonly takePending: (ws: WebSocket) => string | undefined;
 
   /**
    * Drops everything held for this connection. Shared by close and error
@@ -99,10 +90,7 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
   Connections,
   () => {
     const keys = new WeakMap<WebSocket, string>();
-    const pending = new Map<
-      WebSocket,
-      { kind: 'native' | 'workspace'; raw: string }[]
-    >();
+    const pending = new Map<WebSocket, string>();
     const declined = new WeakSet<WebSocket>();
     const retired = new WeakSet<WebSocket>();
 
@@ -132,34 +120,22 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
         declined.add(ws);
       },
       markHello: (ws, apiKey, sessionId) => {
-        const previous: unknown = ws.deserializeAttachment();
-        const workspace =
-          typeof previous === 'object' &&
-          previous !== null &&
-          'workspace' in previous
-            ? WorkspaceCheckpointSchema.safeParse(previous.workspace)
-            : undefined;
-        if (workspace && !workspace.success)
-          throw new Error('Invalid workspace checkpoint');
         ws.serializeAttachment({
           helloed: true,
           sessionId,
-          ...(workspace?.success ? { workspace: workspace.data } : {}),
         } satisfies ConnectionMarker);
         keys.set(ws, apiKey);
         declined.delete(ws);
       },
-      bufferPending: (ws, raw, kind) => {
-        const frames = pending.get(ws) ?? [];
-        if (frames.some((frame) => frame.kind === kind)) return 'full';
-        frames.push({ kind, raw });
-        pending.set(ws, frames);
-        return frames.length === 1 ? 'first' : 'buffered';
+      bufferPending: (ws, raw) => {
+        if (pending.has(ws)) return 'full';
+        pending.set(ws, raw);
+        return 'first';
       },
       takePending: (ws) => {
-        const frames = pending.get(ws) ?? [];
+        const frame = pending.get(ws);
         pending.delete(ws);
-        return frames.map((frame) => frame.raw);
+        return frame;
       },
       forget: (ws) => {
         retired.add(ws);
