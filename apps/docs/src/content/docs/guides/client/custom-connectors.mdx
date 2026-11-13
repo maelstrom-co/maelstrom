@@ -27,12 +27,13 @@ Use a custom Connector when the built-in transport does not match your deploymen
 
 ## Responsibilities
 
-A connector owns four jobs:
+A connector owns five jobs:
 
 1. open and close the transport session
 2. send intent or chart messages to the engine
 3. deliver engine responses back to the client
 4. expose connection failures in a way the UI can render
+5. carry Agent Session traffic with `sendAgentInput` and `onAgentEvent`
 
 It should preserve the protocol payload. If the transport changes from WebSocket to HTTP, the message shape should not.
 
@@ -86,9 +87,16 @@ export function createInMemoryConnector(engine: Engine): EngineConnector {
 }
 ```
 
-A connector that only speaks HTTP may reject agent inputs in `sendAgentInput`, for example with `AgentWireUnsupportedError`.
-
 Treat this as a test seam, not a production browser connector. It is useful because the protocol stays the same while transport disappears.
+
+## Agent Session traffic
+
+Every connector implements two members for Agent Sessions. The agent wire is unstable, so keep these thin.
+
+- `sendAgentInput(input)` resolves once the transport has accepted the frame. It does not wait for an agent event. It rejects with a `ConnectorError` of kind `transport` when the connector is not connected.
+- `onAgentEvent(handler)` delivers decoded Agent Session events to the handler and returns an unsubscribe function.
+
+A connector that only speaks HTTP may reject in `sendAgentInput` with `AgentWireUnsupportedError`, exported from `@maelstrom-co/client`. Its `onAgentEvent` returns a no-op unsubscribe and never calls the handler.
 
 ## Failure and retry behavior
 
