@@ -384,7 +384,9 @@ export class Orchestrator {
    * - `placeholder`: the agent sends text to show while it works on an input.
    * - `message`: the agent streams part of a conversational reply.
    * - `finished`: an Agent Run ends, whatever the reason.
-   * - `error`: the agent reports an error for an input.
+   * - `error`: the agent reports a failure outside any Agent Run, such as an
+   *   admission rejection. It carries the `inputId` when the failure relates
+   *   to an input.
    * - `conversation_lost`: the conversation can no longer continue. Fires once
    *   when the transport closes, cleanly or not, or when {@link setConnector}
    *   replaces the connector, and only while a conversation exists, meaning at

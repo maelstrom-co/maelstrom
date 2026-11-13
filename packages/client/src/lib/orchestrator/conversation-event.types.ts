@@ -36,7 +36,11 @@ export type AgentConversationEvents = {
   message: AgentMessageEvent;
   /** Fires when an Agent Run ends, whatever the reason. */
   finished: AgentFinishedEvent;
-  /** Fires when the agent reports an error for the current input. */
+  /**
+   * Fires when the agent reports a failure outside any Agent Run, such as an
+   * admission rejection. It carries the `inputId` when the failure relates to
+   * an input.
+   */
   error: AgentErrorEvent;
   /** Fires when the conversation is lost to a disconnect or connector replacement. */
   conversation_lost: ConversationLostEvent;
