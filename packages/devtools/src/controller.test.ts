@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
   defineVessel,
@@ -61,15 +62,7 @@ function response(requestId = MessageId('request')): MaelstromResponse {
 function connector(
   process: EngineConnector['process'] = async (message) => response(message.id),
 ): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    process,
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-  };
+  return createTestConnector({ process });
 }
 const releases: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
