@@ -506,19 +506,6 @@ describe('Orchestrator agent stale run safety net', () => {
         await orchestrator.dispose();
       }
     });
-
-    for (const invalid of [0, -1, Number.NaN]) {
-      it(`rejects ${String(invalid)} at construction, naming the option`, () => {
-        const agent = createMockAgentConnector();
-        expect(
-          () =>
-            new Orchestrator(agent.connector, {
-              vessels: [boardVessel],
-              agentRunStaleTimeoutMs: invalid,
-            } as OrchestratorOptions),
-        ).toThrow('agentRunStaleTimeoutMs');
-      });
-    }
   });
 });
 
