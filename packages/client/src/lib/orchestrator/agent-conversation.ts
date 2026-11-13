@@ -17,6 +17,7 @@ import type {
   EngineConnector,
 } from '../connection-manager/connector.types.js';
 import type { Unsubscribe } from '../types.js';
+import type { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
 import type {
   AgentConversationEvents,
@@ -59,6 +60,8 @@ export type AgentConversationDependencies = {
   ) => Promise<SettledAgentChange>;
   /** Captures a fence that trips on disposal or a connector swap. */
   readonly captureFence: (subject: string) => FenceCheck;
+  /** Receives warnings about acknowledgements that could not be delivered. */
+  readonly logger: Logger;
 };
 
 type Attachment = {
@@ -250,7 +253,7 @@ export class AgentConversation {
     }
     if (isFenced(`ui_applied for ${event.changeId} not sent`)) return;
     if (sessionGeneration !== this.#sessionGeneration) {
-      console.warn(
+      this.#dependencies.logger.warn(
         `Agent conversation: ui_applied for ${event.changeId} not sent, its Agent Session ended`,
       );
       return;
@@ -266,7 +269,7 @@ export class AgentConversation {
     try {
       await connector.sendAgentInput(acknowledgement);
     } catch (error) {
-      console.warn(
+      this.#dependencies.logger.warn(
         `Agent conversation: ui_applied for ${event.changeId} was not sent`,
         error,
       );

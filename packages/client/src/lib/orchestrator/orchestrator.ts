@@ -346,6 +346,7 @@ export class Orchestrator {
       buildChart: () => this.#buildChart([]),
       dispatchChange: (response) => this.#dispatchAgentChange(response),
       captureFence: (subject) => this.#captureFence(subject),
+      logger: this.#logger,
     });
 
     this.#setupSubscriptions();
