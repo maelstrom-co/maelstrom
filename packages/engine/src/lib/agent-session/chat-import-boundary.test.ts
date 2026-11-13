@@ -14,8 +14,9 @@ import ts from 'typescript';
 
 /**
  * `chat()` from `@tanstack/ai` drives a whole model loop, so the repository
- * reaches it through three files only: the Agent Run seam and the two planner
- * LLM call files. Everything else talks to `runAgent` in `agent-run.ts`. The
+ * reaches it through explicit boundaries: the Agent Run seam, the two planner
+ * LLM call files, and application-owned AG-UI goal loops. Other Engine code
+ * talks to `runAgent` in `agent-run.ts`. The
  * Oxlint `eslint/no-restricted-imports` rule enforces this at edit time, and
  * this suite checks both the source tree and every config that defines the
  * rule, because a package config that defines its own rule replaces the root
@@ -25,6 +26,7 @@ import ts from 'typescript';
 const repoRoot = resolve(import.meta.dir, '../../../../..');
 
 const CHAT_ALLOWLIST = [
+  'apps/agui-workspace-poc/src/host.ts',
   'packages/engine/src/lib/agent-session/agent-run-chat.ts',
   'packages/planner-jev/src/lib/llm-call.ts',
   'packages/planner-llm/src/lib/call-llm.ts',
