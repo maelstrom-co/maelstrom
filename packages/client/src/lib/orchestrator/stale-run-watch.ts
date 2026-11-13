@@ -29,6 +29,7 @@ export class StaleRunWatch {
   readonly #onStale: (subject: StaleSubject) => void;
   readonly #inputs = new Map<MessageId, InputWatch>();
   readonly #runs = new Map<RunId, RunWatch>();
+  #changesApplying = 0;
 
   /**
    * Creates an empty watch. With an infinite window no subject is watched.
@@ -43,7 +44,7 @@ export class StaleRunWatch {
     if (!Number.isFinite(this.#windowMs)) return;
     const watch: InputWatch = { kind: 'input', inputId, timer: undefined };
     this.#inputs.set(inputId, watch);
-    this.#arm(watch);
+    if (this.#changesApplying === 0) this.#arm(watch);
   }
 
   /** Updates the windows for one agent event received from the connector. */
@@ -52,7 +53,9 @@ export class StaleRunWatch {
     switch (event.type) {
       case 'placeholder': {
         const input = this.#inputs.get(event.inputId);
-        if (input !== undefined) this.#arm(input);
+        if (input !== undefined && this.#changesApplying === 0) {
+          this.#arm(input);
+        }
         return;
       }
       case 'error':
@@ -73,7 +76,9 @@ export class StaleRunWatch {
         if (run === undefined) return;
         run.sawOwnEvent = true;
         run.changesApplying += 1;
+        this.#changesApplying += 1;
         this.#disarm(run);
+        this.#pauseWaiting();
         return;
       }
       case 'finished':
@@ -88,7 +93,9 @@ export class StaleRunWatch {
     const run = this.#runs.get(runId);
     if (run === undefined || run.changesApplying === 0) return;
     run.changesApplying -= 1;
+    this.#changesApplying -= 1;
     if (run.changesApplying === 0) this.#arm(run);
+    if (this.#changesApplying === 0) this.#restartWaiting();
   }
 
   /** Stops watching every subject. */
@@ -97,12 +104,20 @@ export class StaleRunWatch {
     for (const watch of this.#runs.values()) this.#disarm(watch);
     this.#inputs.clear();
     this.#runs.clear();
+    this.#changesApplying = 0;
   }
 
   #acceptInput(inputId: MessageId, runId: RunId | null): void {
     if (!this.#inputs.has(inputId)) return;
     this.#stopInput(inputId);
     if (runId === null) return;
+    const existing = this.#runs.get(runId);
+    if (existing !== undefined) {
+      if (existing.changesApplying === 0 && existing.sawOwnEvent) {
+        this.#arm(existing);
+      }
+      return;
+    }
     const run: RunWatch = {
       kind: 'run',
       runId,
@@ -111,7 +126,7 @@ export class StaleRunWatch {
       changesApplying: 0,
     };
     this.#runs.set(runId, run);
-    this.#arm(run);
+    if (this.#changesApplying === 0) this.#arm(run);
   }
 
   #recordRunActivity(runId: RunId): void {
@@ -124,9 +139,24 @@ export class StaleRunWatch {
   // A run the agent has not started yet may be queued behind another, so any
   // traffic on the stream shows the agent is still alive on its behalf.
   #restartQueuedRuns(): void {
+    if (this.#changesApplying > 0) return;
     for (const run of this.#runs.values()) {
       if (!run.sawOwnEvent) this.#arm(run);
     }
+  }
+
+  // The agent sends nothing while it waits for a change to be applied, so
+  // inputs and queued runs waiting behind that change must not time out.
+  #pauseWaiting(): void {
+    for (const input of this.#inputs.values()) this.#disarm(input);
+    for (const run of this.#runs.values()) {
+      if (!run.sawOwnEvent) this.#disarm(run);
+    }
+  }
+
+  #restartWaiting(): void {
+    for (const input of this.#inputs.values()) this.#arm(input);
+    this.#restartQueuedRuns();
   }
 
   #stopInput(inputId: MessageId): void {
@@ -141,6 +171,9 @@ export class StaleRunWatch {
     if (run === undefined) return;
     this.#disarm(run);
     this.#runs.delete(runId);
+    if (run.changesApplying === 0) return;
+    this.#changesApplying -= run.changesApplying;
+    if (this.#changesApplying === 0) this.#restartWaiting();
   }
 
   #arm(watch: InputWatch | RunWatch): void {

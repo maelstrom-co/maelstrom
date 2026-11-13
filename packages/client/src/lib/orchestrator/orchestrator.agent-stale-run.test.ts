@@ -292,6 +292,84 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
+  it('does not count a slow client Action as silence for a run queued behind it, then times the queued run from the ui_applied', async () => {
+    const agent = createMockAgentConnector();
+    const orchestrator = await connectedOrchestrator(agent.connector, {
+      agentRunStaleTimeoutMs: shortStaleWindowMs,
+    });
+    try {
+      const losses = recordConversationLosses(orchestrator);
+      let lossesWhileActionRan: ConversationLostEvent[] | undefined;
+      orchestrator.commandProcessor.registerRunner(mainBoard, {
+        record: async () => {
+          await clock.tickAsync(shortStaleWindowMs * 2);
+          lossesWhileActionRan = [...losses];
+          return ok(undefined);
+        },
+      });
+      const inputA = await orchestrator.sendUtterance('first');
+      agent.emit(acceptedEvent(inputA, runA));
+      agent.emit(startedEvent(runA));
+      const inputB = await orchestrator.sendUtterance('second');
+      agent.emit(acceptedEvent(inputB, runB));
+
+      const applied = agent.nextInput('ui_applied');
+      agent.emit(uiChangeEvent(runA, 'change-slow', [step(mainBoard)]));
+      await applied;
+
+      expect(lossesWhileActionRan).toEqual([]);
+      expect(losses).toEqual([]);
+
+      agent.emit(finishedEvent(runA));
+      await clock.tickAsync(shortStaleWindowMs - 1);
+      expect(losses).toEqual([]);
+
+      await clock.tickAsync(1);
+      expect(losses).toEqual([
+        { type: 'conversation_lost', reason: 'stale_run', runId: runB },
+      ]);
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
+  describe('keeps one window for a run a second accepted names again', () => {
+    it('reports no loss after the run finished', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const first = await orchestrator.sendUtterance('show the board');
+        agent.emit(acceptedEvent(first, runA));
+        agent.emit(startedEvent(runA));
+        const amend = await orchestrator.sendUtterance('make it bigger');
+        agent.emit(acceptedEvent(amend, runA, 'amend'));
+        agent.emit(finishedEvent(runA));
+
+        await clock.tickAsync(farPastWindowMs);
+
+        expect(losses).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('leaves no live timer after dispose', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const first = await orchestrator.sendUtterance('show the board');
+      agent.emit(acceptedEvent(first, runA));
+      agent.emit(startedEvent(runA));
+      const amend = await orchestrator.sendUtterance('make it bigger');
+      agent.emit(acceptedEvent(amend, runA, 'amend'));
+
+      await orchestrator.dispose();
+
+      expect(clock.countTimers()).toBe(0);
+      await clock.tickAsync(farPastWindowMs);
+    });
+  });
+
   describe('leaves no live timer', () => {
     it('after finished', async () => {
       const agent = createMockAgentConnector();
@@ -468,13 +546,16 @@ function recordConversationLosses(
 function acceptedEvent(
   inputId: MessageId,
   runId: RunId | null,
+  disposition: AgentAcceptedEvent['disposition'] = runId === null
+    ? 'noise'
+    : 'agent',
 ): AgentAcceptedEvent {
   return {
     type: 'accepted',
     version: AGENT_WIRE_VERSION,
     inputId,
     runId,
-    disposition: runId === null ? 'noise' : 'agent',
+    disposition,
     ack: runId === null ? '' : 'On it',
   };
 }
