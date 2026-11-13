@@ -67,6 +67,10 @@ export function createInMemoryConnector(engine: Engine): EngineConnector {
     subscribe() {
       return () => {};
     },
+    async sendAgentInput() {},
+    onAgentEvent() {
+      return () => {};
+    },
     async addAssistantMessage() {},
     async getHistory() {
       return [];
@@ -81,6 +85,8 @@ export function createInMemoryConnector(engine: Engine): EngineConnector {
   };
 }
 ```
+
+A connector that only speaks HTTP may reject agent inputs in `sendAgentInput`, for example with `AgentWireUnsupportedError`.
 
 Treat this as a test seam, not a production browser connector. It is useful because the protocol stays the same while transport disappears.
 

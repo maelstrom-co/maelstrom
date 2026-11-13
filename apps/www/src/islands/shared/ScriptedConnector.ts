@@ -119,6 +119,12 @@ export class ScriptedConnector implements EngineConnector {
     return () => {};
   }
 
+  async sendAgentInput(): Promise<void> {}
+
+  onAgentEvent(): Unsubscribe {
+    return () => {};
+  }
+
   reset(): void {
     this.requestCount = 0;
   }
