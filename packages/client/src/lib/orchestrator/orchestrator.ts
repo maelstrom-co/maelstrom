@@ -26,7 +26,9 @@ import {
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
+import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
+import type { ApplicationActionOutcome } from '../connection-manager/application-settlement.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
   AssistantMessage,
@@ -1291,7 +1293,13 @@ export class Orchestrator {
     }
   }
 
-  #dispatchSettledResponse(response: MaelstromResponse, requestId?: MessageId) {
+  #dispatchSettledResponse(
+    response: MaelstromResponse,
+    requestId?: MessageId,
+    source: 'request' | 'push' = 'request',
+  ) {
+    const connector = this.#connector;
+    const epoch = this.#connectorEpoch;
     const layoutCommand = {
       kind: 'set_layout' as const,
       layout: response.layout,
@@ -1364,14 +1372,82 @@ export class Orchestrator {
         }),
       );
     }
-    return this.#commandProcessor.dispatchSettled(
-      layoutCommand,
-      actionsCommand,
+    if (source === 'push' || !connector.applicationSettled || !requestId) {
+      return this.#commandProcessor.dispatchSettled(
+        layoutCommand,
+        actionsCommand,
+      );
+    }
+    let actions: ApplicationActionOutcome[] = [];
+    let chart: UIStructuralSnapshot | undefined;
+    const releaseActions = this.#commandProcessor.events.on(
+      'actions_completed',
+      (event) => {
+        if (event.command === actionsCommand) {
+          actions = event.result.actions.map((action) => ({
+            instanceId: action.instanceId,
+            action: action.action,
+            succeeded: !action.skipped && action.result.ok,
+          }));
+        }
+      },
     );
+    const releaseComplete = this.#commandProcessor.events.on(
+      'command_complete',
+      (event) => {
+        if (event.command === actionsCommand)
+          chart = this.getStructuralSnapshot();
+      },
+    );
+    const releaseError = this.#commandProcessor.events.on(
+      'processing_error',
+      (event) => {
+        if (event.command === layoutCommand || event.command === actionsCommand)
+          chart = this.getStructuralSnapshot();
+      },
+    );
+    const release = () => {
+      releaseActions();
+      releaseComplete();
+      releaseError();
+    };
+    const settle = async (): Promise<CommandBatchResult> => {
+      try {
+        const result = await this.#commandProcessor.dispatchSettled(
+          layoutCommand,
+          actionsCommand,
+        );
+        release();
+        if (this.#isDisposed || epoch !== this.#connectorEpoch || !chart) {
+          return {
+            status: 'unknown',
+            error: new Error('Application settlement retired'),
+          };
+        }
+        await connector.applicationSettled?.({
+          requestId,
+          result,
+          actions,
+          chart,
+        });
+        if (this.#isDisposed || epoch !== this.#connectorEpoch) {
+          return {
+            status: 'unknown',
+            error: new Error('Application acknowledgment retired'),
+          };
+        }
+        return result;
+      } catch (error) {
+        return { status: 'unknown', error: toError(error) };
+      } finally {
+        release();
+      }
+    };
+    return settle();
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
-    void this.#dispatchSettledResponse(response, requestId);
+    void this.#dispatchSettledResponse(response, requestId, 'push');
   }
 
   #discardResponse(requestId: MessageId, reason: string): void {

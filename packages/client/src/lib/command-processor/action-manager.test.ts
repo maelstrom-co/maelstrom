@@ -797,6 +797,35 @@ describe('variant transitions', () => {
     manager.dispose();
   });
 
+  it('keeps interleaved settlement evidence at its plan index after independent transitions', async () => {
+    const other = InstanceId('calendar-other');
+    const { transitions, variants } = createFakeVariantTransitions({
+      'calendar-main': 'day',
+      'calendar-other': 'day',
+    });
+    manager.registerRunner(calendarMain, {});
+    manager.registerRunner(other, {});
+    const executionPlan = [
+      { instanceId: calendarMain, action: ActionName('showWeek') },
+      { instanceId: other, action: ActionName('showWeek') },
+      { instanceId: calendarMain, action: ActionName('showYear') },
+    ];
+    const result = await manager.executeActions(
+      executionPlan,
+      undefined,
+      transitions,
+    );
+    expect(
+      result.actions.map(({ instanceId, action }) => ({ instanceId, action })),
+    ).toEqual(executionPlan);
+    expect(
+      result.actions.map(({ result, skipped }) => result.ok && !skipped),
+    ).toEqual([true, true, false]);
+    expect(result.successCount).toBe(2);
+    expect(variants.get(calendarMain)).toBe('week');
+    expect(variants.get(other)).toBe('week');
+  });
+
   it('applies an effect none transition with no handler and records it as applied', async () => {
     const { transitions, variants, applyCalls } = createFakeVariantTransitions({
       'calendar-main': 'day',
