@@ -21,6 +21,10 @@ const client = new Orchestrator({
   process: async () => {
     throw new Error('No application work is expected');
   },
+  sendAgentInput: async () => {
+    throw new Error('No agent input is expected');
+  },
+  onAgentEvent: () => () => {},
 });
 tools.attach(client);
 let nextModel = 0;

@@ -165,7 +165,7 @@ globalThis.document = window.document;
 import { createRoot } from 'react-dom/client';
 import { createMaelstrom } from '@maelstrom-co/react';
 const m = createMaelstrom({ vessels: [] });
-const connector = { capabilities: { voice: false, streaming: false, stateful: false }, connect: async () => {}, disconnect: async () => {}, subscribe: () => () => {}, process: async () => { throw Error('unexpected request'); }, addAssistantMessage: async () => {}, getHistory: async () => [] };
+const connector = { capabilities: { voice: false, streaming: false, stateful: false }, connect: async () => {}, disconnect: async () => {}, subscribe: () => () => {}, process: async () => { throw Error('unexpected request'); }, addAssistantMessage: async () => {}, getHistory: async () => [], sendAgentInput: async () => { throw Error('unexpected agent input'); }, onAgentEvent: () => () => {} };
 const container = document.createElement('div');document.body.append(container);
 const errors = [];
 const root = createRoot(container, { onUncaughtError: error => errors.push(String(error)) });
