@@ -216,6 +216,7 @@ export class AgentConversation {
   }
 
   #reportStale(subject: StaleSubject): void {
+    this.#startNewSession();
     this.#conversationExists = false;
     this.#events.emit('conversation_lost', {
       type: 'conversation_lost',

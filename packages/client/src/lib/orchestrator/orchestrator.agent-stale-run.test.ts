@@ -397,6 +397,46 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
+  it('sends no ui_applied for a change still applying when another run is reported stale', async () => {
+    const agent = createMockAgentConnector();
+    const orchestrator = await connectedOrchestrator(agent.connector, {
+      agentRunStaleTimeoutMs: shortStaleWindowMs,
+    });
+    try {
+      const losses = recordConversationLosses(orchestrator);
+      let lossesWhileActionRan: ConversationLostEvent[] | undefined;
+      let actionFinished = false;
+      orchestrator.commandProcessor.registerRunner(mainBoard, {
+        record: async () => {
+          await clock.tickAsync(shortStaleWindowMs * 2);
+          lossesWhileActionRan = [...losses];
+          actionFinished = true;
+          return ok(undefined);
+        },
+      });
+      const inputA = await orchestrator.sendUtterance('first');
+      agent.emit(acceptedEvent(inputA, runA));
+      agent.emit(startedEvent(runA));
+      const inputB = await orchestrator.sendUtterance('second');
+      agent.emit(acceptedEvent(inputB, runB));
+      agent.emit(startedEvent(runB));
+
+      agent.emit(uiChangeEvent(runB, 'change-slow', [step(mainBoard)]));
+      await orchestrator.commandProcessor.waitForIdle();
+      await clock.tickAsync(0);
+
+      expect(actionFinished).toBe(true);
+      expect(lossesWhileActionRan).toEqual([
+        { type: 'conversation_lost', reason: 'stale_run', runId: runA },
+      ]);
+      expect(agent.inputs.map((input) => input.type)).not.toContain(
+        'ui_applied',
+      );
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
   describe('keeps one window for a run a second accepted names again', () => {
     it('reports no loss after the run finished', async () => {
       const agent = createMockAgentConnector();
