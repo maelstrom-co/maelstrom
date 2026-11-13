@@ -27,6 +27,15 @@ export interface OrchestratorOptionsBase {
   maxWaitMs?: number;
   /** Max wait time for instance readiness before skipping actions in ms (default: 500) */
   readyTimeoutMs?: number;
+  /**
+   * Silence window in ms after which an Agent Run that has seen no
+   * `finished` event is treated as lost, emitting `conversation_lost` with
+   * reason `'stale_run'` (default: 150000). Pass `Infinity` to disable the
+   * safety net. Zero, negative, or `NaN` values throw at construction. The
+   * default is the Engine's 120 s Agent Run budget plus its 30 s Layout
+   * acknowledgement wait, so a live server always sends `finished` first.
+   */
+  agentRunStaleTimeoutMs?: number;
   /** Connection options for the ConnectionManager */
   connection?: Partial<ConnectionOptions>;
   /**
@@ -122,6 +131,7 @@ export interface ResolvedOrchestratorOptions {
   readonly debounceDelayMs: number;
   readonly maxWaitMs: number;
   readonly readyTimeoutMs: number;
+  readonly agentRunStaleTimeoutMs: number;
   readonly connection: ConnectionOptions;
 }
 
@@ -140,6 +150,13 @@ export const DEFAULT_LAYOUT_MODE: LayoutMode = 'tiling';
 export function resolveOrchestratorOptions(
   options: OrchestratorOptions = {},
 ): ResolvedOrchestratorOptions {
+  const agentRunStaleTimeoutMs =
+    options.agentRunStaleTimeoutMs ?? DEFAULT_AGENT_RUN_STALE_TIMEOUT_MS;
+  if (Number.isNaN(agentRunStaleTimeoutMs) || agentRunStaleTimeoutMs <= 0) {
+    throw new Error(
+      `agentRunStaleTimeoutMs must be a positive number or Infinity, received ${agentRunStaleTimeoutMs}`,
+    );
+  }
   return {
     sessionId: options.sessionId ?? SessionId(),
     layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
@@ -147,6 +164,7 @@ export function resolveOrchestratorOptions(
     debounceDelayMs: options.debounceDelayMs ?? 300,
     maxWaitMs: options.maxWaitMs ?? 1000,
     readyTimeoutMs: options.readyTimeoutMs ?? 500,
+    agentRunStaleTimeoutMs,
     connection: {
       maxRetries: options.connection?.maxRetries ?? 5,
       initialDelayMs: options.connection?.initialDelayMs ?? 1000,
@@ -168,3 +186,5 @@ export interface OrchestratorViewState {
   sessionId: SessionId;
   layoutMode: LayoutMode;
 }
+
+const DEFAULT_AGENT_RUN_STALE_TIMEOUT_MS = 150_000;

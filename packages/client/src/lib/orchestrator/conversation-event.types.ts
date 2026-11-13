@@ -4,6 +4,8 @@ import type {
   AgentInputSource,
   AgentMessageEvent,
   AgentPlaceholderEvent,
+  MessageId,
+  RunId,
 } from '@maelstrom-co/protocol';
 
 /**
@@ -11,8 +13,13 @@ import type {
  *
  * - `'disconnected'`: the transport closed, or the Orchestrator disconnected.
  * - `'connector_replaced'`: the Orchestrator switched to a different connector.
+ * - `'stale_run'`: an Agent Run saw no `finished` event within the
+ *   `agentRunStaleTimeoutMs` silence window.
  */
-export type ConversationLostReason = 'disconnected' | 'connector_replaced';
+export type ConversationLostReason =
+  | 'disconnected'
+  | 'connector_replaced'
+  | 'stale_run';
 
 /**
  * Emitted when the Agent Session conversation is lost and any in-flight
@@ -23,6 +30,10 @@ export type ConversationLostEvent = {
   type: 'conversation_lost';
   /** Why the conversation was lost. */
   reason: ConversationLostReason;
+  /** The stale Agent Run, set when the run was known at the time of loss. */
+  runId?: RunId;
+  /** The input that never started a run, set when no run was known yet. */
+  inputId?: MessageId;
 };
 
 /**
