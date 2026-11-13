@@ -105,3 +105,23 @@ test('verify installs Playwright before nx when a docs unit test needs a browser
   expect(steps.indexOf(need)).toBeLessThan(steps.indexOf(install));
   expect(steps.indexOf(install)).toBeLessThan(nxIndex);
 });
+
+test('pull requests audit dependencies only when they change a manifest or the lockfile', async () => {
+  const workflow = await readCi();
+  const steps = workflow.jobs.verify!.steps;
+  const detect = steps.find((step) => step.id === 'dependency-changes');
+  const audit = steps.find((step) => step.run === 'bun audit');
+  expect(detect?.if).toBe(`github.event_name == 'pull_request'`);
+  expect(audit?.if).toBe(
+    `github.event_name != 'pull_request' || steps.dependency-changes.outputs.changed == 'true'`,
+  );
+
+  const pattern = detect?.run?.match(/grep -Eq '([^']+)'/)?.[1];
+  if (!pattern) throw new Error('Missing dependency path pattern');
+  const matches = (path: string) => new RegExp(pattern).test(path);
+  expect(matches('bun.lock')).toBe(true);
+  expect(matches('package.json')).toBe(true);
+  expect(matches('apps/www/package.json')).toBe(true);
+  expect(matches('packages/client/src/index.ts')).toBe(false);
+  expect(matches('docs/package.json.md')).toBe(false);
+});
