@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
+    "lib": ["es2022", "dom"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "nx": {
+    "sync": {
+      "ignoredDependencies": ["@maelstrom-co/protocol"]
+    }
+  },
+  "references": [
+    { "path": "../agui-protocol/tsconfig.lib.json" },
+    { "path": "../engine/tsconfig.lib.json" }
+  ]
+}
