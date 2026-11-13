@@ -32,11 +32,13 @@ const calendar = defineVessel({
           name: 'showWeek',
           description: 'Switch to a one-week view.',
           transitionsTo: 'week',
+          effect: 'none',
         },
         {
           name: 'collapse',
           description: 'Shrink to a small summary.',
           transitionsTo: 'collapsed',
+          effect: 'none',
         },
       ],
     },
@@ -48,6 +50,7 @@ const calendar = defineVessel({
           name: 'showMonth',
           description: 'Return to month view.',
           transitionsTo: 'month',
+          effect: 'none',
         },
       ],
     },
@@ -59,6 +62,7 @@ const calendar = defineVessel({
           name: 'expand',
           description: 'Restore to month view.',
           transitionsTo: 'month',
+          effect: 'none',
         },
       ],
     },
@@ -66,7 +70,7 @@ const calendar = defineVessel({
 });
 ```
 
-That's a three-state machine. The Calendar starts in `month`. From `month` it can become `week` or `collapsed`. From `week` it can become `month`. From `collapsed` it can become `month`. There is no edge from `week` directly to `collapsed` — and the engine knows that, because the action isn't declared on `week`.
+These transitions only switch views, so they declare `effect: 'none'` and need no handler. Engine-planned actions still require a registered runner for the Instance; an empty runner is enough for this example. That's a three-state machine. The Calendar starts in `month`. From `month` it can become `week` or `collapsed`. From `week` it can become `month`. From `collapsed` it can become `month`. There is no edge from `week` directly to `collapsed` — and the engine knows that, because the action isn't declared on `week`.
 
 ## Variants are states
 

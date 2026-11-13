@@ -39,6 +39,7 @@ The exact positions are chosen by the engine. The point is that all three compon
    ```tsx title="src/vessels/weather.vessel.tsx"
    import { defineVessel } from '@maelstrom-co/protocol';
    import { vessel, type TypedVesselProps } from '@maelstrom-co/react';
+   import { m } from '../maelstrom';
 
    const weatherDefinition = defineVessel({
      id: 'weather',
@@ -50,20 +51,24 @@ The exact positions are chosen by the engine. The point is that all three compon
          props: { city: 'Stockholm', temperature: 18, condition: 'Cloudy' },
          minSize: { width: 2, height: 1 },
          actions: [
-           { name: 'expand', description: 'Show a larger forecast view.', transitionsTo: 'forecast' },
+           { name: 'expand', description: 'Show a larger forecast view.', transitionsTo: 'forecast', effect: 'none' },
          ],
        },
        forecast: {
          props: { city: 'Stockholm', summary: 'Mild with light rain later today.' },
          minSize: { width: 4, height: 2 },
          actions: [
-           { name: 'collapse', description: 'Return to the compact weather card.', transitionsTo: 'compact' },
+           { name: 'collapse', description: 'Return to the compact weather card.', transitionsTo: 'compact', effect: 'none' },
          ],
        },
      },
    });
 
-   function WeatherCard({ variantProps }: TypedVesselProps<typeof weatherDefinition>) {
+   const viewOnlyActionRunner = {};
+
+   function WeatherCard({ instanceId, variantProps }: TypedVesselProps<typeof weatherDefinition>) {
+     m.useActions('weather', instanceId, viewOnlyActionRunner);
+
      if (variantProps.variant === 'forecast') {
        return <section><h2>{variantProps.city} forecast</h2><p>{variantProps.summary}</p></section>;
      }
@@ -81,6 +86,7 @@ The exact positions are chosen by the engine. The point is that all three compon
    ```tsx title="src/vessels/dashboard.vessels.tsx"
    import { defineVessel } from '@maelstrom-co/protocol';
    import { vessel, type TypedVesselProps } from '@maelstrom-co/react';
+   import { m } from '../maelstrom';
 
    const calendarDefinition = defineVessel({
      id: 'calendar',
@@ -91,17 +97,20 @@ The exact positions are chosen by the engine. The point is that all three compon
        agenda: {
          props: { heading: 'Today', items: ['Design review', 'Customer call'] as string[] },
          minSize: { width: 3, height: 2 },
-         actions: [{ name: 'showWeek', description: 'Show the full week view.', transitionsTo: 'week' }],
+         actions: [{ name: 'showWeek', description: 'Show the full week view.', transitionsTo: 'week', effect: 'none' }],
        },
        week: {
          props: { heading: 'This week', items: ['Mon: planning', 'Wed: demo'] as string[] },
          minSize: { width: 5, height: 3 },
-         actions: [{ name: 'showAgenda', description: 'Return to today agenda.', transitionsTo: 'agenda' }],
+         actions: [{ name: 'showAgenda', description: 'Return to today agenda.', transitionsTo: 'agenda', effect: 'none' }],
        },
      },
    });
 
-   function CalendarCard({ variantProps }: TypedVesselProps<typeof calendarDefinition>) {
+   const viewOnlyActionRunner = {};
+
+   function CalendarCard({ instanceId, variantProps }: TypedVesselProps<typeof calendarDefinition>) {
+     m.useActions('calendar', instanceId, viewOnlyActionRunner);
      return <section><h2>{variantProps.heading}</h2><ul>{variantProps.items.map((item) => <li key={item}>{item}</li>)}</ul></section>;
    }
 
@@ -114,17 +123,18 @@ The exact positions are chosen by the engine. The point is that all three compon
        summary: {
          props: { count: 4 },
          minSize: { width: 2, height: 1 },
-         actions: [{ name: 'showList', description: 'Show the full task list.', transitionsTo: 'list' }],
+         actions: [{ name: 'showList', description: 'Show the full task list.', transitionsTo: 'list', effect: 'none' }],
        },
        list: {
          props: { tasks: ['Prepare demo', 'Review PR', 'Book travel'] as string[] },
          minSize: { width: 4, height: 3 },
-         actions: [{ name: 'summarize', description: 'Return to task summary.', transitionsTo: 'summary' }],
+         actions: [{ name: 'summarize', description: 'Return to task summary.', transitionsTo: 'summary', effect: 'none' }],
        },
      },
    });
 
-   function TasksCard({ variantProps }: TypedVesselProps<typeof tasksDefinition>) {
+   function TasksCard({ instanceId, variantProps }: TypedVesselProps<typeof tasksDefinition>) {
+     m.useActions('tasks', instanceId, viewOnlyActionRunner);
      if (variantProps.variant === 'summary') return <section><h2>{variantProps.count} tasks open</h2></section>;
      return <section><h2>Tasks</h2><ul>{variantProps.tasks.map((task) => <li key={task}>{task}</li>)}</ul></section>;
    }
@@ -132,6 +142,8 @@ The exact positions are chosen by the engine. The point is that all three compon
    export const calendarEntry = vessel(calendarDefinition, CalendarCard);
    export const tasksEntry = vessel(tasksDefinition, TasksCard);
    ```
+
+   These actions only switch views, so `effect: 'none'` makes their handlers optional. Each root component still registers an empty runner because Engine-planned actions require a runner for the Instance.
 
 3. ## Register all dashboard vessels
 
@@ -184,7 +196,7 @@ The exact positions are chosen by the engine. The point is that all three compon
 
 You now have a dashboard where the layout is not hardcoded to one product flow. The trade-off is that the engine needs good descriptions and sensible `minSize` values. If a Vessel description is vague, the model has less signal. If a variant's minimum size is too small, the Chart can technically fit it while the UI still feels cramped.
 
-Use this tutorial as the baseline for richer dashboards: add real data, implement action handlers, and move repeated card styling into shared components.
+Use this tutorial as the baseline for richer dashboards: add real data, register handlers for Actions with application effects, and move repeated card styling into shared components.
 
 ## Next steps
 
