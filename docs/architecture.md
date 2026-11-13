@@ -203,6 +203,10 @@ Illustrative grid-mode response payload:
 
 The response processor heals recoverable layout and Action problems. Unrecoverable provider, validation, cancellation, or history failures return an error. A configured `validatePlan` hook can enforce application requirements on the healed response, using the existing retry budget.
 
+`Engine.openConnection()` provides a separate native UI-only event route. It serializes planning through whole-batch application acknowledgement. A known Layout refusal fails one run and permits queued work; uncertain application or acknowledgement timeout permanently stops that connection. A new connection does not reconcile earlier effects or authorize replay.
+
+The native event route currently passes empty planning history and accepts no automatic-update input. The demo's native mode uses legacy request/reply, as does the Engine entrypoint behind the AG-UI workspace binding. Those paths retain configured history and client-owned dispatch-time snapshots. A native browser event applier must preserve those properties and define resize/mutation handling before replacing them.
+
 ---
 
 ### 4. Protocol (Message Contract)
@@ -227,7 +231,9 @@ Messages travel as **envelopes** over the duplex stream. `EngineMessage` describ
 - `engine.error` (`EngineErrorMessage`): A failure, correlated to the request when recoverable
 - `engine.agent.event` (`AgentEventMessage`): Wraps one `AgentEvent` (`placeholder`, `accepted`, `started`, `message`, `ui_change`, `tool_call`, `tool_result`, `finished`, `error`) under `event`
 
-`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner agent members keep their own `type` discriminator and carry `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version. A new member or enum value is rejected by an older decoder as `invalid_envelope`, so it bumps the version, and decoders reject any other version value. An `accepted` event for `ui_only` carries a server-minted `runId` followed by exactly one `finished` for that run, and only `noise` has a null `runId`. The wire is unstable until the client event applier ships, and version bumps apply from then on. Agent IDs are branded: `RunId` names an Agent Run, `CallId` one call the loop makes, such as a server tool call or a question it expects the user to answer, with one id space within a run (separate from the provider's `ToolCallId`), and `ChangeId` a UI change the browser acknowledges.
+`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner members carry `version` equal to `AGENT_WIRE_VERSION` (2); decoders reject every other version. Version 2 requires whole-batch application status because a version 1 decoder could discard uncertainty and report success. Optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump.
+
+An `accepted` event for `ui_only` carries a server-minted `runId`. The connection emits one `finished` per accepted run unless it closes, which suppresses further events. Only `noise` has a null `runId`. Agent IDs are branded: `RunId` names a run, `CallId` one loop call, including server tools and questions, and `ChangeId` a UI change. `CallId` is separate from the provider's `ToolCallId`.
 
 The protocol package owns the envelope codecs: `encodeEnvelope` serializes an envelope, and `decodeClientEnvelope` / `decodeServerEnvelope` return a `Result` and never throw. A malformed frame yields an `EnvelopeError` rather than a rejected promise. The client `WebSocketConnector` and the Engine-side `handleEnvelope` use these codecs to adapt the wire contract to their respective boundaries; hosts should not hand-build or hand-parse wire shapes.
 
@@ -294,6 +300,10 @@ This order matters because:
 The client does not run an inline minimum-size reconciliation or overflow resolver after Actions. The Engine handles the [layout constraints](#grid-layout) before returning the response, and the Chart clips visual overflow with CSS.
 
 The React Chart observes its container. When the container's pixel size crosses a whole-cell boundary, the `ResizeObserver` sends a new `chart_resize` request. That request starts a separate Engine turn; it is not part of the response batch.
+
+Atomic batch ordering does not provide rollback. Applied means the Layout and every Action succeeded. Failed means the Layout was refused before Actions ran. Partial execution, missing evidence, and uncertain effects are unknown. Structural Chart evidence does not prove durable business completion.
+
+Native `ui_applied` carries this whole-batch status and positional Action outcomes, correlated by `changeId`. Only complete successful evidence permits a successful reply. A known refusal installs the observed Chart for queued work. Unknown application or acknowledgement timeout cancels queued work and permanently stops admission, even if late success or a fresh Chart arrives. See the [application evidence reference](https://docs.maelstrom-ai.co/reference/protocol/interfaces/agentuiappliedinput/) for the field contract.
 
 ---
 

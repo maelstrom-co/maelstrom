@@ -24,6 +24,7 @@ const utterance = (inputId: string): AgentUtteranceInput => ({
 
 const acknowledgement = {
   type: 'ui_applied',
+  status: 'applied',
   version: AGENT_WIRE_VERSION,
   changeId: 'change-1',
   chart: makeTilingRequest(),

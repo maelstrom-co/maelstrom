@@ -16,13 +16,13 @@ import type { MaelstromResponse } from './response.ts';
 /**
  * Version of the agent wire contract that every {@link AgentInput} and
  * {@link AgentEvent} carries in its `version` field. An integer, not semver.
- * A new optional field on a member keeps the version, because decoders strip
- * keys they do not know. A new union member or enum value is rejected by an
- * older decoder as `invalid_envelope`, so such a change bumps the version.
- * The wire is unstable until the client event applier ships, and version
- * bumps apply from then on. Decoders reject any other version value.
+ * New optional fields keep the version only when ignoring them preserves
+ * semantics. Required evidence, union members, or enum values bump the version.
+ * Version 2 requires whole-batch application status; version 1 peers could
+ * discard it and mistake an uncertain change for success. Decoders reject
+ * every other version, including while the browser event applier is experimental.
  */
-export const AGENT_WIRE_VERSION = 1 as const;
+export const AGENT_WIRE_VERSION = 2 as const;
 
 /** Where an utterance came from: typed text or transcribed voice. */
 export const AgentInputSourceSchema = z.enum(['text', 'voice']);
@@ -142,31 +142,47 @@ export interface AgentUtteranceInput {
 }
 
 /**
- * The browser's acknowledgement that it applied a UI change. Carries the
- * resulting Chart state and one outcome per Action. `actionOutcomes` is
- * positional: entry i describes Action i of the Execution Plan.
+ * The browser's whole-batch evidence for a UI change. Success requires the
+ * Layout and every Action to finish. Partial or uncertain effects are unknown.
+ * `actionOutcomes` is positional: entry i describes Action i of the Execution Plan.
+ * Failed status means Layout refusal before any Actions and has no outcomes.
  */
-export const AgentUiAppliedInputSchema = z.object({
-  type: z.literal('ui_applied'),
-  version: z.literal(AGENT_WIRE_VERSION),
-  changeId: ChangeIdSchema,
-  chart: chartSnapshotSchema(),
-  actionOutcomes: z.array(AgentActionOutcomeSchema),
-});
+export const AgentUiAppliedInputSchema = z
+  .object({
+    type: z.literal('ui_applied'),
+    version: z.literal(AGENT_WIRE_VERSION),
+    changeId: ChangeIdSchema,
+    status: z.enum(['applied', 'failed', 'unknown']),
+    chart: chartSnapshotSchema(),
+    actionOutcomes: z.array(AgentActionOutcomeSchema),
+  })
+  .refine(
+    ({ status, actionOutcomes }) =>
+      status === 'applied'
+        ? actionOutcomes.every((outcome) => outcome.ok)
+        : status !== 'failed' || actionOutcomes.length === 0,
+    {
+      message: 'Action evidence contradicts the whole-batch status.',
+      path: ['actionOutcomes'],
+    },
+  );
 
-/** The browser's acknowledgement that it applied a UI change. */
+/** The browser's whole-batch evidence for a UI change. */
 export interface AgentUiAppliedInput {
   /** Member discriminator. */
   type: 'ui_applied';
   /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: typeof AGENT_WIRE_VERSION;
-  /** Echoes the `changeId` of the applied `ui_change`. */
+  /** Echoes the `changeId` of the observed `ui_change`. */
   changeId: ChangeId;
-  /** Chart state after the change was applied. */
+  /** Applied means the whole batch succeeded; failed means Layout refusal before Actions; unknown means effects are uncertain. */
+  status: 'applied' | 'failed' | 'unknown';
+  /** Observed Chart state after the batch settled, including a refused or partial change. */
   chart: ChartRequest;
   /**
-   * One outcome per Action in the Execution Plan. Positional: entry i
-   * describes Action i of the Execution Plan.
+   * Positional Action evidence. Applied requires every Action to succeed;
+   * failed has no outcomes; unknown may contain an incomplete prefix.
+   * No status permits more outcomes than Actions in the Execution Plan.
    */
   actionOutcomes: AgentActionOutcome[];
 }

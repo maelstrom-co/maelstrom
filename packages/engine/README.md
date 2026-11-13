@@ -86,13 +86,23 @@ The protocol's factories and codecs own the message shapes. A host supplies tran
 
 `send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves when planning ends or the connection closes, without waiting for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.
 
-The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied`. Only then does the connection emit the Planner reply as `message` followed by `finished`. Missing Action outcomes leave the change pending. Failed Action outcomes fail the run without a successful reply.
+The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied` with required whole-batch `status`:
+
+- `applied`: Layout and every Action succeeded. The connection emits the Planner reply as `message`, followed by successful `finished`.
+- `failed`: Layout was refused before any Action ran. The run ends with `ui_apply_failed` and an empty reply. Queued work can continue using the acknowledged Chart.
+- `unknown`: Effects are partial or uncertain. The run ends with `ui_apply_unknown` and an empty reply. Queued runs finish as `cancelled`, and the connection permanently stops admission.
+
+Outcomes remain positional. `applied` requires exactly one successful outcome per Action; `failed` requires none. `unknown` permits incomplete evidence, including an empty array. Excess outcomes or incomplete `applied` evidence produce `invalid_action_outcomes` and leave the change pending. The [wire decoder](../protocol/README.md#agent-wire-frames) rejects missing status and contradictory evidence.
 
 Planning stays serialized through acknowledgement. Queued utterances use the newest Chart the browser reported. An utterance sent while a UI change awaits acknowledgement uses the acknowledged Chart instead of its own. The connection admits at most 32 pending utterances and remembers at most 4,096 input IDs without eviction. Duplicate input IDs are ignored. New inputs beyond these limits receive `queue_full` or `session_capacity`; a capacity-limited session needs a new connection.
 
-`acknowledgementTimeoutMs` defaults to 30,000 milliseconds and accepts positive integers up to 2,147,483,647. Timeout fails the active run, cancels queued runs, and discards the uncertain Chart. A later utterance can supply a fresh Chart. Optional `clock` supplies monotonic milliseconds for elapsed-time metrics. UI-only loop-turn, tool-call, and loop-token counts are zero; elapsed time includes queueing and acknowledgement.
+`acknowledgementTimeoutMs` defaults to 30,000 milliseconds and accepts positive integers up to 2,147,483,647. It covers delivery, application, and acknowledgement from emission of `ui_change`. Timeout ends the active run with `ui_ack_timeout`, cancels queued runs, and permanently stops admission. New utterances receive `session_stopped`; late evidence receives `unknown_change`. Neither late success nor a fresh Chart resumes the connection. Opening another connection does not reconcile prior effects or authorize replay.
+
+Optional `clock` supplies monotonic milliseconds for elapsed-time metrics. UI-only loop-turn, tool-call, and loop-token counts are zero; elapsed time includes queueing and acknowledgement.
 
 The request/reply API and its history store remain separate. Streaming connections neither read nor write that store. Agent transcripts and the tool loop are not implemented by this route.
+
+The native browser event applier is not implemented. `WebSocketConnector` ignores agent events; the demo's native mode uses request/reply. Automatic resize and mutation requests also use request/reply. The utterance route replaces update reasons with user intent, so it cannot preserve automatic-update semantics.
 
 Run-owned development diagnostics carry a server-minted `runId` in place of `requestId`, with the originating `inputId` in metadata. Planning-pipeline events keep their usual kinds, such as `engine.planner.started`. The connection's own lifecycle events use `engine.agent.*` kinds. Matching-session run diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
 
