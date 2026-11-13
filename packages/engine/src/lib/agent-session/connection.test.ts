@@ -1238,13 +1238,7 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
   }
 });
 
-const TIMED_OUT = Symbol('timed out');
-
-const expectErrorObserverSendIsPlanned = async (
-  trigger: Parameters<
-    ReturnType<ReturnType<typeof createEngine>['openConnection']>['send']
-  >[0],
-) => {
+const expectErrorObserverSendIsPlanned = async (trigger: unknown) => {
   const events: AgentEvent[] = [];
   let plans = 0;
   const connection = createEngine({
@@ -1261,11 +1255,6 @@ const expectErrorObserverSendIsPlanned = async (
       });
     },
   }).openConnection({ sessionId: SessionId('error-observer'), user: null });
-  let change: Extract<AgentEvent, { type: 'ui_change' }> | undefined;
-  let planned: () => void = () => undefined;
-  const plannedEvent = new Promise<void>((resolve) => {
-    planned = resolve;
-  });
   let followUp: Promise<void> | undefined;
   connection.subscribe((event) => {
     if (event.type === 'error' && followUp === undefined)
@@ -1273,33 +1262,18 @@ const expectErrorObserverSendIsPlanned = async (
   });
   connection.subscribe((event) => {
     events.push(event);
-    if (event.type === 'ui_change') {
-      change = event;
-      planned();
-    }
   });
   try {
     await connection.send(trigger);
-    const outcome = await Promise.race([
-      plannedEvent,
-      new Promise<typeof TIMED_OUT>((resolve) =>
-        setTimeout(() => resolve(TIMED_OUT), 200),
-      ),
-    ]);
-    expect(outcome).not.toBe(TIMED_OUT);
-    expect(plans).toBe(1);
-    if (!change) throw new Error('Missing change');
-    const types = events.map((event) => event.type);
-    expect(types[0]).toBe('error');
-    expect(types.indexOf('ui_change')).toBeGreaterThan(0);
-    await connection.send({
-      type: 'ui_applied',
-      version: AGENT_WIRE_VERSION,
-      changeId: change.changeId,
-      chart: utterance().chart,
-      actionOutcomes: [],
-    });
+    expect(followUp).toBeDefined();
     await followUp;
+    expect(plans).toBe(1);
+    expect(events.map((event) => event.type).slice(0, 4)).toEqual([
+      'error',
+      'placeholder',
+      'accepted',
+      'ui_change',
+    ]);
   } finally {
     connection.close();
   }
@@ -1321,4 +1295,66 @@ test('an utterance sent from an admission rejection error observer is planned wi
     version: AGENT_WIRE_VERSION,
     inputId: 'bad-input',
   });
+});
+
+test('an utterance queued behind a run is planned when an error observer sends a corrected acknowledgement', async () => {
+  const events: AgentEvent[] = [];
+  const chart = makeGridRequest();
+  let plans = 0;
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () => {
+      plans++;
+      return ok(
+        buildGridResponse({
+          executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+        }),
+      );
+    },
+  }).openConnection({ sessionId: SessionId('corrected-ack'), user: null });
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+  try {
+    await connection.send({ ...utterance(), chart });
+    const change = events.find((event) => event.type === 'ui_change');
+    if (!change) throw new Error('Missing change');
+    const queued = connection.send({
+      ...utterance(),
+      inputId: MessageId('input-2'),
+      chart,
+    });
+    let corrected = false;
+    connection.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.code === 'invalid_action_outcomes' &&
+        !corrected
+      ) {
+        corrected = true;
+        void connection.send({
+          type: 'ui_applied',
+          version: AGENT_WIRE_VERSION,
+          changeId: change.changeId,
+          chart,
+          actionOutcomes: [{ ok: true }],
+        });
+      }
+    });
+    await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      chart,
+      actionOutcomes: [],
+    });
+    await queued;
+    expect(plans).toBe(2);
+    expect(events.filter((event) => event.type === 'ui_change')).toHaveLength(
+      2,
+    );
+  } finally {
+    connection.close();
+  }
 });
