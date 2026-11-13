@@ -82,6 +82,7 @@ let staleTimeoutMs = readInitialStaleTimeout(args);
 const fakeActions = !args.includes('--real-actions');
 let orchestrator = buildOrchestrator(staleTimeoutMs);
 let quitting = false;
+let exitRequested = false;
 let inputClosed = false;
 
 log(
@@ -109,7 +110,7 @@ process.on('SIGINT', () => input.close());
 input.prompt();
 
 async function handleLine(line: string): Promise<void> {
-  if (quitting) return;
+  if (quitting || exitRequested) return;
   try {
     if (line === '') return;
     if (!line.startsWith('/')) {
@@ -142,6 +143,7 @@ async function handleLine(line: string): Promise<void> {
         return;
       case '/exit':
       case '/quit':
+        exitRequested = true;
         input.close();
         return;
       default:
