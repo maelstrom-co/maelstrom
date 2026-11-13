@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
 
@@ -523,17 +524,13 @@ test('an evicted selected app remains explicit and never broadens the query to a
     maxSessions: 2,
     maxActivityEvents: 1,
   });
-  const first = new Orchestrator({
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    process: async () => {
-      throw new Error('No application work expected');
-    },
-  });
+  const first = new Orchestrator(
+    createTestConnector({
+      process: async () => {
+        throw new Error('No application work expected');
+      },
+    }),
+  );
   const release = tools.attach(first);
   cleanups.push(() => {
     void first.dispose();
