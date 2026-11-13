@@ -439,8 +439,9 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
   /**
    * Subscribe to {@link AgentEvent}s the engine sends over this socket.
-   * Events from a socket a later `connect()` replaced are not delivered. A
-   * throwing handler is logged and does not affect other handlers.
+   * Only events from the currently connected socket are delivered, so events
+   * from a replaced or disconnected socket are dropped. A throwing handler is
+   * logged and does not affect other handlers.
    */
   onAgentEvent(handler: (event: AgentEvent) => void): Unsubscribe {
     this.#agentEventHandlers.add(handler);
