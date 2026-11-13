@@ -171,6 +171,7 @@ export class Orchestrator {
   #immediateResponseDelivered = false;
   #localActions = 0;
   #isDisposed = false;
+  #pendingDisconnects = 0;
   #unsubscribers: (() => void)[] = [];
   // Held apart from #unsubscribers: a connector swap must detach this one
   // subscription without touching the three that belong to internal
@@ -643,7 +644,10 @@ export class Orchestrator {
     if (this.#isDisposed) {
       throw new Error('Orchestrator is disposed');
     }
-    if (this.#connectionManager.store.state.connectionStatus !== 'connected') {
+    if (
+      this.#pendingDisconnects > 0 ||
+      this.#connectionManager.store.state.connectionStatus !== 'connected'
+    ) {
       throw new Error('Orchestrator is not connected');
     }
     return this.#agentConversation.sendUtterance(text, options);
@@ -956,6 +960,15 @@ export class Orchestrator {
   }
 
   async disconnect(): Promise<void> {
+    this.#pendingDisconnects++;
+    try {
+      await this.#disconnect();
+    } finally {
+      this.#pendingDisconnects--;
+    }
+  }
+
+  async #disconnect(): Promise<void> {
     this.#intentScheduler.setConnected(false);
     this.#agentConversation.reportDisconnected();
     // Preserve unflushed vessel_mutations across the disconnect so a click that

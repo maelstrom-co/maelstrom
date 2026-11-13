@@ -703,6 +703,28 @@ describe('Orchestrator agent path', () => {
       }
     });
 
+    it('rejects an utterance sent from a loss listener while an explicit disconnect is closing the connection', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        await orchestrator.sendUtterance('hello');
+        let lateSend: Promise<MessageId> | undefined;
+        orchestrator.agent.on('conversation_lost', () => {
+          lateSend ??= orchestrator.sendUtterance('are you still there');
+        });
+
+        await orchestrator.disconnect();
+
+        expect(lateSend).toBeDefined();
+        await expect(lateSend).rejects.toThrow();
+        expect(
+          agent.inputs.filter((input) => input.type === 'utterance'),
+        ).toHaveLength(1);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
     it('reports the loss of an utterance whose send is still in flight at the close', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
