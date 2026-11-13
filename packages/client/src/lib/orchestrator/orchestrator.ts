@@ -398,7 +398,9 @@ export class Orchestrator {
    *   silent for the `agentRunStaleTimeoutMs` window, naming the `runId`, or
    *   the `inputId` when no run was accepted yet. Time the client spends
    *   applying a UI change does not count as silence. Events that arrive for
-   *   that run afterwards are still delivered here.
+   *   that run afterwards are still delivered here, but the stale loss starts
+   *   a new session, so a `ui_applied` for a change still being applied is
+   *   dropped. After the other reasons no further events arrive.
    *
    * UI changes the agent sends are applied and acknowledged internally and
    * never surface here. Subscribing after {@link dispose} throws.
