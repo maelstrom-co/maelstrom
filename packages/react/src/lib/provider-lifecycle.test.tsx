@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
-import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
+import type { ConnectorEvent } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Activity, StrictMode } from 'react';
 
@@ -21,7 +22,7 @@ function controlledConnector() {
   const connect = mock(async () => {
     connected = true;
   });
-  const connector: EngineConnector = {
+  const connector = createTestConnector({
     capabilities: { voice: false, streaming: false, stateful: true },
     connect,
     async disconnect() {
@@ -33,18 +34,11 @@ function controlledConnector() {
         handler({ type: 'disconnected', clean: true, message: 'closed' });
       }
     },
-    async process() {
-      throw new Error('Lifecycle tests must not call the engine.');
-    },
     subscribe(handler) {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
-    async addAssistantMessage() {},
-    async getHistory() {
-      return [];
-    },
-  };
+  });
   return {
     connector,
     connect,
