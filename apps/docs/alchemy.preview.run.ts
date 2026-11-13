@@ -1,6 +1,9 @@
-import { requirePreviewStage } from '@maelstrom-co/platform-infra';
+import * as Cloudflare from '@alchemy.run/cloudflare';
+import {
+  previewStateStoreOptions,
+  requirePreviewStage,
+} from '@maelstrom-co/platform-infra';
 import * as Alchemy from 'alchemy';
-import * as Cloudflare from 'alchemy/Cloudflare';
 import * as Effect from 'effect/Effect';
 
 import { PreviewWebsite } from './infra/PreviewWebsite.js';
@@ -9,7 +12,7 @@ export default Alchemy.Stack(
   'MaelstromDocsPreview',
   {
     providers: Cloudflare.providers(),
-    state: Cloudflare.state(),
+    state: Cloudflare.state(previewStateStoreOptions()),
   },
   Effect.gen(function* () {
     const stage = yield* requirePreviewStage('docs preview');

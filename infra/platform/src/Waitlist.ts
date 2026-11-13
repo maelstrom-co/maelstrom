@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 
-import * as Cloudflare from 'alchemy/Cloudflare';
+import * as Cloudflare from '@alchemy.run/cloudflare';
 import { retain } from 'alchemy/RemovalPolicy';
 import * as Effect from 'effect/Effect';
 

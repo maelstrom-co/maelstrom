@@ -157,7 +157,7 @@ describe('application infrastructure contract', () => {
       devDependencies?: Record<string, string>;
     };
     const catalog = root.catalog ?? {};
-    expect(catalog.effect).toBe('4.0.5');
+    expect(catalog.effect).toBe('4.1.0');
     expect(catalog['@effect/platform-node']).toBe(catalog.effect);
     expect(catalog['@effect/platform-bun']).toBe(catalog.effect);
     expect(catalog['@effect/sql-d1']).toBe(catalog.effect);
@@ -548,7 +548,7 @@ describe('application infrastructure contract', () => {
     });
   });
 
-  test('installs the reviewed beta.83 ownership patch for every deployment', () => {
+  test('installs the reviewed beta.85 ownership patch for every deployment', () => {
     for (const path of [
       'apps/www/package.json',
       'apps/docs/package.json',
@@ -561,19 +561,36 @@ describe('application infrastructure contract', () => {
       };
       expect(
         manifest.dependencies?.alchemy ?? manifest.devDependencies?.alchemy,
-      ).toBe('2.0.0-beta.83');
+      ).toBe('2.0.0-beta.85');
     }
     const root = readJson('package.json') as {
       patchedDependencies?: Record<string, string>;
     };
-    const patchPath = 'patches/alchemy@2.0.0-beta.83.patch';
-    expect(root.patchedDependencies?.['alchemy@2.0.0-beta.83']).toBe(patchPath);
+    const patchPath = 'patches/alchemy@2.0.0-beta.85.patch';
+    expect(root.patchedDependencies?.['alchemy@2.0.0-beta.85']).toBe(patchPath);
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
-      '256d6c41733f6f55295ee6b28c17328513302a3f7e631e8a179bc60dacf552f1',
+      'f7eca03128375a3468af4945bd825430da0c8c9a5b1dbeac2dc7b2f18bf9f8a0',
     );
     const lockfile = read('bun.lock');
-    expect(lockfile).toContain('alchemy@2.0.0-beta.83');
+    expect(lockfile).toContain('alchemy@2.0.0-beta.85');
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.81');
+    expect(lockfile).not.toContain('alchemy@2.0.0-beta.83');
+    const providerPatchHashes = {
+      cloudflare:
+        '80ff00070e2bd0c0a3dd7513971200358e7720ab5a7fcdf0051c3224cdb9caa5',
+      aws: 'c962d33a5c2bae56e1bc0352523cee95538788a82414561688c20639cdec6ea5',
+    };
+    for (const [provider, hash] of Object.entries(providerPatchHashes)) {
+      const name = `@alchemy.run/${provider}@2.0.0-beta.85`;
+      const providerPatch = root.patchedDependencies?.[name];
+      expect(providerPatch).toBeDefined();
+      expect(
+        createHash('sha256')
+          .update(read(providerPatch ?? 'missing patch'))
+          .digest('hex'),
+      ).toBe(hash);
+      expect(lockfile).toContain(providerPatch ?? 'missing patch');
+    }
     expect(lockfile).toContain(patchPath);
     expect([
       ...new Bun.Glob('patches/alchemy@*.patch').scanSync({
