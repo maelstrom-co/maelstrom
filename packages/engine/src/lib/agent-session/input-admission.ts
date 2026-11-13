@@ -1,5 +1,6 @@
 import {
   AGENT_WIRE_VERSION,
+  type AgentChartRequestInput,
   type AgentErrorEvent,
   AgentInputSchema,
   type AgentUiAppliedInput,
@@ -12,7 +13,10 @@ export const maxPendingInputs = 32;
 export const maxRememberedInputIds = 4096;
 
 export type Admission =
-  | { readonly kind: 'utterance'; readonly input: AgentUtteranceInput }
+  | {
+      readonly kind: 'run';
+      readonly input: AgentUtteranceInput | AgentChartRequestInput;
+    }
   | { readonly kind: 'acknowledgement'; readonly input: AgentUiAppliedInput }
   | { readonly kind: 'ignored' }
   | { readonly kind: 'rejected'; readonly event: AgentErrorEvent };
@@ -33,10 +37,16 @@ export function createInputAdmission(): InputAdmission {
           'Invalid Agent Session input.',
           claimedInputId(raw),
         );
-      const input = decoded.data;
+      let input = decoded.data;
       if (input.type === 'ui_applied')
         return { kind: 'acknowledgement', input };
       if (seen.has(input.inputId)) return { kind: 'ignored' };
+      if (input.type === 'chart_request' && pendingInputs > 0)
+        return rejected(
+          'connection_busy',
+          'Wait for pending work to finish, then capture a fresh Chart request.',
+          input.inputId,
+        );
       if (pendingInputs >= maxPendingInputs)
         return rejected(
           'queue_full',
@@ -49,8 +59,20 @@ export function createInputAdmission(): InputAdmission {
           'Open a new connection before sending more inputs.',
           input.inputId,
         );
+      if (input.type === 'chart_request') {
+        try {
+          // Schema validation retains nested values in opaque Vessel props and Action parameters.
+          input = { ...input, request: structuredClone(input.request) };
+        } catch {
+          return rejected(
+            'invalid_input',
+            'The Chart request must support snapshot cloning.',
+            input.inputId,
+          );
+        }
+      }
       seen.add(input.inputId);
-      return { kind: 'utterance', input };
+      return { kind: 'run', input };
     },
     forget() {
       seen.clear();

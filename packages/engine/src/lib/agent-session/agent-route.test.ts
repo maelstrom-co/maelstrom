@@ -88,6 +88,34 @@ void mock.module('./agent-run-queue.js', () => ({
 }));
 
 describe('agent route through the Engine handle', () => {
+  test('rejecting a client-dispatched Chart does not run the model or prevent a later utterance', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    const inputId = MessageId('chart-input');
+    await session.connection.send({
+      type: 'chart_request',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      request: makeTilingRequest(),
+    });
+    expect(session.received).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        inputId,
+        code: 'unsupported_input',
+      }),
+    ]);
+    expect(model.requests).toHaveLength(0);
+    await session.send(utterance('utterance-input', 'Hello'));
+    expect(lastFinished(session.received)).toMatchObject({
+      ok: true,
+      reply: 'Ready.',
+    });
+    expect(model.requests).toHaveLength(1);
+    session.connection.close();
+  });
   describe('a single utterance', () => {
     test('streams its opening, tool breadcrumbs and reply in wire order, each decodable, with no internal events', async () => {
       const order = orderTool();

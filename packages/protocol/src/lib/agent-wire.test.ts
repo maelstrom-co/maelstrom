@@ -71,6 +71,12 @@ const inputFixtures: {
     chart: chart(),
     source: 'voice',
   },
+  chart_request: {
+    type: 'chart_request',
+    version: AGENT_WIRE_VERSION,
+    inputId: MessageId('request-1'),
+    request: chart(),
+  },
   ui_applied: {
     type: 'ui_applied',
     version: AGENT_WIRE_VERSION,
@@ -171,8 +177,8 @@ const roundTrip = (
 ) => schema.parse(JSON.parse(JSON.stringify(value)));
 
 describe('AGENT_WIRE_VERSION', () => {
-  test('uses version 2 for mandatory whole-batch evidence', () => {
-    expect(AGENT_WIRE_VERSION).toBe(2);
+  test('uses version 3 for client-dispatched Chart requests', () => {
+    expect(AGENT_WIRE_VERSION).toBe(3);
   });
 });
 
@@ -506,7 +512,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every input member', () => {
     for (const fixture of Object.values(inputFixtures)) {
-      for (const version of [1, 3, '2', undefined]) {
+      for (const version of [1, 2, 4, '3', undefined]) {
         const result = AgentInputSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -517,7 +523,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every event member', () => {
     for (const fixture of Object.values(eventFixtures)) {
-      for (const version of [1, 3, '2', undefined]) {
+      for (const version of [1, 2, 4, '3', undefined]) {
         const result = AgentEventSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -529,6 +535,75 @@ describe('agent wire decode failures', () => {
 
 describe('agent wire through the Envelope codecs', () => {
   const sessionId = SessionId('s-1');
+
+  test('client-dispatched requests retain automatic reasons, planning facts, and reply policy', () => {
+    const request: ChartRequest = {
+      ...chart(),
+      context: {
+        ...chart().context,
+        updateReasons: [
+          {
+            type: 'chart_resize',
+            previous: { columns: 8, rows: 8 },
+            current: { columns: 16, rows: 12 },
+          },
+          {
+            type: 'vessel_mutation',
+            instanceId: InstanceId('calendar-main'),
+            changes: 'New event',
+          },
+          { type: 'user_intent', intent: 'Show the new event' },
+        ],
+      },
+      skipReply: true,
+      intentFacts: { event: { id: 'event-123', version: 2 } },
+    };
+    const frame = AgentInputMessage({
+      sessionId,
+      input: { ...inputFixtures.chart_request, request },
+    });
+    expect(decodeClientEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+  });
+
+  test('older peers cannot admit the new dispatch contract', () => {
+    for (const version of [1, 2]) {
+      const decoded = decodeClientEnvelope({
+        type: 'client.agent.input',
+        id: 'old-dispatch',
+        sessionId,
+        input: { ...inputFixtures.chart_request, version },
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) expect(decoded.error.message).toContain('input.version');
+    }
+  });
+
+  test('dispatch snapshots pass the full Chart validation before reaching a connection', () => {
+    for (const request of [
+      undefined,
+      { ...chart(), layout: { type: 'tiling', tree: [], instances: [] } },
+      {
+        ...chart(),
+        context: {
+          ...chart().context,
+          chartDimensions: { columns: 0, rows: 8 },
+        },
+      },
+      {
+        ...chart(),
+        context: { ...chart().context, updateReasons: [{ type: 'refresh' }] },
+      },
+    ]) {
+      const decoded = decodeClientEnvelope({
+        type: 'client.agent.input',
+        id: 'invalid-dispatch',
+        sessionId,
+        input: { ...inputFixtures.chart_request, request },
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) expect(decoded.error.kind).toBe('invalid_envelope');
+    }
+  });
 
   test('a layout refusal survives decoding even when there are no Action outcomes', () => {
     const frame: AgentInputMessage = {

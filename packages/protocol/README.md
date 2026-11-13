@@ -193,19 +193,20 @@ The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentIn
 
 ```ts
 type AgentInput =
-  | { type: 'utterance'; version: 2; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
-  | { type: 'ui_applied'; version: 2; changeId: ChangeId; status: 'applied' | 'failed' | 'unknown'; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
+  | { type: 'utterance'; version: 3; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
+  | { type: 'chart_request'; version: 3; inputId: MessageId; request: ChartRequest }
+  | { type: 'ui_applied'; version: 3; changeId: ChangeId; status: 'applied' | 'failed' | 'unknown'; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
 
 type AgentEvent =
-  | { type: 'placeholder'; version: 2; inputId: MessageId; text: string }
-  | { type: 'accepted'; version: 2; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
-  | { type: 'message'; version: 2; runId: RunId; turnId: string; delta: string }
-  | { type: 'ui_change'; version: 2; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
-  | { type: 'finished'; version: 2; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 2; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
-  | { type: 'started'; version: 2; runId: RunId }
-  | { type: 'tool_call'; version: 2; runId: RunId; turnId: string; callId: CallId; name: string }
-  | { type: 'tool_result'; version: 2; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
+  | { type: 'placeholder'; version: 3; inputId: MessageId; text: string }
+  | { type: 'accepted'; version: 3; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
+  | { type: 'message'; version: 3; runId: RunId; turnId: string; delta: string }
+  | { type: 'ui_change'; version: 3; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
+  | { type: 'finished'; version: 3; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
+  | { type: 'error'; version: 3; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
+  | { type: 'started'; version: 3; runId: RunId }
+  | { type: 'tool_call'; version: 3; runId: RunId; turnId: string; callId: CallId; name: string }
+  | { type: 'tool_result'; version: 3; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
 ```
 
 `AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
@@ -215,9 +216,11 @@ const frame = AgentInputMessage({ sessionId, input: utterance });
 ws.send(encodeEnvelope(frame));
 ```
 
-Every member carries `version` equal to `AGENT_WIRE_VERSION` (2). Decoders reject every other version as `invalid_envelope`. Version 2 requires whole-batch `status`: a version 1 peer could discard that field and mistake uncertainty for success. Both peers must use version 2. New optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump, including while the browser event applier is experimental. `CallId` is distinct from the provider's `ToolCallId`.
+Every member carries `version` equal to `AGENT_WIRE_VERSION` (3). Decoders reject every other version as `invalid_envelope`. Version 3 adds the client-dispatched `chart_request` member. Version 2 introduced whole-batch `status`: a version 1 peer could discard that field and mistake uncertainty for success. Both peers must use version 3. New optional fields keep the version only when ignoring them preserves semantics. Required evidence, new members, and new enum values require a version bump, including while the browser event applier is experimental. `CallId` is distinct from the provider's `ToolCallId`.
 
-UI-only utterances start a server-minted run without a model loop. Their success order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after matching `ui_applied` evidence. In `accepted`, only `noise` has a null `runId`.
+UI-only utterances and client-dispatched Chart requests start a server-minted run without a model loop. Their success order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after matching `ui_applied` evidence. In `accepted`, only `noise` has a null `runId`.
+
+The native `chart_request` input carries the client's complete dispatch-time request. Resize, mutation, and user reasons remain intact. The connection refuses it with `connection_busy` while any run is pending, without remembering its `inputId`. The client owns FIFO admission and update coalescing; a later dispatch captures current state again. Prior acknowledgement Charts do not supply this input's planning state. This member travels inside `client.agent.input`; it is distinct from the top-level request/reply `chart_request` envelope.
 
 | Batch status | Required evidence | Connection outcome |
 | --- | --- | --- |
