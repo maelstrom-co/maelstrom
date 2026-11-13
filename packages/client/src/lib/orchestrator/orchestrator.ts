@@ -1,6 +1,7 @@
 import {
   type ActionExecution,
   type ActionName,
+  type ChartRequest,
   ChartRequestMessage,
   type ChartResizeReason,
   describeDuplicateTilingLeaf,
@@ -26,6 +27,8 @@ import {
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
+import type { BatchExecutionResult } from '../command-processor/action-runner.types.js';
+import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
@@ -1291,7 +1294,13 @@ export class Orchestrator {
     }
   }
 
-  #dispatchSettledResponse(response: MaelstromResponse, requestId?: MessageId) {
+  // A Layout refusal settles `failed` and abandons the Actions, so
+  // `onActionsCompleted` never fires for it.
+  #dispatchSettledResponse(
+    response: MaelstromResponse,
+    requestId?: MessageId,
+    onActionsCompleted?: (result: BatchExecutionResult) => void,
+  ): Promise<CommandBatchResult> {
     const layoutCommand = {
       kind: 'set_layout' as const,
       layout: response.layout,
@@ -1364,10 +1373,17 @@ export class Orchestrator {
         }),
       );
     }
-    return this.#commandProcessor.dispatchSettled(
+    const releaseActionsListener = onActionsCompleted
+      ? this.#commandProcessor.events.on('actions_completed', (e) => {
+          if (e.command === actionsCommand) onActionsCompleted(e.result);
+        })
+      : undefined;
+    const settlement = this.#commandProcessor.dispatchSettled(
       layoutCommand,
       actionsCommand,
     );
+    if (releaseActionsListener) void settlement.finally(releaseActionsListener);
+    return settlement;
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
@@ -1667,19 +1683,21 @@ export class Orchestrator {
   }
 
   #newRequest(updates: UpdateReason[]): ChartRequestMessage {
-    const messageId = MessageId();
-    const request = buildChartRequest({
+    return ChartRequestMessage({
+      sessionId: this.#config.sessionId,
+      id: MessageId(),
+      request: this.#buildChart(updates),
+    });
+  }
+
+  #buildChart(updates: UpdateReason[]): ChartRequest {
+    return buildChartRequest({
       updates,
       instances: this.#commandProcessor.store.state.instances,
       chartDimensions: this.#chartManager.store.state.chartDimensions,
       layout: this.#commandProcessor.store.state.layout,
       vessels: this.#vesselManager.getAll(),
       config: { layoutMode: this.#config.layoutMode },
-    });
-    return ChartRequestMessage({
-      sessionId: this.#config.sessionId,
-      id: messageId,
-      request,
     });
   }
 }
