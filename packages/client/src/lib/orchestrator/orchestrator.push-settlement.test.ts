@@ -125,5 +125,46 @@ it('keeps unsolicited push delivery outside request acknowledgment and acknowled
     expect.objectContaining({
       requestId: process.mock.calls[0][0].id,
     }),
+    expect.any(AbortSignal),
   );
+});
+
+it('keeps push application available after request acknowledgment fails without reopening request admission', async () => {
+  let push!: (response: MaelstromResponse) => void;
+  const applicationSettled = mock(async () => {
+    throw new Error('Acknowledgment lost');
+  });
+  const process = mock(async (request: ChartRequestMessage) =>
+    createMockEmptyResponse(request.id),
+  );
+  const connector = Object.assign(
+    createMockConnector({ process, applicationSettled }),
+    {
+      onPushMessage(callback: typeof push) {
+        push = callback;
+        return () => {};
+      },
+    },
+  );
+  const client = new Orchestrator(connector, {
+    vessels: [createMockResponseVessel()],
+  });
+  clients.push(client);
+  await client.connect();
+  expect((await client.enqueueIntent('request').result).status).toBe('unknown');
+  const write = mock(() => ok(undefined));
+  client.commandProcessor.registerRunner(InstanceId('voice'), { show: write });
+  const commands: string[] = [];
+  client.commandProcessor.events.on('command_complete', ({ command }) => {
+    commands.push(command.kind);
+  });
+  push(createMockResponse(MessageId('voice-response'), 'voice', 'show'));
+  await flushMicrotasks();
+  expect(commands).toEqual(['set_layout', 'execute_actions']);
+  expect(write).toHaveBeenCalledTimes(1);
+  expect(applicationSettled).toHaveBeenCalledTimes(1);
+  await expect(client.processIntent('dependent request')).rejects.toThrow(
+    'Acknowledgment lost',
+  );
+  expect(process).toHaveBeenCalledTimes(1);
 });

@@ -16,7 +16,11 @@ Three private workspace packages implement the demo's experimental AG-UI binding
 
 The Orchestrator owns response application. After its layout-and-Actions batch settles, it calls the optional `EngineConnector.applicationSettled` method. This callback receives the request ID, canonical batch result, observed Action outcomes, and structural Chart snapshot.
 
-The client awaits the callback before releasing admission for later planning. A rejected acknowledgment makes queued completion `unknown`; it never retries application. Connectors must bound their acknowledgment wait. The AG-UI adapter uses a 60-second run timeout.
+The client awaits the callback before releasing admission for later planning. `OrchestratorOptions.applicationAcknowledgmentTimeoutMs` bounds this wait, starting after Actions settle. It defaults to 60,000 ms and accepts finite positive numbers up to 2,147,483,647 ms. The AG-UI adapter also bounds each protocol run at 60 seconds.
+
+The callback receives an optional `AbortSignal` as its second argument. Timeout, connector replacement, disposal, or acknowledgment failure aborts this signal. The adapter clears its pending run, timer, and listener. Cancellation does not undo or replay executed Actions.
+
+Rejected or expired acknowledgment makes queued completion `unknown` and blocks planning on that binding. Pending intents retain their queue deadlines; automatic updates remain buffered. Immediate intents reject, and subsequent explicit flushes return `null`. Install a different connector to resume planning. Reconnecting the same connector cannot clear uncertainty, and a new session does not reconcile prior writes. Legacy `processIntent()` still resolves on response delivery, before application acknowledgment.
 
 The adapter translates this evidence into its private application run. A successful acknowledgment advances the revision. Failed or unknown application stops the session. Partial execution remains `unknown`, rather than being reported as a definite failure before any write occurred.
 
