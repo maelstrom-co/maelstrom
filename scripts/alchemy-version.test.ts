@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   alchemyProjects,
   assertAlchemyVersion,
+  assertPreviewStateStore,
   assertWorkspaceAlchemyVersion,
 } from './alchemy-version.ts';
 
@@ -113,3 +114,25 @@ for (const stale of ['infra/platform', 'apps/demo'] as const) {
     }
   });
 }
+
+test('an older beta.85 revision cannot use the default store after preview cutover', async () => {
+  const root = await mkdtemp('/tmp/alchemy-store-capability-');
+  const worker = 'alchemy-state-store-maelstrom-oss-preview';
+  try {
+    await writeFile(join(root, 'package.json'), JSON.stringify({}));
+    expect(() => assertPreviewStateStore(root, undefined)).not.toThrow();
+    expect(() => assertPreviewStateStore(root, worker)).toThrow(
+      'CAPABILITY_REQUIRED',
+    );
+    await writeFile(
+      join(root, 'package.json'),
+      JSON.stringify({ maelstromPreviewStateStore: worker }),
+    );
+    expect(() => assertPreviewStateStore(root, worker)).not.toThrow();
+    expect(() => assertPreviewStateStore(root, 'alchemy-state-store')).toThrow(
+      'REQUIREMENT_INVALID',
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -29,6 +29,9 @@ on:
         type: boolean
         default: false
         required: true
+      isolation_run_id:
+        description: Successful fresh OSS preview isolation copy run (preview only)
+        type: string
       preview_run_id:
         description: Successful preview maintenance run from this same main revision (production only)
         type: string
@@ -59,6 +62,9 @@ jobs:
       CALLERS_PAUSED: ${{ inputs.callers_paused }}
       SOURCE_REVIEWED: ${{ inputs.source_reviewed }}
       CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
+      ISOLATION_RUN_ID: ${{ inputs.isolation_run_id }}
+      ALCHEMY_PREVIEW_STATE_STORE_WORKER: ${{ vars.ALCHEMY_PREVIEW_STATE_STORE_WORKER }}
+      ISOLATION_RECEIPT: ${{ github.workspace }}/isolation/copy.json
       PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
       ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
       CONTROL_ROOT: ${{ github.workspace }}/control
@@ -85,6 +91,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Download verified OSS isolation receipt
+        if: inputs.target == 'preview'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: oss-preview-state-isolation
+          path: isolation
+          run-id: ${{ inputs.isolation_run_id }}
+          github-token: ${{ github.token }}
+
       - name: Download successful preview receipt
         if: inputs.target == 'production'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -108,7 +123,7 @@ jobs:
         working-directory: source
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Bootstrap and verify preview state
+      - name: Verify isolated preview state and canary
         if: inputs.target == 'preview'
         run: bun --no-env-file control/scripts/alchemy-state-maintenance.ts run
         env:
