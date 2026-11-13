@@ -114,6 +114,8 @@ function fixture() {
             deployedSha: state.deployed ?? '',
             demoUrl:
               'https://maelstrom-playground-alchemy-pr-42.preview.workers.dev/',
+            aguiUrl:
+              'https://maelstrom-agui-alchemy-pr-42.preview.workers.dev/',
             docsUrl:
               'https://maelstrom-docs-alchemy-pr-42.preview.workers.dev/',
             wwwUrl: 'https://maelstrom-www-alchemy-pr-42.preview.workers.dev/',

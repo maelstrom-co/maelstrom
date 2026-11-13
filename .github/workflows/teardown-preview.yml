@@ -27,7 +27,7 @@ jobs:
             && github.event.label.name == 'deploy-preview')))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: preview-auto
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number || inputs.pr_number }}
       cancel-in-progress: false

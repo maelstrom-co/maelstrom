@@ -23,7 +23,7 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BOT_LOGIN = 'github-actions[bot]';
 
-export type PreviewApp = 'demo' | 'docs' | 'www';
+export type PreviewApp = 'demo' | 'agui-demo' | 'docs' | 'www';
 export type TeardownScope = 'all' | 'legacy' | 'skip';
 export type TeardownTrigger = 'closed' | 'manual' | 'schedule' | 'unlabeled';
 
@@ -608,6 +608,7 @@ export const renderDeployedComment = (state: {
   readonly approvedSha: string;
   readonly deployedSha: string;
   readonly demoUrl: string;
+  readonly aguiUrl: string;
   readonly docsUrl: string;
   readonly wwwUrl: string;
 }) => `${COMMENT_MARKER}
@@ -619,8 +620,9 @@ ${stateMarker(state)}
 | Website | ${state.wwwUrl} |
 | Documentation | ${state.docsUrl} |
 | Demo | ${state.demoUrl} |
+| AG-UI demo | ${state.aguiUrl} |
 
-The demo is bring-your-own-key. This preview runs the approved PR branch code, so use a throwaway key or only open trusted previews.
+The demos are bring-your-own-key. These previews run the approved PR branch code, so use a throwaway key or only open trusted previews.
 
 Remove the \`deploy-preview\` label or close this PR to tear the preview down.`;
 
@@ -878,6 +880,11 @@ const APP_METADATA = {
     stack: 'MaelstromDemoPreview',
     workerPrefix: 'maelstrom-playground-alchemy',
   },
+  'agui-demo': {
+    directory: 'agui-demo',
+    stack: 'MaelstromAguiPreview',
+    workerPrefix: 'maelstrom-agui-alchemy',
+  },
   docs: {
     directory: 'docs',
     stack: 'MaelstromDocsPreview',
@@ -988,7 +995,8 @@ const deployApp = async (
   validateBunExecutable(options.bunExecutable);
   assertExpectedAccount(options.accountId, options.expectedAccountId);
   const metadata = APP_METADATA[options.app];
-  if (!metadata) throw new Error('Preview app must be demo, www, or docs');
+  if (!metadata)
+    throw new Error('Preview app must be demo, agui-demo, www, or docs');
   await assertApprovedSourceRevision(
     options.sourceRoot,
     options.approvedSha,
@@ -1083,6 +1091,7 @@ const validateDeploymentUrls = (
   suffix: string,
   urls: {
     readonly demoUrl: string;
+    readonly aguiUrl: string;
     readonly docsUrl: string;
     readonly wwwUrl: string;
   },
@@ -1090,6 +1099,11 @@ const validateDeploymentUrls = (
   demoUrl: validatePreviewWorkerUrl(
     urls.demoUrl,
     `maelstrom-playground-alchemy-pr-${prNumber}`,
+    suffix,
+  ),
+  aguiUrl: validatePreviewWorkerUrl(
+    urls.aguiUrl,
+    `maelstrom-agui-alchemy-pr-${prNumber}`,
     suffix,
   ),
   docsUrl: validatePreviewWorkerUrl(
@@ -1132,11 +1146,16 @@ export const finishPreviewDeployment = async (
   );
   const wwwUrl = await deployApp({ ...options, app: 'www' }, dependencies);
   const docsUrl = await deployApp({ ...options, app: 'docs' }, dependencies);
+  const aguiUrl = await deployApp(
+    { ...options, app: 'agui-demo' },
+    dependencies,
+  );
   const urls = validateDeploymentUrls(
     options.prNumber,
     options.workersDevSuffix,
     {
       demoUrl,
+      aguiUrl,
       docsUrl,
       wwwUrl,
     },
@@ -1256,7 +1275,7 @@ const renderTeardownComment = (complete: boolean) => `${COMMENT_MARKER}
 ${stateMarker({})}
 ${
   complete
-    ? '**PR previews torn down.** The three known Alchemy preview stacks and exact preview Worker names were cleaned up.'
+    ? '**PR previews torn down.** The four known Alchemy preview stacks and exact preview Worker names were cleaned up.'
     : '**PR preview teardown incomplete.** At least one known Cloudflare cleanup operation failed. Retry this workflow before assuming cleanup finished.'
 }
 
@@ -1316,7 +1335,7 @@ export const teardownPreview = async (
     }
   }
   if (authority === 'all') {
-    for (const app of ['docs', 'www', 'demo'] as const) {
+    for (const app of ['docs', 'www', 'agui-demo', 'demo'] as const) {
       const live = await readTeardownPolicy(
         options.repository,
         options.prNumber,
@@ -1540,8 +1559,13 @@ const cli = async () => {
   }
   if (command === 'deploy-app') {
     const app = Bun.argv[3];
-    if (app !== 'demo' && app !== 'docs' && app !== 'www') {
-      throw new Error('deploy-app requires demo, www, or docs');
+    if (
+      app !== 'demo' &&
+      app !== 'agui-demo' &&
+      app !== 'docs' &&
+      app !== 'www'
+    ) {
+      throw new Error('deploy-app requires demo, agui-demo, www, or docs');
     }
     await deployPreviewApp(
       {
