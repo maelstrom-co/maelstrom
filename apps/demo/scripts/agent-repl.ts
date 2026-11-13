@@ -21,6 +21,7 @@
  * Options:
  *   --stale <ms|off>  initial `agentRunStaleTimeoutMs` (default: the client
  *                     default, `off` disables the stale run safety net)
+ *   --real-actions    register no fake Action runners, so Actions skip
  *   --help            print this usage and exit
  *
  * `DEMO_WS_URL` overrides the socket URL (default `ws://localhost:3001/ws`).
@@ -32,11 +33,13 @@
  *   /swap              replace the connector with a fresh one and connect
  *   /stale <ms|off>    rebuild the Orchestrator with a new stale timeout
  *   /chart             print the board
- *   /quit              dispose and exit (Ctrl-D and Ctrl-C do the same)
+ *   /exit, /quit       dispose and exit (Ctrl-D and Ctrl-C do the same)
  *
- * No Action runners are registered, since the real ones live in the React
- * vessel components. Actions therefore skip after the readiness wait, and
- * each skip is printed with its outcome.
+ * The real Action runners live in the React vessel components, so by
+ * default every Instance on the board gets a fake runner that logs the
+ * Action and its params and reports success. That lets a run finish with
+ * its reply. With `--real-actions` no runners are registered, Actions skip
+ * after the readiness wait, and the Engine fails the run.
  */
 import { createInterface } from 'node:readline';
 
@@ -45,7 +48,12 @@ import {
   Orchestrator,
   WebSocketConnector,
 } from '@maelstrom-co/client';
-import type { AgentEvent, AgentInput } from '@maelstrom-co/protocol';
+import {
+  type AgentEvent,
+  type AgentInput,
+  type InstanceId,
+  ok,
+} from '@maelstrom-co/protocol';
 
 import { SHOP_LAYOUT } from '../src/shop/default-layout';
 import { cartVessel } from '../src/shop/vessels/cart.vessel.def';
@@ -56,8 +64,8 @@ import { ordersVessel } from '../src/shop/vessels/orders.vessel.def';
 const DEFAULT_WS_URL = 'ws://localhost:3001/ws';
 const SHOP_VESSELS = [ordersVessel, catalogVessel, cartVessel, checkoutVessel];
 const COMMAND_HELP =
-  'Commands: /help /connect /disconnect /swap /stale <ms|off> /chart /quit. Any other line is sent as an utterance.';
-const USAGE = `Usage: bun --conditions=@maelstrom-co/source apps/demo/scripts/agent-repl.ts [--stale <ms|off>] [--help]
+  'Commands: /help /connect /disconnect /swap /stale <ms|off> /chart /exit. Any other line is sent as an utterance.';
+const USAGE = `Usage: bun --conditions=@maelstrom-co/source apps/demo/scripts/agent-repl.ts [--stale <ms|off>] [--real-actions] [--help]
 
 DEMO_WS_URL overrides the socket URL (default ${DEFAULT_WS_URL}).
 ${COMMAND_HELP}`;
@@ -71,11 +79,15 @@ if (args.includes('--help') || args.includes('-h')) {
 const url = process.env.DEMO_WS_URL?.trim() || DEFAULT_WS_URL;
 const startedAt = performance.now();
 let staleTimeoutMs = readInitialStaleTimeout(args);
+const fakeActions = !args.includes('--real-actions');
 let orchestrator = buildOrchestrator(staleTimeoutMs);
 let quitting = false;
 let inputClosed = false;
 
-log('session', `${url} sessionId=${orchestrator.getConfig().sessionId}`);
+log(
+  'session',
+  `${url} sessionId=${orchestrator.getConfig().sessionId} actions=${fakeActions ? 'fake' : 'real'}`,
+);
 log('help', COMMAND_HELP);
 await connectOrchestrator();
 
@@ -128,6 +140,7 @@ async function handleLine(line: string): Promise<void> {
       case '/chart':
         printBoard('chart');
         return;
+      case '/exit':
       case '/quit':
         input.close();
         return;
@@ -209,6 +222,7 @@ function buildOrchestrator(agentRunStaleTimeoutMs: number | undefined) {
       `reason=${event.reason}${event.runId ? ` runId=${event.runId}` : ''}${event.inputId ? ` inputId=${event.inputId}` : ''}`,
     ),
   );
+  if (fakeActions) registerFakeRunners(next);
   next.commandProcessor.events.on('actions_completed', (event) =>
     printActionOutcomes(event.result),
   );
@@ -221,6 +235,48 @@ function buildOrchestrator(agentRunStaleTimeoutMs: number | undefined) {
     log('connection', status);
   });
   return next;
+}
+
+function registerFakeRunners(target: Orchestrator): void {
+  const releases = new Map<InstanceId, () => void>();
+  const sync = () => {
+    const { instances } = target.commandProcessor.store.state;
+    for (const instanceId of instances.keys()) {
+      if (releases.has(instanceId)) continue;
+      releases.set(
+        instanceId,
+        target.commandProcessor.registerRunner(
+          instanceId,
+          createFakeRunner(instanceId),
+        ),
+      );
+    }
+    for (const [instanceId, release] of releases) {
+      if (instances.has(instanceId)) continue;
+      release();
+      releases.delete(instanceId);
+    }
+  };
+  sync();
+  target.commandProcessor.store.subscribe(sync);
+}
+
+function createFakeRunner(instanceId: InstanceId) {
+  return new Proxy(
+    {},
+    {
+      get: (_target, action) =>
+        typeof action !== 'string' || action === 'then'
+          ? undefined
+          : async (params?: unknown) => {
+              log(
+                'fake action',
+                `${instanceId}.${action}${params === undefined ? '' : ` ${JSON.stringify(params)}`}`,
+              );
+              return ok(undefined);
+            },
+    },
+  );
 }
 
 function printBoard(label: string): void {
