@@ -1,0 +1,260 @@
+import {
+  AGENT_WIRE_VERSION,
+  type AgentActionOutcome,
+  type AgentEvent,
+  type AgentUiAppliedInput,
+  type AgentUiChangeEvent,
+  type ChartRequest,
+  type MaelstromResponse,
+  MessageId,
+  toError,
+} from '@maelstrom-co/protocol';
+
+import type { ActionRecord } from '../command-processor/action-runner.types.js';
+import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
+import type {
+  ConnectorEvent,
+  EngineConnector,
+} from '../connection-manager/connector.types.js';
+import type { Unsubscribe } from '../types.js';
+import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
+import type {
+  AgentConversationEvents,
+  SendUtteranceOptions,
+} from './conversation-event.types.js';
+import { orderActionOutcomes } from './order-action-outcomes.js';
+
+/**
+ * Settlement of one agent-authored response batch, with the per-Action records
+ * when the Actions ran. `actions` is absent when the batch never reached its
+ * Actions, such as a refused Layout.
+ */
+export type SettledAgentChange = {
+  /** Outcome of the batch as a whole. */
+  readonly batch: CommandBatchResult;
+  /** Records of the executed Actions, when the Actions ran. */
+  readonly actions: readonly ActionRecord[] | undefined;
+};
+
+/**
+ * Reports why captured work must be dropped, or `null` while it still belongs
+ * to the live connector and a live Orchestrator.
+ */
+export type FenceCheck = (detail?: string) => string | null;
+
+/** Narrow capabilities the agent conversation borrows from the Orchestrator. */
+export type AgentConversationDependencies = {
+  /** The connector currently in use. */
+  readonly currentConnector: () => EngineConnector;
+  /** Builds a Chart snapshot of the board as it stands now. */
+  readonly buildChart: () => ChartRequest;
+  /** Applies a response as one settled batch, Layout first, then Actions. */
+  readonly dispatchChange: (
+    response: MaelstromResponse,
+  ) => Promise<SettledAgentChange>;
+  /** Captures a fence that trips on disposal or a connector swap. */
+  readonly captureFence: (subject: string) => FenceCheck;
+};
+
+type Attachment = {
+  readonly connector: EngineConnector;
+  readonly release: Unsubscribe;
+};
+
+/**
+ * The Agent Session conversation over the current connector: surfaces agent
+ * events, applies UI changes and acknowledges them, and reports when the
+ * conversation is lost.
+ */
+export class AgentConversation {
+  readonly #dependencies: AgentConversationDependencies;
+  readonly #events = new TypedEmitter<AgentConversationEvents>();
+  #attachment: Attachment | null = null;
+  #conversationExists = false;
+
+  /** Creates a detached conversation. Call {@link attach} to start listening. */
+  constructor(dependencies: AgentConversationDependencies) {
+    this.#dependencies = dependencies;
+  }
+
+  /** Read-only subscription to the surfaced conversation events. */
+  get events(): EventSubscriber<AgentConversationEvents> {
+    return this.#events;
+  }
+
+  /** Subscribes to agent and connection events of the current connector. */
+  attach(): void {
+    this.#detach();
+    const connector = this.#dependencies.currentConnector();
+    const isFenced = this.#dependencies.captureFence('Agent event');
+    const releaseAgentEvents = connector.onAgentEvent((event) => {
+      if (this.#attachment?.connector !== connector) return;
+      if (isFenced(`${event.type} dropped`)) return;
+      this.#conversationExists = true;
+      this.#handleAgentEvent(event, connector, isFenced);
+    });
+    const releaseConnectionEvents = connector.subscribe(
+      (event: ConnectorEvent) => {
+        if (event.type !== 'disconnected') return;
+        if (this.#attachment?.connector !== connector) return;
+        this.#reportLoss('disconnected');
+      },
+    );
+    this.#attachment = {
+      connector,
+      release: () => {
+        releaseAgentEvents();
+        releaseConnectionEvents();
+      },
+    };
+  }
+
+  /**
+   * Moves to the current connector after a swap, reporting the loss of any
+   * conversation held on the previous one.
+   */
+  replaceConnector(): void {
+    const hadConversation = this.#conversationExists;
+    this.#conversationExists = false;
+    this.attach();
+    if (hadConversation)
+      this.#events.emit('conversation_lost', {
+        type: 'conversation_lost',
+        reason: 'connector_replaced',
+      });
+  }
+
+  /**
+   * Sends one utterance with a fresh Chart snapshot and resolves its input id
+   * once the connector accepted it.
+   */
+  async sendUtterance(
+    text: string,
+    options?: SendUtteranceOptions,
+  ): Promise<MessageId> {
+    const attachment = this.#attachment;
+    if (attachment === null) throw new Error('Agent conversation is detached');
+    const inputId = MessageId();
+    await attachment.connector.sendAgentInput({
+      type: 'utterance',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      text,
+      chart: this.#dependencies.buildChart(),
+      source: options?.source ?? 'text',
+    });
+    if (this.#attachment === attachment) this.#conversationExists = true;
+    return inputId;
+  }
+
+  /** Detaches from the connector and disposes the emitter without reporting a loss. */
+  dispose(): void {
+    this.#detach();
+    this.#conversationExists = false;
+    this.#events.dispose();
+  }
+
+  #detach(): void {
+    this.#attachment?.release();
+    this.#attachment = null;
+  }
+
+  #reportLoss(reason: 'disconnected'): void {
+    if (!this.#conversationExists) return;
+    this.#conversationExists = false;
+    this.#events.emit('conversation_lost', {
+      type: 'conversation_lost',
+      reason,
+    });
+  }
+
+  #handleAgentEvent(
+    event: AgentEvent,
+    connector: EngineConnector,
+    isFenced: FenceCheck,
+  ): void {
+    switch (event.type) {
+      case 'placeholder':
+        this.#events.emit('placeholder', event);
+        return;
+      case 'message':
+        this.#events.emit('message', event);
+        return;
+      case 'finished':
+        this.#events.emit('finished', event);
+        return;
+      case 'error':
+        this.#events.emit('error', event);
+        return;
+      case 'ui_change':
+        this.#applyUiChange(event, connector, isFenced);
+        return;
+      case 'accepted':
+      case 'started':
+      case 'tool_call':
+      case 'tool_result':
+        return;
+    }
+  }
+
+  // Dispatch happens synchronously on arrival so the command queue applies
+  // consecutive changes in the order the agent sent them.
+  #applyUiChange(
+    event: AgentUiChangeEvent,
+    connector: EngineConnector,
+    isFenced: FenceCheck,
+  ): void {
+    let settlement: Promise<SettledAgentChange>;
+    try {
+      settlement = this.#dependencies.dispatchChange(event.response);
+    } catch (error) {
+      settlement = Promise.reject(toError(error));
+    }
+    void this.#acknowledgeUiChange(event, connector, isFenced, settlement);
+  }
+
+  async #acknowledgeUiChange(
+    event: AgentUiChangeEvent,
+    connector: EngineConnector,
+    isFenced: FenceCheck,
+    settlement: Promise<SettledAgentChange>,
+  ): Promise<void> {
+    let settled: SettledAgentChange;
+    try {
+      settled = await settlement;
+    } catch (error) {
+      settled = {
+        batch: { status: 'unknown', error: toError(error) },
+        actions: undefined,
+      };
+    }
+    if (isFenced(`ui_applied for ${event.changeId} not sent`)) return;
+
+    const acknowledgement: AgentUiAppliedInput = {
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: event.changeId,
+      chart: this.#dependencies.buildChart(),
+      actionOutcomes: toActionOutcomes(event.response, settled),
+    };
+    try {
+      await connector.sendAgentInput(acknowledgement);
+    } catch (error) {
+      console.warn(
+        `Agent conversation: ui_applied for ${event.changeId} was not sent`,
+        error,
+      );
+    }
+  }
+}
+
+function toActionOutcomes(
+  response: MaelstromResponse,
+  settled: SettledAgentChange,
+): AgentActionOutcome[] {
+  if (settled.batch.status === 'failed' && settled.actions === undefined) {
+    const error = `not run: layout could not be applied: ${settled.batch.error.message}`;
+    return response.executionPlan.map(() => ({ ok: false, error }));
+  }
+  return orderActionOutcomes(response.executionPlan, settled.actions ?? []);
+}

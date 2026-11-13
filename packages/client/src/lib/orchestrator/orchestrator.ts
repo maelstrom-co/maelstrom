@@ -27,7 +27,10 @@ import {
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
-import type { BatchExecutionResult } from '../command-processor/action-runner.types.js';
+import type {
+  ActionRecord,
+  BatchExecutionResult,
+} from '../command-processor/action-runner.types.js';
 import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
@@ -42,6 +45,7 @@ import { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
+import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
   type CapabilityOptionOmission,
@@ -52,8 +56,16 @@ import {
   readStructuralSnapshot,
   type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
+import {
+  AgentConversation,
+  type SettledAgentChange,
+} from './agent-conversation.js';
 import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
+import type {
+  AgentConversationEvents,
+  SendUtteranceOptions,
+} from './conversation-event.types.js';
 import { IntentScheduler } from './intent-scheduler.js';
 import type {
   EnqueueIntentOptions,
@@ -148,6 +160,7 @@ export class Orchestrator {
   readonly #vesselManager: VesselManager;
   readonly #chartManager: ChartManager;
   readonly #requestCoordinator: RequestCoordinator;
+  readonly #agentConversation: AgentConversation;
 
   readonly #intentScheduler: IntentScheduler;
   #automaticPending = false;
@@ -326,6 +339,13 @@ export class Orchestrator {
       this.#commandProcessor.setLayout(initialLayout);
     }
 
+    this.#agentConversation = new AgentConversation({
+      currentConnector: () => this.#connector,
+      buildChart: () => this.#buildChart([]),
+      dispatchChange: (response) => this.#dispatchAgentChange(response),
+      captureFence: (subject) => this.#captureFence(subject),
+    });
+
     this.#setupSubscriptions();
     this.#setupDiagnostics();
   }
@@ -352,6 +372,27 @@ export class Orchestrator {
 
   get requestCoordinator(): RequestCoordinator {
     return this.#requestCoordinator;
+  }
+
+  /**
+   * Subscribe to the Agent Session conversation carried by the current
+   * connector. Every payload is the protocol object the agent sent, unchanged,
+   * except `conversation_lost`, which the Orchestrator emits itself.
+   *
+   * - `placeholder`: the agent sends text to show while it works on an input.
+   * - `message`: the agent streams part of a conversational reply.
+   * - `finished`: an Agent Run ends, whatever the reason.
+   * - `error`: the agent reports an error for an input.
+   * - `conversation_lost`: the conversation can no longer continue. Fires once
+   *   when the transport closes, cleanly or not, or when {@link setConnector}
+   *   replaces the connector, and only while a conversation exists, meaning at
+   *   least one input was sent or one agent event arrived since the last loss.
+   *
+   * UI changes the agent sends are applied and acknowledged internally and
+   * never surface here. Subscribing after {@link dispose} throws.
+   */
+  get agent(): EventSubscriber<AgentConversationEvents> {
+    return this.#agentConversation.events;
   }
 
   // ==========================================================================
@@ -562,6 +603,45 @@ export class Orchestrator {
     } finally {
       if (!applying) this.#intentScheduler.release();
     }
+  }
+
+  /**
+   * Send a user utterance to the agent over the Agent Session wire, with a
+   * Chart snapshot of the board as it stands now.
+   *
+   * Resolves with the utterance's input id once the connector accepted the
+   * frame, without waiting for any agent event. The agent answers through
+   * {@link agent}, and UI changes it plans are applied as they arrive, Layout
+   * first, then Actions.
+   *
+   * REJECTS WITH:
+   * - `AgentWireUnsupportedError`: the connector cannot carry agent inputs,
+   *   as with `HttpConnector`.
+   * - `Error('Orchestrator is not connected')`: the transport is not
+   *   connected. Nothing was sent.
+   * - the connector's own error: the transport refused the frame. Whether the
+   *   agent saw the utterance is unknown, so do not automatically resend it.
+   * - `Error('Orchestrator is disposed')`: called after {@link dispose}.
+   *
+   * INVARIANTS:
+   * - Never reports busy. It never rejects with `RequestInFlightError` and
+   *   does not wait for an intent, a flush, or command application.
+   * - Does not touch updates buffered for the next engine request. They stay
+   *   queued for {@link processIntent} or {@link flushUpdates}.
+   * - The returned input id is the one the agent's `placeholder` and `error`
+   *   events for this utterance carry.
+   */
+  async sendUtterance(
+    text: string,
+    options?: SendUtteranceOptions,
+  ): Promise<MessageId> {
+    if (this.#isDisposed) {
+      throw new Error('Orchestrator is disposed');
+    }
+    if (this.#connectionManager.store.state.connectionStatus !== 'connected') {
+      throw new Error('Orchestrator is not connected');
+    }
+    return this.#agentConversation.sendUtterance(text, options);
   }
 
   /** Shared admission state; network telemetry alone does not imply readiness. */
@@ -1004,6 +1084,7 @@ export class Orchestrator {
     this.#requestCoordinator.setConnector(next);
 
     this.#attachPushSubscription();
+    this.#agentConversation.replaceConnector();
     this.#refreshDiagnosticConnector();
   }
 
@@ -1044,6 +1125,7 @@ export class Orchestrator {
     this.#unsubscribers = [];
     this.#unsubPush?.();
     this.#unsubPush = null;
+    this.#agentConversation.dispose();
 
     this.#updateCoordinator.dispose();
     this.#requestCoordinator.resolveFlushPromises(null);
@@ -1124,6 +1206,7 @@ export class Orchestrator {
     this.#unsubscribers.push(unsubFlush);
 
     this.#attachPushSubscription();
+    this.#agentConversation.attach();
   }
 
   #attachPushSubscription(): void {
@@ -1384,6 +1467,31 @@ export class Orchestrator {
     );
     if (releaseActionsListener) void settlement.finally(releaseActionsListener);
     return settlement;
+  }
+
+  // The command processor refuses new listeners once disposed, so a change
+  // arriving during teardown settles `unknown` instead of dispatching.
+  async #dispatchAgentChange(
+    response: MaelstromResponse,
+  ): Promise<SettledAgentChange> {
+    if (this.#isDisposed) {
+      return {
+        batch: {
+          status: 'unknown',
+          error: new Error('Orchestrator is disposed'),
+        },
+        actions: undefined,
+      };
+    }
+    let actions: readonly ActionRecord[] | undefined;
+    const batch = await this.#dispatchSettledResponse(
+      response,
+      response.requestId,
+      (result) => {
+        actions = result.actions;
+      },
+    );
+    return { batch, actions };
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
