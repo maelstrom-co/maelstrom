@@ -43,7 +43,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@google-cloud/speech": "^7.3.0",
     "@google-cloud/text-to-speech": "^6.4.0",
-    "astro": "^7.4.7",
+    "astro": "7.4.11",
     "effect": "4.0.5",
     "happy-dom": "21.0.4",
     "hono": "^4.13.11",
