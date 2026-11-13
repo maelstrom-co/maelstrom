@@ -62,6 +62,8 @@ import { checkoutVessel } from '../src/shop/vessels/checkout.vessel.def';
 import { ordersVessel } from '../src/shop/vessels/orders.vessel.def';
 
 const DEFAULT_WS_URL = 'ws://localhost:3001/ws';
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const STALE_VALUE_HINT = `ms between 1 and ${MAX_TIMER_DELAY_MS}, or off`;
 const SHOP_VESSELS = [ordersVessel, catalogVessel, cartVessel, checkoutVessel];
 const COMMAND_HELP =
   'Commands: /help /connect /disconnect /swap /stale <ms|off> /chart /exit. Any other line is sent as an utterance.';
@@ -171,10 +173,7 @@ async function quit(): Promise<void> {
 async function rebuildWithStaleTimeout(value: string | undefined) {
   const parsed = parseStaleTimeout(value);
   if (parsed === undefined) {
-    log(
-      'repl error',
-      `/stale needs a positive number of ms or off, got ${value}`,
-    );
+    log('repl error', `/stale needs ${STALE_VALUE_HINT}, got ${value}`);
     return;
   }
   await orchestrator.dispose();
@@ -319,7 +318,7 @@ function readInitialStaleTimeout(argv: readonly string[]): number | undefined {
   if (flagIndex === -1) return undefined;
   const parsed = parseStaleTimeout(argv[flagIndex + 1]);
   if (parsed === undefined) {
-    console.error(`--stale needs a positive number of ms or off.\n\n${USAGE}`);
+    console.error(`--stale needs ${STALE_VALUE_HINT}.\n\n${USAGE}`);
     process.exit(1);
   }
   return parsed;
@@ -328,7 +327,7 @@ function readInitialStaleTimeout(argv: readonly string[]): number | undefined {
 function parseStaleTimeout(value: string | undefined): number | undefined {
   if (value === 'off') return Infinity;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  return parsed > 0 && parsed <= MAX_TIMER_DELAY_MS ? parsed : undefined;
 }
 
 function log(kind: string, detail: string): void {
