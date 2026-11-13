@@ -105,8 +105,8 @@ input.on('close', () => {
   inputClosed = true;
   pendingLines = pendingLines.then(quit);
 });
-input.on('SIGINT', () => input.close());
-process.on('SIGINT', () => input.close());
+input.on('SIGINT', requestExit);
+process.on('SIGINT', requestExit);
 input.prompt();
 
 async function handleLine(line: string): Promise<void> {
@@ -143,8 +143,7 @@ async function handleLine(line: string): Promise<void> {
         return;
       case '/exit':
       case '/quit':
-        exitRequested = true;
-        input.close();
+        requestExit();
         return;
       default:
         log('repl error', `unknown command ${command}. ${COMMAND_HELP}`);
@@ -154,6 +153,11 @@ async function handleLine(line: string): Promise<void> {
   } finally {
     if (!inputClosed) input.prompt();
   }
+}
+
+function requestExit(): void {
+  exitRequested = true;
+  input.close();
 }
 
 async function quit(): Promise<void> {
