@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
-import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { DiagnosticCapture } from '@maelstrom-co/devtools/production';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 
@@ -13,17 +14,11 @@ afterEach(() => {
   else process.env.NODE_ENV = nodeEnv;
 });
 
-const connector: EngineConnector = {
-  capabilities: { voice: false, streaming: false, stateful: false },
-  connect: async () => {},
-  disconnect: async () => {},
-  subscribe: () => () => {},
+const connector = createTestConnector({
   process: async () => {
     throw new Error('unexpected request');
   },
-  addAssistantMessage: async () => {},
-  getHistory: async () => [],
-};
+});
 
 test('the demo opt-in mounts a working capture panel in a production runtime', async () => {
   process.env.NODE_ENV = 'production';

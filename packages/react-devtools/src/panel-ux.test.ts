@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 
 import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   createDevtools,
   type Devtools,
@@ -94,13 +95,7 @@ test('Connections highlights the selected connection or voice event beside its J
   expect(json()).toContain('voice-selected');
 });
 function connector(): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
+  return createTestConnector({
     process: async (message) => ({
       type: 'maelstrom_response',
       requestId: message.id,
@@ -119,7 +114,7 @@ function connector(): EngineConnector {
         ],
       },
     }),
-  };
+  });
 }
 async function clientFor(tools: Devtools) {
   const client = new Orchestrator(connector(), {
