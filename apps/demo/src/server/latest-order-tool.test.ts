@@ -32,6 +32,16 @@ describe('latestOrderTool', () => {
     expect(latestOrderTool.output.safeParse(output).success).toBe(true);
   });
 
+  it('declares the order id, date and SKUs as intent facts', async () => {
+    const output = await latestOrderTool.execute({}, contextFor());
+
+    expect(latestOrderTool.intentFacts?.(output)).toEqual({
+      orderId: 'ORD-10455',
+      placedOn: '2026-09-14',
+      skus: ['DOG-DRY-SUMMIT-ADULT-30', 'CAT-DRY-WHISKER-INDOOR-16'],
+    });
+  });
+
   it('summarizes the order id, items and date in one line of at most 200 characters', async () => {
     const output = await latestOrderTool.execute({}, contextFor());
 

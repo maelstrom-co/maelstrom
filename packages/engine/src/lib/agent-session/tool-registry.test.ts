@@ -23,6 +23,35 @@ test('a tool without sideEffect or approval registers as non_idempotent and neve
   expect(entry?.tool).toBe(echoTool);
 });
 
+test('a tool without intentFacts registers without an extractor', () => {
+  expect(
+    createToolRegistry([echoTool]).get('echo')?.intentFacts,
+  ).toBeUndefined();
+});
+
+test('a declared intentFacts extractor is normalized onto the entry', () => {
+  const withFacts = serverTool({
+    ...echoTool,
+    name: 'with_facts',
+    intentFacts: (output) => ({ shout: output.text.toUpperCase() }),
+  });
+  const entry = createToolRegistry([withFacts]).get('with_facts');
+  expect(entry?.intentFacts?.({ text: 'hi' })).toEqual({ shout: 'HI' });
+});
+
+test.each([42, 'facts', {}, null])(
+  'a non-function intentFacts %p is rejected',
+  (intentFacts) => {
+    const untyped = { ...echoTool, intentFacts } as unknown as ServerTool<
+      { text: string },
+      { text: string }
+    >;
+    expect(() => createToolRegistry([untyped])).toThrow(
+      'Server tool "echo" must define intentFacts as a function',
+    );
+  },
+);
+
 test('declared sideEffect is kept', () => {
   const readOnly = serverTool({
     ...echoTool,
