@@ -29,8 +29,8 @@ export const STOPPED_TOOL_SUMMARY = 'Stopped';
 
 /**
  * Why an Agent Run ended, without the fields the caller adds when it builds
- * the {@link AgentRunFinished} event: `type`, `reply`, `metrics` and
- * `unreportedUsageCalls`.
+ * the {@link AgentRunFinished} event: `type`, `reply` (on the endings that
+ * carry one), `metrics` and `unreportedUsageCalls`.
  */
 export type AgentRunEnding = WithoutFinishedEventFields<AgentRunFinished>;
 

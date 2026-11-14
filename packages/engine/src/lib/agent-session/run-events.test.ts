@@ -85,10 +85,10 @@ test('a failed run finishes without its reply and reports the failure code', () 
       error: 'The UI change could not be fully applied.',
       ok: false,
       reason: 'error',
-      reply: '',
       metrics,
     },
   ]);
+  expect(ending.events[0]).not.toHaveProperty('reply');
   expect(ending.metadata).toEqual({
     reason: 'error',
     outcome: 'failed',
@@ -98,7 +98,7 @@ test('a failed run finishes without its reply and reports the failure code', () 
 });
 
 test('a cancelled run keeps its reason and never reports negative elapsed time', () => {
-  const ending = buildRunEnding(run, 0, '', {
+  const ending = buildRunEnding(run, 0, undefined, {
     reason: 'cancelled',
     code: 'ui_ack_timeout',
     error: 'The preceding UI change was not acknowledged.',
@@ -111,6 +111,7 @@ test('a cancelled run keeps its reason and never reports negative elapsed time',
       metrics: { elapsedMs: 0 },
     },
   ]);
+  expect(ending.events[0]).not.toHaveProperty('reply');
   expect(ending.metadata).toMatchObject({
     reason: 'cancelled',
     outcome: 'failed',
@@ -119,6 +120,30 @@ test('a cancelled run keeps its reason and never reports negative elapsed time',
   expect(
     ending.events.every((event) => AgentEventSchema.safeParse(event).success),
   ).toBe(true);
+});
+
+test('a completed run without a reply sends no message and finishes without a reply', () => {
+  const ending = buildRunEnding(run, 30.4, undefined);
+  expect(ending.events).toEqual([
+    {
+      type: 'finished',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+      ok: true,
+      reason: 'completed',
+      metrics,
+    },
+  ]);
+  expect(ending.events[0]).not.toHaveProperty('reply');
+  expect(
+    ending.events.every((event) => AgentEventSchema.safeParse(event).success),
+  ).toBe(true);
+});
+
+test('a completed run with an empty reply sends no message and finishes without a reply', () => {
+  const ending = buildRunEnding(run, 30.4, '');
+  expect(ending.events.map((event) => event.type)).toEqual(['finished']);
+  expect(ending.events[0]).not.toHaveProperty('reply');
 });
 
 test('an agent acceptance carries the agent disposition', () => {
@@ -165,6 +190,14 @@ test('a completed agent run finishes with its counters, including its own elapse
     outputTokens: 3,
     unreportedUsageCalls: 1,
   });
+});
+
+test('a completed agent run whose last turn had no text finishes without a reply', () => {
+  const ending = buildRunEnding(run, 30.4, undefined, undefined, counters);
+  expect(ending.events).toMatchObject([
+    { type: 'finished', ok: true, reason: 'completed' },
+  ]);
+  expect(ending.events[0]).not.toHaveProperty('reply');
 });
 
 test('a budget ending sends the closing message under the close turn and makes it the reply', () => {

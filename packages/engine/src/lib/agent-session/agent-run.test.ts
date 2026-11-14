@@ -119,6 +119,21 @@ describe('runAgent on chat()', () => {
     expect(toolMessageContents(model.requests[1])).toEqual([LATEST_ORDER]);
   });
 
+  test('a final turn without text completes with no reply', async () => {
+    const model = scriptedAdapter([textTurn([], usage(1, 1))]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const finished = lastEvent(events);
+    expect(events.map((event) => event.type)).toEqual(['finished']);
+    expect(finished).toMatchObject({ reason: 'completed' });
+    expect(finished).not.toHaveProperty('reply');
+  });
+
   test('two calls in one turn are announced first, then run one after another in call order', async () => {
     const log: string[] = [];
     const tools = orderTools({ log });
@@ -194,9 +209,9 @@ describe('runAgent on chat()', () => {
     expect(events.filter((event) => event.type === 'finished')).toHaveLength(1);
     expect(finished).toMatchObject({
       reason: 'error',
-      reply: '',
       code: 'provider_error',
     });
+    expect(finished).not.toHaveProperty('reply');
     expect(totalOf(finished)).toBe(19);
     expect(events).toContainEqual({
       type: 'message',
@@ -367,8 +382,8 @@ describe('runAgent on chat()', () => {
     expect(lastEvent(events)).toMatchObject({
       reason: 'error',
       code: 'gate_failed',
-      reply: '',
     });
+    expect(lastEvent(events)).not.toHaveProperty('reply');
     expect(JSON.stringify(events)).not.toContain(SECRET);
     expect(errors).toEqual([
       {
@@ -1019,11 +1034,11 @@ describe('runAgent budgets and stops on chat()', () => {
         type: 'finished',
         reason: 'cancelled',
         cause: 'caller left',
-        reply: '',
         metrics: ZERO_METRICS,
         unreportedUsageCalls: 0,
       },
     ]);
+    expect(lastEvent(events)).not.toHaveProperty('reply');
   });
 
   test('a turn cap of 3 with an always-tool model runs the tools of turns 1 and 2 and refuses turn 3', async () => {
@@ -1490,9 +1505,9 @@ describe('runAgent budgets and stops on chat()', () => {
         type: 'finished',
         reason: 'cancelled',
         cause: 'user stopped',
-        reply: '',
       }),
     ]);
+    expect(lastEvent(events)).not.toHaveProperty('reply');
   });
 
   test('a tool that ignores the abort and resolves later publishes nothing', async () => {

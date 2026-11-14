@@ -88,7 +88,7 @@ export function createRunScheduler({
   const queue: UiRun[] = [];
   let state: RunState = { phase: 'idle' };
   let chart: ChartRequest | undefined;
-  const complete = (run: UiRun, reply: string, failure?: RunFailure) => {
+  const complete = (run: UiRun, reply?: string, failure?: RunFailure) => {
     if (signal.aborted) return;
     const ending = buildRunEnding(run, clock(), reply, failure);
     events.emit(...ending.events);
@@ -105,7 +105,7 @@ export function createRunScheduler({
   };
   const failPlanning = (run: UiRun, failure: RunFailure) => {
     state = { phase: 'finishing', run };
-    complete(run, '', failure);
+    complete(run, undefined, failure);
     run.ready.resolve();
     startNextRun();
   };
@@ -113,12 +113,12 @@ export function createRunScheduler({
     state = { phase: 'finishing', run };
     chart = undefined;
     const abandoned = queue.splice(0);
-    complete(run, '', {
+    complete(run, undefined, {
       code: 'ui_ack_timeout',
       error: 'The UI acknowledgement did not arrive.',
     });
     for (const queued of abandoned) {
-      complete(queued, '', {
+      complete(queued, undefined, {
         reason: 'cancelled',
         code: 'ui_ack_timeout',
         error: 'The preceding UI change was not acknowledged.',
