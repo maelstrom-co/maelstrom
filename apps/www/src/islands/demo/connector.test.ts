@@ -221,7 +221,7 @@ describe('ScriptedConnector agent wire', () => {
   it('rejects agent inputs with AgentWireUnsupportedError', async () => {
     const connector = new ScriptedConnector(DEMO_STEPS);
     await expect(
-      connector.sendAgentInput({
+      connector.sendInput({
         type: 'utterance',
         version: AGENT_WIRE_VERSION,
         inputId: MessageId('input-1'),

@@ -26,7 +26,7 @@ test('source-condition production consumers cannot collect content or attach obs
 test('the explicit production entrypoint retains redacted evidence and releases its client', () => {
   const probe = `import {Orchestrator} from '@maelstrom-co/client';
  import {createDevtools,VoiceDiagnostics} from '@maelstrom-co/devtools/production';
- const connector={capabilities:{voice:false,streaming:false,stateful:false},connect:async()=>{},disconnect:async()=>{},subscribe:()=>()=>{},process:async()=>{throw Error('unexpected request')},addAssistantMessage:async()=>{},getHistory:async()=>[],sendAgentInput:async()=>{throw Error('unexpected agent input')},onAgentEvent:()=>()=>{}};
+ const connector={capabilities:{voice:false,streaming:false,stateful:false},connect:async()=>{},disconnect:async()=>{},subscribe:()=>()=>{},process:async()=>{throw Error('unexpected request')},addAssistantMessage:async()=>{},getHistory:async()=>[],sendInput:async()=>{throw Error('unexpected agent input')},onEvent:()=>()=>{}};
  const client=new Orchestrator(connector);
  const tools=createDevtools({maxActivityEvents:2});const detach=tools.attach(client);
  tools.startCapture();client.diagnostics.emit('fixture.completed',{ok:true},()=>({text:'explicit content',apiKey:'private-key'}),'request');

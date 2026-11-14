@@ -39,7 +39,7 @@ import { OrdersApp } from './OrdersApp';
 import { seed } from './orders';
 afterEach(cleanup);
 it('the migration must connect the supplied transport instead of silently using legacy results', async () => {
-  const connector = { capabilities: { voice: false, streaming: false, stateful: false }, connect: vi.fn(async () => {}), disconnect: async () => {}, subscribe: () => () => {}, sendAgentInput: async () => {}, onAgentEvent: () => () => {}, process: async () => { throw new Error('No engine request expected'); }, addAssistantMessage: async () => {}, getHistory: async () => [] } satisfies EngineConnector;
+  const connector = { capabilities: { voice: false, streaming: false, stateful: false }, connect: vi.fn(async () => {}), disconnect: async () => {}, subscribe: () => () => {}, sendInput: async () => {}, onEvent: () => () => {}, process: async () => { throw new Error('No engine request expected'); }, addAssistantMessage: async () => {}, getHistory: async () => [] } satisfies EngineConnector;
   render(<OrdersApp useMaelstromOrders connector={connector} service={{ list: async () => seed, cancel: async () => {} }} session={{ canCancel: true }} />);
   await screen.findByRole('heading', { name: 'A-100' });
   expect(connector.connect).toHaveBeenCalledTimes(1);

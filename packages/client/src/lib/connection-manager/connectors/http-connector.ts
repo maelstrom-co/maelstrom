@@ -125,7 +125,7 @@ export class HttpConnector implements EngineConnector {
    * Always rejects with {@link AgentWireUnsupportedError}. The Agent Session
    * wire needs a persistent transport and makes no HTTP request.
    */
-  async sendAgentInput(_input: AgentInput): Promise<void> {
+  async sendInput(_input: AgentInput): Promise<void> {
     throw new AgentWireUnsupportedError(
       'Agent inputs are not supported over HTTP',
     );
@@ -134,7 +134,7 @@ export class HttpConnector implements EngineConnector {
   /**
    * HTTP never delivers agent events. Returns an unsubscribe no-op.
    */
-  onAgentEvent(_handler: (event: AgentEvent) => void): Unsubscribe {
+  onEvent(_handler: (event: AgentEvent) => void): Unsubscribe {
     return () => {};
   }
 

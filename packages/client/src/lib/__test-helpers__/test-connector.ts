@@ -23,8 +23,8 @@ export function createTestConnector(
     subscribe: () => noopUnsubscribe,
     addAssistantMessage: () => Promise.resolve(),
     getHistory: () => Promise.resolve([]),
-    sendAgentInput: () => Promise.resolve(),
-    onAgentEvent: () => noopUnsubscribe,
+    sendInput: () => Promise.resolve(),
+    onEvent: () => noopUnsubscribe,
     ...overrides,
   };
 }

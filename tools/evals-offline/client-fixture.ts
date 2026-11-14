@@ -126,8 +126,8 @@ export function clientFixture(
         connect: async () => {},
         disconnect: async () => {},
         subscribe: () => () => {},
-        sendAgentInput: async () => {},
-        onAgentEvent: () => () => {},
+        sendInput: async () => {},
+        onEvent: () => () => {},
         addAssistantMessage: async () => {},
         getHistory: async () => [],
         async process(message): Promise<MaelstromResponse> {

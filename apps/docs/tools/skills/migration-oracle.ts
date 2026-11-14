@@ -25,7 +25,7 @@ vi.mock('@maelstrom-co/react', async original => {
 });
 function transport() {
   return { capabilities: { voice: false, streaming: false, stateful: false }, connect: vi.fn(async () => {}), disconnect: vi.fn(async () => {}),
-    subscribe: () => () => {}, sendAgentInput: async () => {}, onAgentEvent: () => () => {}, process: vi.fn(async message => ({ type: 'maelstrom_response', requestId: message.id, userMessage: '', rationale: '', executionPlan: [],
+    subscribe: () => () => {}, sendInput: async () => {}, onEvent: () => () => {}, process: vi.fn(async message => ({ type: 'maelstrom_response', requestId: message.id, userMessage: '', rationale: '', executionPlan: [],
     layout: { type: 'tiling', tree: ['ID:orders'], instances: [{ instanceId: InstanceId('orders'), vesselId: VesselId('orders'), variant: VariantName('list') }] } })),
     addAssistantMessage: async () => {}, getHistory: async () => [] } satisfies EngineConnector;
 }

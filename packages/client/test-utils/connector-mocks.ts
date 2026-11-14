@@ -29,8 +29,8 @@ export function createMockConnector(
     ),
     addAssistantMessage: mock(() => Promise.resolve()),
     getHistory: mock(() => Promise.resolve([])),
-    sendAgentInput: mock(() => Promise.resolve()),
-    onAgentEvent: mock((): Unsubscribe => () => {}),
+    sendInput: mock(() => Promise.resolve()),
+    onEvent: mock((): Unsubscribe => () => {}),
     ...overrides,
   });
 }

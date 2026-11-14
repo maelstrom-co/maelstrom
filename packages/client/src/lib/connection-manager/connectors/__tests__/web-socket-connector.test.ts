@@ -837,13 +837,13 @@ const buildUtteranceInput = (text: string): AgentInput => ({
   chart: buildEnvelope(MessageId('chart-1')).request,
 });
 
-describe('WebSocketConnector sendAgentInput', () => {
+describe('WebSocketConnector sendInput', () => {
   test('sends one client.agent.input frame carrying the session id and the exact input', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
     const input = buildUtteranceInput('show me weather');
 
-    await connector.sendAgentInput(input);
+    await connector.sendInput(input);
 
     expect(ws.sent).toHaveLength(1);
     const decoded = decodeClientEnvelope(ws.sent[0] as string);
@@ -859,7 +859,7 @@ describe('WebSocketConnector sendAgentInput', () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
 
     const rejection = await connector
-      .sendAgentInput(buildUtteranceInput('hi'))
+      .sendInput(buildUtteranceInput('hi'))
       .catch((error: unknown) => error);
 
     expect(rejection).toBeInstanceOf(ConnectorError);
@@ -875,7 +875,7 @@ describe('WebSocketConnector sendAgentInput', () => {
     ws.emitClose(1006, '');
 
     const rejection = await connector
-      .sendAgentInput(buildUtteranceInput('hi'))
+      .sendInput(buildUtteranceInput('hi'))
       .catch((error: unknown) => error);
 
     expect(rejection).toBeInstanceOf(ConnectorError);
@@ -889,10 +889,10 @@ describe('WebSocketConnector engine.agent.event', () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
     const seen: string[] = [];
-    connector.onAgentEvent((event) => {
+    connector.onEvent((event) => {
       if (event.type === 'message') seen.push(`a:${event.delta}`);
     });
-    const unsubscribeSecond = connector.onAgentEvent((event) => {
+    const unsubscribeSecond = connector.onEvent((event) => {
       if (event.type === 'message') seen.push(`b:${event.delta}`);
     });
 
@@ -913,9 +913,9 @@ describe('WebSocketConnector engine.agent.event', () => {
       if (event.type === 'message') seen.push(event.delta);
       if (seen.length > 5) return;
       unsubscribe();
-      unsubscribe = connector.onAgentEvent(handler);
+      unsubscribe = connector.onEvent(handler);
     };
-    let unsubscribe = connector.onAgentEvent(handler);
+    let unsubscribe = connector.onEvent(handler);
 
     emitServer(ws, buildAgentEventFrame('one'));
     emitServer(ws, buildAgentEventFrame('two'));
@@ -928,10 +928,10 @@ describe('WebSocketConnector engine.agent.event', () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
     const seen: string[] = [];
-    connector.onAgentEvent(() => {
+    connector.onEvent(() => {
       unsubscribeSecond();
     });
-    const unsubscribeSecond = connector.onAgentEvent((event) => {
+    const unsubscribeSecond = connector.onEvent((event) => {
       if (event.type === 'message') seen.push(event.delta);
     });
 
@@ -945,10 +945,10 @@ describe('WebSocketConnector engine.agent.event', () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
     const delivered: string[] = [];
-    connector.onAgentEvent(() => {
+    connector.onEvent(() => {
       throw new Error('handler boom');
     });
-    connector.onAgentEvent((event) => {
+    connector.onEvent((event) => {
       if (event.type === 'message') delivered.push(event.delta);
     });
     const envelope = buildEnvelope(MessageId('agent-pending-1'));
@@ -982,7 +982,7 @@ describe('WebSocketConnector engine.agent.event', () => {
     await connector.disconnect();
     const liveWs = await connectAndOpen(connector);
     const delivered: string[] = [];
-    connector.onAgentEvent((event) => {
+    connector.onEvent((event) => {
       if (event.type === 'message') delivered.push(event.delta);
     });
 

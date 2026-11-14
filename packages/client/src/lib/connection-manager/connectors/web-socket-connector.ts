@@ -204,7 +204,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
   #assistantCorrelator = new RequestCorrelator<AssistantMessageOutcome>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
-  #agentEventHandlers = new Set<(event: AgentEvent) => void>();
+  #engineEventHandlers = new Set<(event: AgentEvent) => void>();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   // Pings sent since the last pong was seen. Reset to 0 whenever a pong
   // arrives; checked (and incremented) on every heartbeat tick.
@@ -422,14 +422,14 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    *   open or no session is established yet.
    * @throws If `WebSocket.send` fails.
    */
-  async sendAgentInput(input: AgentInput): Promise<void> {
+  async sendInput(input: AgentInput): Promise<void> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new ConnectorError('transport', 'WebSocket not connected');
     }
     if (this.#sessionId === null) {
       throw new ConnectorError(
         'transport',
-        'WebSocketConnector.sendAgentInput called before connect() completed',
+        'WebSocketConnector.sendInput called before connect() completed',
       );
     }
     this.#ws.send(
@@ -443,10 +443,10 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * from a replaced or disconnected socket are dropped. A throwing handler is
    * logged and does not affect other handlers.
    */
-  onAgentEvent(handler: (event: AgentEvent) => void): Unsubscribe {
-    this.#agentEventHandlers.add(handler);
+  onEvent(handler: (event: AgentEvent) => void): Unsubscribe {
+    this.#engineEventHandlers.add(handler);
     return () => {
-      this.#agentEventHandlers.delete(handler);
+      this.#engineEventHandlers.delete(handler);
     };
   }
 
@@ -779,8 +779,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
       case 'engine.agent.event': {
         if (socket !== this.#ws) return;
-        for (const handler of [...this.#agentEventHandlers]) {
-          if (!this.#agentEventHandlers.has(handler)) continue;
+        for (const handler of [...this.#engineEventHandlers]) {
+          if (!this.#engineEventHandlers.has(handler)) continue;
           try {
             handler(envelope.event);
           } catch (error) {

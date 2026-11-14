@@ -18,14 +18,14 @@ describe('createTestConnector defaults', () => {
       full.addAssistantMessage({} as never),
     ).resolves.toBeUndefined();
     await expect(full.getHistory('session' as never)).resolves.toEqual([]);
-    await expect(full.sendAgentInput({} as never)).resolves.toBeUndefined();
+    await expect(full.sendInput({} as never)).resolves.toBeUndefined();
   });
 
-  test('subscribe and onAgentEvent return callable unsubscribes', () => {
+  test('subscribe and onEvent return callable unsubscribes', () => {
     const connector = createTestConnector();
 
     expect(() => connector.subscribe(() => {})()).not.toThrow();
-    expect(() => connector.onAgentEvent(() => {})()).not.toThrow();
+    expect(() => connector.onEvent(() => {})()).not.toThrow();
   });
 
   test('process rejects naming process as not stubbed', async () => {
@@ -39,13 +39,11 @@ describe('createTestConnector overrides', () => {
   test('overrides win over defaults', async () => {
     const connector = createTestConnector({
       capabilities: { voice: true, streaming: true, stateful: true },
-      sendAgentInput: () => Promise.reject(new Error('custom')),
+      sendInput: () => Promise.reject(new Error('custom')),
     });
 
     expect(connector.capabilities.voice).toBe(true);
-    await expect(connector.sendAgentInput({} as never)).rejects.toThrow(
-      'custom',
-    );
+    await expect(connector.sendInput({} as never)).rejects.toThrow('custom');
     await expect(connector.getHistory('session' as never)).resolves.toEqual([]);
   });
 });

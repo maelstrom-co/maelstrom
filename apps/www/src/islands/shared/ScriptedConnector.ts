@@ -120,13 +120,13 @@ export class ScriptedConnector implements EngineConnector {
     return () => {};
   }
 
-  async sendAgentInput(): Promise<void> {
+  async sendInput(): Promise<void> {
     throw new AgentWireUnsupportedError(
       'Agent inputs are not supported by the scripted connector',
     );
   }
 
-  onAgentEvent(): Unsubscribe {
+  onEvent(): Unsubscribe {
     return () => {};
   }
 

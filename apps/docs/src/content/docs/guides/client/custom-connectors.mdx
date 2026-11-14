@@ -33,7 +33,7 @@ A connector owns five jobs:
 2. send intent or chart messages to the engine
 3. deliver engine responses back to the client
 4. expose connection failures in a way the UI can render
-5. carry Agent Session traffic with `sendAgentInput` and `onAgentEvent`
+5. carry Agent Session traffic with `sendInput` and `onEvent`
 
 It should preserve the protocol payload. If the transport changes from WebSocket to HTTP, the message shape should not.
 
@@ -68,8 +68,8 @@ export function createInMemoryConnector(engine: Engine): EngineConnector {
     subscribe() {
       return () => {};
     },
-    async sendAgentInput() {},
-    onAgentEvent() {
+    async sendInput() {},
+    onEvent() {
       return () => {};
     },
     async addAssistantMessage() {},
@@ -93,10 +93,10 @@ Treat this as a test seam, not a production browser connector. It is useful beca
 
 Every connector implements two members for Agent Sessions. The agent wire is unstable, so keep these thin.
 
-- `sendAgentInput(input)` resolves once the transport has accepted the frame. It does not wait for an agent event. It rejects with a `ConnectorError` of kind `transport` when the connector is not connected.
-- `onAgentEvent(handler)` delivers decoded Agent Session events to the handler and returns an unsubscribe function.
+- `sendInput(input)` resolves once the transport has accepted the frame. It does not wait for an agent event. It rejects with a `ConnectorError` of kind `transport` when the connector is not connected.
+- `onEvent(handler)` delivers decoded Agent Session events to the handler and returns an unsubscribe function.
 
-A connector that only speaks HTTP may reject in `sendAgentInput` with `AgentWireUnsupportedError`, exported from `@maelstrom-co/client`. Its `onAgentEvent` returns a no-op unsubscribe and never calls the handler.
+A connector that only speaks HTTP may reject in `sendInput` with `AgentWireUnsupportedError`, exported from `@maelstrom-co/client`. Its `onEvent` returns a no-op unsubscribe and never calls the handler.
 
 ## Failure and retry behavior
 

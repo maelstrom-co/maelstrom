@@ -11,8 +11,8 @@ const connector: EngineConnector = {
   connect: async () => {},
   disconnect: async () => {},
   subscribe: () => () => {},
-  sendAgentInput: async () => {},
-  onAgentEvent: () => () => {},
+  sendInput: async () => {},
+  onEvent: () => () => {},
   process: async () => {
     throw new Error('This fixture does not call an Engine.');
   },
