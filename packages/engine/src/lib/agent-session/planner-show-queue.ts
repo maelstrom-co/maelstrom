@@ -103,7 +103,7 @@ export interface PlannerShowQueueOptions {
   readonly acknowledgementTimeoutMs: number;
   /**
    * How long a show's Planner call may run before the show fails. Defaults to
-   * {@link SHOW_PLANNING_TIMEOUT_MS}. Only tests override it.
+   * {@link SHOW_PLANNING_TIMEOUT_MS}.
    */
   readonly planningTimeoutMs?: number;
 }

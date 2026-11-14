@@ -112,8 +112,9 @@ export interface AgentRunQueue {
    * `cancelled`, dropping anything else it produces afterwards. A queued run
    * finishes as `cancelled` without starting. The run's queued shows are
    * dropped and its show in planning is aborted, each with a cancelled note,
-   * while its change already sent still awaits acknowledgement. Unknown runs
-   * are ignored.
+   * while its change already sent still awaits acknowledgement. A run that
+   * already finished still has its remaining shows dropped this way. A run
+   * that is neither active nor queued and has no shows is ignored.
    */
   cancelRun(runId: RunId): void;
   /**
