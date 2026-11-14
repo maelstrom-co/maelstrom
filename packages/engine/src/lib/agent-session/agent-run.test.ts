@@ -134,6 +134,20 @@ describe('runAgent on chat()', () => {
     expect(finished).not.toHaveProperty('reply');
   });
 
+  test('a final turn with only whitespace text completes with no reply', async () => {
+    const model = scriptedAdapter([textTurn(['\n', '  '], usage(1, 1))]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const finished = lastEvent(events);
+    expect(finished).toMatchObject({ type: 'finished', reason: 'completed' });
+    expect(finished).not.toHaveProperty('reply');
+  });
+
   test('two calls in one turn are announced first, then run one after another in call order', async () => {
     const log: string[] = [];
     const tools = orderTools({ log });

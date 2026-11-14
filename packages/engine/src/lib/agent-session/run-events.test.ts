@@ -146,6 +146,12 @@ test('a completed run with an empty reply sends no message and finishes without 
   expect(ending.events[0]).not.toHaveProperty('reply');
 });
 
+test('a completed run with a whitespace-only reply sends no message and finishes without a reply', () => {
+  const ending = buildRunEnding(run, 30.4, '\n  ');
+  expect(ending.events.map((event) => event.type)).toEqual(['finished']);
+  expect(ending.events[0]).not.toHaveProperty('reply');
+});
+
 test('an agent acceptance carries the agent disposition', () => {
   expect(
     buildAcceptanceEvents(MessageId('input-1'), run.runId, 'agent')[1],

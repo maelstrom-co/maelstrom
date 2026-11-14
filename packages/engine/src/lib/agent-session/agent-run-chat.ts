@@ -583,7 +583,7 @@ function* endingEvents(
         {
           type: 'finished',
           ...ending,
-          ...(lastTurnText === '' ? {} : { reply: lastTurnText }),
+          ...(lastTurnText.trim() === '' ? {} : { reply: lastTurnText }),
           ...counters,
         },
         toolsSettled,

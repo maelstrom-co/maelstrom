@@ -91,7 +91,7 @@ export function buildRunEnding(
     outputTokens: counters?.outputTokens ?? 0,
   };
   const finalReply =
-    budget?.closingMessage ?? (ok && reply ? reply : undefined);
+    budget?.closingMessage ?? (ok && reply?.trim() ? reply : undefined);
   const turnId = budget ? `${runId}:close` : `${runId}:reply`;
   const message: AgentEvent[] =
     finalReply !== undefined && (budget || counters === undefined)

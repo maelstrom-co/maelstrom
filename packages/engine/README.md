@@ -237,7 +237,7 @@ const engine = createEngine({
 
 When neither hook is supplied the engine uses its defaults: turns project to a user message (from user_intent reasons) + an assistant message (from the response's userMessage, omitted when the turn has no reply); injections project to a single assistant message.
 
-Consecutive `assistant_message` injections produce consecutive `role: 'assistant'` messages in the LLM prompt. Modern chat APIs (Gemini, OpenAI, Anthropic) tolerate this; models that require strict user/assistant alternation will need an adapter-level shim.
+Consecutive `assistant_message` injections produce consecutive `role: 'assistant'` messages in the LLM prompt. Modern chat APIs (Gemini, OpenAI, Anthropic) tolerate this; models that require strict user/assistant alternation will need an adapter-level shim. The same holds for consecutive `role: 'user'` messages: a turn without a reply (from a `skipReply` request) projects no assistant message, so two such turns in a row, or one followed by a turn with a reply, put user messages back to back.
 
 **Ordering.** `getHistory` and `getLLMContext` sort entries by the envelope `timestamp` field (client-set wall clock), not by store insertion order. This matters when injections land while a long `chart_request` is still processing — the turn's `input.timestamp` is older than the injection even though the turn only enters the store after the LLM returns. Sorting by timestamp recovers the intended chronology in the common single-client case. Multi-device sessions with drifting clocks will see minor reordering; a server-side monotonic `receivedAt` is the right fix and is tracked in the cloud-engine improvements backlog as a follow-up to this reference implementation.
 
