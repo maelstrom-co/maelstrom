@@ -149,12 +149,18 @@ export class DiagnosticChannel {
     this.emitDiagnostic(kind, metadata, readContent, requestId);
   }
 
-  /** Emits diagnostic-only evidence without notifying operational metadata observers. */
+  /**
+   * Emits diagnostic-only evidence without notifying operational metadata observers.
+   *
+   * `requestId` names the chart request that owns the evidence and `runId` names the Agent Run.
+   * The event carries `runId` only when one is given. Neither identifier reaches metadata observers or telemetry.
+   */
   emitDiagnostic(
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
     requestId?: string,
+    runId?: string,
   ): void {
     if (
       this.disposed ||
@@ -167,6 +173,7 @@ export class DiagnosticChannel {
       at: Date.now(),
       sessionId: this.sessionId,
       requestId,
+      ...(runId === undefined ? {} : { runId }),
       metadata,
     };
     if (kind.startsWith('devtools.')) {
