@@ -328,6 +328,7 @@ test('a UI-only Planner clarification fails its run with the skipReply Validatio
         });
       },
       observe: () => undefined,
+      observeSession: () => undefined,
       logger,
     },
   );

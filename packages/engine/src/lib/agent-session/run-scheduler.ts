@@ -34,9 +34,26 @@ export type RunObserver = (
   readContent?: () => unknown,
 ) => void;
 
+/**
+ * Receives a diagnostic observation of Agent Session work that belongs to no
+ * Agent Run, such as an ignored input or a refused acknowledgement. The
+ * observation carries neither a run id nor a request id, and its metadata is
+ * published unchanged.
+ *
+ * @param kind - The diagnostic kind, such as `engine.agent.input.ignored`.
+ * @param metadata - Structural metadata only, never user text or payloads.
+ * @param readContent - Reads the observation's content, called only when a subscriber asks for content.
+ */
+export type SessionObserver = (
+  kind: string,
+  metadata: DiagnosticMetadata,
+  readContent?: () => unknown,
+) => void;
+
 export interface RunSchedulerOptions {
   readonly planner: SessionPlanner;
   readonly observe: RunObserver;
+  readonly observeSession: SessionObserver;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly signal: AbortSignal;
@@ -73,6 +90,7 @@ type RunState =
 export function createRunScheduler({
   planner,
   observe,
+  observeSession,
   logger,
   events,
   signal,
@@ -139,10 +157,12 @@ export function createRunScheduler({
       cancelTimeout: () => clearTimeout(timeout),
     };
     events.emit(event);
-    observe(run.runId, run.input.inputId, 'engine.agent.ui_change.emitted', {
-      changeId: event.changeId,
-      actions: response.executionPlan.length,
-    });
+    observeUiChangeEmitted(
+      event,
+      run.input.inputId,
+      { observe, observeSession },
+      { changeId: event.changeId, actions: response.executionPlan.length },
+    );
     run.ready.resolve();
     void pump();
   };
@@ -184,6 +204,14 @@ export function createRunScheduler({
     events.emit(event);
     void pump();
   };
+  const refuseAcknowledgement = (
+    changeId: ChangeId,
+    code: string,
+    error: string,
+  ) => {
+    observeSession('engine.agent.ui_applied.rejected', { changeId, code });
+    reject(changeError(changeId, code, error));
+  };
   return {
     pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
     reject,
@@ -214,19 +242,19 @@ export function createRunScheduler({
         state.phase !== 'awaiting_ack' ||
         state.event.changeId !== input.changeId
       ) {
-        reject(
-          changeError(input.changeId, 'unknown_change', 'Unknown UI change.'),
+        refuseAcknowledgement(
+          input.changeId,
+          'unknown_change',
+          'Unknown UI change.',
         );
         return;
       }
       const { run, event, cancelTimeout } = state;
       if (input.actionOutcomes.length !== event.response.executionPlan.length) {
-        reject(
-          changeError(
-            input.changeId,
-            'invalid_action_outcomes',
-            'Expected one outcome per Action.',
-          ),
+        refuseAcknowledgement(
+          input.changeId,
+          'invalid_action_outcomes',
+          'Expected one outcome per Action.',
         );
         return;
       }
@@ -267,6 +295,35 @@ export function createRunScheduler({
   };
 }
 
+/**
+ * Observes `engine.agent.ui_change.emitted` for a change: run-owned when the
+ * change belongs to an Agent Run, session-owned when its `runId` is null.
+ */
+export function observeUiChangeEmitted(
+  event: AgentUiChangeEvent,
+  inputId: MessageId,
+  observers: {
+    readonly observe: RunObserver;
+    readonly observeSession: SessionObserver;
+  },
+  metadata: DiagnosticMetadata,
+  readContent?: () => unknown,
+): void {
+  const kind = 'engine.agent.ui_change.emitted';
+  if (event.runId === null)
+    observers.observeSession(kind, metadata, readContent);
+  else observers.observe(event.runId, inputId, kind, metadata, readContent);
+}
+
+/** Builds the agent `error` event that refuses a `ui_applied` input. */
+export function changeError(
+  changeId: ChangeId,
+  code: string,
+  error: string,
+): AgentErrorEvent {
+  return { type: 'error', version: AGENT_WIRE_VERSION, changeId, code, error };
+}
+
 interface Deferred {
   readonly promise: Promise<void>;
   readonly resolve: () => void;
@@ -278,13 +335,4 @@ function deferred(): Deferred {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-/** Builds the agent `error` event that refuses a `ui_applied` input. */
-export function changeError(
-  changeId: ChangeId,
-  code: string,
-  error: string,
-): AgentErrorEvent {
-  return { type: 'error', version: AGENT_WIRE_VERSION, changeId, code, error };
 }

@@ -165,6 +165,16 @@ describe('createPlannerShowQueue', () => {
       unknownChangeError('nothing-pending'),
       unknownChangeError('stale-change'),
     ]);
+    expect(harness.sessionObserved).toEqual([
+      {
+        kind: 'engine.agent.ui_applied.rejected',
+        metadata: { changeId: 'nothing-pending', code: 'unknown_change' },
+      },
+      {
+        kind: 'engine.agent.ui_applied.rejected',
+        metadata: { changeId: 'stale-change', code: 'unknown_change' },
+      },
+    ]);
     expect(harness.notes).toEqual([]);
     harness.queue.acknowledge(
       applied(change.changeId, weekChart, [{ ok: true }]),
@@ -189,6 +199,15 @@ describe('createPlannerShowQueue', () => {
         changeId: change.changeId,
         code: 'invalid_action_outcomes',
         error: 'Expected one outcome per Action.',
+      },
+    ]);
+    expect(harness.sessionObserved).toEqual([
+      {
+        kind: 'engine.agent.ui_applied.rejected',
+        metadata: {
+          changeId: change.changeId,
+          code: 'invalid_action_outcomes',
+        },
       },
     ]);
     expect(harness.planner.calls).toHaveLength(1);
@@ -1246,6 +1265,10 @@ function createHarness({
     if (event.type === 'ui_change') uiChangeWaiters.shift()?.(event);
   });
   const observed: Observation[] = [];
+  const sessionObserved: {
+    readonly kind: string;
+    readonly metadata: DiagnosticMetadata;
+  }[] = [];
   const notes: { runId: RunId; turnId: string; text: string }[] = [];
   const logs: LogEntry[] = [];
   const logger: Logger = {
@@ -1261,6 +1284,8 @@ function createHarness({
     events,
     observe: (runId, inputId, kind, metadata, readContent) =>
       observed.push({ runId, inputId, kind, metadata, readContent }),
+    observeSession: (kind, metadata) =>
+      sessionObserved.push({ kind, metadata }),
     recordShowNote: (runId, turnId, text) =>
       notes.push({ runId, turnId, text }),
     logger,
@@ -1275,6 +1300,7 @@ function createHarness({
     events,
     received,
     observed,
+    sessionObserved,
     notes,
     logs,
     errors: () => received.filter((event) => event.type === 'error'),

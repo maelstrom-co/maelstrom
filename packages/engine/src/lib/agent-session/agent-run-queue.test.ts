@@ -1468,6 +1468,7 @@ function createSession(overrides: SessionOverrides = {}) {
     },
     events,
     observe,
+    observeSession: () => undefined,
     recordShowNote: (runId, turnId, text) =>
       transcript.recordShowNote(runId, turnId, text),
     logger,

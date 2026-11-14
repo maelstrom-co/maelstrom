@@ -33,6 +33,7 @@ import {
   type EngineDiagnosticObserver,
   type EngineMetadataObserver,
   type RunOwner,
+  SESSION_DIAGNOSTIC_OWNER,
 } from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
@@ -469,6 +470,14 @@ export function createEngine(config: EngineConfig): Engine {
           diagnosticsEmitter.emit(
             options.sessionId,
             { runId, inputId },
+            kind,
+            metadata,
+            readContent,
+          ),
+        observeSession: (kind, metadata, readContent) =>
+          diagnosticsEmitter.emit(
+            options.sessionId,
+            SESSION_DIAGNOSTIC_OWNER,
             kind,
             metadata,
             readContent,

@@ -1,5 +1,6 @@
 import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
 
+import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
 import type { ResolvedAgentConfig } from './agent-config.js';
 import { type AgentRunQueue, createAgentRunQueue } from './agent-run-queue.js';
@@ -14,6 +15,7 @@ import {
   createRunScheduler,
   type RunObserver,
   type RunScheduler,
+  type SessionObserver,
 } from './run-scheduler.js';
 import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
@@ -82,6 +84,8 @@ export interface AgentConnectionDependencies {
   readonly planner: SessionPlanner;
   /** Receives diagnostic observations of each run and change. */
   readonly observe: RunObserver;
+  /** Receives diagnostic observations that belong to no run: ignored and rejected inputs and refused acknowledgements. */
+  readonly observeSession: SessionObserver;
   /** Receives delivered events and run failures. */
   readonly logger: Logger;
   /** The resolved agent slot. Without it every utterance takes the UI-only route. */
@@ -90,7 +94,13 @@ export interface AgentConnectionDependencies {
 
 export function createAgentConnection(
   options: OpenConnectionOptions,
-  { planner, observe, logger, agent }: AgentConnectionDependencies,
+  {
+    planner,
+    observe,
+    observeSession,
+    logger,
+    agent,
+  }: AgentConnectionDependencies,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -116,6 +126,7 @@ export function createAgentConnection(
       ? createRunScheduler({
           planner,
           observe,
+          observeSession,
           logger,
           events,
           signal: controller.signal,
@@ -128,6 +139,7 @@ export function createAgentConnection(
             agent,
             planner,
             observe,
+            observeSession,
             logger,
             events,
             clock,
@@ -147,11 +159,31 @@ export function createAgentConnection(
     async send(raw) {
       if (controller.signal.aborted) return;
       const admitted = admission.admit(raw, runs.pendingRuns());
-      if (admitted.kind === 'rejected') runs.reject(admitted.event);
-      else if (admitted.kind === 'acknowledgement')
-        runs.acknowledge(admitted.input);
-      else if (admitted.kind === 'utterance')
-        await runs.enqueue(admitted.input);
+      switch (admitted.kind) {
+        case 'rejected': {
+          const { code, inputId } = admitted.event;
+          observeSession('engine.agent.input.rejected', {
+            code,
+            ...(inputId === undefined ? {} : { inputId }),
+          });
+          runs.reject(admitted.event);
+          return;
+        }
+        case 'ignored':
+          observeSession('engine.agent.input.ignored', {
+            inputId: admitted.inputId,
+            reason: 'duplicate_input',
+          });
+          return;
+        case 'acknowledgement':
+          runs.acknowledge(admitted.input);
+          return;
+        case 'utterance':
+          await runs.enqueue(admitted.input);
+          return;
+        default:
+          assertNever(admitted, 'agent input admission');
+      }
     },
   };
 }
@@ -161,6 +193,7 @@ function createAgentRoute({
   agent,
   planner,
   observe,
+  observeSession,
   logger,
   events,
   clock,
@@ -170,6 +203,7 @@ function createAgentRoute({
   readonly agent: ResolvedAgentConfig;
   readonly planner: SessionPlanner;
   readonly observe: RunObserver;
+  readonly observeSession: SessionObserver;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly clock: () => number;
@@ -181,6 +215,7 @@ function createAgentRoute({
     planner,
     events,
     observe,
+    observeSession,
     recordShowNote: (runId, turnId, text) =>
       transcript.recordShowNote(runId, turnId, text),
     logger,

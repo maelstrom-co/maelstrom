@@ -18,7 +18,12 @@ import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { AgentRunClock } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
-import { changeError, type RunObserver } from './run-scheduler.js';
+import {
+  changeError,
+  observeUiChangeEmitted,
+  type RunObserver,
+  type SessionObserver,
+} from './run-scheduler.js';
 import {
   describeScreenUpdate,
   describeShowCancelled,
@@ -62,6 +67,8 @@ export interface PlannerShowQueueOptions {
   readonly events: OrderedEmitter<AgentEvent>;
   /** Receives diagnostic observations of each show and change. */
   readonly observe: RunObserver;
+  /** Receives diagnostic observations that belong to no run, such as a refused acknowledgement. */
+  readonly observeSession: SessionObserver;
   /** Records a show note for the run and turn that asked for the show. */
   readonly recordShowNote: (runId: RunId, turnId: string, text: string) => void;
   /** Receives warnings for shows dropped without a Chart and for failed shows. */
@@ -128,6 +135,7 @@ export function createPlannerShowQueue({
   planner,
   events,
   observe,
+  observeSession,
   recordShowNote,
   logger,
   scheduleTimeout,
@@ -148,6 +156,15 @@ export function createPlannerShowQueue({
   const startNextShow = () => {
     pump();
     if (state.phase === 'idle') resolveIdleWaiters();
+  };
+
+  const refuseAcknowledgement = (
+    changeId: ChangeId,
+    code: string,
+    error: string,
+  ) => {
+    observeSession('engine.agent.ui_applied.rejected', { changeId, code });
+    events.emit(changeError(changeId, code, error));
   };
 
   const abortPlanning = (job: ShowJob) => {
@@ -174,10 +191,10 @@ export function createPlannerShowQueue({
     }, acknowledgementTimeoutMs);
     // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
     state = { phase: 'awaiting_ack', job, event, cancelTimeout };
-    observe(
-      show.runId,
+    observeUiChangeEmitted(
+      event,
       show.inputId,
-      'engine.agent.ui_change.emitted',
+      { observe, observeSession },
       { changeId, turnId: show.turnId, actions: response.executionPlan.length },
       () => ({ intent: show.intent, intentFacts: show.intentFacts }),
     );
@@ -356,20 +373,20 @@ export function createPlannerShowQueue({
         state.phase !== 'awaiting_ack' ||
         state.job.changeId !== input.changeId
       ) {
-        events.emit(
-          changeError(input.changeId, 'unknown_change', 'Unknown UI change.'),
+        refuseAcknowledgement(
+          input.changeId,
+          'unknown_change',
+          'Unknown UI change.',
         );
         return;
       }
       const { job, event, cancelTimeout } = state;
       const { executionPlan } = event.response;
       if (input.actionOutcomes.length !== executionPlan.length) {
-        events.emit(
-          changeError(
-            input.changeId,
-            'invalid_action_outcomes',
-            'Expected one outcome per Action.',
-          ),
+        refuseAcknowledgement(
+          input.changeId,
+          'invalid_action_outcomes',
+          'Expected one outcome per Action.',
         );
         return;
       }

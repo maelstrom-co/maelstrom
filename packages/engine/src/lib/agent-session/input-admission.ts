@@ -14,7 +14,7 @@ export const maxRememberedInputIds = 4096;
 export type Admission =
   | { readonly kind: 'utterance'; readonly input: AgentUtteranceInput }
   | { readonly kind: 'acknowledgement'; readonly input: AgentUiAppliedInput }
-  | { readonly kind: 'ignored' }
+  | { readonly kind: 'ignored'; readonly inputId: MessageId }
   | { readonly kind: 'rejected'; readonly event: AgentErrorEvent };
 
 export interface InputAdmission {
@@ -36,7 +36,8 @@ export function createInputAdmission(): InputAdmission {
       const input = decoded.data;
       if (input.type === 'ui_applied')
         return { kind: 'acknowledgement', input };
-      if (seen.has(input.inputId)) return { kind: 'ignored' };
+      if (seen.has(input.inputId))
+        return { kind: 'ignored', inputId: input.inputId };
       if (pendingInputs >= maxPendingInputs)
         return rejected(
           'queue_full',
