@@ -148,7 +148,7 @@ export function createAgentRunQueue({
   let closed = false;
   const recordShowNote = (runId: RunId, turnId: string, text: string) => {
     transcript.recordShowNote(runId, turnId, text);
-    active?.sessionNotes?.push(renderShowNote(turnId, text));
+    active?.sessionNotes.push(renderShowNote(turnId, text));
   };
   const shows = createPlannerShowQueue({
     planShow,
@@ -286,7 +286,6 @@ export function createAgentRunQueue({
   const drive = async (run: ActiveAgentRun): Promise<void> => {
     const turnBegan = clock();
     const priorMessages = transcript.renderPriorMessages();
-    run.sessionNotes = [];
     transcript.recordUserInput(run.runId, run.input.text);
     const aborted = whenAborted(run.controller.signal);
     const deadline = setupDeadline(agent, scheduleTimeout);
@@ -348,7 +347,7 @@ export function createAgentRunQueue({
         signal: run.controller.signal,
         gate: ({ turn }) =>
           turn === 1 ? earlierShowsSettled(run.controller.signal) : undefined,
-        takeSessionNotes: () => run.sessionNotes?.splice(0) ?? [],
+        takeSessionNotes: () => run.sessionNotes.splice(0),
       },
     )[Symbol.asyncIterator]();
     run.iterator = iterator;
@@ -400,6 +399,7 @@ export function createAgentRunQueue({
       ...next,
       controller: new AbortController(),
       cancelled: false,
+      sessionNotes: [],
     };
     active = run;
     await drive(run);
@@ -491,7 +491,7 @@ interface ActiveAgentRun extends QueuedAgentRun {
   readonly controller: AbortController;
   iterator?: AsyncIterator<AgentRunEvent>;
   cancelled: boolean;
-  sessionNotes?: string[];
+  readonly sessionNotes: string[];
 }
 
 const ZERO_METRICS: AgentRunMetrics = {
