@@ -97,12 +97,12 @@ describe('Orchestrator agent path', () => {
       initialLayout: seed,
     });
     try {
-      const firstId = await orchestrator.sendUtterance('show the board');
-      const secondId = await orchestrator.sendUtterance('and expand it', {
+      const firstId = await orchestrator.sendMessage('show the board');
+      const secondId = await orchestrator.sendMessage('and expand it', {
         source: 'voice',
       });
       const intent = orchestrator.processIntent('rearrange');
-      const duringIntentId = await orchestrator.sendUtterance('while busy');
+      const duringIntentId = await orchestrator.sendMessage('while busy');
 
       const utterances = agent.inputs.filter(
         (input) => input.type === 'utterance',
@@ -576,7 +576,7 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        await orchestrator.sendUtterance('hello');
+        await orchestrator.sendMessage('hello');
 
         agent.close({ clean: false });
         expect(losses).toEqual([
@@ -602,7 +602,7 @@ describe('Orchestrator agent path', () => {
           { type: 'conversation_lost', reason: 'disconnected' },
         ]);
         await expect(
-          orchestrator.sendUtterance('anyone there'),
+          orchestrator.sendMessage('anyone there'),
         ).rejects.toThrow();
         expect(
           agent.inputs.filter((input) => input.type === 'utterance'),
@@ -630,7 +630,7 @@ describe('Orchestrator agent path', () => {
             return ok(undefined);
           },
         });
-        await orchestrator.sendUtterance('hello');
+        await orchestrator.sendMessage('hello');
         agent.emit(
           uiChange(
             'change-from-lost-session',
@@ -677,7 +677,7 @@ describe('Orchestrator agent path', () => {
             return ok(undefined);
           },
         });
-        await orchestrator.sendUtterance('hello');
+        await orchestrator.sendMessage('hello');
         agent.emit(
           uiChange(
             'change-before-disconnect',
@@ -707,10 +707,10 @@ describe('Orchestrator agent path', () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
-        await orchestrator.sendUtterance('hello');
+        await orchestrator.sendMessage('hello');
         let lateSend: Promise<MessageId> | undefined;
         orchestrator.agent.on('conversation_lost', () => {
-          lateSend ??= orchestrator.sendUtterance('are you still there');
+          lateSend ??= orchestrator.sendMessage('are you still there');
         });
 
         await orchestrator.disconnect();
@@ -732,7 +732,7 @@ describe('Orchestrator agent path', () => {
         const losses = recordConversationLosses(orchestrator);
         const send = holdNextSend(agent.connector);
 
-        const sent = orchestrator.sendUtterance('hello');
+        const sent = orchestrator.sendMessage('hello');
         agent.close({ clean: false });
         send.release();
         await sent;
@@ -751,7 +751,7 @@ describe('Orchestrator agent path', () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
-        await orchestrator.sendUtterance('hello');
+        await orchestrator.sendMessage('hello');
         let closed = false;
         orchestrator.commandProcessor.events.on('command_start', () => {
           if (closed) return;
@@ -800,7 +800,7 @@ describe('Orchestrator agent path', () => {
       const losses = recordConversationLosses(orchestrator);
       const send = holdNextSend(oldAgent.connector);
 
-      const sent = orchestrator.sendUtterance('hello');
+      const sent = orchestrator.sendMessage('hello');
       orchestrator.setConnector(newAgent.connector);
       send.release();
       await sent;
@@ -827,7 +827,7 @@ describe('Orchestrator agent path', () => {
           return Promise.resolve<ActionResult>(ok(undefined));
         },
       });
-      await orchestrator.sendUtterance('hello');
+      await orchestrator.sendMessage('hello');
 
       orchestrator.setConnector(newAgent.connector);
       expect(losses).toEqual([
@@ -860,7 +860,7 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       await orchestrator.dispose();
 
-      await expect(orchestrator.sendUtterance('too late')).rejects.toThrow();
+      await expect(orchestrator.sendMessage('too late')).rejects.toThrow();
       expect(agent.inputs).toEqual([]);
     });
 
@@ -901,7 +901,7 @@ describe('Orchestrator agent path', () => {
     );
     try {
       await orchestrator.connect();
-      await expect(orchestrator.sendUtterance('hello')).rejects.toBeInstanceOf(
+      await expect(orchestrator.sendMessage('hello')).rejects.toBeInstanceOf(
         AgentWireUnsupportedError,
       );
     } finally {

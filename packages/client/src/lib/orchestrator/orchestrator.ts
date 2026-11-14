@@ -64,7 +64,7 @@ import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
 import type {
   AgentConversationEvents,
-  SendUtteranceOptions,
+  SendMessageOptions,
 } from './conversation-event.types.js';
 import { IntentScheduler } from './intent-scheduler.js';
 import type {
@@ -612,10 +612,10 @@ export class Orchestrator {
   }
 
   /**
-   * Send a user utterance to the agent over the Agent Session wire, with a
-   * Chart snapshot of the board as it stands now.
+   * Send a message the user typed or said to the agent, with a Chart snapshot
+   * of the board as it stands now.
    *
-   * Resolves with the utterance's input id once the connector accepted the
+   * Resolves with the message's input id once the connector accepted the
    * frame, without waiting for any agent event. The agent answers through
    * {@link agent}, and UI changes it plans are applied as they arrive, Layout
    * first, then Actions.
@@ -626,7 +626,7 @@ export class Orchestrator {
    * - `Error('Orchestrator is not connected')`: the transport is not
    *   connected. Nothing was sent.
    * - the connector's own error: the transport refused the frame. Whether the
-   *   agent saw the utterance is unknown, so do not automatically resend it.
+   *   agent saw the message is unknown, so do not automatically resend it.
    * - `Error('Orchestrator is disposed')`: called after {@link dispose}.
    *
    * INVARIANTS:
@@ -635,11 +635,11 @@ export class Orchestrator {
    * - Does not touch updates buffered for the next engine request. They stay
    *   queued for {@link processIntent} or {@link flushUpdates}.
    * - The returned input id is the one the agent's `placeholder` and `error`
-   *   events for this utterance carry.
+   *   events for this message carry.
    */
-  async sendUtterance(
+  async sendMessage(
     text: string,
-    options?: SendUtteranceOptions,
+    options?: SendMessageOptions,
   ): Promise<MessageId> {
     if (this.#isDisposed) {
       throw new Error('Orchestrator is disposed');
@@ -650,7 +650,7 @@ export class Orchestrator {
     ) {
       throw new Error('Orchestrator is not connected');
     }
-    return this.#agentConversation.sendUtterance(text, options);
+    return this.#agentConversation.sendMessage(text, options);
   }
 
   /** Shared admission state; network telemetry alone does not imply readiness. */

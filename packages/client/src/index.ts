@@ -152,7 +152,7 @@ export type {
   AgentConversationEvents,
   ConversationLostEvent,
   ConversationLostReason,
-  SendUtteranceOptions,
+  SendMessageOptions,
 } from './lib/orchestrator/conversation-event.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {

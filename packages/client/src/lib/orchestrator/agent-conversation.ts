@@ -21,7 +21,7 @@ import type { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
 import type {
   AgentConversationEvents,
-  SendUtteranceOptions,
+  SendMessageOptions,
 } from './conversation-event.types.js';
 import { orderActionOutcomes } from './order-action-outcomes.js';
 
@@ -139,9 +139,9 @@ export class AgentConversation {
    * Sends one utterance with a fresh Chart snapshot and resolves its input id
    * once the connector accepted it.
    */
-  async sendUtterance(
+  async sendMessage(
     text: string,
-    options?: SendUtteranceOptions,
+    options?: SendMessageOptions,
   ): Promise<MessageId> {
     const attachment = this.#attachment;
     if (attachment === null) throw new Error('Agent conversation is detached');

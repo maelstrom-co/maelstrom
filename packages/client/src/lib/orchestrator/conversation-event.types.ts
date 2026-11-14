@@ -47,9 +47,9 @@ export type AgentConversationEvents = {
 };
 
 /**
- * Options for `orchestrator.sendUtterance`.
+ * Options for `orchestrator.sendMessage`.
  */
-export type SendUtteranceOptions = {
-  /** How the user produced the utterance. Defaults to `'text'`. */
+export type SendMessageOptions = {
+  /** How the user produced the message. Defaults to `'text'`. */
   source?: AgentInputSource;
 };
