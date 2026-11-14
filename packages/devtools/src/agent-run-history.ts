@@ -7,6 +7,11 @@ import {
 } from './agent-runs.js';
 import { identity, identityAvailability } from './diagnostic-identity.js';
 
+/**
+ * Appends an agent diagnostic to retained run evidence and evicts whole runs,
+ * oldest first, once the limit is exceeded. Events reporting an unreadable
+ * runId or any requestId are not retained and are not counted as dropped.
+ */
 export function retainAgentEvents(
   previous: readonly DiagnosticEvent[],
   event: DiagnosticEvent,
@@ -37,7 +42,7 @@ export function retainAgentEvents(
 function isRetained(event: DiagnosticEvent): boolean {
   const subject = linkSubject(event);
   if (!subject.clientId) return false;
-  return subject.runId
+  return identity(event.runId)
     ? identityAvailability(event.requestId) === 'not-reported'
     : isSessionAgentEvent(event.kind, event);
 }
@@ -46,7 +51,7 @@ function linkSubject(event: DiagnosticEvent): AgentRunLinkSubject {
   return {
     kind: event.kind,
     clientId: identity(event.metadata.clientId),
-    runId: identity(event.runId),
+    runId: event.runId,
     requestId: event.requestId,
     metadata: event.metadata,
   };

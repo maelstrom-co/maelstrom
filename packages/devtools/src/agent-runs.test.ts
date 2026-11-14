@@ -478,6 +478,32 @@ test('session-level agent events stay in their client session timeline and a kno
   expect(runs[0]!.status).toBe('running');
 });
 
+test('an event reporting a redacted runId joins no run group and no session timeline', () => {
+  const event = runOwned('run-1', 'input-1');
+  const accepted = event('engine.agent.input.accepted', {
+    source: 'text',
+    disposition: 'agent',
+  });
+  const redactedSent = observation(
+    'client.agent.input.sent',
+    { runId: '[REDACTED]' },
+    { inputId: 'input-1' },
+  );
+  const redactedTurn = observation(
+    'engine.agent.turn.started',
+    { runId: '[REDACTED]' },
+    { inputId: 'input-1', turnId: 'run-1:t1', turnIndex: 1 },
+  );
+  const linked = groupAgentRuns(panelEvents([accepted, redactedSent]));
+  expect(
+    linked.runs.map((run) => run.events.map((entry) => entry.kind)),
+  ).toEqual([['engine.agent.input.accepted']]);
+  expect(linked.sessionTimelines).toEqual([]);
+
+  const alone = groupAgentRuns(panelEvents([redactedTurn]));
+  expect(alone).toEqual({ runs: [], sessionTimelines: [] });
+});
+
 test('a session-owned ui change does not register a link for later acknowledgements', () => {
   const { runs, sessionTimelines } = groupAgentRuns(
     panelEvents([
