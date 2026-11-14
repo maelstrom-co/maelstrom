@@ -38,9 +38,6 @@ describe('latestOrderTool', () => {
     expect(latestOrderTool.intentFacts?.(output)).toEqual({
       orderId: 'ORD-10455',
       placedOn: '2026-09-14',
-      skus: output.items.map((item) => item.sku),
-    });
-    expect(latestOrderTool.intentFacts?.(output)).toMatchObject({
       skus: ['DOG-DRY-SUMMIT-ADULT-30', 'CAT-DRY-WHISKER-INDOOR-16'],
     });
   });
