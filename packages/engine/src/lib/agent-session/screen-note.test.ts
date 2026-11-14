@@ -9,7 +9,14 @@ import {
 } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../__test-helpers__/fixtures.js';
-import { describeScreenUpdate, describeShowQueued } from './screen-note.js';
+import {
+  describeScreenUpdate,
+  describeShowCancelled,
+  describeShowFailed,
+  describeShowNotConfirmed,
+  describeShowQueued,
+  describeShowSkipped,
+} from './screen-note.js';
 
 const ok: AgentActionOutcome = { ok: true };
 
@@ -32,6 +39,75 @@ describe('describeShowQueued', () => {
     );
     expect(describeShowQueued(['a', 'b', 'c', 'd'])).toBe(
       'Show queued: a, b, c and d results.',
+    );
+  });
+});
+
+describe('describeShowFailed', () => {
+  test('names one, two and three tools', () => {
+    expect(describeShowFailed(['latest_order'])).toBe(
+      'Show failed: latest_order result could not be shown.',
+    );
+    expect(describeShowFailed(['latest_order', 'search_products'])).toBe(
+      'Show failed: latest_order and search_products results could not be shown.',
+    );
+    expect(describeShowFailed(['a', 'b', 'c'])).toBe(
+      'Show failed: a, b and c results could not be shown.',
+    );
+  });
+});
+
+describe('describeShowSkipped', () => {
+  test('says there is nothing new to show', () => {
+    expect(
+      describeShowSkipped(['latest_order'], { reason: 'nothing_to_show' }),
+    ).toBe('Show skipped: nothing new to show for latest_order result.');
+    expect(
+      describeShowSkipped(['a', 'b', 'c'], { reason: 'nothing_to_show' }),
+    ).toBe('Show skipped: nothing new to show for a, b and c results.');
+  });
+
+  test('relays the Planner question when it needs more detail', () => {
+    expect(
+      describeShowSkipped(['latest_order'], {
+        reason: 'needs_clarification',
+        question: 'Which order do you mean?',
+      }),
+    ).toBe(
+      'Show skipped: the Planner needs more detail to show latest_order result. Question: Which order do you mean?',
+    );
+    expect(
+      describeShowSkipped(['latest_order', 'search_products'], {
+        reason: 'needs_clarification',
+        question: 'Which one?',
+      }),
+    ).toBe(
+      'Show skipped: the Planner needs more detail to show latest_order and search_products results. Question: Which one?',
+    );
+  });
+});
+
+describe('describeShowNotConfirmed', () => {
+  test('says the screen did not acknowledge the change, never that it failed', () => {
+    expect(describeShowNotConfirmed(['latest_order'])).toBe(
+      'Show not confirmed: the screen did not acknowledge the latest_order change.',
+    );
+    expect(describeShowNotConfirmed(['a', 'b'])).toBe(
+      'Show not confirmed: the screen did not acknowledge the a and b change.',
+    );
+  });
+});
+
+describe('describeShowCancelled', () => {
+  test('names one, two and three tools', () => {
+    expect(describeShowCancelled(['latest_order'])).toBe(
+      'Show cancelled: latest_order result.',
+    );
+    expect(describeShowCancelled(['a', 'b'])).toBe(
+      'Show cancelled: a and b results.',
+    );
+    expect(describeShowCancelled(['a', 'b', 'c'])).toBe(
+      'Show cancelled: a, b and c results.',
     );
   });
 });
