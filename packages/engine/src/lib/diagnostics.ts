@@ -105,7 +105,7 @@ export class EngineDiagnosticEmitter {
   }
   emit<Kind extends string>(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: Kind,
     ...args: [
       ...ObservationArguments<NoInfer<Kind>>,
@@ -114,12 +114,12 @@ export class EngineDiagnosticEmitter {
   ): void;
   emit(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
-    this.publish(sessionId, requestId, kind, metadata, readContent);
+    this.publish(sessionId, owner, kind, metadata, readContent);
   }
   emitMetadata<Kind extends string>(
     kind: Kind,
@@ -130,36 +130,36 @@ export class EngineDiagnosticEmitter {
   }
   private publish(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
     this.emitMetadata(kind, metadata);
-    this.publishDiagnostic(sessionId, requestId, kind, metadata, readContent);
+    this.publishDiagnostic(sessionId, owner, kind, metadata, readContent);
   }
   private publishDiagnostic(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata,
     readContent?: () => unknown,
   ): void {
     if (
       !this.listeners.size ||
-      (typeof requestId === 'string' &&
+      (typeof owner === 'string' &&
         kind !== 'engine.request.finished' &&
-        this.requests.get(sessionId)?.get(requestId)?.ambiguous)
+        this.requests.get(sessionId)?.get(owner)?.ambiguous)
     )
       return;
-    const { metadata: ownedMetadata, ...owner } = ownedFields(
-      requestId,
+    const { metadata: ownedMetadata, ...ownerFields } = ownedFields(
+      owner,
       metadata,
     );
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
       sessionId,
-      ...owner,
+      ...ownerFields,
       kind,
       at: Date.now(),
       metadata: ownedMetadata,
@@ -181,19 +181,14 @@ export class EngineDiagnosticEmitter {
   instrument(
     base: Instrument,
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
   ): Instrument {
     if (this.listeners.size === 0 && this.metadataListeners.size === 0)
       return base;
     return {
       event: (name, attributes) => {
         base.event(name, attributes);
-        this.publishDiagnostic(
-          sessionId,
-          requestId,
-          `engine.${name}`,
-          attributes,
-        );
+        this.publishDiagnostic(sessionId, owner, `engine.${name}`, attributes);
       },
       stage: (name, stage) => {
         const wrapped = base.stage(name, stage);
@@ -201,7 +196,7 @@ export class EngineDiagnosticEmitter {
           const start = performance.now();
           this.emit(
             sessionId,
-            requestId,
+            owner,
             operationalKinds.engineStageStarted,
             { stage: name },
             () => input,
@@ -210,7 +205,7 @@ export class EngineDiagnosticEmitter {
             const result = await wrapped(input, ctx);
             this.emit(
               sessionId,
-              requestId,
+              owner,
               operationalKinds.engineStageCompleted,
               {
                 stage: name,
@@ -223,7 +218,7 @@ export class EngineDiagnosticEmitter {
           } catch (error) {
             this.emit(
               sessionId,
-              requestId,
+              owner,
               operationalKinds.engineStageFailed,
               {
                 stage: name,
