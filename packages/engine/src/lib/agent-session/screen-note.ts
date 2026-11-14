@@ -38,6 +38,83 @@ export function describeShowQueued(toolNames: readonly string[]): string {
 }
 
 /**
+ * Why a show produced no screen change, as {@link describeShowSkipped} reads
+ * it.
+ */
+export type ShowSkipReason =
+  | { readonly reason: 'nothing_to_show' }
+  | { readonly reason: 'needs_clarification'; readonly question: string };
+
+/**
+ * Describes a show whose Planner call failed, so the model knows the screen
+ * did not change for those tool results.
+ *
+ * One name reads `Show failed: latest_order result could not be shown.` Two or
+ * more names use the plural and join like {@link describeShowQueued}. It never
+ * includes the failure message.
+ *
+ * @param toolNames - Names of the tools whose results the show reflects, in
+ * call order. Must not be empty.
+ */
+export function describeShowFailed(toolNames: readonly string[]): string {
+  return `Show failed: ${describeResults(toolNames)} could not be shown.`;
+}
+
+/**
+ * Describes a show the Planner declined, so the model knows the screen did not
+ * change and why.
+ *
+ * Nothing to show reads `Show skipped: nothing new to show for latest_order
+ * result.` A clarification reads `Show skipped: the Planner needs more detail
+ * to show latest_order result. Question: <question>`, so the model can ask the
+ * user itself. The question is the only Planner text a note carries.
+ *
+ * @param toolNames - Names of the tools whose results the show reflects, in
+ * call order. Must not be empty.
+ * @param skip - Why the show was skipped, with the Planner's question when it
+ * needs more detail.
+ */
+export function describeShowSkipped(
+  toolNames: readonly string[],
+  skip: ShowSkipReason,
+): string {
+  const results = describeResults(toolNames);
+  if (skip.reason === 'nothing_to_show') {
+    return `Show skipped: nothing new to show for ${results}.`;
+  }
+  return `Show skipped: the Planner needs more detail to show ${results}. Question: ${skip.question}`;
+}
+
+/**
+ * Describes a UI change the browser did not acknowledge in time. The note says
+ * "not confirmed" and never "failed", because the browser may have applied the
+ * change.
+ *
+ * Reads `Show not confirmed: the screen did not acknowledge the latest_order
+ * change.` Several names join like {@link describeShowQueued}.
+ *
+ * @param toolNames - Names of the tools whose results the change reflects, in
+ * call order. Must not be empty.
+ */
+export function describeShowNotConfirmed(toolNames: readonly string[]): string {
+  return `Show not confirmed: the screen did not acknowledge the ${joinWithAnd(toolNames)} change.`;
+}
+
+/**
+ * Describes a show dropped before it reached the screen, so the model knows
+ * the screen did not change for those tool results.
+ *
+ * Reads `Show cancelled: latest_order result.` Several names use the plural
+ * and join like {@link describeShowQueued}.
+ *
+ * @param toolNames - Names of the tools whose results the show reflects, in
+ * call order. Must not be empty.
+ */
+export function describeShowCancelled(toolNames: readonly string[]): string {
+  return `Show cancelled: ${describeResults(toolNames)}.`;
+}
+
+/**
  * Describes what the screen shows after the browser acknowledged a UI change,
  * as one line for the run transcript.
  *
@@ -86,6 +163,11 @@ export function describeScreenUpdate({
       : `Visible: ${visible.join(', ')}.`;
 
   return capNote(`${updated} ${visibleLine}`);
+}
+
+function describeResults(toolNames: readonly string[]): string {
+  const noun = toolNames.length === 1 ? 'result' : 'results';
+  return `${joinWithAnd(toolNames)} ${noun}`;
 }
 
 function joinWithAnd(names: readonly string[]): string {
