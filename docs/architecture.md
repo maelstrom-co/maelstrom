@@ -400,12 +400,17 @@ request cap, which stay request-only. Forwarding stays disabled in production.
 | `engine.agent.tool.completed` | Run | A tool call settled as `succeeded`, `failed` or `not_run`, with `durationMs` only when it started. |
 | `engine.agent.ui_change.emitted` | Run, or Session without a run | A UI change was sent to the client. |
 | `engine.agent.ui_change.applied` | Run | The client acknowledged the change. |
-| `engine.agent.show.failed`, `.show.skipped`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
+| `engine.agent.show.failed`, `.show.skipped`, `.show.cancelled`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
 | `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. |
 | `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
 | `engine.agent.ui_applied.rejected` | Session | An acknowledgement named an unknown change or the wrong outcome count. |
 | `engine.planner.*`, `engine.stage.*` in a run | Run | Planner work for the run, with `turnId` when a loop turn asked for it. |
 | `client.agent.input.sent`, `client.agent.ui.applied` | Client | The client sent an input or acknowledged a change. |
+
+After a run is cancelled or its connection closes, no further turn or tool
+event is published. A `turn.started` or `tool.started` can therefore be left
+without its closing event, and `engine.agent.run.finished` closes every turn
+and tool of the run still open.
 
 Agent metadata stays structural. Message text, UI change payloads, tool arguments
 and tool results are content only, read lazily and sent only to a subscription

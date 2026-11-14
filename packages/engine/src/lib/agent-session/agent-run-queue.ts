@@ -144,6 +144,9 @@ export function createAgentRunQueue({
 
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
 
+  // Deliberately drops activity once the run is cancelled or stale, as
+  // forward drops wire events, so a turn or tool can stay open until
+  // run.finished closes it.
   const observeActivity = (run: ActiveAgentRun, activity: AgentRunActivity) => {
     if (!isCurrent(run) || run.cancelled) return;
     const { kind, metadata, readContent } = activityObservation(activity);
