@@ -157,19 +157,20 @@ export function createPlannerShowQueue({
     events.emit(event);
   };
 
-  const settle = (
-    job: ShowJob,
-    result: Result<LoopDrivenPlanOutcome, EngineError> | undefined,
-  ) => {
+  const settle = (job: ShowJob, result: ShowPlanResult) => {
     if (closed || state.phase !== 'planning' || state.job !== job) return;
     const context = {
       changeId: job.changeId,
+      messageId: job.messageId,
       runId: job.show.runId,
       turnId: job.show.turnId,
       toolNames: job.show.toolNames,
     };
-    if (result === undefined) {
-      logger.warn('Loop-driven show planning threw', context);
+    if ('thrownName' in result) {
+      logger.warn('Loop-driven show planning threw', {
+        ...context,
+        errorName: result.thrownName,
+      });
     } else if (isErr(result)) {
       logger.warn('Loop-driven show planning failed', {
         ...context,
@@ -195,18 +196,21 @@ export function createPlannerShowQueue({
   };
 
   const plan = async (job: ShowJob) => {
-    let result: Result<LoopDrivenPlanOutcome, EngineError> | undefined;
+    let result: ShowPlanResult;
     try {
       result = await planShow({
         request: job.request,
-        messageId: MessageId(crypto.randomUUID()),
+        messageId: job.messageId,
         runId: job.show.runId,
         inputId: job.show.inputId,
         turnId: job.show.turnId,
         signal: job.controller.signal,
       });
-    } catch {
-      result = undefined;
+    } catch (error) {
+      // Only the error's name: its message may carry model text.
+      result = {
+        thrownName: error instanceof Error ? error.name : typeof error,
+      };
     }
     settle(job, result);
   };
@@ -225,6 +229,7 @@ export function createPlannerShowQueue({
       const job: ShowJob = {
         show,
         changeId: ChangeId(crypto.randomUUID()),
+        messageId: MessageId(crypto.randomUUID()),
         request: buildShowRequest(chart, show.intent, show.intentFacts),
         controller: new AbortController(),
       };
@@ -305,9 +310,14 @@ export function createPlannerShowQueue({
 interface ShowJob {
   readonly show: LoopDrivenShow;
   readonly changeId: ChangeId;
+  readonly messageId: MessageId;
   readonly request: ChartRequest;
   readonly controller: AbortController;
 }
+
+type ShowPlanResult =
+  | Result<LoopDrivenPlanOutcome, EngineError>
+  | { readonly thrownName: string };
 
 type ShowQueueState =
   | { readonly phase: 'idle' }

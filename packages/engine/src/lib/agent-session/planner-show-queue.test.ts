@@ -311,6 +311,7 @@ describe('createPlannerShowQueue', () => {
         message: 'Loop-driven show planning failed',
         data: {
           changeId: expect.any(String),
+          messageId: harness.planner.input(0).messageId,
           runId: show(1).runId,
           turnId: show(1).turnId,
           toolNames: show(1).toolNames,
@@ -327,14 +328,23 @@ describe('createPlannerShowQueue', () => {
     harness.queue.request(show(1));
     harness.queue.request(show(2));
 
-    harness.planner.throws(0, new Error(`thrown ${PROSE_SENTINEL}`));
+    harness.planner.throws(0, new TypeError(`thrown ${PROSE_SENTINEL}`));
     await harness.planner.nextCall();
 
     expect(harness.received).toEqual([]);
-    expect(harness.warnings()).toHaveLength(1);
-    expect(harness.warnings()[0]?.message).toBe(
-      'Loop-driven show planning threw',
-    );
+    expect(harness.warnings()).toEqual([
+      {
+        message: 'Loop-driven show planning threw',
+        data: {
+          changeId: expect.any(String),
+          messageId: harness.planner.input(0).messageId,
+          runId: show(1).runId,
+          turnId: show(1).turnId,
+          toolNames: show(1).toolNames,
+          errorName: 'TypeError',
+        },
+      },
+    ]);
     expect(JSON.stringify(harness.logs)).not.toContain(PROSE_SENTINEL);
   });
 
