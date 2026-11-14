@@ -1,27 +1,52 @@
 import { describe, expect, mock, test } from 'bun:test';
 
 import {
+  ActionName,
   AGENT_WIRE_VERSION,
   type AgentEvent,
   AgentEventSchema,
+  type AgentUiChangeEvent,
   type AgentUtteranceInput,
   CallId,
   ChangeId,
+  type ChartRequest,
+  ChartRequestMessage,
   type DiagnosticEvent,
+  InstanceId,
+  isErr,
+  type JsonValue,
   MessageId,
   ok,
-  type RunId,
+  RunId,
   SessionId,
+  VariantName,
 } from '@maelstrom-co/protocol';
 import { EventType, type StreamChunk } from '@tanstack/ai';
 import { z } from 'zod';
 
-import { createEngine, serverTool, ToolError } from '../../index.js';
+import {
+  type ClarifyingPlanner,
+  createEngine,
+  type PlanningInput,
+  serverTool,
+  ToolError,
+} from '../../index.js';
 import { defer } from '../__test-helpers__/defer.js';
 import {
   makeTilingRequest,
   silentLogger,
+  threeViewCalendarVessel,
 } from '../__test-helpers__/fixtures.js';
+import {
+  blockingPlanner,
+  failingPlanner,
+  scriptedPlanner,
+  throwingPlanner,
+} from '../__test-helpers__/stub-planner.js';
+import { providerError } from '../errors.js';
+import type { PlannerCandidate } from '../planner/candidate.js';
+import { named } from '../planner/instrument.js';
+import { pipeline } from '../planner/pipeline.js';
 import {
   createFakeAgentRunTime,
   type FakeAgentRunTime,
@@ -43,6 +68,7 @@ import { NOT_RUN_TOOL_SUMMARY } from './agent-run-policy.js';
 import * as agentRunQueueModule from './agent-run-queue.js';
 import type { AgentRunQueue, AgentRunQueueOptions } from './agent-run-queue.js';
 import { type AgentRunBudgets, BUDGET_CLOSING_MESSAGE } from './agent-run.js';
+import type { ShowPlanner } from './planner-show-queue.js';
 import {
   createToolResultStore,
   type ToolResultStore,
@@ -55,6 +81,7 @@ import {
 
 const USER_SENTINEL = 'user-sentinel-7f3a';
 const TOKEN_SENTINEL = 'token-sentinel-91c2';
+const PLANNER_PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
 
 const LATEST_ORDER = {
   orderId: 'o-1',
@@ -82,7 +109,12 @@ void mock.module('./agent-run-queue.js', () => ({
       transcript,
       toolResults,
     });
-    sessionInternals.push({ queue, transcript, toolResults });
+    sessionInternals.push({
+      queue,
+      transcript,
+      toolResults,
+      planShow: options.planShow,
+    });
     return queue;
   },
 }));
@@ -153,7 +185,7 @@ describe('agent route through the Engine handle', () => {
       expect(JSON.stringify(session.received)).not.toContain(
         'tool_phase_ended',
       );
-      expect(session.plannerCalls()).toBe(0);
+      expect(session.plannerCalls()).toBe(1);
     });
 
     test('identity reaches the tool context exactly and never a model request, tool arguments, the wire or the transcript', async () => {
@@ -185,6 +217,705 @@ describe('agent route through the Engine handle', () => {
         expect(surface).not.toContain(USER_SENTINEL);
         expect(surface).not.toContain(TOKEN_SENTINEL);
       }
+    });
+  });
+
+  describe('loop-driven shows', () => {
+    test('a tool phase with a successful result plans one replyless show and sends its change with the run id', async () => {
+      const time = createFakeAgentRunTime();
+      const order = orderTool({ intentFacts: orderFacts });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(session.plannerCalls()).toBe(1);
+      const plannerInput = session.plannerInputs()[0];
+      expect(plannerInput?.sessionId).toBe(SessionId('agent-route'));
+      expect(plannerInput?.history).toEqual([]);
+      expect(plannerInput?.messageId).not.toBe(MessageId('input-1'));
+      const planned = plannerInput?.request;
+      expect(planned?.skipReply).toBe(true);
+      expect(planned?.intentFacts).toEqual({
+        'latest_order:c1': orderFacts(LATEST_ORDER),
+      });
+      expect(planned?.context.updateReasons).toEqual([
+        { type: 'user_intent', intent: 'show me my last order' },
+      ]);
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      expect(change).toMatchObject({ type: 'ui_change', runId });
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
+      expect(change.changeId.length).toBeGreaterThan(0);
+      expect(AgentEventSchema.safeParse(change).success).toBe(true);
+    });
+
+    test('one tool phase with two calls plans one show whose facts hold both calls in call order', async () => {
+      const orders = [LATEST_ORDER, { ...LATEST_ORDER, orderId: 'o-2' }];
+      let served = 0;
+      const order = orderTool({
+        intentFacts: orderFacts,
+        latestOrder: () => {
+          const next = orders[served];
+          served += 1;
+          if (next === undefined) throw new Error('only two orders scripted');
+          return Promise.resolve(next);
+        },
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            { id: 'c1', name: 'latest_order', args: {} },
+            { id: 'c2', name: 'latest_order', args: {} },
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Two orders.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show my last two orders', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+
+      expect(session.plannerCalls()).toBe(1);
+      const facts = session.plannerInputs()[0]?.request.intentFacts ?? {};
+      expect(Object.keys(facts)).toEqual([
+        'latest_order:c1',
+        'latest_order:c2',
+      ]);
+      expect(facts).toEqual({
+        'latest_order:c1': orderFacts(LATEST_ORDER),
+        'latest_order:c2': orderFacts({ ...LATEST_ORDER, orderId: 'o-2' }),
+      });
+    });
+
+    test('a second show waits for the first change to be acknowledged and plans on the acknowledged Chart', async () => {
+      const time = createFakeAgentRunTime();
+      const gate = defer<PlannerCandidate>();
+      const firstShow = blockingPlanner(gate);
+      let plannerCall = 0;
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'c2', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: (input, ctx) => {
+          plannerCall += 1;
+          return plannerCall === 1
+            ? firstShow.planner(input, ctx)
+            : addEventPlanner(input, ctx);
+        },
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await firstShow.entered;
+      const runId = runIdOf(session.received, 'input-1');
+      expect(lastFinished(session.received)).toMatchObject({
+        runId,
+        reason: 'completed',
+      });
+      expect(session.plannerCalls()).toBe(1);
+
+      gate.resolve(addEventCandidate(calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      await settle();
+      expect(session.plannerCalls()).toBe(1);
+
+      const [firstChange] = uiChangesOf(session.received);
+      if (firstChange === undefined) throw new Error('no ui_change');
+      const acknowledged = weekCalendarChart();
+      await session.connection.send(
+        acknowledgementOf(firstChange, acknowledged),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 2);
+
+      expect(session.plannerCalls()).toBe(2);
+      const second = session.plannerInputs()[1]?.request;
+      expect(second?.instances).toEqual(acknowledged.instances);
+      expect(second?.layout).toEqual(acknowledged.layout);
+      expect(second?.intentFacts).toEqual({
+        'latest_order:c2': orderFacts(LATEST_ORDER),
+      });
+      expect(uiChangesOf(session.received)[1]).toMatchObject({ runId });
+      expect(session.received.map(typeOf)).not.toContain('error');
+    });
+
+    test('the run reaches its next model turn and finishes while its change still awaits acknowledgement', async () => {
+      const releaseSecondTurn = defer<void>();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        async function* (request) {
+          await releaseSecondTurn.promise;
+          yield* scriptedTextTurn(
+            ['It was o-1.'],
+            scriptedUsage(1, 1),
+          )(request);
+        },
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(
+        () =>
+          uiChangesOf(session.received).length === 1 &&
+          model.requests.length === 2,
+      );
+      const runId = runIdOf(session.received, 'input-1');
+      expect(session.received.map(typeOf)).not.toContain('finished');
+      releaseSecondTurn.resolve();
+      await sent;
+      await waitUntil(() => session.received.map(typeOf).includes('finished'));
+
+      expect(indexOf(session.received, 'ui_change', runId)).toBeLessThan(
+        indexOf(session.received, 'finished', runId),
+      );
+      expect(lastFinished(session.received)).toMatchObject({
+        runId,
+        reason: 'completed',
+        ok: true,
+        reply: 'It was o-1.',
+      });
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      const beforeAcknowledgement = session.received.length;
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(`[show ${runId}:t1] Screen updated:`);
+    });
+
+    test('an acknowledged change leaves a queued note and a screen note that the next run prompt includes', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['It is on your calendar.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+
+      const runId = runIdOf(session.received, 'input-1');
+      const queuedNote = `[show ${runId}:t1] Show queued: latest_order result.`;
+      const screenNote = `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      const transcript = serializeLoosely(
+        session.internals().transcript.renderPriorMessages(),
+      );
+      expect(transcript).toContain(queuedNote);
+      expect(transcript).toContain(screenNote);
+
+      await session.send(
+        utterance('input-2', 'where is it now?', calendarChart()),
+      );
+
+      const nextPrompt = serializeLoosely(model.requests[2]?.messages);
+      expect(nextPrompt).toContain(queuedNote);
+      expect(nextPrompt).toContain(screenNote);
+      expect(nextPrompt.indexOf(queuedNote)).toBeLessThan(
+        nextPrompt.indexOf(screenNote),
+      );
+    });
+
+    test('planner prose on a replyless show never reaches the wire, the transcript or a later prompt', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Anything else?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: scriptedPlanner([
+          {
+            ...addEventCandidate(calendarChart()),
+            userMessage: PLANNER_PROSE_SENTINEL,
+          },
+        ]),
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await session.send(
+        utterance('input-2', 'anything else?', calendarChart()),
+      );
+
+      expect(session.plannerCalls()).toBe(1);
+      expect(change.response).not.toHaveProperty('userMessage');
+      expect(change.response).not.toHaveProperty('diagnostics');
+      expect(change.response.executionPlan).toHaveLength(1);
+      const messages = session.received.filter(
+        (event) => event.type === 'message',
+      );
+      expect(messages.length).toBeGreaterThan(0);
+      for (const message of messages) {
+        expect(JSON.stringify(message)).not.toContain(PLANNER_PROSE_SENTINEL);
+      }
+      const surfaces = [
+        JSON.stringify(session.received),
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+        ...model.requests.map(serializeLoosely),
+      ];
+      for (const surface of surfaces) {
+        expect(surface).not.toContain(PLANNER_PROSE_SENTINEL);
+      }
+      expect(model.requests).toHaveLength(3);
+    });
+
+    test('show diagnostics carry the run owner and change id while the intent and screen note stay behind readContent', async () => {
+      const intent = 'show me my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: pipeline(named('arrange', addEventPlanner)),
+      });
+
+      await session.send(utterance('input-1', intent, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+
+      const runId = runIdOf(session.received, 'input-1');
+      for (const kind of [
+        'engine.planner.started',
+        'engine.planner.completed',
+        'engine.stage.started',
+        'engine.stage.completed',
+        'engine.candidate.validated',
+        'engine.validation.completed',
+      ]) {
+        for (const event of diagnosticsOfKind(session.diagnostics, kind)) {
+          expect(event.runId).toBe(runId);
+          expect(event.requestId).toBeUndefined();
+          expect(event.metadata.inputId).toBe('input-1');
+          expect(event.metadata.turnId).toBe(`${runId}:t1`);
+        }
+      }
+      const [emitted] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_change.emitted',
+      );
+      const [applied] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_change.applied',
+      );
+      if (emitted === undefined || applied === undefined)
+        throw new Error('the change was not observed');
+      for (const event of [emitted, applied]) {
+        expect(event.runId).toBe(runId);
+        expect(event.metadata.changeId).toBe(change.changeId);
+      }
+      const screenNote =
+        'Screen updated: ran addEvent on calendar → month. Visible: calendar (month).';
+      for (const event of session.diagnostics) {
+        for (const value of Object.values(event.metadata)) {
+          expect(String(value)).not.toContain(intent);
+          expect(String(value)).not.toContain('Screen updated');
+        }
+      }
+      const [plannerStarted] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.planner.started',
+      );
+      if (plannerStarted === undefined) throw new Error('no planner call');
+      expect(serializeLoosely(session.readContentOf(plannerStarted))).toContain(
+        intent,
+      );
+      expect(session.readContentOf(emitted)).toMatchObject({
+        intent,
+        intentFacts: { 'latest_order:c1': orderFacts(LATEST_ORDER) },
+      });
+      expect(session.readContentOf(applied)).toMatchObject({ screenNote });
+    });
+
+    test('a tool phase whose only result failed makes no Planner call and writes no note', async () => {
+      const order = orderTool({
+        intentFacts: orderFacts,
+        latestOrder: () => Promise.reject(new ToolError('No orders yet.')),
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['You have no orders yet.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await settle();
+
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+      });
+      expect(session.plannerCalls()).toBe(0);
+      expect(uiChangesOf(session.received)).toEqual([]);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).not.toContain('[show ');
+    });
+
+    test('an unknown change id and a wrong outcome count are refused while the change stays pending until a valid acknowledgement', async () => {
+      const session = openAgentSession({
+        model: twoShowTurns().adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [firstChange] = uiChangesOf(session.received);
+      if (firstChange === undefined) throw new Error('no ui_change');
+
+      const beforeStray = session.received.length;
+      await session.connection.send(strayAcknowledgement());
+      expect(session.received.slice(beforeStray)).toEqual([
+        strayAcknowledgementRefusal(),
+      ]);
+
+      const beforeWrongCount = session.received.length;
+      await session.connection.send({
+        ...acknowledgementOf(firstChange, calendarChart()),
+        actionOutcomes: [],
+      });
+      expect(session.received.slice(beforeWrongCount)).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: firstChange.changeId,
+          code: 'invalid_action_outcomes',
+          error: 'Expected one outcome per Action.',
+        },
+      ]);
+      await settle();
+      expect(session.plannerCalls()).toBe(1);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).not.toContain('Screen updated');
+
+      await session.connection.send(
+        acknowledgementOf(firstChange, calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 2);
+
+      expect(session.plannerCalls()).toBe(2);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain('Screen updated: ran addEvent on calendar → month.');
+    });
+
+    test('an acknowledgement sent synchronously from inside the ui_change listener is accepted', async () => {
+      const session = openAgentSession({
+        model: twoShowTurns().adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+      const acknowledged = weekCalendarChart();
+      let acknowledgedInListener = false;
+      session.connection.subscribe((event) => {
+        if (event.type !== 'ui_change' || acknowledgedInListener) return;
+        acknowledgedInListener = true;
+        void session.connection.send(acknowledgementOf(event, acknowledged));
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 2);
+
+      expect(acknowledgedInListener).toBe(true);
+      expect(session.received.map(typeOf)).not.toContain('error');
+      expect(session.plannerInputs()[1]?.request.instances).toEqual(
+        acknowledged.instances,
+      );
+      const runId = runIdOf(session.received, 'input-1');
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(
+        `[show ${runId}:t1] Screen updated: ran addEvent on calendar → week. Visible: calendar (week).`,
+      );
+    });
+
+    test('an acknowledgement timeout starts the next queued show on the last known Chart', async () => {
+      const time = createFakeAgentRunTime();
+      const session = openAgentSession({
+        time,
+        acknowledgementTimeoutMs: 5_000,
+        model: twoShowTurns().adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: scriptedPlanner([
+          addEventCandidate(weekCalendarChart()),
+          addEventCandidate(calendarChart()),
+        ]),
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      await settle();
+      const [firstChange] = uiChangesOf(session.received);
+      expect(firstChange?.response.layout).toEqual(weekCalendarChart().layout);
+      time.advance(4_999);
+      await settle();
+      expect(session.plannerCalls()).toBe(1);
+
+      time.advance(1);
+      await waitUntil(() => uiChangesOf(session.received).length === 2);
+
+      expect(session.plannerCalls()).toBe(2);
+      const second = session.plannerInputs()[1]?.request;
+      expect(second?.layout).toEqual(calendarChart().layout);
+      expect(second?.instances).toEqual(calendarChart().instances);
+      expect(second?.intentFacts).toEqual({
+        'latest_order:c2': orderFacts(LATEST_ORDER),
+      });
+      expect(session.received.map(typeOf)).not.toContain('error');
+    });
+
+    test.each([
+      [
+        'a failing planner',
+        failingPlanner(providerError('provider down', undefined)),
+      ],
+      ['a throwing planner', throwingPlanner(new Error('planner crashed'))],
+      ['a needs-clarification result', clarifyingPlanner],
+      ['an empty plan with nothing to show', nothingToShowPlanner],
+    ] as const)(
+      '%s releases the queue for the next show and sends no ui_change',
+      async (_case, firstShow: ClarifyingPlanner) => {
+        const release = defer<void>();
+        const session = openAgentSession({
+          model: twoShowTurns().adapter,
+          tools: [orderTool({ intentFacts: orderFacts }).tool],
+          planner: plannersInOrder([
+            heldUntil(release.promise, firstShow),
+            addEventPlanner,
+          ]),
+        });
+
+        await session.send(
+          utterance('input-1', 'show my orders twice', calendarChart()),
+        );
+        await settle();
+        expect(session.plannerCalls()).toBe(1);
+        release.resolve();
+        await waitUntil(() => uiChangesOf(session.received).length === 1);
+        await settle();
+
+        expect(session.plannerCalls()).toBe(2);
+        expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
+          'latest_order:c2': orderFacts(LATEST_ORDER),
+        });
+        const changes = uiChangesOf(session.received);
+        expect(changes).toHaveLength(1);
+        expect(changes[0]?.response.executionPlan).toHaveLength(1);
+        const runId = runIdOf(session.received, 'input-1');
+        const firstShowPlanning = session.diagnostics.filter(
+          (event) =>
+            event.kind.startsWith('engine.planner.') &&
+            event.metadata.turnId === `${runId}:t1`,
+        );
+        expect(firstShowPlanning.map((event) => event.kind)).toEqual(
+          expect.arrayContaining([
+            'engine.planner.started',
+            'engine.planner.completed',
+          ]),
+        );
+        for (const event of firstShowPlanning) {
+          expect(event.runId).toBe(runId);
+          expect(event.requestId).toBeUndefined();
+          expect(event.metadata.inputId).toBe('input-1');
+        }
+      },
+    );
+
+    test('closing the connection aborts a show plan in flight and sends no ui_change for it', async () => {
+      const gate = defer<PlannerCandidate>();
+      const blocking = blockingPlanner(gate);
+      const signals: (AbortSignal | undefined)[] = [];
+      const session = openAgentSession({
+        model: scriptedTextAdapter([
+          scriptedToolTurn(
+            [{ id: 'c1', name: 'latest_order', args: {} }],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        ]).adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: (input, ctx) => {
+          signals.push(ctx.signal);
+          return blocking.planner(input, ctx);
+        },
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await blocking.entered;
+      const beforeClose = session.received.length;
+      session.connection.close();
+      gate.resolve(addEventCandidate(calendarChart()));
+      await settle();
+
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(true);
+      expect(session.received.slice(beforeClose)).toEqual([]);
+    });
+
+    test('handle() still refuses a needs-clarification result after a show planned one', async () => {
+      const session = openAgentSession({
+        model: scriptedTextAdapter([
+          scriptedToolTurn(
+            [{ id: 'c1', name: 'latest_order', args: {} }],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        ]).adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: clarifyingPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => session.plannerCalls() === 1);
+      await settle();
+      const handled = await session.engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('agent-route'),
+          id: MessageId('handled-request'),
+          request: { ...calendarChart(), skipReply: true },
+        }),
+      );
+
+      expect(uiChangesOf(session.received)).toEqual([]);
+      expect(isErr(handled) && handled.error).toMatchObject({
+        _tag: 'ValidationError',
+        field: 'skipReply',
+      });
+    });
+
+    describe('the show planner a connection wires', () => {
+      test('a needs-clarification result becomes the Planner question alone', async () => {
+        const session = openAgentSession({ planner: clarifyingPlanner });
+
+        const result = await session.internals().planShow(directShowInput());
+
+        expect(result).toEqual(
+          ok({
+            type: 'needs_clarification',
+            question: 'Which order do you mean?',
+          }),
+        );
+      });
+
+      test('a failing planner comes back as its error', async () => {
+        const session = openAgentSession({
+          planner: failingPlanner(providerError('provider down', undefined)),
+        });
+
+        const result = await session.internals().planShow(directShowInput());
+
+        expect(isErr(result) && result.error._tag).toBe('ProviderError');
+      });
+
+      test('an aborted signal cancels a plan in flight', async () => {
+        const gate = defer<PlannerCandidate>();
+        const blocking = blockingPlanner(gate);
+        const session = openAgentSession({ planner: blocking.planner });
+        const controller = new AbortController();
+
+        const pending = session
+          .internals()
+          .planShow(directShowInput(controller.signal));
+        await blocking.entered;
+        controller.abort('connection closed');
+
+        const result = await pending;
+        expect(isErr(result) && result.error._tag).toBe('CancellationError');
+      });
     });
   });
 
@@ -413,6 +1144,9 @@ describe('agent route through the Engine handle', () => {
       expect(secondPrompt).toContain(
         `[tool result ${firstRun}:c1] ok: Order o-1 for 42`,
       );
+      expect(secondPrompt).toContain(
+        `[show ${firstRun}:t1] Show queued: latest_order result.`,
+      );
       expect(secondPrompt).not.toContain('squeaky bone');
       expect(
         session
@@ -636,7 +1370,7 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('an agent run finishes without any ui_applied and a stray one during or after the run changes nothing', async () => {
+    test('an agent run finishes without any ui_applied and a stray one during or after the run is refused as an unknown change without touching the run', async () => {
       const release = defer<void>();
       const toolStarted = defer<void>();
       const order = orderTool({
@@ -662,7 +1396,9 @@ describe('agent route through the Engine handle', () => {
       await toolStarted.promise;
       const duringRun = session.received.length;
       await session.connection.send(strayAcknowledgement());
-      expect(session.received).toHaveLength(duringRun);
+      expect(session.received.slice(duringRun)).toEqual([
+        strayAcknowledgementRefusal(),
+      ]);
       expect(session.internals().queue.pendingRuns()).toBe(1);
       release.resolve();
       await first;
@@ -672,6 +1408,7 @@ describe('agent route through the Engine handle', () => {
         'accepted',
         'started',
         'tool_call',
+        'error',
         'tool_result',
         'message',
         'finished',
@@ -683,7 +1420,9 @@ describe('agent route through the Engine handle', () => {
       });
       const afterRun = session.received.length;
       await session.connection.send(strayAcknowledgement());
-      expect(session.received).toHaveLength(afterRun);
+      expect(session.received.slice(afterRun)).toEqual([
+        strayAcknowledgementRefusal(),
+      ]);
       expect(session.internals().queue.pendingRuns()).toBe(0);
     });
 
@@ -1036,6 +1775,7 @@ interface SessionInternals {
   readonly queue: AgentRunQueue;
   readonly transcript: Transcript;
   readonly toolResults: ToolResultStore;
+  readonly planShow: ShowPlanner;
 }
 
 interface StalledCall {
@@ -1049,19 +1789,22 @@ function openAgentSession(
     readonly model?: AgentConfig['model'];
     readonly tools?: AgentConfig['tools'];
     readonly budgets?: AgentConfig['budgets'];
+    readonly planner?: ClarifyingPlanner;
+    readonly acknowledgementTimeoutMs?: number;
   } = {},
 ) {
   const time = overrides.time ?? createFakeAgentRunTime();
   const received: AgentEvent[] = [];
   const user = { id: USER_SENTINEL };
-  let plannerCalls = 0;
+  const plannerInputs: PlanningInput[] = [];
+  const planner = overrides.planner ?? nothingToShowPlanner;
   const createdBefore = sessionInternals.length;
   const engine = createEngine({
     logger: silentLogger,
     retry: false,
-    planner: () => {
-      plannerCalls += 1;
-      return Promise.reject(new Error('the chart planner must not run'));
+    planner: (input, ctx) => {
+      plannerInputs.push(input);
+      return planner(input, ctx);
     },
     agent: {
       model: overrides.model ?? scriptedTextAdapter([]).adapter,
@@ -1074,8 +1817,10 @@ function openAgentSession(
     },
   });
   const diagnostics: DiagnosticEvent[] = [];
-  engine.observeDiagnostics?.((event) => {
+  const diagnosticContents = new Map<DiagnosticEvent, () => unknown>();
+  engine.observeDiagnostics?.((event, readContent) => {
     diagnostics.push(event);
+    if (readContent !== undefined) diagnosticContents.set(event, readContent);
   });
   const connection = engine.openConnection({
     sessionId: SessionId('agent-route'),
@@ -1083,6 +1828,9 @@ function openAgentSession(
     token: TOKEN_SENTINEL,
     clock: time.clock.now,
     scheduleTimeout: time.clock.scheduleTimeout,
+    ...(overrides.acknowledgementTimeoutMs === undefined
+      ? {}
+      : { acknowledgementTimeoutMs: overrides.acknowledgementTimeoutMs }),
   });
   connection.subscribe((event) => {
     received.push(event);
@@ -1091,21 +1839,38 @@ function openAgentSession(
   if (internals === undefined || sessionInternals.length !== createdBefore + 1)
     throw new Error('the connection did not create one agent run queue');
   return {
+    engine,
     connection,
     received,
     diagnostics,
+    readContentOf: (event: DiagnosticEvent) =>
+      diagnosticContents.get(event)?.(),
     user,
     send: (input: AgentUtteranceInput) => connection.send(input),
-    plannerCalls: () => plannerCalls,
+    plannerCalls: () => plannerInputs.length,
+    plannerInputs: () => plannerInputs,
     internals: () => internals,
   };
 }
+
+const nothingToShowPlanner: ClarifyingPlanner = (input) =>
+  Promise.resolve(
+    ok({
+      type: 'plan',
+      rationale: 'Nothing to show.',
+      executionPlan: [],
+      layout: tilingLayoutOf(input.request),
+    }),
+  );
 
 function orderTool(
   options: {
     readonly latestOrder?: (
       signal: AbortSignal,
     ) => Promise<typeof LATEST_ORDER>;
+    readonly intentFacts?: (
+      order: typeof LATEST_ORDER,
+    ) => Readonly<Record<string, JsonValue>>;
   } = {},
 ) {
   const contexts: { user: unknown; token?: string }[] = [];
@@ -1128,19 +1893,172 @@ function orderTool(
       );
     },
     summarize: (output) => `Order ${output.orderId} for ${output.total}`,
+    ...(options.intentFacts === undefined
+      ? {}
+      : { intentFacts: options.intentFacts }),
   });
   return { tool, contexts, args };
 }
 
-function utterance(inputId: string, text: string): AgentUtteranceInput {
+function orderFacts(order: typeof LATEST_ORDER) {
+  return { orderId: order.orderId, itemCount: order.items.length };
+}
+
+function utterance(
+  inputId: string,
+  text: string,
+  chart: ChartRequest = makeTilingRequest(),
+): AgentUtteranceInput {
   return {
     type: 'utterance',
     version: AGENT_WIRE_VERSION,
     inputId: MessageId(inputId),
     text,
     source: 'text',
-    chart: makeTilingRequest(),
+    chart,
   };
+}
+
+function tilingLayoutOf(request: ChartRequest) {
+  if (request.layout.type !== 'tiling')
+    throw new Error('agent route tests send tiling Charts');
+  return request.layout;
+}
+
+function calendarChart(): ChartRequest {
+  return makeTilingRequest({ vessels: [threeViewCalendarVessel] });
+}
+
+const addEventPlanner: ClarifyingPlanner = (input) =>
+  Promise.resolve(
+    ok({
+      type: 'plan',
+      rationale: 'Add the order to the calendar.',
+      executionPlan: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ],
+      layout: tilingLayoutOf(input.request),
+    }),
+  );
+
+function addEventCandidate(chart: ChartRequest): PlannerCandidate {
+  return {
+    type: 'plan',
+    rationale: 'Add the order to the calendar.',
+    executionPlan: [
+      {
+        instanceId: InstanceId('calendar-main'),
+        action: ActionName('addEvent'),
+      },
+    ],
+    layout: tilingLayoutOf(chart),
+    userMessage: 'Added the order to your calendar.',
+  };
+}
+
+const clarifyingPlanner: ClarifyingPlanner = () =>
+  Promise.resolve(
+    ok({
+      type: 'needs_clarification',
+      question: 'Which order do you mean?',
+      options: ['The latest order', 'The order from last week'],
+    }),
+  );
+
+function plannersInOrder(
+  planners: readonly ClarifyingPlanner[],
+): ClarifyingPlanner {
+  let call = 0;
+  return (input, ctx) => {
+    const planner = planners[call];
+    call += 1;
+    if (planner === undefined)
+      throw new Error(`only ${planners.length} planner calls scripted`);
+    return planner(input, ctx);
+  };
+}
+
+function heldUntil(
+  release: Promise<void>,
+  planner: ClarifyingPlanner,
+): ClarifyingPlanner {
+  return async (input, ctx) => {
+    await release;
+    return planner(input, ctx);
+  };
+}
+
+function twoShowTurns() {
+  return scriptedTextAdapter([
+    scriptedToolTurn(
+      [{ id: 'c1', name: 'latest_order', args: {} }],
+      scriptedUsage(1, 1),
+    ),
+    scriptedToolTurn(
+      [{ id: 'c2', name: 'latest_order', args: {} }],
+      scriptedUsage(1, 1),
+    ),
+    scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
+  ]);
+}
+
+function directShowInput(signal = new AbortController().signal) {
+  return {
+    request: { ...calendarChart(), skipReply: true },
+    messageId: MessageId('direct-show'),
+    runId: RunId('direct-run'),
+    inputId: MessageId('direct-input'),
+    turnId: 'direct-run:t1',
+    signal,
+  };
+}
+
+function weekCalendarChart(): ChartRequest {
+  const chart = calendarChart();
+  const layout = tilingLayoutOf(chart);
+  const week = VariantName('week');
+  return {
+    ...chart,
+    instances: chart.instances.map((instance) => ({
+      ...instance,
+      variant: week,
+    })),
+    layout: {
+      ...layout,
+      instances: layout.instances.map((instance) => ({
+        ...instance,
+        variant: week,
+      })),
+    },
+  };
+}
+
+function uiChangesOf(events: readonly AgentEvent[]): AgentUiChangeEvent[] {
+  return events.filter(
+    (event): event is AgentUiChangeEvent => event.type === 'ui_change',
+  );
+}
+
+function diagnosticsOfKind(
+  events: readonly DiagnosticEvent[],
+  kind: string,
+): DiagnosticEvent[] {
+  const matching = events.filter((event) => event.kind === kind);
+  if (matching.length === 0) throw new Error(`no ${kind} diagnostic`);
+  return matching;
+}
+
+function acknowledgementOf(change: AgentUiChangeEvent, chart: ChartRequest) {
+  return {
+    type: 'ui_applied',
+    version: AGENT_WIRE_VERSION,
+    changeId: change.changeId,
+    chart,
+    actionOutcomes: change.response.executionPlan.map(() => ({ ok: true })),
+  } as const;
 }
 
 function expectBudgetEnding(events: readonly AgentEvent[], runId: RunId) {
@@ -1209,6 +2127,16 @@ function strayAcknowledgement() {
     chart: makeTilingRequest(),
     actionOutcomes: [],
   } as const;
+}
+
+function strayAcknowledgementRefusal(): AgentEvent {
+  return {
+    type: 'error',
+    version: AGENT_WIRE_VERSION,
+    changeId: ChangeId('stray-change'),
+    code: 'unknown_change',
+    error: 'Unknown UI change.',
+  };
 }
 
 function lastFinished(events: readonly AgentEvent[]) {

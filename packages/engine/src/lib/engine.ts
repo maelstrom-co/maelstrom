@@ -1,11 +1,11 @@
 import type {
+  ChartRequest,
   ChartRequestMessage,
-  ChartResponseOutput,
   EngineMessage,
   EngineOutput,
+  MaelstromResponse,
   MessageId,
   Result,
-  RunId,
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -19,6 +19,10 @@ import {
   createAgentConnection,
   type OpenConnectionOptions,
 } from './agent-session/index.js';
+import type {
+  LoopDrivenPlanOutcome,
+  ShowPlanner,
+} from './agent-session/planner-show-queue.js';
 import { assertNever } from './assert-never.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
@@ -27,6 +31,7 @@ import {
   EngineDiagnosticEmitter,
   type EngineDiagnosticObserver,
   type EngineMetadataObserver,
+  type RunOwner,
 } from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
@@ -47,7 +52,6 @@ import {
 } from './operational-outcome.js';
 import type {
   FullValidatedPlannerOutput,
-  FullValidatedReplylessCandidate,
   PlannerOutput,
 } from './planner/candidate.js';
 import type {
@@ -267,14 +271,15 @@ export function createEngine(config: EngineConfig): Engine {
     ? createHistoryManager(historyConfig)
     : undefined;
 
-  const runChartRequest = async (
+  const runChartRequest = async <Shipped>(
     message: ChartRequestMessage,
+    ship: ShipStep<Shipped>,
     signal?: AbortSignal,
     sessionHistory?: readonly LLMContextMessage[],
-    runId?: RunId,
-  ): Promise<Result<ChartResponseOutput, EngineError>> => {
+    runOwner?: RunOwner,
+  ): Promise<Result<Shipped, EngineError>> => {
     const { request } = message;
-    const diagnosticOwner = runId ? { runId, inputId: message.id } : message.id;
+    const diagnosticOwner = runOwner ?? message.id;
     logger.debug('Processing chart_request', {
       messageId: message.id,
       sessionId: message.sessionId,
@@ -362,7 +367,7 @@ export function createEngine(config: EngineConfig): Engine {
     const durationMs = performance.now() - start;
     const shippable = isErr(planned)
       ? planned
-      : requireShippableReply(planned.value, message.id, logger);
+      : ship(planned.value, message.id, logger);
     diagnosticsEmitter.emit(
       message.sessionId,
       diagnosticOwner,
@@ -373,17 +378,17 @@ export function createEngine(config: EngineConfig): Engine {
       },
       () => shippable,
     );
-    if (isErr(shippable)) {
+    if (isErr(planned) || isErr(shippable)) {
       return shippable;
     }
 
-    // Strip engine-internal diagnostics before crossing the engine boundary.
-    // Anything healed silently here is the only operator-visible signal that
-    // the planner produced bad output, so emit a single summary log line —
-    // drops and warnings would otherwise be invisible to observability. Severity
-    // drives the level so blank-UI responses (`unrecoverable`) cross default
-    // `warn`-threshold paging filters.
-    const { diagnostics, ...response } = shippable.value;
+    // Ship steps strip engine-internal diagnostics before they cross the
+    // engine boundary. Anything healed silently here is the only
+    // operator-visible signal that the planner produced bad output, so emit a
+    // single summary log line. Drops and warnings would otherwise be invisible
+    // to observability. Severity drives the level so blank-UI responses
+    // (`unrecoverable`) cross default `warn`-threshold paging filters.
+    const { diagnostics } = planned.value;
     diagnosticsEmitter.emit(
       message.sessionId,
       diagnosticOwner,
@@ -421,39 +426,56 @@ export function createEngine(config: EngineConfig): Engine {
       });
     }
 
-    return ok({
-      type: 'chart_response',
-      sessionId: message.sessionId,
-      id: message.id,
-      response,
-    });
+    return shippable;
   };
 
   const dedup = createChartRequestDedup({
-    runChartRequest,
+    runChartRequest: async (message, signal) => {
+      const shipped = await runChartRequest(
+        message,
+        requireShippableReply,
+        signal,
+      );
+      return isErr(shipped)
+        ? shipped
+        : ok({
+            type: 'chart_response',
+            sessionId: message.sessionId,
+            id: message.id,
+            response: shipped.value,
+          });
+    },
     history,
     logger,
   });
+
+  const createShowPlanner =
+    (sessionId: SessionId): ShowPlanner =>
+    (input) =>
+      runChartRequest(
+        agentChartRequest(sessionId, input.messageId, input.request),
+        shipLoopDrivenOutcome,
+        input.signal,
+        [],
+        { runId: input.runId, inputId: input.inputId, turnId: input.turnId },
+      );
 
   return {
     openConnection: (options) =>
       createAgentConnection(
         options,
-        async (input) => {
-          const result = await runChartRequest(
-            {
-              type: 'chart_request',
-              id: input.messageId,
-              sessionId: options.sessionId,
-              timestamp: Date.now(),
-              request: input.request,
-            },
+        (input) =>
+          runChartRequest(
+            agentChartRequest(
+              options.sessionId,
+              input.messageId,
+              input.request,
+            ),
+            requireShippableReply,
             input.signal,
             [],
-            input.runId,
-          );
-          return isErr(result) ? result : ok(result.value.response);
-        },
+            { runId: input.runId, inputId: input.messageId },
+          ),
         (runId, inputId, kind, metadata, readContent) =>
           diagnosticsEmitter.emit(
             options.sessionId,
@@ -463,7 +485,12 @@ export function createEngine(config: EngineConfig): Engine {
             readContent,
           ),
         logger,
-        agent,
+        agent === undefined
+          ? undefined
+          : {
+              config: agent,
+              planShow: createShowPlanner(options.sessionId),
+            },
       ),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>
@@ -709,6 +736,26 @@ function isStageResult(
   );
 }
 
+type ShipStep<Shipped> = (
+  outcome: FullValidatedPlannerOutput,
+  messageId: MessageId,
+  logger: Logger,
+) => Result<Shipped, EngineError>;
+
+function agentChartRequest(
+  sessionId: SessionId,
+  id: MessageId,
+  request: ChartRequest,
+): ChartRequestMessage {
+  return {
+    type: 'chart_request',
+    id,
+    sessionId,
+    timestamp: Date.now(),
+    request,
+  };
+}
+
 // Validation accepts a missing or blank reply and a clarification only under
 // skipReply, so this is the Engine's ship boundary for them. "No reply" ships
 // as an absent userMessage, never as '', so a blank one is dropped here. A
@@ -717,7 +764,7 @@ function requireShippableReply(
   outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
   logger: Logger,
-): Result<FullValidatedReplylessCandidate, EngineError> {
+): Result<MaelstromResponse, EngineError> {
   switch (outcome.type) {
     case 'needs_clarification':
       return refuseReplylessOutcome(
@@ -726,7 +773,11 @@ function requireShippableReply(
         logger,
       );
     case 'maelstrom_response': {
-      const { userMessage, ...withoutReply } = outcome;
+      const {
+        userMessage,
+        diagnostics: _diagnostics,
+        ...withoutReply
+      } = outcome;
       if (userMessage === undefined || userMessage.trim() === '') {
         return ok(withoutReply);
       }
@@ -741,6 +792,27 @@ function requireShippableReply(
         ),
       );
     }
+  }
+}
+
+// A loop-driven show never speaks for the agent, so the Planner's reply is
+// dropped whatever it says, and a clarification ships only its question.
+function shipLoopDrivenOutcome(
+  outcome: FullValidatedPlannerOutput,
+): Result<LoopDrivenPlanOutcome, EngineError> {
+  switch (outcome.type) {
+    case 'needs_clarification':
+      return ok({ type: 'needs_clarification', question: outcome.question });
+    case 'maelstrom_response': {
+      const {
+        userMessage: _userMessage,
+        diagnostics: _diagnostics,
+        ...response
+      } = outcome;
+      return ok({ type: 'response', response });
+    }
+    default:
+      return assertNever(outcome, 'engine.shipLoopDrivenOutcome');
   }
 }
 
