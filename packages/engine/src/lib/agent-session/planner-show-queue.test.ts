@@ -544,6 +544,70 @@ describe('createPlannerShowQueue', () => {
     expect(harness.errors()).toEqual([]);
   });
 
+  test('a restart on a newer Chart cancels the first planning timer and arms a fresh one, with no failed note or error event', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+
+    harness.queue.noteChart(weekChart);
+
+    expect(harness.time.scheduled()).toEqual([
+      SHOW_PLANNING_TIMEOUT_MS,
+      SHOW_PLANNING_TIMEOUT_MS,
+    ]);
+    expect(harness.time.pending()).toBe(1);
+    harness.time.advance(1);
+    expect(harness.planner.input(1).signal.aborted).toBe(false);
+    expect(harness.received).toEqual([]);
+    expect(harness.notes).toEqual([]);
+    expect(harness.warnings()).toEqual([]);
+
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    expect(harness.planner.input(1).signal.aborted).toBe(true);
+    expect(harness.errors().map((event) => event.code)).toEqual([
+      'planning_timeout',
+    ]);
+    expect(harness.notes).toHaveLength(1);
+  });
+
+  test('a restart on a newer Chart keeps whenIdle waiting until the replanned show settles', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.queue.noteChart(weekChart);
+    harness.planner.respond(0, nothingToShow(monthChart));
+    await flushMicrotasks();
+    expect(idle.settled).toBe(false);
+
+    harness.planner.respond(1, nothingToShow(weekChart));
+    await flushMicrotasks();
+    expect(idle.settled).toBe(true);
+  });
+
+  test('close after a restart aborts the replanned call and records or emits nothing', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.noteChart(weekChart);
+
+    harness.queue.close();
+
+    expect(harness.planner.input(0).signal.aborted).toBe(true);
+    expect(harness.planner.input(1).signal.aborted).toBe(true);
+    expect(harness.time.pending()).toBe(0);
+    harness.planner.respond(0, changeResponse(monthChart));
+    harness.planner.respond(1, changeResponse(weekChart));
+    await flushMicrotasks();
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.received).toEqual([]);
+    expect(harness.observed).toEqual([]);
+    expect(harness.notes).toEqual([]);
+  });
+
   test('logs a thrown Planner call once with its error name but without its message', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);

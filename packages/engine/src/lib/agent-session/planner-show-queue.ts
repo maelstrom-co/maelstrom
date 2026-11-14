@@ -372,7 +372,7 @@ export function createPlannerShowQueue({
       );
       if (isStructurallyEqual(request, job.request)) return;
       // The show in planning was built on a Chart this one supersedes: plan it again.
-      job.controller.abort();
+      abortPlanning(job);
       queue.unshift(job.show);
       state = { phase: 'idle' };
       pump();
