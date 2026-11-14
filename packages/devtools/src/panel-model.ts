@@ -19,11 +19,8 @@ import {
 } from './request-lifecycle.js';
 
 export {
-  type AgentRunMetrics,
   type AgentRunStatus,
-  type AgentRunsModel,
   type AgentRunTrace,
-  type AgentRunTurn,
   type AgentSessionTimeline,
   groupAgentRuns,
 } from './agent-runs.js';
