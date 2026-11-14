@@ -5,7 +5,6 @@ import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
   AgentEventSchema,
-  type AgentUiChangeEvent,
   CallId,
   ChangeId,
   type ChartRequest,
@@ -30,7 +29,6 @@ import { defer } from '../__test-helpers__/defer.js';
 import {
   makeTilingRequest,
   silentLogger,
-  threeViewCalendarVessel,
 } from '../__test-helpers__/fixtures.js';
 import {
   blockingPlanner,
@@ -43,18 +41,24 @@ import type { PlannerCandidate } from '../planner/candidate.js';
 import { named } from '../planner/instrument.js';
 import { pipeline } from '../planner/pipeline.js';
 import {
+  acknowledgementOf,
+  addEventPlanner,
+  calendarChart,
   capturingAgentRunQueueModule,
   capturingPlannerShowQueueModule,
   LATEST_ORDER,
   nothingToShowPlanner,
   openAgentSession,
+  orderFacts,
   orderTool,
   sessionInternals,
   TEST_BUDGETS,
   tilingLayoutOf,
   TOKEN_SENTINEL,
+  uiChangesOf,
   USER_SENTINEL,
   utterance,
+  waitUntil,
 } from './__test-helpers__/agent-session-harness.js';
 import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import {
@@ -2418,29 +2422,6 @@ interface StalledCall {
 
 const neverSettlingPlanner: ClarifyingPlanner = () => new Promise(() => {});
 
-function orderFacts(order: typeof LATEST_ORDER) {
-  return { orderId: order.orderId, itemCount: order.items.length };
-}
-
-function calendarChart(): ChartRequest {
-  return makeTilingRequest({ vessels: [threeViewCalendarVessel] });
-}
-
-const addEventPlanner: ClarifyingPlanner = (input) =>
-  Promise.resolve(
-    ok({
-      type: 'plan',
-      rationale: 'Add the order to the calendar.',
-      executionPlan: [
-        {
-          instanceId: InstanceId('calendar-main'),
-          action: ActionName('addEvent'),
-        },
-      ],
-      layout: tilingLayoutOf(input.request),
-    }),
-  );
-
 function addEventCandidate(chart: ChartRequest): PlannerCandidate {
   return {
     type: 'plan',
@@ -2550,12 +2531,6 @@ function weekCalendarChart(): ChartRequest {
   };
 }
 
-function uiChangesOf(events: readonly AgentEvent[]): AgentUiChangeEvent[] {
-  return events.filter(
-    (event): event is AgentUiChangeEvent => event.type === 'ui_change',
-  );
-}
-
 function diagnosticsOfKind(
   events: readonly DiagnosticEvent[],
   kind: string,
@@ -2563,16 +2538,6 @@ function diagnosticsOfKind(
   const matching = events.filter((event) => event.kind === kind);
   if (matching.length === 0) throw new Error(`no ${kind} diagnostic`);
   return matching;
-}
-
-function acknowledgementOf(change: AgentUiChangeEvent, chart: ChartRequest) {
-  return {
-    type: 'ui_applied',
-    version: AGENT_WIRE_VERSION,
-    changeId: change.changeId,
-    chart,
-    actionOutcomes: change.response.executionPlan.map(() => ({ ok: true })),
-  } as const;
 }
 
 function expectBudgetEnding(events: readonly AgentEvent[], runId: RunId) {
@@ -2737,14 +2702,4 @@ async function settle(): Promise<void> {
       setImmediate(resolve);
     });
   }
-}
-
-async function waitUntil(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (condition()) return;
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-  throw new Error('condition never held');
 }
