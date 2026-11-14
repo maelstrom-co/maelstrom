@@ -132,7 +132,8 @@ export interface AgentRunOptions {
    * and never after it. When the consumer closes the run early, reporting
    * stops at the close, and open turns and calls get no closing activity.
    * The activity carries the turn text, arguments and results itself, because
-   * the yielded events that record them may not be pulled yet.
+   * the yielded events that record them may not be pulled yet. The observer
+   * must not throw. A throw is caught and logged, and the run goes on.
    */
   readonly onActivity?: (activity: AgentRunActivity) => void;
 }

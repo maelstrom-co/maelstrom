@@ -20,6 +20,7 @@ import {
 } from '@tanstack/ai';
 
 import { assertNever } from '../assert-never.js';
+import type { Logger } from '../logger.js';
 import {
   type AgentRunEnding,
   type AgentRunPolicy,
@@ -106,6 +107,7 @@ async function* streamAgentRun(
   const calls = createToolCallTracker(
     input.runId,
     input.clock,
+    input.logger,
     options.onActivity,
   );
   const executions = createToolExecutionFence();
@@ -210,6 +212,9 @@ async function* streamAgentRun(
       executions.settled(),
     );
   } finally {
+    // A consumer that closes the run before finished gets no closing
+    // activity, and a tool that settles later reports nothing.
+    calls.stopActivity();
     if (!reachedEnd && !policy.abortController.signal.aborted) {
       policy.abortController.abort(
         new DOMException('Agent run closed by its consumer', 'AbortError'),
@@ -464,6 +469,7 @@ function createToolExecutionFence() {
 function createToolCallTracker(
   runId: RunId,
   clock: AgentRunClock,
+  logger: Logger,
   onActivity: ((activity: AgentRunActivity) => void) | undefined,
 ) {
   let turn = 0;
@@ -484,7 +490,16 @@ function createToolCallTracker(
   const turnId = () => turnIdOf(turn);
 
   const report = (activity: AgentRunActivity) => {
-    if (!activityClosed) onActivity?.(activity);
+    if (activityClosed || onActivity === undefined) return;
+    try {
+      onActivity(activity);
+    } catch (error) {
+      logger.warn('Agent run activity observer threw', {
+        runId,
+        activity: activity.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
 
   const reportCompletion = (
@@ -575,6 +590,7 @@ function createToolCallTracker(
   return {
     drainQueued,
     startTurn(next: number, admitted: boolean) {
+      // Fallback for a turn whose tool phase hook did not run.
       finishTurn();
       turn = next;
       if (!admitted) return;
@@ -584,6 +600,9 @@ function createToolCallTracker(
     finishTurn,
     closeActivity() {
       finishTurn();
+      activityClosed = true;
+    },
+    stopActivity() {
       activityClosed = true;
     },
     recordProviderCall(call: ProviderCallRecord) {

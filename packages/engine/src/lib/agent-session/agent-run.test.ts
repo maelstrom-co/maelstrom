@@ -1758,6 +1758,83 @@ describe('runAgent budgets and stops on chat()', () => {
     );
   });
 
+  test('after return() before finished, no activity is reported even when a tool that ignores the abort settles later', async () => {
+    const controller = new AbortController();
+    const release = defer<void>();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await release.promise;
+      },
+      ignoresAbort: true,
+    });
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'increment', args: { by: 1 } }], usage(4, 1)),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+    const iterator = runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      },
+    )[Symbol.asyncIterator]();
+
+    await takeUntil(iterator, (event) => event.type === 'tool_result');
+    await iterator.return?.();
+    const reportedAtReturn = activity.length;
+    release.resolve();
+    await flushMacrotask();
+    await flushMacrotask();
+
+    expect(counter.balances).toEqual([1]);
+    expect(activity).toHaveLength(reportedAtReturn);
+  });
+
+  test('an observer that throws on every activity changes neither the events nor the ending, and is logged', async () => {
+    const script = () =>
+      scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        textTurn(['Your order is o-1.'], usage(4, 1)),
+      ]);
+    const unobserved = await collect(
+      runAgent(
+        runInput({
+          adapter: script().adapter,
+          registry: orderTools().registry,
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+    const warnings: { message: string; data?: Record<string, unknown> }[] = [];
+
+    const observed = await collect(
+      runAgent(
+        runInput({
+          adapter: script().adapter,
+          registry: orderTools().registry,
+          logger: recordingLogger(warnings),
+        }),
+        {
+          signal: new AbortController().signal,
+          onActivity: () => {
+            throw new Error('observer failed');
+          },
+        },
+      ),
+    );
+
+    expect(observed).toEqual(unobserved);
+    expect(lastEvent(observed)).toMatchObject({ reason: 'completed' });
+    expect(observed).toContainEqual(
+      expect.objectContaining({ type: 'tool_result', ok: true }),
+    );
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+
   describe('toolsSettled on the ending', () => {
     test.each([
       ['cancelled', 'cancelled'],
