@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import {
   type ActionExecution,
@@ -34,6 +34,7 @@ import type { ActionResult } from '../command-processor/action-result.js';
 import type { EngineConnector } from '../connection-manager/connector.types.js';
 import { AgentWireUnsupportedError } from '../connection-manager/connector.types.js';
 import { HttpConnector } from '../connection-manager/connectors/http-connector.js';
+import type { DiagnosticObservation } from '../diagnostic-channel.js';
 import type {
   AgentConversationEvents,
   ConversationLostEvent,
@@ -941,6 +942,387 @@ describe('Orchestrator agent path', () => {
       await orchestrator.dispose();
     }
   });
+
+  describe('client diagnostics', () => {
+    it('emits one input sent event with only the input id before the utterance is sent', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const log = recordSendOrder(agent.connector);
+      const observations = recordDiagnostics(orchestrator, log);
+      try {
+        const inputId = await orchestrator.sendMessage('CANARY_utterance');
+
+        const sent = observationsOfKind(
+          observations,
+          'client.agent.input.sent',
+        );
+        expect(sent).toHaveLength(1);
+        const [observation] = sent;
+        expect(observation?.event.metadata).toEqual({ inputId });
+        expect(observation?.event.requestId).toBeUndefined();
+        expect(observation?.event.runId).toBeUndefined();
+        expect(observation?.readContent).toBeUndefined();
+        expect(log).toEqual([
+          'diagnostic client.agent.input.sent',
+          'send utterance',
+        ]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits one ui applied event with the change id and the injected clock duration before the acknowledgement is sent', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const log = recordSendOrder(agent.connector);
+      const observations = recordDiagnostics(orchestrator, log);
+      const clock = installClock(1_000);
+      try {
+        const releaseAction = Promise.withResolvers<void>();
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: async () => {
+            await releaseAction.promise;
+            return ok(undefined);
+          },
+        });
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(
+          uiChange(
+            'change-timed',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        clock.set(1_042);
+        releaseAction.resolve();
+        await applied;
+
+        const appliedEvents = observationsOfKind(
+          observations,
+          'client.agent.ui.applied',
+        );
+        expect(appliedEvents).toHaveLength(1);
+        const [observation] = appliedEvents;
+        expect(observation?.event.metadata).toEqual({
+          changeId: ChangeId('change-timed'),
+          durationMs: 42,
+        });
+        expect(observation?.event.requestId).toBeUndefined();
+        expect(observation?.event.runId).toBeUndefined();
+        expect(observation?.readContent).toBeUndefined();
+        expect(log).toEqual([
+          'diagnostic client.agent.ui.applied',
+          'send ui_applied',
+        ]);
+      } finally {
+        await orchestrator.dispose();
+        clock.restore();
+      }
+    });
+
+    it('emits no ui applied event for an acknowledgement fenced by a connector swap', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const observations = recordDiagnostics(orchestrator);
+      try {
+        const action = holdNextAction(orchestrator, mainBoard, 'record');
+
+        oldAgent.emit(
+          uiChange(
+            'change-fenced',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await action.started;
+        orchestrator.setConnector(newAgent.connector);
+        action.release();
+        await orchestrator.commandProcessor.waitForIdle();
+        await settleBriefly();
+
+        expect(uiAppliedInputs(oldAgent)).toEqual([]);
+        expect(
+          observationsOfKind(observations, 'client.agent.ui.applied'),
+        ).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits no ui applied event for an acknowledgement whose Agent Session ended', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations = recordDiagnostics(orchestrator);
+      try {
+        const action = holdNextAction(orchestrator, mainBoard, 'record');
+
+        agent.emit(
+          uiChange(
+            'change-session-ended',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await action.started;
+        agent.close({ clean: false });
+        action.release();
+        await orchestrator.commandProcessor.waitForIdle();
+        await settleBriefly();
+
+        expect(uiAppliedInputs(agent)).toEqual([]);
+        expect(
+          observationsOfKind(observations, 'client.agent.ui.applied'),
+        ).toEqual([]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('keeps exactly one input sent event when the utterance send fails and rethrows the failure', async () => {
+      const agent = createMockAgentConnector();
+      const sendFailure = new Error('transport refused the utterance');
+      agent.connector.sendInput = () => Promise.reject(sendFailure);
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations = recordDiagnostics(orchestrator);
+      try {
+        await expect(orchestrator.sendMessage('hello')).rejects.toBe(
+          sendFailure,
+        );
+
+        const sent = observationsOfKind(
+          observations,
+          'client.agent.input.sent',
+        );
+        expect(sent).toHaveLength(1);
+        expect(Object.keys(sent[0]?.event.metadata ?? {})).toEqual(['inputId']);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('keeps exactly one ui applied event when the acknowledgement send fails and only warns', async () => {
+      const agent = createMockAgentConnector();
+      const sendFailure = new Error('transport refused the acknowledgement');
+      const attempted = Promise.withResolvers<void>();
+      const send = agent.connector.sendInput.bind(agent.connector);
+      agent.connector.sendInput = (input) => {
+        if (input.type !== 'ui_applied') return send(input);
+        attempted.resolve();
+        return Promise.reject(sendFailure);
+      };
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations = recordDiagnostics(orchestrator);
+      const warn = spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        agent.emit(
+          uiChange(
+            'change-send-failed',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await attempted.promise;
+        await waitUntil(() => warn.mock.calls.length > 0);
+
+        const appliedEvents = observationsOfKind(
+          observations,
+          'client.agent.ui.applied',
+        );
+        expect(appliedEvents).toHaveLength(1);
+        expect(appliedEvents[0]?.event.metadata).toMatchObject({
+          changeId: ChangeId('change-send-failed'),
+        });
+        expect(warn).toHaveBeenCalledWith(
+          '[Orchestrator]',
+          'Agent conversation: ui_applied for change-send-failed was not sent',
+          sendFailure,
+        );
+      } finally {
+        await orchestrator.dispose();
+        warn.mockRestore();
+      }
+    });
+
+    it('rejects the utterance and sends it on neither connector when a diagnostic observer replaces the connector during the input sent event', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const releaseObserver = orchestrator.diagnostics.subscribe(
+        (observation) => {
+          if (observation.event.kind === 'client.agent.input.sent')
+            orchestrator.setConnector(newAgent.connector);
+        },
+      );
+      try {
+        await expect(orchestrator.sendMessage('hello')).rejects.toThrow(
+          'Agent conversation ended before the utterance was sent',
+        );
+        await settleBriefly();
+
+        expect(oldAgent.inputs).toEqual([]);
+        expect(newAgent.inputs).toEqual([]);
+      } finally {
+        releaseObserver();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('sends no ui_applied on the retired connector when a diagnostic observer replaces the connector during the ui applied event', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const observed = Promise.withResolvers<void>();
+      const releaseObserver = orchestrator.diagnostics.subscribe(
+        (observation) => {
+          if (observation.event.kind !== 'client.agent.ui.applied') return;
+          orchestrator.setConnector(newAgent.connector);
+          observed.resolve();
+        },
+      );
+      const warn = spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        oldAgent.emit(
+          uiChange(
+            'change-observer-swap',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await observed.promise;
+        await settleBriefly();
+
+        expect(uiAppliedInputs(oldAgent)).toEqual([]);
+        expect(uiAppliedInputs(newAgent)).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+          '[Orchestrator]',
+          expect.stringContaining(
+            'ui_applied for change-observer-swap not sent',
+          ),
+        );
+      } finally {
+        releaseObserver();
+        await orchestrator.dispose();
+        warn.mockRestore();
+      }
+    });
+
+    it('stops delivering agent diagnostics once every observer is released and still sends the utterance and ui_applied inputs', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations: DiagnosticObservation[] = [];
+      const metadataKinds: string[] = [];
+      const releaseObservations = orchestrator.diagnostics.subscribe(
+        (observation) => observations.push(observation),
+      );
+      const releaseMetadata = orchestrator.diagnostics.subscribeMetadata(
+        (kind) => {
+          metadataKinds.push(kind);
+        },
+      );
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        const firstInputId = await orchestrator.sendMessage('first');
+        expect(
+          observationsOfKind(observations, 'client.agent.input.sent'),
+        ).toHaveLength(1);
+        expect(
+          metadataKinds.filter((kind) => kind === 'client.agent.input.sent'),
+        ).toHaveLength(1);
+
+        releaseObservations();
+        releaseMetadata();
+        expect(orchestrator.diagnostics.locallyObserved).toBe(false);
+        const observedCount = observations.length;
+        const metadataCount = metadataKinds.length;
+
+        const secondInputId = await orchestrator.sendMessage('second');
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(
+          uiChange(
+            'change-unobserved',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        const acknowledgement = await applied;
+
+        expect(observations).toHaveLength(observedCount);
+        expect(metadataKinds).toHaveLength(metadataCount);
+        expect(agent.inputs.map((input) => input.type)).toEqual([
+          'utterance',
+          'utterance',
+          'ui_applied',
+        ]);
+        expect(agent.inputs[0]).toMatchObject({
+          inputId: firstInputId,
+          text: 'first',
+        });
+        expect(agent.inputs[1]).toMatchObject({
+          inputId: secondInputId,
+          text: 'second',
+        });
+        expect(acknowledgement.changeId).toBe(ChangeId('change-unobserved'));
+        expect(acknowledgement.actionOutcomes).toEqual([{ ok: true }]);
+      } finally {
+        releaseObservations();
+        releaseMetadata();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('keeps utterance text out of diagnostic and operational metadata', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations = recordDiagnostics(orchestrator);
+      const metadata: unknown[] = [];
+      const releaseMetadata = orchestrator.diagnostics.subscribeMetadata(
+        (kind, fields) => {
+          metadata.push({ kind, fields });
+        },
+      );
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        await orchestrator.sendMessage('CANARY_utterance');
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(
+          uiChange(
+            'change-private',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await applied;
+
+        const agentObservations = observations.filter((observation) =>
+          observation.event.kind.startsWith('client.agent.'),
+        );
+        expect(
+          agentObservations.map((observation) => observation.event.kind),
+        ).toEqual(['client.agent.input.sent', 'client.agent.ui.applied']);
+        expect(JSON.stringify(agentObservations)).not.toContain('CANARY');
+        expect(JSON.stringify(metadata)).not.toContain('CANARY');
+      } finally {
+        releaseMetadata();
+        await orchestrator.dispose();
+      }
+    });
+  });
 });
 
 async function connectedOrchestrator(
@@ -1060,6 +1442,67 @@ function holdNextSend(connector: EngineConnector): { release(): void } {
     return send(input);
   };
   return { release: () => held.resolve() };
+}
+
+function holdNextAction(
+  orchestrator: Orchestrator,
+  instanceId: InstanceId,
+  action: string,
+): { started: Promise<void>; release(): void } {
+  const started = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  orchestrator.commandProcessor.registerRunner(instanceId, {
+    [action]: async () => {
+      started.resolve();
+      await held.promise;
+      return ok(undefined);
+    },
+  });
+  return { started: started.promise, release: () => held.resolve() };
+}
+
+function recordDiagnostics(
+  orchestrator: Orchestrator,
+  log?: string[],
+): DiagnosticObservation[] {
+  const observations: DiagnosticObservation[] = [];
+  orchestrator.diagnostics.subscribe((observation) => {
+    observations.push(observation);
+    if (observation.event.kind.startsWith('client.agent.'))
+      log?.push(`diagnostic ${observation.event.kind}`);
+  });
+  return observations;
+}
+
+function observationsOfKind(
+  observations: readonly DiagnosticObservation[],
+  kind: string,
+): DiagnosticObservation[] {
+  return observations.filter((observation) => observation.event.kind === kind);
+}
+
+function recordSendOrder(connector: EngineConnector): string[] {
+  const log: string[] = [];
+  const send = connector.sendInput.bind(connector);
+  connector.sendInput = (input) => {
+    log.push(`send ${input.type}`);
+    return send(input);
+  };
+  return log;
+}
+
+function installClock(start: number): {
+  set(now: number): void;
+  restore(): void;
+} {
+  let now = start;
+  const spy = spyOn(performance, 'now').mockImplementation(() => now);
+  return {
+    set: (next) => {
+      now = next;
+    },
+    restore: () => spy.mockRestore(),
+  };
 }
 
 function recordConversationLosses(

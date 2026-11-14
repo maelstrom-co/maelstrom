@@ -66,6 +66,43 @@ test('client attachment drains only after the last owner releases and leaves del
   }
 });
 
+test('agent input and UI diagnostics reach metadata observers but produce no operational facts', async () => {
+  const client = {
+    diagnostics: new DiagnosticChannel(SessionId('agent-diagnostics')),
+  };
+  const records: TelemetryRecord[] = [];
+  const telemetry = createTelemetry({
+    sink: (batch) => {
+      records.push(...batch);
+    },
+  });
+  const metadataKinds: string[] = [];
+  const releaseMetadata = client.diagnostics.subscribeMetadata((kind) => {
+    metadataKinds.push(kind);
+  });
+  const { release } = attachClientTelemetry(client, telemetry);
+  try {
+    client.diagnostics.emit('client.agent.input.sent', {
+      inputId: 'CANARY_input',
+    });
+    client.diagnostics.emit('client.agent.ui.applied', {
+      changeId: 'CANARY_change',
+      durationMs: 12,
+    });
+    await telemetry.flush();
+    expect(metadataKinds).toEqual([
+      'client.agent.input.sent',
+      'client.agent.ui.applied',
+    ]);
+    expect(records).toEqual([]);
+  } finally {
+    release();
+    releaseMetadata();
+    telemetry.dispose();
+    client.diagnostics.dispose();
+  }
+});
+
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
@@ -568,6 +605,84 @@ test.each(['connector', 'source'] as const)(
     }
   },
 );
+
+test('forwarded server diagnostics keep their run and request owners for full observers only', async () => {
+  const listeners: ((event: DiagnosticEvent) => void)[] = [];
+  const client = new Orchestrator(
+    Object.assign(createMockConnector(), {
+      subscribeDiagnostics(listener: (event: DiagnosticEvent) => void) {
+        listeners.push(listener);
+        return () => {};
+      },
+    }),
+  );
+  const records: TelemetryRecord[] = [];
+  const telemetry = createTelemetry({
+    sink: (batch) => {
+      records.push(...batch);
+    },
+  });
+  const { release: releaseTelemetry } = attachClientTelemetry(
+    client,
+    telemetry,
+  );
+  const metadataSeen: string[] = [];
+  const releaseMetadata = client.diagnostics.subscribeMetadata(
+    (kind, metadata) => {
+      metadataSeen.push(JSON.stringify({ kind, metadata }));
+    },
+  );
+  const seen: DiagnosticEvent[] = [];
+  const release = client.diagnostics.subscribe(({ event }) => {
+    if (event.kind.startsWith('engine.')) seen.push(event);
+  });
+  try {
+    expect(listeners).toHaveLength(1);
+    const sessionId = client.getConfig().sessionId;
+    listeners[0]({
+      id: 'run-event',
+      sessionId,
+      kind: 'engine.agent.input.accepted',
+      at: 1,
+      runId: 'CANARY_run',
+      metadata: { inputId: 'CANARY_input' },
+    });
+    listeners[0]({
+      id: 'request-event',
+      sessionId,
+      kind: 'engine.planner.started',
+      at: 2,
+      requestId: 'CANARY_request',
+      metadata: {},
+    });
+    listeners[0]({
+      id: 'session-event',
+      sessionId,
+      kind: 'engine.agent.input.ignored',
+      at: 3,
+      metadata: { inputId: 'CANARY_input' },
+    });
+    await telemetry.flush();
+    expect(
+      seen.map((event) => [event.kind, event.runId, event.requestId]),
+    ).toEqual([
+      ['engine.agent.input.accepted', 'CANARY_run', undefined],
+      ['engine.planner.started', undefined, 'CANARY_request'],
+      ['engine.agent.input.ignored', undefined, undefined],
+    ]);
+    expect(seen[0]?.metadata).toEqual({ inputId: 'CANARY_input', serverAt: 1 });
+    expect('runId' in (seen[1] ?? {})).toBe(false);
+    expect('runId' in (seen[2] ?? {})).toBe(false);
+    expect(metadataSeen.join()).not.toContain('CANARY_run');
+    expect(JSON.stringify(records)).not.toContain('CANARY');
+  } finally {
+    release();
+    releaseMetadata();
+    releaseTelemetry();
+    telemetry.dispose();
+    await client.dispose();
+  }
+});
 
 test('a throwing diagnostic subscription reports unavailability while requests remain usable', async () => {
   const client = new Orchestrator(
