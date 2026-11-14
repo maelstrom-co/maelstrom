@@ -941,6 +941,22 @@ describe('WebSocketConnector engine.agent.event', () => {
     await connector.disconnect();
   });
 
+  test('stops dispatch when an earlier handler disconnects the socket', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const seen: string[] = [];
+    connector.onEvent(() => {
+      void connector.disconnect();
+    });
+    connector.onEvent((event) => {
+      if (event.type === 'message') seen.push(event.delta);
+    });
+
+    emitServer(ws, buildAgentEventFrame('one'));
+
+    expect(seen).toEqual([]);
+  });
+
   test('a throwing handler does not stop later handlers or a pending request', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);

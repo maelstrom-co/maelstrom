@@ -57,7 +57,10 @@ For tests, keep the engine in the same process and avoid a network transport ent
 
 ```ts title="test/create-test-connector.ts"
 import type { Engine } from '@maelstrom-co/engine';
-import type { EngineConnector } from '@maelstrom-co/client';
+import {
+  AgentWireUnsupportedError,
+  type EngineConnector,
+} from '@maelstrom-co/client';
 import { isOk } from '@maelstrom-co/protocol';
 
 export function createInMemoryConnector(engine: Engine): EngineConnector {
@@ -68,7 +71,11 @@ export function createInMemoryConnector(engine: Engine): EngineConnector {
     subscribe() {
       return () => {};
     },
-    async sendInput() {},
+    async sendInput() {
+      throw new AgentWireUnsupportedError(
+        'Agent inputs are not supported by the in-memory test connector',
+      );
+    },
     onEvent() {
       return () => {};
     },
