@@ -66,6 +66,43 @@ test('client attachment drains only after the last owner releases and leaves del
   }
 });
 
+test('agent input and UI diagnostics reach metadata observers but produce no operational facts', async () => {
+  const client = {
+    diagnostics: new DiagnosticChannel(SessionId('agent-diagnostics')),
+  };
+  const records: TelemetryRecord[] = [];
+  const telemetry = createTelemetry({
+    sink: (batch) => {
+      records.push(...batch);
+    },
+  });
+  const metadataKinds: string[] = [];
+  const releaseMetadata = client.diagnostics.subscribeMetadata((kind) => {
+    metadataKinds.push(kind);
+  });
+  const { release } = attachClientTelemetry(client, telemetry);
+  try {
+    client.diagnostics.emit('client.agent.input.sent', {
+      inputId: 'CANARY_input',
+    });
+    client.diagnostics.emit('client.agent.ui.applied', {
+      changeId: 'CANARY_change',
+      durationMs: 12,
+    });
+    await telemetry.flush();
+    expect(metadataKinds).toEqual([
+      'client.agent.input.sent',
+      'client.agent.ui.applied',
+    ]);
+    expect(records).toEqual([]);
+  } finally {
+    release();
+    releaseMetadata();
+    telemetry.dispose();
+    client.diagnostics.dispose();
+  }
+});
+
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
