@@ -1,5 +1,9 @@
 import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
-import { createTestConnector } from '@maelstrom-co/client/_testing';
+import {
+  createMockAgentConnector,
+  createTestConnector,
+  type MockAgentConnector,
+} from '@maelstrom-co/client/_testing';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
@@ -25,14 +29,7 @@ export function createMockConnector(overrides?: {
       if (overrides?.process) {
         return overrides.process(message);
       }
-      return {
-        type: 'maelstrom_response',
-        requestId: message.id,
-        userMessage: '',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'grid', positions: [] },
-      };
+      return emptyResponse(message);
     },
 
     subscribe(handler) {
@@ -43,4 +40,28 @@ export function createMockConnector(overrides?: {
       };
     },
   });
+}
+
+/**
+ * A scriptable agent connector whose engine requests answer with an empty
+ * response unless `overrides.process` replaces it.
+ */
+export function createMockAgentEngineConnector(
+  overrides: Partial<EngineConnector> = {},
+): MockAgentConnector {
+  return createMockAgentConnector({
+    process: async (message) => emptyResponse(message),
+    ...overrides,
+  });
+}
+
+function emptyResponse(message: ChartRequestMessage): MaelstromResponse {
+  return {
+    type: 'maelstrom_response',
+    requestId: message.id,
+    userMessage: '',
+    rationale: '',
+    executionPlan: [],
+    layout: { type: 'grid', positions: [] },
+  };
 }

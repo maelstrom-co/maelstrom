@@ -1,0 +1,229 @@
+import { afterEach, describe, expect, it } from 'bun:test';
+
+import { Orchestrator } from '@maelstrom-co/client';
+import {
+  agentAcceptedEvent,
+  agentFinishedEvent,
+  agentMessageEvent,
+  agentPlaceholderEvent,
+  agentUiChangeEvent,
+  type MockAgentConnector,
+} from '@maelstrom-co/client/_testing';
+import {
+  ChangeId,
+  type MaelstromResponse,
+  MessageId,
+  RunId,
+} from '@maelstrom-co/protocol';
+
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockAgentEngineConnector } from './__tests__/mock-connector.js';
+import { EMPTY_AGENT_RUNS } from './agent-run-state.js';
+import { type AgentRunStore, createAgentRunStore } from './agent-run-store.js';
+
+const RUN = RunId('run-1');
+const CHANGE = ChangeId('change-1');
+
+let cleanups: Array<() => Promise<void> | void> = [];
+
+afterEach(async () => {
+  for (const cleanup of cleanups.reverse()) await cleanup();
+  cleanups = [];
+});
+
+describe('createAgentRunStore', () => {
+  it('starts from the empty snapshot', async () => {
+    const { store } = await setup();
+
+    expect(store.getSnapshot()).toBe(EMPTY_AGENT_RUNS);
+  });
+
+  it('folds a full Agent Run from the Orchestrator into the snapshot and notifies subscribers', async () => {
+    const { agent, store } = await setup();
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications++;
+    });
+
+    const inputId = await store.sendMessage('show my last order');
+    agent.emit(agentPlaceholderEvent(inputId, 'Looking it up'));
+    agent.emit(agentAcceptedEvent(inputId, RUN));
+    agent.emit(agentMessageEvent(RUN, 'Here is '));
+    agent.emit(agentMessageEvent(RUN, 'your order'));
+    const applied = agent.nextInput('ui_applied');
+    agent.emit(agentUiChangeEvent(RUN, CHANGE, emptyResponse()));
+    await applied;
+    await drainMicrotasks();
+    agent.emit(agentFinishedEvent(RUN, { reply: 'Here is your order.' }));
+
+    const snapshot = store.getSnapshot();
+    expect(notifications).toBe(7);
+    expect(snapshot.runs).toHaveLength(1);
+    expect(snapshot.run).toEqual({
+      inputId,
+      runId: RUN,
+      status: 'finished',
+      placeholder: 'Looking it up',
+      reply: 'Here is your order.',
+      turnId: 'turn-1',
+      changes: [{ changeId: CHANGE }],
+      error: null,
+      lostReason: null,
+      finished: {
+        ok: true,
+        reason: 'completed',
+        metrics: agentFinishedEvent(RUN).metrics,
+      },
+    });
+  });
+
+  it('shows the streamed reply while the run is still open', async () => {
+    const { agent, store } = await setup();
+
+    const inputId = await store.sendMessage('hello');
+    agent.emit(agentAcceptedEvent(inputId, RUN));
+    agent.emit(agentMessageEvent(RUN, 'Hi'));
+    agent.emit(agentMessageEvent(RUN, ' there'));
+
+    const run = store.getSnapshot().run;
+    assertDefined(run);
+    expect(run.status).toBe('streaming');
+    expect(run.reply).toBe('Hi there');
+  });
+
+  it('resolves sendMessage to the input id the agent saw and registers a pending run', async () => {
+    const { agent, store } = await setup();
+
+    const inputId = await store.sendMessage('show the board', {
+      source: 'voice',
+    });
+
+    const utterance = agent.inputs.find((input) => input.type === 'utterance');
+    expect(utterance?.inputId).toBe(inputId);
+    expect(utterance?.source).toBe('voice');
+    const run = store.getSnapshot().run;
+    assertDefined(run);
+    expect(run.inputId).toBe(inputId);
+    expect(run.status).toBe('pending');
+  });
+
+  it('propagates a sendMessage rejection and leaves no run', async () => {
+    const { store } = await setup({ connect: false });
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications++;
+    });
+
+    await expect(store.sendMessage('hello')).rejects.toThrow(
+      'Orchestrator is not connected',
+    );
+
+    expect(store.getSnapshot()).toBe(EMPTY_AGENT_RUNS);
+    expect(notifications).toBe(0);
+  });
+
+  it('keeps snapshot identity between unchanged reads', async () => {
+    const { agent, store } = await setup();
+
+    const inputId = await store.sendMessage('hello');
+    const first = store.getSnapshot();
+
+    expect(store.getSnapshot()).toBe(first);
+    agent.emit(agentMessageEvent(RunId('run-unknown'), 'ignored'));
+    expect(store.getSnapshot()).toBe(first);
+    agent.emit(agentPlaceholderEvent(inputId, 'working'));
+    expect(store.getSnapshot()).not.toBe(first);
+  });
+
+  it('notifies listeners only when the snapshot changes', async () => {
+    const { agent, store } = await setup();
+    const inputId = await store.sendMessage('hello');
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications++;
+    });
+
+    agent.emit(agentPlaceholderEvent(inputId, 'working'));
+    agent.emit(agentPlaceholderEvent(inputId, 'working'));
+    agent.emit(agentMessageEvent(RunId('run-unknown'), 'ignored'));
+
+    expect(notifications).toBe(1);
+  });
+
+  it('stops notifying a listener after it unsubscribes', async () => {
+    const { agent, store } = await setup();
+    const inputId = await store.sendMessage('hello');
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => {
+      notifications++;
+    });
+
+    unsubscribe();
+    agent.emit(agentPlaceholderEvent(inputId, 'working'));
+
+    expect(notifications).toBe(0);
+    expect(store.getSnapshot().run?.placeholder).toBe('working');
+  });
+
+  it('stops folding events and calling listeners after dispose, and dispose is idempotent', async () => {
+    const { agent, store } = await setup();
+    const inputId = await store.sendMessage('hello');
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications++;
+    });
+    const before = store.getSnapshot();
+
+    store.dispose();
+    store.dispose();
+    agent.emit(agentPlaceholderEvent(inputId, 'working'));
+    agent.emit(agentAcceptedEvent(inputId, RUN));
+
+    expect(store.getSnapshot()).toBe(before);
+    expect(notifications).toBe(0);
+  });
+
+  it('lets the Orchestrator dispose after the store without throwing', async () => {
+    const { store, orchestrator } = await setup({ disposeOrchestrator: false });
+
+    store.dispose();
+
+    await orchestrator.dispose();
+  });
+});
+
+async function setup(
+  options: { connect?: boolean; disposeOrchestrator?: boolean } = {},
+): Promise<{
+  agent: MockAgentConnector;
+  orchestrator: Orchestrator;
+  store: AgentRunStore;
+}> {
+  const agent = createMockAgentEngineConnector();
+  const orchestrator = new Orchestrator(agent.connector, {
+    agentRunStaleTimeoutMs: Infinity,
+  });
+  await orchestrator.commandProcessor.waitForIdle();
+  if (options.connect !== false) await orchestrator.connect();
+  if (options.disposeOrchestrator !== false) {
+    cleanups.push(() => orchestrator.dispose());
+  }
+  const store = createAgentRunStore(orchestrator);
+  cleanups.push(() => store.dispose());
+  return { agent, orchestrator, store };
+}
+
+function emptyResponse(): MaelstromResponse {
+  return {
+    type: 'maelstrom_response',
+    requestId: MessageId('response-change-1'),
+    userMessage: '',
+    rationale: 'agent change',
+    executionPlan: [],
+    layout: { type: 'tiling', tree: [], instances: [] },
+  };
+}
+
+async function drainMicrotasks(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+}
