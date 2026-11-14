@@ -425,7 +425,6 @@ interface AnnouncedToolCall {
   readonly callId: CallId;
   readonly name: string;
   readonly turnId: string;
-  started: boolean;
   startedAt?: number;
   settledAt?: number;
   completionReported: boolean;
@@ -481,22 +480,29 @@ function createToolCallTracker(
   const callIdByProviderId = new Map<string, CallId>();
   const announced = new Map<CallId, AnnouncedToolCall>();
   const settled = new Map<CallId, ToolCallResult>();
-  const turnId = () => `${runId}:t${turn}`;
+  const turnIdOf = (index: number) => `${runId}:t${index}`;
+  const turnId = () => turnIdOf(turn);
 
   const report = (activity: AgentRunActivity) => {
     if (!activityClosed) onActivity?.(activity);
   };
 
-  const reportCompletion = (call: AnnouncedToolCall) => {
+  const reportCompletion = (
+    call: AnnouncedToolCall,
+    result: ToolCallResult,
+  ) => {
     if (call.completionReported) return;
     call.completionReported = true;
-    const result = settled.get(call.callId) ?? unsettledResult(call);
     report({
       type: 'tool_completed',
       turnId: call.turnId,
       callId: call.callId,
       name: call.name,
-      outcome: result.ok ? 'succeeded' : call.started ? 'failed' : 'not_run',
+      outcome: result.ok
+        ? 'succeeded'
+        : hasStarted(call)
+          ? 'failed'
+          : 'not_run',
       ...(call.startedAt === undefined
         ? {}
         : {
@@ -515,7 +521,7 @@ function createToolCallTracker(
     openTurn = undefined;
     report({
       type: 'turn_finished',
-      turnId: `${runId}:t${finishing.index}`,
+      turnId: turnIdOf(finishing.index),
       turnIndex: finishing.index,
       toolCalls: finishing.toolCalls,
       ...(finishing.inputTokens === undefined
@@ -531,8 +537,8 @@ function createToolCallTracker(
   const settleAnnounced = (
     call: AnnouncedToolCall,
   ): { event: AgentRunEvent; phaseResult: AgentRunToolPhaseResult } => {
-    reportCompletion(call);
     const result = settled.get(call.callId) ?? unsettledResult(call);
+    reportCompletion(call, result);
     announced.delete(call.callId);
     return {
       event: {
@@ -598,7 +604,12 @@ function createToolCallTracker(
     completeCall(providerCallId: string) {
       const callId = callIdByProviderId.get(providerCallId);
       const call = callId === undefined ? undefined : announced.get(callId);
-      if (call !== undefined) reportCompletion(call);
+      if (call !== undefined) {
+        reportCompletion(
+          call,
+          settled.get(call.callId) ?? unsettledResult(call),
+        );
+      }
     },
     settledResult(providerCallId: string): ToolCallResult | undefined {
       const callId = callIdByProviderId.get(providerCallId);
@@ -608,7 +619,6 @@ function createToolCallTracker(
       const callId = callIdByProviderId.get(providerCallId);
       const call = callId === undefined ? undefined : announced.get(callId);
       if (call === undefined) return;
-      call.started = true;
       call.startedAt = clock.now();
       report({
         type: 'tool_started',
@@ -675,7 +685,6 @@ function createToolCallTracker(
             callId,
             name: call.name,
             turnId: call.turnId,
-            started: false,
             completionReported: false,
           });
           if (openTurn !== undefined) openTurn.toolCalls += 1;
@@ -895,8 +904,12 @@ function unsettledResult(call: AnnouncedToolCall): ToolCallResult {
   return {
     ok: false,
     code: 'cancelled',
-    summary: call.started ? STOPPED_TOOL_SUMMARY : NOT_RUN_TOOL_SUMMARY,
+    summary: hasStarted(call) ? STOPPED_TOOL_SUMMARY : NOT_RUN_TOOL_SUMMARY,
   };
+}
+
+function hasStarted(call: AnnouncedToolCall): boolean {
+  return call.startedAt !== undefined;
 }
 
 function parseArgsText(argsText: string): unknown {

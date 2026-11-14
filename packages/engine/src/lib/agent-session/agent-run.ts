@@ -4,6 +4,7 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from '@tanstack/ai';
 import type { Logger } from '../logger.js';
 import { runAgentChat } from './agent-run-chat.js';
 import type { ToolCallIdentity } from './server-tool-runner.js';
+import type { ToolCallFailureCode } from './tool-executor.js';
 import type { ToolRegistry } from './tool-registry.js';
 
 /**
@@ -124,10 +125,12 @@ export interface AgentRunOptions {
   readonly takeSessionNotes?: () => readonly string[];
   /**
    * Optional observer of turn and tool activity, called synchronously as the
-   * work happens, so a timestamp taken inside it is accurate. Each admitted
-   * model turn reports `turn_started` and then `turn_finished`, and each
-   * announced tool call reports at most one `tool_started` and exactly one
-   * `tool_completed`, all before the run yields `finished` and never after it.
+   * work happens, so a timestamp taken inside it is accurate. For a run that
+   * yields `finished`, each admitted model turn reports `turn_started` and
+   * then `turn_finished`, and each announced tool call reports at most one
+   * `tool_started` and exactly one `tool_completed`, all before that event
+   * and never after it. When the consumer closes the run early, reporting
+   * stops at the close, and open turns and calls get no closing activity.
    * The activity carries the turn text, arguments and results itself, because
    * the yielded events that record them may not be pulled yet.
    */
@@ -194,12 +197,16 @@ export type AgentRunActivityToolResult =
   | {
       readonly ok: false;
       /** The sanitized failure code. */
-      readonly code: string;
+      readonly code: ToolCallFailureCode;
       /** The sanitized model-facing summary. */
       readonly summary: string;
     };
 
-/** A tool call settled. Reported once per announced call, after any middleware replaced its result. */
+/**
+ * A tool call settled. Reported once per announced call, after any
+ * middleware replaced its result. A call that never settled, such as a
+ * stopped tool that ignored the abort, reports a synthesized failed result.
+ */
 export interface AgentRunToolCompletedActivity {
   /** Member discriminator. */
   readonly type: 'tool_completed';
@@ -211,7 +218,11 @@ export interface AgentRunToolCompletedActivity {
   readonly name: string;
   /** How the call ended. */
   readonly outcome: AgentRunToolOutcome;
-  /** Milliseconds from execution start to settlement on {@link AgentRunClock}. Present only when the tool started. */
+  /**
+   * Milliseconds on {@link AgentRunClock} from execution start to
+   * settlement, or to when the run closed for a call that never settled.
+   * Present only when the tool started.
+   */
   readonly durationMs?: number;
   /** The settled result. */
   readonly result: AgentRunActivityToolResult;
