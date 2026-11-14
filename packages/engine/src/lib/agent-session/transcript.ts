@@ -47,7 +47,8 @@ export interface Transcript {
   /**
    * Records a one-line note about a show the run asked the Planner for, such
    * as that it is queued or what the screen then displays. It belongs to the
-   * run, so it leaves with that run on eviction.
+   * run, so it leaves with that run on eviction. A note recorded after its
+   * run was evicted is kept until the bound evicts it.
    */
   recordShowNote(runId: RunId, turnId: string, text: string): void;
   /** Records the closing message a run sent when a budget ran out. */
@@ -79,7 +80,8 @@ export interface TranscriptOptions {
    * Most rendered characters to keep across all recorded runs. When the total
    * exceeds it, whole runs leave oldest first, so a run's input, replies,
    * tool calls, tool results and ending always leave together. The newest
-   * run is always kept, even when it alone exceeds the bound. Defaults to
+   * run, the one most recently started, is always kept, even when it alone
+   * exceeds the bound. Defaults to
    * {@link TRANSCRIPT_MAX_CHARS}.
    */
   readonly maxChars?: number;
@@ -92,6 +94,7 @@ export function createTranscript({
   const entries: TranscriptEntry[] = [];
   const runsWithReplyText = new Set<RunId>();
   let totalChars = 0;
+  let newestRunId: RunId | undefined;
 
   const append = (entry: TranscriptEntry) => {
     entries.push(entry);
@@ -100,10 +103,11 @@ export function createTranscript({
   };
 
   const evictOldestRuns = () => {
-    const newestRunId = entries.at(-1)?.runId;
     while (totalChars > maxChars) {
-      const oldestRunId = entries[0]?.runId;
-      if (oldestRunId === undefined || oldestRunId === newestRunId) return;
+      const oldestRunId = entries.find(
+        (entry) => entry.runId !== newestRunId,
+      )?.runId;
+      if (oldestRunId === undefined) return;
       for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index];
         if (entry?.runId !== oldestRunId) continue;
@@ -116,6 +120,7 @@ export function createTranscript({
 
   return {
     recordUserInput(runId, text) {
+      newestRunId = runId;
       append({ kind: 'user_input', runId, text });
     },
     recordMessage(runId, turnId, text) {

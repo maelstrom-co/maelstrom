@@ -255,6 +255,67 @@ describe('createTranscript', () => {
       expect(rendered).not.toContain('run-1');
       expect(rendered).toContain('b'.repeat(30));
     });
+
+    test('keeps the later runs and a late note for an evicted run that fits', () => {
+      const transcript = createTranscript({ maxChars: 220 });
+      recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
+      recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
+      recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
+      expect(serialized(transcript)).not.toContain('a'.repeat(30));
+
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'late');
+
+      expect(transcript.renderPriorMessages()).toEqual([
+        ...renderedRunWithTool(secondRun, 'b'.repeat(30)),
+        ...renderedRunWithTool(thirdRun, 'c'.repeat(30)),
+        { role: 'user', content: '[show run-1:t1] late' },
+      ]);
+    });
+
+    test('evicts only the oldest later run when a late note for an evicted run overflows', () => {
+      const transcript = createTranscript({ maxChars: 220 });
+      recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
+      recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
+      recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
+
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'n'.repeat(40));
+
+      expect(transcript.renderPriorMessages()).toEqual([
+        ...renderedRunWithTool(thirdRun, 'c'.repeat(30)),
+        { role: 'user', content: `[show run-1:t1] ${'n'.repeat(40)}` },
+      ]);
+      expect(renderedChars(transcript)).toBeLessThanOrEqual(220);
+    });
+
+    test('evicts a late note for an evicted run before the newest run', () => {
+      const transcript = createTranscript({ maxChars: 220 });
+      recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
+      recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
+      recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
+
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'n'.repeat(150));
+
+      expect(transcript.renderPriorMessages()).toEqual(
+        renderedRunWithTool(thirdRun, 'c'.repeat(30)),
+      );
+      expect(renderedChars(transcript)).toBeLessThanOrEqual(220);
+    });
+
+    test('evicts a retained oldest run with its overflowing late note', () => {
+      const transcript = createTranscript({ maxChars: 300 });
+      recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
+      recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
+      recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
+      expect(serialized(transcript)).toContain('a'.repeat(30));
+
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'late note');
+
+      expect(transcript.renderPriorMessages()).toEqual([
+        ...renderedRunWithTool(secondRun, 'b'.repeat(30)),
+        ...renderedRunWithTool(thirdRun, 'c'.repeat(30)),
+      ]);
+      expect(renderedChars(transcript)).toBeLessThanOrEqual(300);
+    });
   });
 
   describe('retention bound', () => {
@@ -373,6 +434,29 @@ function recordRunWithTool(
     metrics,
     unreportedUsageCalls: 0,
   });
+}
+
+function renderedRunWithTool(
+  runId: RunId,
+  text: string,
+): { role: 'user' | 'assistant'; content: string }[] {
+  return [
+    { role: 'user', content: text },
+    {
+      role: 'assistant',
+      content: [
+        `[tool call ${runId}:c1] latest_order {}`,
+        `[tool result ${runId}:c1] ok: done`,
+      ].join('\n'),
+    },
+  ];
+}
+
+function renderedChars(transcript: Transcript): number {
+  return transcript
+    .renderPriorMessages()
+    .flatMap((message) => message.content.split('\n'))
+    .reduce((total, line) => total + line.length, 0);
 }
 
 function serialized(transcript: Transcript): string {
