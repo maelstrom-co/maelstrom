@@ -26,7 +26,11 @@ import {
   jevPlanner,
   type TypeSafeOptions,
 } from '@maelstrom-co/planner-jev';
-import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
+import {
+  clarifyingLlmPlanner,
+  type LlmPlannerOptions,
+  llmPlanner,
+} from '@maelstrom-co/planner-llm';
 
 import { latestOrderTool } from './latest-order-tool';
 import { PLAYGROUND_SYSTEM_RULES } from './planner-system-rules';
@@ -34,8 +38,13 @@ import { searchProductsTool } from './search-products-tool';
 
 const MAX_RETRIES = 2;
 const HISTORY_MAX_ENTRIES = 20;
-const DEMO_AGENT_INSTRUCTIONS =
-  'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.';
+const DEMO_AGENT_INSTRUCTIONS = [
+  'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.',
+  'Each successful tool result is offered to the screen automatically.',
+  'Describe the data in your reply. You may say you are bringing it up.',
+  'Notes in the conversation tell you what happened to each show, such as "Show queued" or "Screen updated".',
+  'Say something is on screen only after a "Screen updated" note says so.',
+].join(' ');
 
 export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
@@ -77,7 +86,7 @@ export function createPlaygroundEngine(
   options: PlaygroundEngineOptions,
 ): Engine {
   return createEngine({
-    planner: llmPlanner({
+    planner: clarifyingLlmPlanner({
       adapter: options.adapter,
       prompt: { system: { rules: { append: PLAYGROUND_SYSTEM_RULES } } },
       ...(options.modelOptions === undefined
@@ -110,8 +119,7 @@ export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
 
 /**
  * The local Jev engine (`MAELSTROM_PLANNER=jev` or `jev-composed-pairs`):
- * Jev plans, and any deferral re-plans with the same `llmPlanner` the
- * default engine uses. The engine runs with `retry: false` because the Jev
+ * Jev plans, and any deferral re-plans with `llmPlanner`. The engine runs with `retry: false` because the Jev
  * pipeline validates its own candidate; both Jev planners retry the
  * fallback once themselves.
  */

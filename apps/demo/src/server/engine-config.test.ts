@@ -5,10 +5,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const createEngineMock = vi.hoisted(() =>
   vi.fn((_config: { agent?: unknown }) => ({})),
 );
+const plannerMocks = vi.hoisted(() => ({
+  llmPlanner: vi.fn(() => () => undefined),
+  clarifyingLlmPlanner: vi.fn(() => () => undefined),
+}));
 
 vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
   createEngine: createEngineMock,
+}));
+
+vi.mock('@maelstrom-co/planner-llm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/planner-llm')>()),
+  ...plannerMocks,
 }));
 
 import {
@@ -26,6 +35,8 @@ describe('createDemoAgentConfig', () => {
 
     expect(config.model).toBe(adapter);
     expect(config.instructions).toMatch(/pet shop/);
+    expect(config.instructions).toContain('Screen updated');
+    expect(config.instructions).toMatch(/offered to the screen automatically/);
     expect(config.budgets).toBeUndefined();
     expect(config.tools).toHaveLength(2);
     expect(config.tools?.[0]).toMatchObject({
@@ -48,6 +59,8 @@ describe('playground engines and the agent slot', () => {
 
   afterEach(() => {
     createEngineMock.mockClear();
+    plannerMocks.llmPlanner.mockClear();
+    plannerMocks.clarifyingLlmPlanner.mockClear();
   });
 
   const builders = {
@@ -77,4 +90,18 @@ describe('playground engines and the agent slot', () => {
       expect(createEngineMock.mock.calls[0]?.[0]).not.toHaveProperty('agent');
     });
   }
+
+  it('createPlaygroundEngine plans with the skipReply-aware planner', () => {
+    builders.createPlaygroundEngine();
+
+    expect(plannerMocks.clarifyingLlmPlanner).toHaveBeenCalledTimes(1);
+    expect(plannerMocks.llmPlanner).not.toHaveBeenCalled();
+  });
+
+  it('createJevPlaygroundEngine keeps the reply-always planner as its fallback', () => {
+    builders.createJevPlaygroundEngine();
+
+    expect(plannerMocks.llmPlanner).toHaveBeenCalledTimes(1);
+    expect(plannerMocks.clarifyingLlmPlanner).not.toHaveBeenCalled();
+  });
 });
