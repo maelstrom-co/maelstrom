@@ -4,6 +4,7 @@ import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
+  type DiagnosticEvent,
   defineVessel,
   InstanceId,
   type MaelstromResponse,
@@ -19,6 +20,7 @@ import { DiagnosticCapture } from './capture.js';
 import { createDevtools } from './controller.js';
 import { requestLayoutComparison } from './layout-comparison.js';
 import {
+  groupAgentRuns,
   groupRequests,
   inspectState,
   panelEvents,
@@ -490,6 +492,53 @@ function setup(
   return { tools, client, detach };
 }
 
+function setupWithDelivery(options: Parameters<typeof createDevtools>[0] = {}) {
+  const tools = createDevtools(options);
+  const client = new Orchestrator(connector(), {
+    sessionId: SessionId('diagnostic-session'),
+    vessels: [vessel],
+    readyTimeoutMs: 1,
+  });
+  const observers: Parameters<typeof client.diagnostics.subscribe>[0][] = [];
+  const subscribe = client.diagnostics.subscribe.bind(client.diagnostics);
+  client.diagnostics.subscribe = (listener) => {
+    observers.push(listener);
+    return subscribe(listener);
+  };
+  const detach = tools.attach(client);
+  releases.push(
+    () => client.dispose(),
+    () => tools.dispose(),
+    detach,
+  );
+  const deliver = (event: DiagnosticEvent) => {
+    for (const observer of observers) observer({ event });
+  };
+  return { tools, client, deliver };
+}
+
+let runEventSequence = 0;
+function runEvent(
+  runId: string,
+  kind: string,
+  inputId: string,
+): DiagnosticEvent {
+  runEventSequence++;
+  return {
+    id: `run-event-${runEventSequence}`,
+    kind,
+    at: runEventSequence,
+    sessionId: 'diagnostic-session',
+    runId,
+    metadata: {
+      inputId,
+      ...(kind === 'engine.agent.run.finished'
+        ? { reason: 'completed', outcome: 'succeeded' }
+        : {}),
+    },
+  };
+}
+
 test.each(['projected', 'removed'] as const)(
   'application redaction removes retained session identity after detachment: %s',
   (policy) => {
@@ -711,6 +760,80 @@ test('a single oversized request stays bounded and reports its missing start', (
   const [request] = groupRequests(panelEvents(state.requestActivity));
   expect(request.missingStart).toBe(true);
   expect(request.status).toBe('applied');
+});
+
+test('agent run evidence is retained apart from request history and bounded by whole runs', () => {
+  const { tools, client, deliver } = setupWithDelivery({
+    maxActivityEvents: 2,
+    maxRunEvents: 4,
+  });
+  expect(tools.getSnapshot().runActivity).toEqual([]);
+  expect(tools.getSnapshot().droppedRunEvents).toBe(0);
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    {},
+    undefined,
+    'request-1',
+  );
+  const requests = tools.getSnapshot().requestActivity;
+  expect(requests).toHaveLength(1);
+  expect(tools.getSnapshot().runActivity).toEqual([]);
+  client.diagnostics.emitDiagnostic('client.agent.input.sent', {
+    inputId: 'input-1',
+  });
+  deliver(runEvent('run-1', 'engine.agent.input.accepted', 'input-1'));
+  deliver(runEvent('run-1', 'engine.agent.run.finished', 'input-1'));
+  for (let i = 0; i < 10; i++) client.diagnostics.emit('voice.session');
+  let state = tools.getSnapshot();
+  expect(state.requestActivity).toBe(requests);
+  expect(state.runActivity.map((event) => event.kind)).toEqual([
+    'client.agent.input.sent',
+    'engine.agent.input.accepted',
+    'engine.agent.run.finished',
+  ]);
+  const [run] = groupAgentRuns(panelEvents(state.runActivity)).runs;
+  expect(run?.status).toBe('completed');
+  expect(run?.events).toHaveLength(3);
+  deliver(runEvent('run-2', 'engine.agent.input.accepted', 'input-2'));
+  deliver(runEvent('run-2', 'engine.agent.run.finished', 'input-2'));
+  state = tools.getSnapshot();
+  expect(state.requestActivity).toBe(requests);
+  expect(state.droppedRunEvents).toBe(3);
+  expect(
+    groupAgentRuns(panelEvents(state.runActivity)).runs.map(
+      (trace) => trace.runId,
+    ),
+  ).toEqual(['run-2']);
+  tools.clear();
+  expect(tools.getSnapshot().runActivity).toEqual([]);
+  expect(tools.getSnapshot().droppedRunEvents).toBe(0);
+});
+
+test('agent run evidence passes through application redaction and keeps no content', () => {
+  const { tools, deliver } = setupWithDelivery({
+    redact: (value) =>
+      JSON.parse(
+        JSON.stringify(value).replaceAll('diagnostic-session', '[REDACTED]'),
+      ),
+  });
+  deliver(runEvent('run-1', 'engine.agent.input.accepted', 'input-1'));
+  const { runActivity } = tools.getSnapshot();
+  expect(runActivity).toHaveLength(1);
+  expect(runActivity[0]?.sessionId).toBe('[REDACTED]');
+  const retained = JSON.stringify(runActivity);
+  expect(retained).not.toContain('diagnostic-session');
+  expect(retained).not.toContain('"content"');
+});
+
+test('run retention defaults to 1000 events and rejects an invalid bound', () => {
+  const { tools, deliver } = setupWithDelivery();
+  for (let i = 0; i < 1001; i++)
+    deliver(runEvent('run-1', 'engine.agent.turn.started', 'input-1'));
+  expect(tools.getSnapshot().runActivity).toHaveLength(1000);
+  expect(tools.getSnapshot().droppedRunEvents).toBe(1);
+  expect(() => createDevtools({ maxRunEvents: 0 })).toThrow(
+    'maxRunEvents must be a positive integer.',
+  );
 });
 
 test('disabled tools never attach or evaluate lazy content', () => {

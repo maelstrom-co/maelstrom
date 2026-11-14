@@ -18,6 +18,13 @@ export interface DevtoolsOptions {
   readonly maxActivityEvents?: number;
   /** Metadata events retained for request history. Evicts whole requests; a single oversized request keeps its latest events. Defaults to 1000. */
   readonly maxRequestEvents?: number;
+  /**
+   * Agent Run and session-level agent events retained for run history. Evicts
+   * whole runs together with their linked client events, and unlinked session
+   * events oldest first. A single oversized run keeps its latest events.
+   * Defaults to 1000.
+   */
+  readonly maxRunEvents?: number;
   /** Maximum retained client lifetimes. Defaults to 16. */
   readonly maxSessions?: number;
   /** Capture bounds/redaction, or an existing capture store for migration. */
@@ -59,6 +66,14 @@ export interface DevtoolsSnapshot {
   readonly requestActivity: readonly DiagnosticEvent[];
   /** Number of request metadata events evicted from request history. */
   readonly droppedRequestEvents: number;
+  /**
+   * Agent Run metadata and session-level agent metadata, retained
+   * independently of recent activity and request history. Events that report
+   * a requestId are absent, and so is application content.
+   */
+  readonly runActivity: readonly DiagnosticEvent[];
+  /** Number of agent metadata events evicted from run history. */
+  readonly droppedRunEvents: number;
   /** Latest terminal transport summaries, retained independently of recent activity. */
   readonly transportHistory: readonly DiagnosticEvent[];
   /** Capture opened for read-only inspection. */

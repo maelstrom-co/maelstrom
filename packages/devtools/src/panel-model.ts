@@ -18,6 +18,12 @@ import {
   responseSource,
 } from './request-lifecycle.js';
 
+export {
+  type AgentRunStatus,
+  type AgentRunTrace,
+  type AgentSessionTimeline,
+  groupAgentRuns,
+} from './agent-runs.js';
 export { identity } from './diagnostic-identity.js';
 export { type EventIssue, eventIssue } from './event-outcome.js';
 export { queryEvents } from './event-query.js';
@@ -68,6 +74,7 @@ export interface PanelEvent {
   kind: string;
   at?: number;
   requestId?: string;
+  runId?: string;
   clientId?: string;
   metadata: Fields;
   content: unknown;
@@ -136,6 +143,7 @@ export function panelEvents(
         kind,
         at: numeric(raw.at),
         requestId: identity(raw.requestId),
+        runId: identity(raw.runId),
         clientId: identity(metadata.clientId),
         metadata,
         content: raw.content,
@@ -452,9 +460,12 @@ export interface PanelApp {
 export interface PanelEvidence {
   events: PanelEvent[];
   requestEvents?: PanelEvent[];
+  runEvents?: PanelEvent[];
   transportHistory?: PanelEvent[];
   droppedRequestEvents?: number;
+  droppedRunEvents?: number;
   omittedRequestEvents?: number;
+  omittedRunEvents?: number;
   apps: PanelApp[];
   dropped?: number;
   omitted: number;
