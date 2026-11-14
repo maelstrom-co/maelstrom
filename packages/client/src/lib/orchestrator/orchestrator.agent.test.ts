@@ -1102,24 +1102,86 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('delivers nothing and sends the same inputs when no diagnostic or metadata observer is attached', async () => {
+    it('keeps exactly one ui applied event when the acknowledgement send fails and only warns', async () => {
       const agent = createMockAgentConnector();
+      const sendFailure = new Error('transport refused the acknowledgement');
+      const attempted = Promise.withResolvers<void>();
+      const send = agent.connector.sendInput.bind(agent.connector);
+      agent.connector.sendInput = (input) => {
+        if (input.type !== 'ui_applied') return send(input);
+        attempted.resolve();
+        return Promise.reject(sendFailure);
+      };
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const observations: DiagnosticObservation[] = [];
-      const metadataKinds: string[] = [];
-      orchestrator.diagnostics.subscribe((observation) =>
-        observations.push(observation),
-      )();
-      orchestrator.diagnostics.subscribeMetadata((kind) => {
-        metadataKinds.push(kind);
-      })();
+      const observations = recordDiagnostics(orchestrator);
+      const warn = spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        expect(orchestrator.diagnostics.locallyObserved).toBe(false);
         orchestrator.commandProcessor.registerRunner(mainBoard, {
           record: () => Promise.resolve<ActionResult>(ok(undefined)),
         });
 
-        const inputId = await orchestrator.sendMessage('hello');
+        agent.emit(
+          uiChange(
+            'change-send-failed',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await attempted.promise;
+        await waitUntil(() => warn.mock.calls.length > 0);
+
+        const appliedEvents = observationsOfKind(
+          observations,
+          'client.agent.ui.applied',
+        );
+        expect(appliedEvents).toHaveLength(1);
+        expect(appliedEvents[0]?.event.metadata).toMatchObject({
+          changeId: ChangeId('change-send-failed'),
+        });
+        expect(warn).toHaveBeenCalledWith(
+          '[Orchestrator]',
+          'Agent conversation: ui_applied for change-send-failed was not sent',
+          sendFailure,
+        );
+      } finally {
+        await orchestrator.dispose();
+        warn.mockRestore();
+      }
+    });
+
+    it('stops delivering agent diagnostics once every observer is released and still sends the utterance and ui_applied inputs', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const observations: DiagnosticObservation[] = [];
+      const metadataKinds: string[] = [];
+      const releaseObservations = orchestrator.diagnostics.subscribe(
+        (observation) => observations.push(observation),
+      );
+      const releaseMetadata = orchestrator.diagnostics.subscribeMetadata(
+        (kind) => {
+          metadataKinds.push(kind);
+        },
+      );
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        const firstInputId = await orchestrator.sendMessage('first');
+        expect(
+          observationsOfKind(observations, 'client.agent.input.sent'),
+        ).toHaveLength(1);
+        expect(
+          metadataKinds.filter((kind) => kind === 'client.agent.input.sent'),
+        ).toHaveLength(1);
+
+        releaseObservations();
+        releaseMetadata();
+        expect(orchestrator.diagnostics.locallyObserved).toBe(false);
+        const observedCount = observations.length;
+        const metadataCount = metadataKinds.length;
+
+        const secondInputId = await orchestrator.sendMessage('second');
         const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
@@ -1130,16 +1192,26 @@ describe('Orchestrator agent path', () => {
         );
         const acknowledgement = await applied;
 
-        expect(observations).toEqual([]);
-        expect(metadataKinds).toEqual([]);
+        expect(observations).toHaveLength(observedCount);
+        expect(metadataKinds).toHaveLength(metadataCount);
         expect(agent.inputs.map((input) => input.type)).toEqual([
+          'utterance',
           'utterance',
           'ui_applied',
         ]);
-        expect(agent.inputs[0]).toMatchObject({ inputId, text: 'hello' });
+        expect(agent.inputs[0]).toMatchObject({
+          inputId: firstInputId,
+          text: 'first',
+        });
+        expect(agent.inputs[1]).toMatchObject({
+          inputId: secondInputId,
+          text: 'second',
+        });
         expect(acknowledgement.changeId).toBe(ChangeId('change-unobserved'));
         expect(acknowledgement.actionOutcomes).toEqual([{ ok: true }]);
       } finally {
+        releaseObservations();
+        releaseMetadata();
         await orchestrator.dispose();
       }
     });
