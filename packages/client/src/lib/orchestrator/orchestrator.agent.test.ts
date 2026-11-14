@@ -952,8 +952,9 @@ describe('Orchestrator agent path', () => {
       try {
         const inputId = await orchestrator.sendMessage('CANARY_utterance');
 
-        const sent = observations.filter(
-          (observation) => observation.event.kind === 'client.agent.input.sent',
+        const sent = observationsOfKind(
+          observations,
+          'client.agent.input.sent',
         );
         expect(sent).toHaveLength(1);
         const [observation] = sent;
@@ -971,11 +972,11 @@ describe('Orchestrator agent path', () => {
     });
 
     it('emits one ui applied event with the change id and the injected clock duration before the acknowledgement is sent', async () => {
-      const clock = installClock(1_000);
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       const log = recordSendOrder(agent.connector);
       const observations = recordDiagnostics(orchestrator, log);
+      const clock = installClock(1_000);
       try {
         const releaseAction = Promise.withResolvers<void>();
         orchestrator.commandProcessor.registerRunner(mainBoard, {
@@ -997,8 +998,9 @@ describe('Orchestrator agent path', () => {
         releaseAction.resolve();
         await applied;
 
-        const appliedEvents = observations.filter(
-          (observation) => observation.event.kind === 'client.agent.ui.applied',
+        const appliedEvents = observationsOfKind(
+          observations,
+          'client.agent.ui.applied',
         );
         expect(appliedEvents).toHaveLength(1);
         const [observation] = appliedEvents;
@@ -1014,8 +1016,8 @@ describe('Orchestrator agent path', () => {
           'send ui_applied',
         ]);
       } finally {
-        clock.restore();
         await orchestrator.dispose();
+        clock.restore();
       }
     });
 
@@ -1023,17 +1025,9 @@ describe('Orchestrator agent path', () => {
       const oldAgent = createMockAgentConnector();
       const newAgent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(oldAgent.connector);
-      const observations = recordDiagnostics(orchestrator, []);
+      const observations = recordDiagnostics(orchestrator);
       try {
-        const actionStarted = Promise.withResolvers<void>();
-        const releaseAction = Promise.withResolvers<void>();
-        orchestrator.commandProcessor.registerRunner(mainBoard, {
-          record: async () => {
-            actionStarted.resolve();
-            await releaseAction.promise;
-            return ok(undefined);
-          },
-        });
+        const action = holdNextAction(orchestrator, mainBoard, 'record');
 
         oldAgent.emit(
           uiChange(
@@ -1042,18 +1036,15 @@ describe('Orchestrator agent path', () => {
             [step(mainBoard, 'record')],
           ),
         );
-        await actionStarted.promise;
+        await action.started;
         orchestrator.setConnector(newAgent.connector);
-        releaseAction.resolve();
+        action.release();
         await orchestrator.commandProcessor.waitForIdle();
         await settleBriefly();
 
         expect(uiAppliedInputs(oldAgent)).toEqual([]);
         expect(
-          observations.filter(
-            (observation) =>
-              observation.event.kind === 'client.agent.ui.applied',
-          ),
+          observationsOfKind(observations, 'client.agent.ui.applied'),
         ).toEqual([]);
       } finally {
         await orchestrator.dispose();
@@ -1063,17 +1054,9 @@ describe('Orchestrator agent path', () => {
     it('emits no ui applied event for an acknowledgement whose Agent Session ended', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const observations = recordDiagnostics(orchestrator, []);
+      const observations = recordDiagnostics(orchestrator);
       try {
-        const actionStarted = Promise.withResolvers<void>();
-        const releaseAction = Promise.withResolvers<void>();
-        orchestrator.commandProcessor.registerRunner(mainBoard, {
-          record: async () => {
-            actionStarted.resolve();
-            await releaseAction.promise;
-            return ok(undefined);
-          },
-        });
+        const action = holdNextAction(orchestrator, mainBoard, 'record');
 
         agent.emit(
           uiChange(
@@ -1082,18 +1065,15 @@ describe('Orchestrator agent path', () => {
             [step(mainBoard, 'record')],
           ),
         );
-        await actionStarted.promise;
+        await action.started;
         agent.close({ clean: false });
-        releaseAction.resolve();
+        action.release();
         await orchestrator.commandProcessor.waitForIdle();
         await settleBriefly();
 
         expect(uiAppliedInputs(agent)).toEqual([]);
         expect(
-          observations.filter(
-            (observation) =>
-              observation.event.kind === 'client.agent.ui.applied',
-          ),
+          observationsOfKind(observations, 'client.agent.ui.applied'),
         ).toEqual([]);
       } finally {
         await orchestrator.dispose();
@@ -1105,14 +1085,15 @@ describe('Orchestrator agent path', () => {
       const sendFailure = new Error('transport refused the utterance');
       agent.connector.sendInput = () => Promise.reject(sendFailure);
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const observations = recordDiagnostics(orchestrator, []);
+      const observations = recordDiagnostics(orchestrator);
       try {
         await expect(orchestrator.sendMessage('hello')).rejects.toBe(
           sendFailure,
         );
 
-        const sent = observations.filter(
-          (observation) => observation.event.kind === 'client.agent.input.sent',
+        const sent = observationsOfKind(
+          observations,
+          'client.agent.input.sent',
         );
         expect(sent).toHaveLength(1);
         expect(Object.keys(sent[0]?.event.metadata ?? {})).toEqual(['inputId']);
@@ -1166,7 +1147,7 @@ describe('Orchestrator agent path', () => {
     it('keeps utterance text out of diagnostic and operational metadata', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const observations = recordDiagnostics(orchestrator, []);
+      const observations = recordDiagnostics(orchestrator);
       const metadata: unknown[] = [];
       const releaseMetadata = orchestrator.diagnostics.subscribeMetadata(
         (kind, fields) => {
@@ -1324,17 +1305,41 @@ function holdNextSend(connector: EngineConnector): { release(): void } {
   return { release: () => held.resolve() };
 }
 
+function holdNextAction(
+  orchestrator: Orchestrator,
+  instanceId: InstanceId,
+  action: string,
+): { started: Promise<void>; release(): void } {
+  const started = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  orchestrator.commandProcessor.registerRunner(instanceId, {
+    [action]: async () => {
+      started.resolve();
+      await held.promise;
+      return ok(undefined);
+    },
+  });
+  return { started: started.promise, release: () => held.resolve() };
+}
+
 function recordDiagnostics(
   orchestrator: Orchestrator,
-  log: string[],
+  log?: string[],
 ): DiagnosticObservation[] {
   const observations: DiagnosticObservation[] = [];
   orchestrator.diagnostics.subscribe((observation) => {
     observations.push(observation);
     if (observation.event.kind.startsWith('client.agent.'))
-      log.push(`diagnostic ${observation.event.kind}`);
+      log?.push(`diagnostic ${observation.event.kind}`);
   });
   return observations;
+}
+
+function observationsOfKind(
+  observations: readonly DiagnosticObservation[],
+  kind: string,
+): DiagnosticObservation[] {
+  return observations.filter((observation) => observation.event.kind === kind);
 }
 
 function recordSendOrder(connector: EngineConnector): string[] {
