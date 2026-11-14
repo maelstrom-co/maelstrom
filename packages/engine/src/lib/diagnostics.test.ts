@@ -608,6 +608,21 @@ test('a session-owned event reaches Engine observers with neither a request id n
   });
 });
 
+test('an owner that is no request, run or session is refused instead of published as session-owned', () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const observations: DiagnosticEvent[] = [];
+  emitter.subscribe((event) => observations.push(event));
+  expect(() =>
+    emitter.emit(
+      SessionId('authorized'),
+      {} as never,
+      'engine.agent.input.ignored',
+      {},
+    ),
+  ).toThrow(/diagnostic owner/);
+  expect(observations).toHaveLength(0);
+});
+
 test('a diagnostic connection forwards session-owned and run-owned events of its own session only', async () => {
   const emitter = new EngineDiagnosticEmitter();
   const { engine } = heldEngine(emitter);

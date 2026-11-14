@@ -20,6 +20,7 @@ import {
   operationalKinds,
 } from '@maelstrom-co/telemetry/integration';
 
+import { assertNever } from './assert-never.js';
 import type { Engine } from './engine.js';
 import { handleEnvelope } from './envelope-handler.js';
 import { operationalOutcome, thrownOutcome } from './operational-outcome.js';
@@ -367,13 +368,15 @@ function ownedFields(
   metadata: DiagnosticMetadata,
 ): Pick<DiagnosticEvent, 'requestId' | 'runId' | 'metadata'> {
   if (typeof owner === 'string') return { requestId: owner, metadata };
-  if (!('runId' in owner)) return { metadata };
-  return {
-    runId: owner.runId,
-    metadata: {
-      ...metadata,
-      inputId: owner.inputId,
-      ...(owner.turnId === undefined ? {} : { turnId: owner.turnId }),
-    },
-  };
+  if ('session' in owner) return { metadata };
+  if ('runId' in owner)
+    return {
+      runId: owner.runId,
+      metadata: {
+        ...metadata,
+        inputId: owner.inputId,
+        ...(owner.turnId === undefined ? {} : { turnId: owner.turnId }),
+      },
+    };
+  return assertNever(owner, 'diagnostic owner');
 }
