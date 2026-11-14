@@ -179,6 +179,70 @@ test('each run.finished reason maps to its status and an unfinished run is queue
   ).toBe('running');
 });
 
+test('run.finished fallbacks fill duration, keep an unknown reason finished and reject invalid counters', () => {
+  const { reason: _reason, durationMs: _durationMs, ...metrics } = finished(
+    'completed',
+    'succeeded',
+  );
+  const cases = [
+    {
+      name: 'elapsedMs without durationMs',
+      metadata: { ...metrics, reason: 'completed' },
+      expected: { status: 'completed', durationMs: 42 },
+    },
+    {
+      name: 'unexpected reason',
+      metadata: { ...metrics, reason: 'unexpected' },
+      expected: { status: 'finished', durationMs: 42 },
+    },
+    {
+      name: 'absent reason',
+      metadata: { ...metrics, durationMs: 42 },
+      expected: { status: 'finished', durationMs: 42 },
+    },
+    {
+      name: 'invalid token counters',
+      metadata: {
+        ...metrics,
+        reason: 'completed',
+        inputTokens: -1,
+        outputTokens: '5',
+      },
+      expected: {
+        status: 'completed',
+        durationMs: 42,
+        inputTokens: undefined,
+        outputTokens: undefined,
+      },
+    },
+  ];
+  for (const { name, metadata, expected } of cases) {
+    const event = runOwned(`run-${name}`, `input-${name}`);
+    const run = onlyRun([
+      event('engine.agent.input.accepted', {
+        source: 'text',
+        disposition: 'agent',
+      }),
+      event('engine.agent.run.started', { disposition: 'agent' }),
+      event('engine.agent.run.finished', metadata),
+    ]);
+    expect({
+      name,
+      status: run.status,
+      outcome: run.outcome,
+      durationMs: run.durationMs,
+      inputTokens: run.metrics?.inputTokens,
+      outputTokens: run.metrics?.outputTokens,
+    }).toEqual({
+      name,
+      outcome: 'succeeded',
+      inputTokens: 10,
+      outputTokens: 5,
+      ...expected,
+    });
+  }
+});
+
 test('a group whose first retained run event is not input.accepted is missing its start', () => {
   const event = runOwned('run-1', 'input-1');
   const run = onlyRun([
