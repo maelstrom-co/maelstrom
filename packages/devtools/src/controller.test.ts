@@ -494,17 +494,21 @@ function setup(
 
 function setupWithDelivery(options: Parameters<typeof createDevtools>[0] = {}) {
   const tools = createDevtools(options);
-  const client = new Orchestrator(connector(), {
+  const serverListeners = new Set<(event: DiagnosticEvent) => void>();
+  const conn = Object.assign(connector(), {
+    subscribeDiagnostics: (listener: (event: DiagnosticEvent) => void) => {
+      serverListeners.add(listener);
+      return () => {
+        serverListeners.delete(listener);
+      };
+    },
+    setDiagnosticContent: () => {},
+  });
+  const client = new Orchestrator(conn, {
     sessionId: SessionId('diagnostic-session'),
     vessels: [vessel],
     readyTimeoutMs: 1,
   });
-  const observers: Parameters<typeof client.diagnostics.subscribe>[0][] = [];
-  const subscribe = client.diagnostics.subscribe.bind(client.diagnostics);
-  client.diagnostics.subscribe = (listener) => {
-    observers.push(listener);
-    return subscribe(listener);
-  };
   const detach = tools.attach(client);
   releases.push(
     () => client.dispose(),
@@ -512,7 +516,7 @@ function setupWithDelivery(options: Parameters<typeof createDevtools>[0] = {}) {
     detach,
   );
   const deliver = (event: DiagnosticEvent) => {
-    for (const observer of observers) observer({ event });
+    for (const listener of serverListeners) listener(event);
   };
   return { tools, client, deliver };
 }
@@ -820,6 +824,7 @@ test('agent run evidence passes through application redaction and keeps no conte
   const { runActivity } = tools.getSnapshot();
   expect(runActivity).toHaveLength(1);
   expect(runActivity[0]?.sessionId).toBe('[REDACTED]');
+  expect(runActivity[0]?.runId).toBe('run-1');
   const retained = JSON.stringify(runActivity);
   expect(retained).not.toContain('diagnostic-session');
   expect(retained).not.toContain('"content"');

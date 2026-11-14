@@ -1613,6 +1613,7 @@ export class Orchestrator {
           { ...event.metadata, serverAt: event.at },
           () => event.content,
           event.requestId,
+          event.runId,
         );
       });
       const release = (retirementEpoch = epoch) =>
