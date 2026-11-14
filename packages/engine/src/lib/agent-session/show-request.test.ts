@@ -18,11 +18,15 @@ import {
   buildShowRequest,
   collectShowFacts,
   SHOW_FACTS_MAX_CHARS,
+  userIntentRequest,
 } from './show-request.js';
 import { createToolRegistry, type ToolRegistry } from './tool-registry.js';
 
 const SECRET_OUTPUT = 'secret-output-ORD-99999';
 const SECRET_ERROR = 'extractor exploded with a secret';
+const EMPTY_ECHO_FACTS_LENGTH = JSON.stringify({
+  'echo:c1': { text: '' },
+}).length;
 
 describe('collectShowFacts', () => {
   test('keys each call facts by tool name and call id in call order', () => {
@@ -95,6 +99,24 @@ describe('collectShowFacts', () => {
 
     expect(show).toEqual({ toolNames: ['plain'] });
     expect(show).not.toHaveProperty('intentFacts');
+    expect(warnings).toEqual([]);
+  });
+
+  test('a successful call to an unregistered tool is listed without facts', () => {
+    const { logger, warnings } = recordingLogger();
+    const show = collectShowFacts(
+      phase([
+        success('c1', 'unregistered', { text: 'hi' }),
+        success('c2', 'latest_order', { orderId: 'ORD-10455' }),
+      ]),
+      registry(),
+      logger,
+    );
+
+    expect(show).toEqual({
+      toolNames: ['unregistered', 'latest_order'],
+      intentFacts: { 'latest_order:c2': { orderId: 'ORD-10455' } },
+    });
     expect(warnings).toEqual([]);
   });
 
@@ -221,15 +243,13 @@ describe('collectShowFacts', () => {
     expect(warnings).toEqual([]);
   });
 
-  test('caps serialized facts at 8,000 characters', () => {
+  test('pins the documented cap at 8,000 characters', () => {
     expect(SHOW_FACTS_MAX_CHARS).toBe(8_000);
   });
 
   test('keeps facts that serialize to exactly the cap', () => {
     const { logger, warnings } = recordingLogger();
-    const text = 'a'.repeat(
-      SHOW_FACTS_MAX_CHARS - '{"echo:c1":{"text":""}}'.length,
-    );
+    const text = 'a'.repeat(SHOW_FACTS_MAX_CHARS - EMPTY_ECHO_FACTS_LENGTH);
     const show = collectShowFacts(
       phase([success('c1', 'echo', { text })]),
       registry(),
@@ -242,6 +262,21 @@ describe('collectShowFacts', () => {
     expect(warnings).toEqual([]);
   });
 
+  test('drops facts that serialize to one character over the cap', () => {
+    const { logger, warnings } = recordingLogger();
+    const text = 'a'.repeat(SHOW_FACTS_MAX_CHARS - EMPTY_ECHO_FACTS_LENGTH + 1);
+    const show = collectShowFacts(
+      phase([success('c1', 'echo', { text })]),
+      registry(),
+      logger,
+    );
+
+    expect(show).toEqual({ toolNames: ['echo'] });
+    expect(warnings.map((warning) => warning.data)).toEqual([
+      { toolNames: ['echo'], maxChars: SHOW_FACTS_MAX_CHARS },
+    ]);
+  });
+
   test('drops the call that crosses the cap and every later call facts with one warning', () => {
     const { logger, warnings } = recordingLogger();
     const show = collectShowFacts(
@@ -250,6 +285,8 @@ describe('collectShowFacts', () => {
         success('c2', 'latest_order', { orderId: 'ORD-10455' }),
         success('c3', 'echo', { text: 'b'.repeat(5_000) }),
         success('c4', 'latest_order', { orderId: 'ORD-10456' }),
+        success('c5', 'plain', { text: 'hi' }),
+        failure('c6', 'echo'),
       ]),
       registry(),
       logger,
@@ -260,6 +297,7 @@ describe('collectShowFacts', () => {
       'latest_order',
       'echo',
       'latest_order',
+      'plain',
     ]);
     expect(show?.intentFacts).toEqual({
       'echo:c1': { text: 'a'.repeat(3_000) },
@@ -282,6 +320,37 @@ describe('collectShowFacts', () => {
     );
 
     expect(show).toEqual({ toolNames: ['echo'] });
+  });
+});
+
+describe('userIntentRequest', () => {
+  test('removes client skipReply and replaces every update reason with the intent', () => {
+    const chart: ChartRequest = {
+      ...makeGridRequest(),
+      context: {
+        ...makeGridRequest().context,
+        updateReasons: [
+          { type: 'user_intent', intent: 'old intent' },
+          { type: 'user_intent', intent: 'another old intent' },
+        ],
+      },
+      skipReply: true,
+      intentFacts: { client: 'supplied' },
+    };
+
+    const request = userIntentRequest(chart, 'show my latest order');
+
+    expect(request).not.toHaveProperty('skipReply');
+    expect(request).toEqual({
+      ...makeGridRequest(),
+      intentFacts: { client: 'supplied' },
+      context: {
+        ...chart.context,
+        updateReasons: [
+          { type: 'user_intent', intent: 'show my latest order' },
+        ],
+      },
+    });
   });
 });
 
