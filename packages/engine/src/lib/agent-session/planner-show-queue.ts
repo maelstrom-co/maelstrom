@@ -142,7 +142,8 @@ export interface PlannerShowQueue {
   whenIdle(): Promise<void>;
   /**
    * Drops the run's queued shows and aborts its show in planning, recording a
-   * cancelled note for each and sending nothing on the wire. A change of that
+   * cancelled note and observing `engine.agent.show.cancelled` for each, and
+   * sending nothing on the wire. A change of that
    * run already emitted still awaits its acknowledgement and gets its note.
    */
   dropRun(runId: RunId): void;
@@ -444,10 +445,19 @@ export function createPlannerShowQueue({
       if (planning !== undefined) {
         abortPlanning(planning);
         state = { phase: 'idle' };
-        noteFor(planning.show, describeShowCancelled(planning.show.toolNames));
-      }
-      for (const show of dropped)
+        const { show, changeId } = planning;
         noteFor(show, describeShowCancelled(show.toolNames));
+        observe(show.runId, show.inputId, 'engine.agent.show.cancelled', {
+          turnId: show.turnId,
+          changeId,
+        });
+      }
+      for (const show of dropped) {
+        noteFor(show, describeShowCancelled(show.toolNames));
+        observe(show.runId, show.inputId, 'engine.agent.show.cancelled', {
+          turnId: show.turnId,
+        });
+      }
       if (state.phase === 'idle') startNextShow();
     },
     close() {

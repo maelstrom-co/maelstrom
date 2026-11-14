@@ -875,7 +875,7 @@ describe('createPlannerShowQueue', () => {
     expect(idle.settled).toBe(true);
   });
 
-  test('dropRun aborts the run planning show and drops its queued shows with cancelled notes while other runs move on', async () => {
+  test('dropRun aborts the run planning show and drops its queued shows with cancelled notes and diagnostics while other runs move on', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1, 1));
@@ -898,6 +898,22 @@ describe('createPlannerShowQueue', () => {
         text: 'Show cancelled: latest_order result.',
       },
     ]);
+    expect(harness.observed).toEqual([
+      {
+        runId: show(1, 1).runId,
+        inputId: show(1, 1).inputId,
+        kind: 'engine.agent.show.cancelled',
+        metadata: { turnId: show(1, 1).turnId, changeId: expect.any(String) },
+        readContent: undefined,
+      },
+      {
+        runId: show(3, 1).runId,
+        inputId: show(3, 1).inputId,
+        kind: 'engine.agent.show.cancelled',
+        metadata: { turnId: show(3, 1).turnId },
+        readContent: undefined,
+      },
+    ]);
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).runId).toBe(show(2, 2).runId);
     expect(harness.time.pending()).toBe(1);
@@ -909,6 +925,8 @@ describe('createPlannerShowQueue', () => {
     expect(change.runId).toBe(show(2, 2).runId);
     expect(harness.received).toEqual([change]);
     expect(harness.observed.map((entry) => entry.kind)).toEqual([
+      'engine.agent.show.cancelled',
+      'engine.agent.show.cancelled',
       'engine.agent.ui_change.emitted',
     ]);
     expect(harness.planner.calls).toHaveLength(2);
