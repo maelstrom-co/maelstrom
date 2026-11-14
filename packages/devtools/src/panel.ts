@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { render } from 'solid-js/web';
 
+import { type AgentRunsViewState, agentRunsView } from './agent-runs-view.js';
 import { captureImportFileBytes } from './capture-import.js';
 import { createEventFilterControls } from './event-filter-controls.js';
 import { type EventQuery, queryEvents } from './event-query.js';
@@ -53,6 +54,7 @@ type Source = 'live' | 'recording' | 'imported';
 const tabs = [
   'Overview',
   'Requests',
+  'Agent',
   'Inspector',
   'Connections',
   'Voice',
@@ -89,6 +91,7 @@ interface PanelPreferences {
   importedName?: string;
   liveEventKeys: LiveEventKeys;
   voice?: VoiceViewState;
+  agent?: AgentRunsViewState;
   overview?: OverviewState;
   voiceCorrelations: VoiceCorrelationHistory;
   importKeys: WeakMap<object, string>;
@@ -103,6 +106,7 @@ function liveKeySources(state: DevtoolsSnapshot) {
   return [
     state.activity.slice(-MAX_VIEW_EVENTS),
     state.requestActivity.slice(-MAX_VIEW_EVENTS),
+    state.runActivity.slice(-MAX_VIEW_EVENTS),
     state.transportHistory.slice(-MAX_VIEW_EVENTS),
   ];
 }
@@ -261,8 +265,10 @@ function Panel(tools: Devtools): HTMLElement {
       cachedLive = {
         events: panelEvents(state.activity, keys),
         requestEvents: panelEvents(state.requestActivity, keys),
+        runEvents: panelEvents(state.runActivity, keys),
         transportHistory: panelEvents(state.transportHistory, keys),
         droppedRequestEvents: state.droppedRequestEvents,
+        droppedRunEvents: state.droppedRunEvents,
         unreadableRequestEvents: countUnreadableEvents(state.requestActivity),
         omittedRequestEvents: Math.max(
           0,
@@ -277,7 +283,8 @@ function Panel(tools: Devtools): HTMLElement {
         omitted: Math.max(0, state.activity.length - MAX_VIEW_EVENTS),
         unreadableEvents:
           countUnreadableEvents(state.activity) +
-          countUnreadableEvents(state.requestActivity),
+          countUnreadableEvents(state.requestActivity) +
+          countUnreadableEvents(state.runActivity),
         metadata: {},
       };
     }
@@ -358,6 +365,7 @@ function Panel(tools: Devtools): HTMLElement {
       setSelected('all');
     }
     preferences.voice = undefined;
+    preferences.agent = undefined;
     clearRequestSelection();
   }
   function evidenceSourceToken(
@@ -879,6 +887,10 @@ function Panel(tools: Devtools): HTMLElement {
       'Request activity',
       'Follow a request from start to outcome. All events shows events from the selected Evidence source. To inspect a recording, select it under Evidence, then choose All events.',
     ],
+    Agent: [
+      'Agent runs',
+      'Follow each Agent Run from input to outcome, turn by turn. Session timeline shows agent events that belong to no run. Select an event to inspect its evidence.',
+    ],
     Inspector: [
       'Layout inspector',
       'Select an Instance to see its Vessel, Variant, and available Actions.',
@@ -999,23 +1011,32 @@ function Panel(tools: Devtools): HTMLElement {
     const requestView = currentTab === 'Requests' && !preferences.allEvents;
     const requestEvidenceView = requestView || currentTab === 'Overview';
     const comparing = requestView && Boolean(comparison);
+    const agentView = currentTab === 'Agent';
     const viewedEvents = requestEvidenceView
       ? (data.requestEvents ?? data.events)
-      : data.events;
+      : agentView
+        ? (data.runEvents ?? data.events)
+        : data.events;
     const droppedEvents =
       requestEvidenceView && data.requestEvents
         ? data.droppedRequestEvents
-        : data.dropped;
+        : agentView && data.runEvents
+          ? data.droppedRunEvents
+          : data.dropped;
     const omittedEvents =
       requestEvidenceView && data.requestEvents
         ? data.omittedRequestEvents
-        : data.omitted;
+        : agentView && data.runEvents
+          ? 0
+          : data.omitted;
     const currentIds = new Set([
       ...state.sessions.map((session) => session.id),
       ...data.apps.map((app) => app.id),
-      ...[...data.events, ...(data.requestEvents ?? [])].flatMap((event) =>
-        event.clientId ? [event.clientId] : [],
-      ),
+      ...[
+        ...data.events,
+        ...(data.requestEvents ?? []),
+        ...(data.runEvents ?? []),
+      ].flatMap((event) => (event.clientId ? [event.clientId] : [])),
       ...(state.imported === null
         ? []
         : (cachedImport?.apps.map((app) => app.id) ?? [])),
@@ -1166,7 +1187,7 @@ function Panel(tools: Devtools): HTMLElement {
     highlight.disabled = !tools.setHighlightedInstance;
     jsonLabel.hidden = currentTab === 'Recordings' || currentTab === 'Overview';
     activityStatus.hidden = currentTab === 'Recordings';
-    activityStatus.textContent = `${viewedEvents.length} ${currentSource === 'live' ? (requestView ? 'request metadata' : 'recent metadata') : 'recorded'} events${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
+    activityStatus.textContent = `${viewedEvents.length} ${currentSource === 'live' ? (requestView ? 'request metadata' : agentView ? 'agent run metadata' : 'recent metadata') : 'recorded'} events${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
     const filteredEvents = filteringEvents
       ? queryEvents(data.events, {
           ...preferences.eventFilters,
@@ -1201,7 +1222,7 @@ function Panel(tools: Devtools): HTMLElement {
     activeNotice.hidden = currentSource === 'live' || !status.active;
     activeNoticeText.textContent = `Live recording continues for ${recordingScope()} · ${status.count} events. `;
     warning.hidden = !(droppedEvents || omittedEvents || unknownApps.size);
-    warning.textContent = `${droppedEvents ? `${droppedEvents} older ${requestView ? 'request ' : ''}events were dropped or evicted. ` : ''}${omittedEvents ? `This view shows the latest ${MAX_VIEW_EVENTS} events; ${omittedEvents} earlier events are omitted from the view. ` : ''}${unknownApps.size ? 'Some app state is no longer retained; its events remain inspectable. ' : ''}Observed stages may be incomplete.`;
+    warning.textContent = `${droppedEvents ? `${droppedEvents} older ${requestView ? 'request ' : agentView ? 'agent ' : ''}events were dropped or evicted. ` : ''}${omittedEvents ? `This view shows the latest ${MAX_VIEW_EVENTS} events; ${omittedEvents} earlier events are omitted from the view. ` : ''}${unknownApps.size ? 'Some app state is no longer retained; its events remain inspectable. ' : ''}Observed stages may be incomplete.`;
     errorView.textContent = error();
     errorView.hidden = !error();
     recording.hidden = currentTab !== 'Recordings';
@@ -1285,6 +1306,8 @@ function Panel(tools: Devtools): HTMLElement {
       clearJsonEvidence();
       return;
     }
+    if (agentView && preferences.agent?.sourceToken !== sourceToken)
+      preferences.agent = { sourceToken };
     if (currentTab === 'Voice' || currentTab === 'Overview') {
       if (
         currentTab === 'Voice' &&
@@ -1463,6 +1486,7 @@ function Panel(tools: Devtools): HTMLElement {
       comparison,
       preferences.eventKey,
       preferences.voice,
+      preferences.agent,
       preferences.overview,
       preferences.phasePage,
       preferences.plannerPage,
@@ -1512,27 +1536,35 @@ function Panel(tools: Devtools): HTMLElement {
             )
           : currentTab === 'Requests'
             ? requestsView(context)
-            : currentTab === 'Inspector'
-              ? inspectorView(context)
-              : currentTab === 'Voice'
-                ? voiceTimelineView(
-                    context,
-                    preferences.voice ?? { provider: 'all', generation: 'all' },
-                    (next, resetPage) => {
-                      preferences.voice = {
-                        ...next,
-                        sourceToken,
-                      };
-                      if (resetPage) pageSize = 50;
-                      refresh();
-                    },
-                    openRequest,
-                    voiceControls,
-                    currentSource === 'live'
-                      ? preferences.voiceCorrelations.context
-                      : undefined,
-                  )
-                : connectionsView(context, data.transportHistory ?? []);
+            : currentTab === 'Agent'
+              ? agentRunsView(context, preferences.agent ?? {}, (next) => {
+                  preferences.agent = { ...next, sourceToken };
+                  refresh();
+                })
+              : currentTab === 'Inspector'
+                ? inspectorView(context)
+                : currentTab === 'Voice'
+                  ? voiceTimelineView(
+                      context,
+                      preferences.voice ?? {
+                        provider: 'all',
+                        generation: 'all',
+                      },
+                      (next, resetPage) => {
+                        preferences.voice = {
+                          ...next,
+                          sourceToken,
+                        };
+                        if (resetPage) pageSize = 50;
+                        refresh();
+                      },
+                      openRequest,
+                      voiceControls,
+                      currentSource === 'live'
+                        ? preferences.voiceCorrelations.context
+                        : undefined,
+                    )
+                  : connectionsView(context, data.transportHistory ?? []);
       navigation.replaceChildren(
         ...(lastRendered.navigation
           ? Array.from(lastRendered.navigation.childNodes)
