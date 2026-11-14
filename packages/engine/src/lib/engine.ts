@@ -252,19 +252,6 @@ export interface Engine {
  * ```
  */
 export function createEngine(config: EngineConfig): Engine {
-  return createEngineInternals(config).engine;
-}
-
-/** An Engine plus the Planner seams its Agent Sessions use. Internal to the package. */
-export interface EngineInternals {
-  /** The Engine {@link createEngine} returns. */
-  readonly engine: Engine;
-  /** Builds the loop-driven show Planner for one Agent Session, with no history and the run owner each call names. */
-  readonly createShowPlanner: (sessionId: SessionId) => ShowPlanner;
-}
-
-/** Constructs an Engine like {@link createEngine} and keeps its internal Planner seams reachable. */
-export function createEngineInternals(config: EngineConfig): EngineInternals {
   const diagnosticsEmitter = new EngineDiagnosticEmitter();
   const validated = validateEngineConfig(config);
   const {
@@ -473,7 +460,7 @@ export function createEngineInternals(config: EngineConfig): EngineInternals {
         { runId: input.runId, inputId: input.inputId, turnId: input.turnId },
       );
 
-  const engine: Engine = {
+  return {
     openConnection: (options) =>
       createAgentConnection(
         options,
@@ -665,7 +652,6 @@ export function createEngineInternals(config: EngineConfig): EngineInternals {
       }
     },
   };
-  return { engine, createShowPlanner };
 }
 
 /**
