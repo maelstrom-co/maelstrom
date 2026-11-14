@@ -1353,6 +1353,48 @@ describe('agent run queue', () => {
       );
       expect(session.showPlans).toHaveLength(1);
     });
+
+    test('a cancelled note for an evicted run that overflows the transcript bound never evicts the newest run', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const parked: Parameters<AgentRunStarter>[0][] = [];
+      let starts = 0;
+      const startRun: AgentRunStarter = (input, options) => {
+        starts += 1;
+        if (starts === 1) return runAgent(input, options);
+        parked.push(input);
+        return untilAborted(options.signal);
+      };
+      const transcript = createTranscript({ maxChars: 230 });
+      const session = createSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        startRun,
+        transcript,
+        planShow: () => new Promise(() => {}),
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const firstRun = runIdOf(session.received, 'input-1');
+      const second = session.queue.enqueue(
+        utterance('input-2', 'x'.repeat(200)),
+      );
+      await waitUntil(() => parked.length === 1);
+      expect(renderedTranscript(transcript)).not.toContain(firstRun);
+
+      session.queue.cancelRun(firstRun);
+
+      expect(transcript.renderPriorMessages()).toEqual([
+        { role: 'user', content: 'x'.repeat(200) },
+      ]);
+      session.queue.cancelRun(runIdOf(session.received, 'input-2'));
+      await second;
+    });
   });
 });
 
