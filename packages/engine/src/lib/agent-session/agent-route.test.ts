@@ -51,7 +51,9 @@ import {
   openAgentSession,
   orderFacts,
   orderTool,
+  runIdOf,
   sessionInternals,
+  settle,
   TEST_BUDGETS,
   tilingLayoutOf,
   TOKEN_SENTINEL,
@@ -2565,19 +2567,6 @@ function expectBudgetEnding(events: readonly AgentEvent[], runId: RunId) {
   }
 }
 
-function runIdOf(events: readonly AgentEvent[], inputId: string): RunId {
-  for (const event of events) {
-    if (
-      event.type === 'accepted' &&
-      event.inputId === inputId &&
-      event.runId !== null
-    ) {
-      return event.runId;
-    }
-  }
-  throw new Error(`no accepted event for ${inputId}`);
-}
-
 function eventsOf(events: readonly AgentEvent[], runId: RunId) {
   return events.filter((event) => 'runId' in event && event.runId === runId);
 }
@@ -2694,12 +2683,4 @@ function serializeLoosely(value: unknown): string {
 
 function occurrencesIn(value: unknown, needle: string): number {
   return serializeLoosely(value).split(needle).length - 1;
-}
-
-async function settle(): Promise<void> {
-  for (let tick = 0; tick < 20; tick += 1) {
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
-  }
 }

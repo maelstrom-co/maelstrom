@@ -39,6 +39,8 @@ import {
   openAgentSession,
   orderFacts,
   orderTool,
+  runIdOf,
+  settle,
   TEST_BUDGETS,
   tilingLayoutOf,
   uiChangesOf,
@@ -1025,26 +1027,6 @@ function activityKindsOf(events: readonly DiagnosticEvent[]): string[] {
         kind.startsWith('engine.agent.turn.') ||
         kind.startsWith('engine.agent.tool.'),
     );
-}
-
-function runIdOf(events: readonly AgentEvent[], inputId: string): RunId {
-  for (const event of events) {
-    if (
-      event.type === 'accepted' &&
-      event.inputId === inputId &&
-      event.runId !== null
-    )
-      return event.runId;
-  }
-  throw new Error(`no accepted event for ${inputId}`);
-}
-
-async function settle(): Promise<void> {
-  for (let tick = 0; tick < 20; tick += 1) {
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
-  }
 }
 
 function sessionEventsOfKind(

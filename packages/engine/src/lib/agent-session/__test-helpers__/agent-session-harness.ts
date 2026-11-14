@@ -10,6 +10,7 @@ import {
   type JsonValue,
   MessageId,
   ok,
+  type RunId,
   SessionId,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
@@ -318,6 +319,29 @@ export async function waitUntil(condition: () => boolean): Promise<void> {
     });
   }
   throw new Error('condition never held');
+}
+
+/** Lets 20 macrotasks run, so work started by a stopped run can surface. */
+export async function settle(): Promise<void> {
+  for (let tick = 0; tick < 20; tick += 1) {
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+/** The run id of the `accepted` event for `inputId`. Throws when there is none. */
+export function runIdOf(events: readonly AgentEvent[], inputId: string): RunId {
+  for (const event of events) {
+    if (
+      event.type === 'accepted' &&
+      event.inputId === inputId &&
+      event.runId !== null
+    ) {
+      return event.runId;
+    }
+  }
+  throw new Error(`no accepted event for ${inputId}`);
 }
 
 /** The tiling layout of a Chart. Throws for any other layout. */
