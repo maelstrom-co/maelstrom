@@ -171,7 +171,8 @@ export interface EvalOptions {
   readonly repeats: number;
   /**
    * Sends every scenario's request with `skipReply: true`, as the agent
-   * loop does. The Engine refuses a replyless outcome, so such a turn
+   * loop does. The Engine ships a replyless response with `userMessage`
+   * absent. A needs-clarification result is still refused, so such a turn
    * records a `ValidationError` naming `skipReply`.
    */
   readonly skipReply?: boolean;

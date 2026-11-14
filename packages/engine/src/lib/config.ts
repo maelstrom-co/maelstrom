@@ -20,8 +20,9 @@ export interface EngineConfig {
    * `withFallback`. The Engine heals and
    * validates whatever the planner returns against the request the client
    * sent. Validation accepts a needs-clarification result only for a request
-   * that set `skipReply: true`, and `Engine.handle` currently refuses it even
-   * then with `Err(ValidationError)` on field `skipReply`.
+   * that set `skipReply: true`. `Engine.handle` then ships a replyless
+   * response with `userMessage` absent. It still refuses a needs-clarification
+   * result with `Err(ValidationError)` on field `skipReply`.
    */
   readonly planner: ClarifyingPlanner;
   /**
