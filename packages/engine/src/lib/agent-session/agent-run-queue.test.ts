@@ -42,8 +42,10 @@ import {
   DEFAULT_AGENT_RUN_BUDGETS,
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
-import type { ShowPlanInput, ShowPlanner } from './planner-show-queue.js';
+import { createPlannerShowQueue } from './planner-show-queue.js';
+import type { RunObserver } from './run-scheduler.js';
 import { serverTool, ToolError } from './server-tool.js';
+import type { SessionPlanInput, SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, toolCallRef } from './transcript.js';
 
@@ -1088,7 +1090,7 @@ describe('agent run queue', () => {
       const runId = runIdOf(session.received, 'input-1');
       expect(session.showPlans).toHaveLength(1);
       const [plan] = session.showPlans;
-      expect(plan).toMatchObject({
+      expect(plan?.owner).toEqual({
         runId,
         inputId: MessageId('input-1'),
         turnId: `${runId}:t1`,
@@ -1139,7 +1141,7 @@ describe('agent run queue', () => {
       const session = createSession({
         model: model.adapter,
         tools: [orderTool().tool],
-        planShow: (input) =>
+        planner: (input) =>
           Promise.resolve(
             ok({ type: 'response', response: showResponse(input, 1) }),
           ),
@@ -1185,7 +1187,7 @@ describe('agent run queue', () => {
       const session = createSession({
         model: model.adapter,
         tools: [orderTool().tool],
-        planShow: () => new Promise(() => {}),
+        planner: () => new Promise(() => {}),
       });
 
       await session.queue.enqueue(utterance('input-1', 'show my last order'));
@@ -1212,7 +1214,7 @@ describe('agent run queue', () => {
       const session = createSession({
         model: model.adapter,
         tools: [orderTool().tool],
-        planShow: async () => {
+        planner: async () => {
           planned.resolve();
           return ok({ type: 'response', response: await outcome.promise });
         },
@@ -1255,7 +1257,7 @@ const TEST_BUDGETS: AgentRunBudgets = {
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 30_000;
 
-const nothingToShowPlanner: ShowPlanner = (input) =>
+const nothingToShowPlanner: SessionPlanner = (input) =>
   Promise.resolve(ok({ type: 'response', response: showResponse(input, 0) }));
 
 const silentLogger: Logger = {
@@ -1273,7 +1275,7 @@ interface SessionOverrides {
   readonly logger?: Logger;
   readonly startRun?: AgentRunStarter;
   readonly transcript?: ReturnType<typeof createTranscript>;
-  readonly planShow?: ShowPlanner;
+  readonly planner?: SessionPlanner;
 }
 
 function createSession(overrides: SessionOverrides = {}) {
@@ -1288,8 +1290,25 @@ function createSession(overrides: SessionOverrides = {}) {
   const toolResults = createToolResultStore();
   const user = { id: USER_SENTINEL };
   const budgets = overrides.budgets;
-  const showPlans: ShowPlanInput[] = [];
-  const planShow = overrides.planShow ?? nothingToShowPlanner;
+  const showPlans: SessionPlanInput[] = [];
+  const planner = overrides.planner ?? nothingToShowPlanner;
+  const observe: RunObserver = (_runId, _inputId, kind, metadata) => {
+    observed.push({ kind, metadata });
+  };
+  const logger = overrides.logger ?? silentLogger;
+  const shows = createPlannerShowQueue({
+    planner: (input) => {
+      showPlans.push(input);
+      return planner(input);
+    },
+    events,
+    observe,
+    recordShowNote: (runId, turnId, text) =>
+      transcript.recordShowNote(runId, turnId, text),
+    logger,
+    scheduleTimeout: time.clock.scheduleTimeout,
+    acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
+  });
   const queue = createAgentRunQueue({
     agent: resolveAgentConfig({
       model: overrides.model ?? scriptedTextAdapter([]).adapter,
@@ -1302,17 +1321,11 @@ function createSession(overrides: SessionOverrides = {}) {
     }),
     identity: { user, token: TOKEN_SENTINEL },
     events,
-    observe: (_runId, _inputId, kind, metadata) => {
-      observed.push({ kind, metadata });
-    },
-    logger: overrides.logger ?? silentLogger,
+    observe,
+    logger,
     clock: time.clock.now,
     scheduleTimeout: time.clock.scheduleTimeout,
-    planShow: (input) => {
-      showPlans.push(input);
-      return planShow(input);
-    },
-    acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
+    shows,
     transcript,
     toolResults,
     ...(overrides.startRun === undefined
@@ -1367,7 +1380,7 @@ function orderTool(
 }
 
 function showResponse(
-  input: ShowPlanInput,
+  input: SessionPlanInput,
   actions: number,
 ): MaelstromResponse {
   return {

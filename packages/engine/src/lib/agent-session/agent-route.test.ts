@@ -68,16 +68,11 @@ import { NOT_RUN_TOOL_SUMMARY } from './agent-run-policy.js';
 import * as agentRunQueueModule from './agent-run-queue.js';
 import type { AgentRunQueue, AgentRunQueueOptions } from './agent-run-queue.js';
 import { type AgentRunBudgets, BUDGET_CLOSING_MESSAGE } from './agent-run.js';
-import type { ShowPlanner } from './planner-show-queue.js';
-import {
-  createToolResultStore,
-  type ToolResultStore,
-} from './tool-result-store.js';
-import {
-  createTranscript,
-  toolCallRef,
-  type Transcript,
-} from './transcript.js';
+import * as plannerShowQueueModule from './planner-show-queue.js';
+import type { PlannerShowQueueOptions } from './planner-show-queue.js';
+import type { SessionPlanner } from './session-planner.js';
+import type { ToolResultStore } from './tool-result-store.js';
+import { toolCallRef, type Transcript } from './transcript.js';
 
 const USER_SENTINEL = 'user-sentinel-7f3a';
 const TOKEN_SENTINEL = 'token-sentinel-91c2';
@@ -97,23 +92,32 @@ const TEST_BUDGETS: AgentRunBudgets = {
 };
 
 const realCreateAgentRunQueue = agentRunQueueModule.createAgentRunQueue;
+const realCreatePlannerShowQueue =
+  plannerShowQueueModule.createPlannerShowQueue;
 const sessionInternals: SessionInternals[] = [];
+let lastShowPlanner: SessionPlanner | undefined;
+
+void mock.module('./planner-show-queue.js', () => ({
+  ...plannerShowQueueModule,
+  createPlannerShowQueue: (options: PlannerShowQueueOptions) => {
+    lastShowPlanner = options.planner;
+    return realCreatePlannerShowQueue(options);
+  },
+}));
 
 void mock.module('./agent-run-queue.js', () => ({
   ...agentRunQueueModule,
   createAgentRunQueue: (options: AgentRunQueueOptions): AgentRunQueue => {
-    const transcript = options.transcript ?? createTranscript();
-    const toolResults = options.toolResults ?? createToolResultStore();
-    const queue = realCreateAgentRunQueue({
-      ...options,
-      transcript,
-      toolResults,
-    });
+    const planner = lastShowPlanner;
+    if (planner === undefined)
+      throw new Error('the connection created no show queue');
+    lastShowPlanner = undefined;
+    const queue = realCreateAgentRunQueue(options);
     sessionInternals.push({
       queue,
-      transcript,
-      toolResults,
-      planShow: options.planShow,
+      transcript: options.transcript,
+      toolResults: options.toolResults,
+      planner,
     });
     return queue;
   },
@@ -881,7 +885,7 @@ describe('agent route through the Engine handle', () => {
       test('a needs-clarification result becomes the Planner question alone', async () => {
         const session = openAgentSession({ planner: clarifyingPlanner });
 
-        const result = await session.internals().planShow(directShowInput());
+        const result = await session.internals().planner(directShowInput());
 
         expect(result).toEqual(
           ok({
@@ -896,7 +900,7 @@ describe('agent route through the Engine handle', () => {
           planner: failingPlanner(providerError('provider down', undefined)),
         });
 
-        const result = await session.internals().planShow(directShowInput());
+        const result = await session.internals().planner(directShowInput());
 
         expect(isErr(result) && result.error._tag).toBe('ProviderError');
       });
@@ -909,7 +913,7 @@ describe('agent route through the Engine handle', () => {
 
         const pending = session
           .internals()
-          .planShow(directShowInput(controller.signal));
+          .planner(directShowInput(controller.signal));
         await blocking.entered;
         controller.abort('connection closed');
 
@@ -1775,7 +1779,7 @@ interface SessionInternals {
   readonly queue: AgentRunQueue;
   readonly transcript: Transcript;
   readonly toolResults: ToolResultStore;
-  readonly planShow: ShowPlanner;
+  readonly planner: SessionPlanner;
 }
 
 interface StalledCall {
@@ -2009,9 +2013,11 @@ function directShowInput(signal = new AbortController().signal) {
   return {
     request: { ...calendarChart(), skipReply: true },
     messageId: MessageId('direct-show'),
-    runId: RunId('direct-run'),
-    inputId: MessageId('direct-input'),
-    turnId: 'direct-run:t1',
+    owner: {
+      runId: RunId('direct-run'),
+      inputId: MessageId('direct-input'),
+      turnId: 'direct-run:t1',
+    },
     signal,
   };
 }

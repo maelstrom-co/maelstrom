@@ -26,10 +26,7 @@ import {
   runAgent,
 } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
-import {
-  createPlannerShowQueue,
-  type ShowPlanner,
-} from './planner-show-queue.js';
+import type { PlannerShowQueue } from './planner-show-queue.js';
 import {
   type AgentRunCounters,
   buildAcceptanceEvents,
@@ -40,15 +37,8 @@ import {
 import type { RunObserver } from './run-scheduler.js';
 import { describeShowQueued } from './screen-note.js';
 import { collectShowFacts } from './show-request.js';
-import {
-  createToolResultStore,
-  type ToolResultStore,
-} from './tool-result-store.js';
-import {
-  createTranscript,
-  TRANSCRIPT_MAX_CHARS,
-  type Transcript,
-} from './transcript.js';
+import type { ToolResultStore } from './tool-result-store.js';
+import type { Transcript } from './transcript.js';
 
 /** Starts one Agent Run. Defaults to {@link runAgent}. */
 export type AgentRunStarter = (
@@ -72,17 +62,15 @@ export interface AgentRunQueueOptions {
   readonly clock: () => number;
   /** Schedules a callback and returns a function that cancels it. */
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
-  /** Plans the show a tool phase with a successful result asks for. */
-  readonly planShow: ShowPlanner;
-  /** How long a loop-driven change may await its acknowledgement before the next show starts. */
-  readonly acknowledgementTimeoutMs: number;
   /**
-   * Session transcript later runs build on. Defaults to a new one bounded by
-   * {@link TRANSCRIPT_MAX_CHARS}.
+   * The connection's loop-driven shows. A tool phase with a successful
+   * result requests one, and the queue closes them when it closes.
    */
-  readonly transcript?: Transcript;
-  /** Session store of full tool results. Defaults to a new one. */
-  readonly toolResults?: ToolResultStore;
+  readonly shows: PlannerShowQueue;
+  /** Session transcript later runs build on, the one the shows record their notes in. */
+  readonly transcript: Transcript;
+  /** Session store of full tool results. */
+  readonly toolResults: ToolResultStore;
   /** Starts each run. Defaults to {@link runAgent}. */
   readonly startRun?: AgentRunStarter;
 }
@@ -124,10 +112,9 @@ export function createAgentRunQueue({
   logger,
   clock,
   scheduleTimeout,
-  planShow,
-  acknowledgementTimeoutMs,
-  transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS }),
-  toolResults = createToolResultStore(),
+  shows,
+  transcript,
+  toolResults,
   startRun = runAgent,
 }: AgentRunQueueOptions): AgentRunQueue {
   const queue: QueuedAgentRun[] = [];
@@ -135,17 +122,6 @@ export function createAgentRunQueue({
   let active: ActiveAgentRun | undefined;
   let toolsSettling: Promise<void> | undefined;
   let closed = false;
-  const shows = createPlannerShowQueue({
-    planShow,
-    events,
-    observe,
-    recordShowNote: (runId, turnId, text) =>
-      transcript.recordShowNote(runId, turnId, text),
-    logger,
-    scheduleTimeout,
-    acknowledgementTimeoutMs,
-  });
-
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
 
   const measuredSince = (

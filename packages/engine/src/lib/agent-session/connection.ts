@@ -9,13 +9,15 @@ import {
   createOrderedEmitter,
   type OrderedEmitter,
 } from './ordered-emitter.js';
-import type { ShowPlanner } from './planner-show-queue.js';
+import { createPlannerShowQueue } from './planner-show-queue.js';
 import {
   createRunScheduler,
   type RunObserver,
   type RunScheduler,
-  type UiChangePlanner,
 } from './run-scheduler.js';
+import type { SessionPlanner } from './session-planner.js';
+import { createToolResultStore } from './tool-result-store.js';
+import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';
 
 /** Server-owned context and clock for one connection. Never supplied to the Planner. */
 export interface OpenConnectionOptions {
@@ -74,15 +76,21 @@ export interface AgentConnection {
   close(): void;
 }
 
+/** What the Engine wires into each {@link AgentConnection}. */
+export interface AgentConnectionDependencies {
+  /** Plans every UI change of the connection, on either route. */
+  readonly planner: SessionPlanner;
+  /** Receives diagnostic observations of each run and change. */
+  readonly observe: RunObserver;
+  /** Receives delivered events and run failures. */
+  readonly logger: Logger;
+  /** The resolved agent slot. Without it every utterance takes the UI-only route. */
+  readonly agent?: ResolvedAgentConfig;
+}
+
 export function createAgentConnection(
   options: OpenConnectionOptions,
-  plan: UiChangePlanner,
-  observe: RunObserver,
-  logger: Logger,
-  agent?: {
-    readonly config: ResolvedAgentConfig;
-    readonly planShow: ShowPlanner;
-  },
+  { planner, observe, logger, agent }: AgentConnectionDependencies,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -106,26 +114,23 @@ export function createAgentConnection(
   const runs =
     agent === undefined
       ? createRunScheduler({
-          plan,
+          planner,
           observe,
+          logger,
           events,
           signal: controller.signal,
           clock,
           acknowledgementTimeoutMs,
         })
       : agentRuns(
-          createAgentRunQueue({
-            agent: agent.config,
-            identity: {
-              user: options.user,
-              ...(options.token === undefined ? {} : { token: options.token }),
-            },
-            events,
+          createAgentRoute({
+            options,
+            agent,
+            planner,
             observe,
             logger,
+            events,
             clock,
-            scheduleTimeout: options.scheduleTimeout ?? scheduleGlobalTimeout,
-            planShow: agent.planShow,
             acknowledgementTimeoutMs,
           }),
           events,
@@ -149,6 +154,54 @@ export function createAgentConnection(
         await runs.enqueue(admitted.input);
     },
   };
+}
+
+function createAgentRoute({
+  options,
+  agent,
+  planner,
+  observe,
+  logger,
+  events,
+  clock,
+  acknowledgementTimeoutMs,
+}: {
+  readonly options: OpenConnectionOptions;
+  readonly agent: ResolvedAgentConfig;
+  readonly planner: SessionPlanner;
+  readonly observe: RunObserver;
+  readonly logger: Logger;
+  readonly events: OrderedEmitter<AgentEvent>;
+  readonly clock: () => number;
+  readonly acknowledgementTimeoutMs: number;
+}): AgentRunQueue {
+  const scheduleTimeout = options.scheduleTimeout ?? scheduleGlobalTimeout;
+  const transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS });
+  const shows = createPlannerShowQueue({
+    planner,
+    events,
+    observe,
+    recordShowNote: (runId, turnId, text) =>
+      transcript.recordShowNote(runId, turnId, text),
+    logger,
+    scheduleTimeout,
+    acknowledgementTimeoutMs,
+  });
+  return createAgentRunQueue({
+    agent,
+    identity: {
+      user: options.user,
+      ...(options.token === undefined ? {} : { token: options.token }),
+    },
+    events,
+    observe,
+    logger,
+    clock,
+    scheduleTimeout,
+    shows,
+    transcript,
+    toolResults: createToolResultStore(),
+  });
 }
 
 function agentRuns(

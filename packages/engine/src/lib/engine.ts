@@ -19,10 +19,11 @@ import {
   createAgentConnection,
   type OpenConnectionOptions,
 } from './agent-session/index.js';
-import type {
-  LoopDrivenPlanOutcome,
-  ShowPlanner,
-} from './agent-session/planner-show-queue.js';
+import {
+  type PlanOutcome,
+  requireResponse,
+  type SessionPlanner,
+} from './agent-session/session-planner.js';
 import { assertNever } from './assert-never.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
@@ -449,34 +450,22 @@ export function createEngine(config: EngineConfig): Engine {
     logger,
   });
 
-  const createShowPlanner =
-    (sessionId: SessionId): ShowPlanner =>
+  const createSessionPlanner =
+    (sessionId: SessionId): SessionPlanner =>
     (input) =>
       runChartRequest(
         agentChartRequest(sessionId, input.messageId, input.request),
-        shipLoopDrivenOutcome,
+        shipPlanOutcome,
         input.signal,
         [],
-        { runId: input.runId, inputId: input.inputId, turnId: input.turnId },
+        input.owner,
       );
 
   return {
     openConnection: (options) =>
-      createAgentConnection(
-        options,
-        (input) =>
-          runChartRequest(
-            agentChartRequest(
-              options.sessionId,
-              input.messageId,
-              input.request,
-            ),
-            requireShippableReply,
-            input.signal,
-            [],
-            { runId: input.runId, inputId: input.messageId },
-          ),
-        (runId, inputId, kind, metadata, readContent) =>
+      createAgentConnection(options, {
+        planner: createSessionPlanner(options.sessionId),
+        observe: (runId, inputId, kind, metadata, readContent) =>
           diagnosticsEmitter.emit(
             options.sessionId,
             { runId, inputId },
@@ -485,13 +474,8 @@ export function createEngine(config: EngineConfig): Engine {
             readContent,
           ),
         logger,
-        agent === undefined
-          ? undefined
-          : {
-              config: agent,
-              planShow: createShowPlanner(options.sessionId),
-            },
-      ),
+        ...(agent === undefined ? {} : { agent }),
+      }),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>
       diagnosticsEmitter.subscribeMetadata(observer),
@@ -758,78 +742,42 @@ function agentChartRequest(
 
 // Validation accepts a missing or blank reply and a clarification only under
 // skipReply, so this is the Engine's ship boundary for them. "No reply" ships
-// as an absent userMessage, never as '', so a blank one is dropped here. A
-// chart_response has no shape for a clarification, so that is refused.
-function requireShippableReply(
+// as an absent userMessage, never as '', so a blank one is dropped here.
+function shipPlanOutcome(
   outcome: FullValidatedPlannerOutput,
-  messageId: MessageId,
-  logger: Logger,
-): Result<MaelstromResponse, EngineError> {
+): Result<PlanOutcome, EngineError> {
   switch (outcome.type) {
     case 'needs_clarification':
-      return refuseReplylessOutcome(
-        'a needs-clarification result',
-        messageId,
-        logger,
-      );
+      return ok({ type: 'needs_clarification', question: outcome.question });
     case 'maelstrom_response': {
       const {
         userMessage,
         diagnostics: _diagnostics,
         ...withoutReply
       } = outcome;
-      if (userMessage === undefined || userMessage.trim() === '') {
-        return ok(withoutReply);
-      }
-      return ok({ ...withoutReply, userMessage });
-    }
-    default: {
-      const unhandled: never = outcome;
-      return err(
-        validationError(
-          `unhandled validated planner outcome: ${String(unhandled)}`,
-          'planner',
-        ),
-      );
-    }
-  }
-}
-
-// A loop-driven show never speaks for the agent, so the Planner's reply is
-// dropped whatever it says, and a clarification ships only its question.
-function shipLoopDrivenOutcome(
-  outcome: FullValidatedPlannerOutput,
-): Result<LoopDrivenPlanOutcome, EngineError> {
-  switch (outcome.type) {
-    case 'needs_clarification':
-      return ok({ type: 'needs_clarification', question: outcome.question });
-    case 'maelstrom_response': {
-      const {
-        userMessage: _userMessage,
-        diagnostics: _diagnostics,
-        ...response
-      } = outcome;
-      return ok({ type: 'response', response });
+      return ok({
+        type: 'response',
+        response:
+          userMessage === undefined || userMessage.trim() === ''
+            ? withoutReply
+            : { ...withoutReply, userMessage },
+      });
     }
     default:
-      return assertNever(outcome, 'engine.shipLoopDrivenOutcome');
+      return assertNever(outcome, 'engine.shipPlanOutcome');
   }
 }
 
-function refuseReplylessOutcome(
-  outcome: string,
+// A chart_response has no shape for a clarification, so that is refused.
+function requireShippableReply(
+  outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
   logger: Logger,
-): Result<never, EngineError> {
-  const failure = validationError(
-    `skipReply is not supported on this path: the planner returned ${outcome}, and a chart_response has no shape for a clarification`,
-    'skipReply',
-  );
-  logger.warn('Refused a skipReply outcome the Engine cannot ship', {
-    messageId,
-    outcome,
-  });
-  return err(failure);
+): Result<MaelstromResponse, EngineError> {
+  const shipped = shipPlanOutcome(outcome);
+  return isErr(shipped)
+    ? shipped
+    : requireResponse(shipped.value, messageId, logger);
 }
 
 // Custom stages may not log their own failures; one line per request keeps

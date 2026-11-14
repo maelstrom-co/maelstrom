@@ -20,41 +20,8 @@ import type { AgentRunClock } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import { changeError, type RunObserver } from './run-scheduler.js';
 import { describeScreenUpdate } from './screen-note.js';
+import type { PlanOutcome, SessionPlanner } from './session-planner.js';
 import { buildShowRequest } from './show-request.js';
-
-/** One loop-driven Planner call, made for a show when its turn in the queue comes. */
-export interface ShowPlanInput {
-  /** The request built from the latest Chart, with `skipReply: true`. */
-  readonly request: ChartRequest;
-  /** Fresh message id of this Planner call, distinct from the run's input id. */
-  readonly messageId: MessageId;
-  /** The Agent Run whose tool phase asked for the show. */
-  readonly runId: RunId;
-  /** The utterance that started that run. */
-  readonly inputId: MessageId;
-  /** The model turn whose tool phase asked for the show. */
-  readonly turnId: string;
-  /** Aborted when the queue closes. */
-  readonly signal: AbortSignal;
-}
-
-/** What a loop-driven Planner call settled on. */
-export type LoopDrivenPlanOutcome =
-  | {
-      readonly type: 'response';
-      /** The validated change, with any `userMessage` already removed. */
-      readonly response: MaelstromResponse;
-    }
-  | {
-      readonly type: 'needs_clarification';
-      /** The question the Planner asked instead of planning a change. */
-      readonly question: string;
-    };
-
-/** Plans one loop-driven show. The Engine builds it from its Planner. */
-export type ShowPlanner = (
-  input: ShowPlanInput,
-) => Promise<Result<LoopDrivenPlanOutcome, EngineError>>;
 
 /** A show a tool phase asks for. */
 export interface LoopDrivenShow {
@@ -74,8 +41,11 @@ export interface LoopDrivenShow {
 
 /** Everything a {@link PlannerShowQueue} needs. */
 export interface PlannerShowQueueOptions {
-  /** Plans each show. */
-  readonly planShow: ShowPlanner;
+  /**
+   * Plans each show with a `skipReply: true` request. Any `userMessage` it
+   * returns is dropped from the change.
+   */
+  readonly planner: SessionPlanner;
   /** The connection's ordered event stream. */
   readonly events: OrderedEmitter<AgentEvent>;
   /** Receives diagnostic observations of each change. */
@@ -118,7 +88,7 @@ export interface PlannerShowQueue {
 
 /** Creates the {@link PlannerShowQueue} of one connection. */
 export function createPlannerShowQueue({
-  planShow,
+  planner,
   events,
   observe,
   recordShowNote,
@@ -194,7 +164,7 @@ export function createPlannerShowQueue({
           }
           break;
         default:
-          assertNever(outcome, 'LoopDrivenPlanOutcome');
+          assertNever(outcome, 'PlanOutcome');
       }
     }
     startNextShow();
@@ -203,12 +173,14 @@ export function createPlannerShowQueue({
   const plan = async (job: ShowJob) => {
     let result: ShowPlanResult;
     try {
-      result = await planShow({
+      result = await planner({
         request: job.request,
         messageId: job.messageId,
-        runId: job.show.runId,
-        inputId: job.show.inputId,
-        turnId: job.show.turnId,
+        owner: {
+          runId: job.show.runId,
+          inputId: job.show.inputId,
+          turnId: job.show.turnId,
+        },
         signal: job.controller.signal,
       });
     } catch (error) {
@@ -334,7 +306,7 @@ interface ShowJob {
 }
 
 type ShowPlanResult =
-  | Result<LoopDrivenPlanOutcome, EngineError>
+  | Result<PlanOutcome, EngineError>
   | { readonly thrownName: string };
 
 type ShowQueueState =

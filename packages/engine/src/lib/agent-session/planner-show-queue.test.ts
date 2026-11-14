@@ -28,11 +28,10 @@ import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.j
 import { createOrderedEmitter } from './ordered-emitter.js';
 import {
   createPlannerShowQueue,
-  type LoopDrivenPlanOutcome,
   type LoopDrivenShow,
-  type ShowPlanInput,
 } from './planner-show-queue.js';
 import { describeScreenUpdate } from './screen-note.js';
+import type { PlanOutcome, SessionPlanInput } from './session-planner.js';
 import { buildShowRequest } from './show-request.js';
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
@@ -54,9 +53,9 @@ describe('createPlannerShowQueue', () => {
     expect(input.request).toEqual(
       buildShowRequest(monthChart, show(1).intent, show(1).intentFacts),
     );
-    expect(input.runId).toBe(show(1).runId);
-    expect(input.inputId).toBe(show(1).inputId);
-    expect(input.turnId).toBe(show(1).turnId);
+    expect(input.owner.runId).toBe(show(1).runId);
+    expect(input.owner.inputId).toBe(show(1).inputId);
+    expect(input.owner.turnId).toBe(show(1).turnId);
     expect(input.messageId).not.toBe(show(1).inputId);
     expect(input.signal.aborted).toBe(false);
   });
@@ -281,8 +280,8 @@ describe('createPlannerShowQueue', () => {
     expect(first.signal.aborted).toBe(true);
     expect(harness.planner.calls).toHaveLength(2);
     const replanned = harness.planner.input(1);
-    expect(replanned.runId).toBe(show(1).runId);
-    expect(replanned.turnId).toBe(show(1).turnId);
+    expect(replanned.owner.runId).toBe(show(1).runId);
+    expect(replanned.owner.turnId).toBe(show(1).turnId);
     expect(replanned.request).toEqual(
       buildShowRequest(weekChart, show(1).intent, show(1).intentFacts),
     );
@@ -338,10 +337,10 @@ describe('createPlannerShowQueue', () => {
     harness.queue.noteChart(weekChart);
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).runId).toBe(show(1).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(show(1).runId);
     harness.planner.respond(1, nothingToShow(weekChart));
     await harness.planner.nextCall();
-    expect(harness.planner.input(2).runId).toBe(show(2).runId);
+    expect(harness.planner.input(2).owner.runId).toBe(show(2).runId);
     expect(harness.planner.input(2).request.instances).toEqual(
       weekChart.instances,
     );
@@ -637,7 +636,7 @@ function createHarness() {
   };
   const planner = createControlledPlanner();
   const queue = createPlannerShowQueue({
-    planShow: planner.planShow,
+    planner: planner.plan,
     events,
     observe: (runId, inputId, kind, metadata, readContent) =>
       observed.push({ runId, inputId, kind, metadata, readContent }),
@@ -670,8 +669,8 @@ function createHarness() {
 
 function createControlledPlanner() {
   const calls: {
-    readonly input: ShowPlanInput;
-    readonly result: Deferred<Result<LoopDrivenPlanOutcome, EngineError>>;
+    readonly input: SessionPlanInput;
+    readonly result: Deferred<Result<PlanOutcome, EngineError>>;
   }[] = [];
   const callWaiters: (() => void)[] = [];
   const call = (index: number) => {
@@ -679,12 +678,12 @@ function createControlledPlanner() {
     if (entry === undefined) throw new Error(`No Planner call ${index}`);
     return entry;
   };
-  const outcome = (index: number, value: LoopDrivenPlanOutcome) =>
+  const outcome = (index: number, value: PlanOutcome) =>
     call(index).result.resolve(ok(value));
   return {
     calls,
-    planShow: (input: ShowPlanInput) => {
-      const result = defer<Result<LoopDrivenPlanOutcome, EngineError>>();
+    plan: (input: SessionPlanInput) => {
+      const result = defer<Result<PlanOutcome, EngineError>>();
       calls.push({ input, result });
       callWaiters.shift()?.();
       return result.promise;
