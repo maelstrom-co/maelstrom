@@ -1,13 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  ActionName,
   AGENT_WIRE_VERSION,
   type AgentEvent,
   AgentEventSchema,
+  type AgentUiAppliedInput,
   type AgentUtteranceInput,
   CallId,
+  type ChangeId,
   type DiagnosticMetadata,
+  InstanceId,
+  type JsonValue,
+  type MaelstromResponse,
   MessageId,
+  ok,
   type RunId,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
@@ -35,7 +42,8 @@ import {
   DEFAULT_AGENT_RUN_BUDGETS,
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
-import { serverTool } from './server-tool.js';
+import type { ShowPlanInput, ShowPlanner } from './planner-show-queue.js';
+import { serverTool, ToolError } from './server-tool.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, toolCallRef } from './transcript.js';
 
@@ -1057,6 +1065,173 @@ describe('agent run queue', () => {
       ).toEqual(['accepted', 'started', 'finished']);
     });
   });
+
+  describe('loop-driven shows', () => {
+    test('a tool phase with a successful result records the queued note and requests one show for the utterance', async () => {
+      const order = orderTool({
+        intentFacts: (output) => ({ orderId: output.orderId }),
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [order.tool],
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(session.showPlans).toHaveLength(1);
+      const [plan] = session.showPlans;
+      expect(plan).toMatchObject({
+        runId,
+        inputId: MessageId('input-1'),
+        turnId: `${runId}:t1`,
+      });
+      expect(plan?.request.skipReply).toBe(true);
+      expect(plan?.request.intentFacts).toEqual({
+        'latest_order:c1': { orderId: 'o-1' },
+      });
+      expect(plan?.request.context.updateReasons).toEqual([
+        { type: 'user_intent', intent: 'show my last order' },
+      ]);
+      expect(renderedTranscript(session.transcript)).toContain(
+        `[show ${runId}:t1] Show queued: latest_order result.`,
+      );
+    });
+
+    test('a tool phase whose only result failed requests no show and writes no note', async () => {
+      const order = orderTool({
+        latestOrder: () => Promise.reject(new ToolError('No orders yet.')),
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['You have no orders.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [order.tool],
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      await flushMacrotasks();
+
+      expect(session.showPlans).toHaveLength(0);
+      expect(renderedTranscript(session.transcript)).not.toContain('[show ');
+    });
+
+    test('an acknowledgement reaches the show queue, which writes the screen note or refuses an unknown change', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        planShow: (input) =>
+          Promise.resolve(
+            ok({ type: 'response', response: showResponse(input, 1) }),
+          ),
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
+      const runId = runIdOf(session.received, 'input-1');
+      expect(change.runId).toBe(runId);
+
+      session.queue.acknowledge(applied(change.changeId, 1));
+      expect(renderedTranscript(session.transcript)).toContain(
+        `[show ${runId}:t1] Screen updated: ran addEvent on calendar`,
+      );
+
+      const before = session.received.length;
+      session.queue.acknowledge(applied(change.changeId, 1));
+      expect(session.received.slice(before)).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: change.changeId,
+          code: 'unknown_change',
+          error: 'Unknown UI change.',
+        },
+      ]);
+    });
+
+    test('the run finishes while its show is still planning', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        planShow: () => new Promise(() => {}),
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+
+      expect(session.showPlans).toHaveLength(1);
+      expect(model.requests).toHaveLength(2);
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+        reply: 'It was o-1.',
+      });
+      expect(session.queue.pendingRuns()).toBe(0);
+    });
+
+    test('closing the queue aborts the show in flight and emits no later change', async () => {
+      const planned = defer<void>();
+      const outcome = defer<MaelstromResponse>();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = createSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        planShow: async () => {
+          planned.resolve();
+          return ok({ type: 'response', response: await outcome.promise });
+        },
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      await planned.promise;
+      session.queue.close();
+      const [plan] = session.showPlans;
+      if (plan === undefined) throw new Error('no show planned');
+      expect(plan.signal.aborted).toBe(true);
+      outcome.resolve(showResponse(plan, 1));
+      await flushMacrotasks();
+
+      expect(session.received.some((event) => event.type === 'ui_change')).toBe(
+        false,
+      );
+    });
+  });
 });
 
 const USER_SENTINEL = 'USER-SENTINEL-42';
@@ -1078,6 +1253,11 @@ const TEST_BUDGETS: AgentRunBudgets = {
   maxToolCalls: 6,
 };
 
+const ACKNOWLEDGEMENT_TIMEOUT_MS = 30_000;
+
+const nothingToShowPlanner: ShowPlanner = (input) =>
+  Promise.resolve(ok({ type: 'response', response: showResponse(input, 0) }));
+
 const silentLogger: Logger = {
   debug: () => undefined,
   info: () => undefined,
@@ -1093,6 +1273,7 @@ interface SessionOverrides {
   readonly logger?: Logger;
   readonly startRun?: AgentRunStarter;
   readonly transcript?: ReturnType<typeof createTranscript>;
+  readonly planShow?: ShowPlanner;
 }
 
 function createSession(overrides: SessionOverrides = {}) {
@@ -1107,6 +1288,8 @@ function createSession(overrides: SessionOverrides = {}) {
   const toolResults = createToolResultStore();
   const user = { id: USER_SENTINEL };
   const budgets = overrides.budgets;
+  const showPlans: ShowPlanInput[] = [];
+  const planShow = overrides.planShow ?? nothingToShowPlanner;
   const queue = createAgentRunQueue({
     agent: resolveAgentConfig({
       model: overrides.model ?? scriptedTextAdapter([]).adapter,
@@ -1125,6 +1308,11 @@ function createSession(overrides: SessionOverrides = {}) {
     logger: overrides.logger ?? silentLogger,
     clock: time.clock.now,
     scheduleTimeout: time.clock.scheduleTimeout,
+    planShow: (input) => {
+      showPlans.push(input);
+      return planShow(input);
+    },
+    acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
     transcript,
     toolResults,
     ...(overrides.startRun === undefined
@@ -1137,6 +1325,7 @@ function createSession(overrides: SessionOverrides = {}) {
     transcript,
     toolResults,
     user,
+    showPlans,
     finishedMetadata: () =>
       observed
         .filter((entry) => entry.kind === 'engine.agent.run.finished')
@@ -1149,6 +1338,9 @@ function orderTool(
     readonly latestOrder?: (
       signal: AbortSignal,
     ) => Promise<typeof LATEST_ORDER>;
+    readonly intentFacts?: (
+      order: typeof LATEST_ORDER,
+    ) => Readonly<Record<string, JsonValue>>;
   } = {},
 ) {
   const contexts: { user: unknown; token?: string }[] = [];
@@ -1167,8 +1359,45 @@ function orderTool(
       );
     },
     summarize: (output) => `Order ${output.orderId}`,
+    ...(options.intentFacts === undefined
+      ? {}
+      : { intentFacts: options.intentFacts }),
   });
   return { tool, contexts, args };
+}
+
+function showResponse(
+  input: ShowPlanInput,
+  actions: number,
+): MaelstromResponse {
+  return {
+    type: 'maelstrom_response',
+    requestId: input.messageId,
+    rationale: 'Show the order.',
+    executionPlan: Array.from({ length: actions }, () => ({
+      instanceId: InstanceId('calendar-main'),
+      action: ActionName('addEvent'),
+    })),
+    layout: structuredClone(
+      input.request.layout,
+    ) as MaelstromResponse['layout'],
+  };
+}
+
+function applied(changeId: ChangeId, outcomes: number): AgentUiAppliedInput {
+  return {
+    type: 'ui_applied',
+    version: AGENT_WIRE_VERSION,
+    changeId,
+    chart: makeTilingRequest(),
+    actionOutcomes: Array.from({ length: outcomes }, () => ({ ok: true })),
+  };
+}
+
+function renderedTranscript(
+  transcript: ReturnType<typeof createTranscript>,
+): string {
+  return JSON.stringify(transcript.renderPriorMessages());
 }
 
 function utterance(inputId: string, text: string): AgentUtteranceInput {

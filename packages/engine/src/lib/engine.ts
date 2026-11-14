@@ -498,7 +498,12 @@ export function createEngineInternals(config: EngineConfig): EngineInternals {
             readContent,
           ),
         logger,
-        agent,
+        agent === undefined
+          ? undefined
+          : {
+              config: agent,
+              planShow: createShowPlanner(options.sessionId),
+            },
       ),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>
