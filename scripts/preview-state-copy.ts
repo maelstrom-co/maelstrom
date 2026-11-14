@@ -368,3 +368,89 @@ export async function copyPreviewState(
     destinationWasAbsent: true,
   };
 }
+
+/** Compares an existing copy within its original scope while callers remain continuously paused. */
+export async function comparePreviewCopy(
+  source: PreviewStateReader,
+  destination: PreviewStateReader,
+  manifest: PreviewCopyManifest,
+  origin: Pick<
+    PreviewCopyProof,
+    'resources' | 'outputs' | 'scopes' | 'legacyWorkers'
+  >,
+  guard: () => Promise<void>,
+) {
+  const selected = {
+    ...manifest,
+    additionalStages: [
+      ...new Set([
+        ...(manifest.additionalStages ?? []),
+        ...origin.scopes.map((scope) => scope.stage),
+      ]),
+    ],
+  };
+  const target = async () => {
+    const stacks = strings(await destination.stacks());
+    if (
+      stacks.some(
+        (stack) =>
+          !OSS_PREVIEW_STACKS.some((allowed) => allowed.stack === stack),
+      )
+    )
+      fail('PREVIEW_DESTINATION_FOREIGN_STATE');
+    return snapshotPreviewState(destination, { ...selected, workerNames: [] });
+  };
+  const protocols = async () => {
+    if ((await source.version()) !== 7 || (await destination.version()) !== 8)
+      fail('PREVIEW_COPY_PROTOCOL_REJECTED');
+  };
+  const ordered = (scopes: PreviewCopyProof['scopes']) =>
+    [...scopes].sort((a, b) =>
+      `${a.stack}/${a.stage}`.localeCompare(`${b.stack}/${b.stage}`),
+    );
+  await guard();
+  await protocols();
+  const before = await snapshotPreviewState(source, selected);
+  const copied = await target();
+  const summary = {
+    resources: before.snapshots.reduce((n, scope) => n + scope.rows.length, 0),
+    outputs: before.snapshots.filter((scope) => scope.output !== undefined)
+      .length,
+    scopes: ordered(
+      before.snapshots.map((scope) => ({
+        stack: scope.stack,
+        stage: scope.stage,
+        resources: scope.rows.length,
+        output: scope.output !== undefined,
+      })),
+    ),
+    legacyWorkers: before.legacy,
+  };
+  if (
+    digest(summary) !==
+      digest({
+        resources: origin.resources,
+        outputs: origin.outputs,
+        scopes: ordered(origin.scopes),
+        legacyWorkers: origin.legacyWorkers,
+      }) ||
+    digest(before.snapshots) !== digest(copied.snapshots)
+  )
+    fail('PREVIEW_COPY_VERIFICATION_FAILED');
+  await guard();
+  const after = await snapshotPreviewState(source, selected);
+  const targetAfter = await target();
+  await protocols();
+  if (
+    digest(before.snapshots) !== digest(after.snapshots) ||
+    digest(copied.snapshots) !== digest(targetAfter.snapshots)
+  )
+    fail('PREVIEW_COPY_CHANGED_DURING_VERIFICATION');
+  await guard();
+  return {
+    ...summary,
+    sourceUnchanged: true,
+    destinationUnchanged: true,
+    manifestVerified: true,
+  };
+}

@@ -210,6 +210,48 @@ while a workflow was disabled do not provide a deployment to resume.
 
 ## Recover a failed run
 
+### Revalidate a successful copy after a control fix
+
+Use this path only when the original copy succeeded and every OSS caller has
+remained paused since that copy. Keep the named-store pointer active and the
+five writer workflows disabled. Do not use it after an uncertain freeze or
+a failed or partial copy.
+
+Merge the reviewed control fix, then rebase and review the upgrade candidate.
+Wait for its current CI to pass and capture its new `upgrade_sha`.
+Keep `isolation_run_id` pointing to the original successful copy run.
+
+```sh
+gh workflow run alchemy-state-maintenance.yml --repo maelstrom-co/maelstrom --ref main \
+  -f target=preview -f source_pr=413 -f source_sha="$upgrade_sha" \
+  -f isolation_run_id="$isolation_run_id" -f callers_paused=true -f source_reviewed=true \
+  -f revalidate_copy=true -f continuous_caller_pause=true
+```
+
+The run authenticates the original copy receipt without replacing its revisions
+or attempt. Before creating a canary, it compares the selected source and target
+records and outputs, then reads both sides again to detect changes. It requires
+the original scope counts and protocols 7 and 8. This comparison cannot deploy
+Workers, create secrets, bootstrap a store, or write state. Authentication uses
+temporary edge previews of the two existing stores.
+
+The original receipt contains counts, not a historical content fingerprint.
+Current equality therefore relies on your continuous-pause confirmation.
+Unknown manual stages containing only outputs remain outside the API inventory;
+the check includes all repository PRs and every stage recorded in the original
+receipt. A visible extra record, scope, foreign stack, or remaining maintenance
+canary stops recovery. Investigate it separately; the comparison never repairs
+or deletes state.
+
+Accept the result only after the canary and its cleanup pass. The new preview
+receipt must contain `copyRevalidated: true`, `continuousCallerPause: true`, and
+`copyOrigin` with the original run, attempt, account, and revisions. Its top-level
+revisions must match the new candidate and current control. Use this new preview
+run for the production step. The original copy evidence must remain less than
+seven days old.
+
+### Reconcile a failed copy or bootstrap
+
 Leave OSS callers paused after any failure. A failed or cancelled copy can leave
 a partial named store. Do not activate routing, delete that store, or retry
 against it. The copy refuses an existing target. Reconcile the partial result

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { OSS_PREVIEW_STATE_STORE_WORKER } from '../infra/platform/src/PreviewStateStoreContract.ts';
@@ -10,7 +10,12 @@ import {
 import {
   assertIsolationRun,
   assertIsolationReceipt,
+  assertCopyOriginRun,
+  readCopyOrigin,
+  type IsolationCopyReceipt,
 } from './preview-state-isolation-receipt.ts';
+import { isolationPullNumbers } from './preview-state-manifest.ts';
+import { previewRevalidationSource } from './preview-state-revalidation.ts';
 
 const repository = 'maelstrom-co/maelstrom';
 const version = '2.0.0-beta.85';
@@ -61,6 +66,7 @@ interface Context {
   previewRun: string | undefined;
   isolationRun?: string;
   actor: string;
+  revalidateCopy: boolean;
 }
 
 /** Binds privileged operations to a manual main-branch run and explicit operator acknowledgements. */
@@ -95,6 +101,14 @@ export function maintenanceContext(env: Environment): Context {
       `Set ALCHEMY_REQUIRED_VERSION=${version} before maintenance`,
     );
   if (
+    env.REVALIDATE_COPY === 'true' &&
+    (env.MAINTENANCE_TARGET !== 'preview' ||
+      env.CONTINUOUS_CALLER_PAUSE !== 'true')
+  )
+    throw new Error(
+      'Copy revalidation requires preview and a continuous caller pause since the original copy',
+    );
+  if (
     env.MAINTENANCE_TARGET === 'production' &&
     (env.CONFIRM_PRODUCTION !== 'true' ||
       !env.PREVIEW_RUN_ID ||
@@ -125,6 +139,7 @@ export function maintenanceContext(env: Environment): Context {
     previewRun: env.PREVIEW_RUN_ID,
     isolationRun: env.ISOLATION_RUN_ID,
     actor,
+    revalidateCopy: env.REVALIDATE_COPY === 'true',
   };
 }
 
@@ -163,7 +178,7 @@ export async function assertWritersPaused(request: GithubRequest) {
 /** Prevents a changed, forked, unverified, or concurrently deployed source from receiving account credentials. */
 export async function assertCandidate(
   request: GithubRequest,
-  context: Context,
+  context: Pick<Context, 'pull' | 'sourceSha'>,
 ) {
   const pull = await request<{
     state: string;
@@ -349,6 +364,22 @@ interface Operations {
   verifyCheckout: (root: string, sha: string) => Promise<void>;
 }
 
+/** Runs the installed CLI with trusted Bun startup settings and no ambient configuration. */
+export function maintenanceCliCommand(
+  control: string,
+  root: string,
+  args: string[],
+) {
+  return [
+    process.execPath,
+    '--no-env-file',
+    '--no-install',
+    `--config=${join(control, 'scripts/preview-lifecycle.bunfig.toml')}`,
+    join(root, 'infra/platform/node_modules/alchemy/bin/cli.js'),
+    ...args,
+  ];
+}
+
 const operations: Operations = {
   sleep: Bun.sleep,
   fetch,
@@ -361,7 +392,10 @@ const operations: Operations = {
       stderr: showPlan ? 'inherit' : 'ignore',
       stdin: 'ignore',
     });
-    const timer = setTimeout(() => child.kill(9), 300_000);
+    const timer = setTimeout(
+      () => child.kill(9),
+      options.phase === 'revalidate-existing-preview-copy' ? 600_000 : 300_000,
+    );
     try {
       const [stdout, code] = await Promise.all([
         typeof child.stdout === 'object'
@@ -418,20 +452,30 @@ export async function executeMaintenance(
     context.target === 'preview'
       ? OSS_PREVIEW_STATE_STORE_WORKER
       : 'alchemy-state-store';
+  let copyOrigin: IsolationCopyReceipt | undefined;
   if (context.target === 'preview') {
-    const run = await assertIsolationRun(request, {
-      runId: context.isolationRun ?? '',
-      controlSha: context.controlSha,
-    });
     const raw = await readFile(requiredValue(env, 'ISOLATION_RECEIPT'), 'utf8');
     if (raw.length > 262_144) throw new Error('Isolation receipt is too large');
-    assertIsolationReceipt(JSON.parse(raw), {
-      runId: context.isolationRun ?? '',
-      attempt: String(run.run_attempt),
-      controlSha: context.controlSha,
-      sourceSha: context.sourceSha,
-      accountId: account,
-    });
+    if (context.revalidateCopy) {
+      copyOrigin = await readCopyOrigin(
+        request,
+        context.isolationRun ?? '',
+        JSON.parse(raw),
+        account,
+      );
+    } else {
+      const run = await assertIsolationRun(request, {
+        runId: context.isolationRun ?? '',
+        controlSha: context.controlSha,
+      });
+      assertIsolationReceipt(JSON.parse(raw), {
+        runId: context.isolationRun ?? '',
+        attempt: String(run.run_attempt),
+        controlSha: context.controlSha,
+        sourceSha: context.sourceSha,
+        accountId: account,
+      });
+    }
   }
   const profile = `${context.target}-ci`;
   const marker = `alchemy-state-canary-${context.runId}-${context.attempt}`;
@@ -482,7 +526,13 @@ export async function executeMaintenance(
   const guard = async (cleanup = false) => {
     accountEnvironment(env, context);
     await assertWritersPaused(request);
-    if (!cleanup) await assertCandidate(request, context);
+    if (!cleanup) {
+      await assertCandidate(request, context);
+      const main = await request<{ sha: string }>('/commits/main');
+      if (main.sha !== context.controlSha)
+        throw new Error('Maintenance control revision moved');
+      await assertOperator(request, context);
+    }
   };
   const invoke = async (
     cliVersion: string,
@@ -514,17 +564,11 @@ export async function executeMaintenance(
         OSS_PREVIEW_STATE_STORE_WORKER;
     console.log(JSON.stringify({ phase, target: context.target, cliVersion }));
     return ops.run({
-      argv: [
-        process.execPath,
-        '--no-env-file',
-        '--no-install',
-        '--config',
-        join(control, 'scripts/preview-lifecycle.bunfig.toml'),
-        'alchemy',
+      argv: maintenanceCliCommand(control, root, [
         ...args,
         '--profile',
         profile,
-      ],
+      ]),
       cwd: join(root, 'infra/platform'),
       env: childEnv,
       phase,
@@ -570,6 +614,82 @@ export async function executeMaintenance(
     }
   }
   try {
+    if (copyOrigin) {
+      await guard();
+      const checkFile = join(
+        source,
+        'infra/platform/.maintenance-copy-revalidation.ts',
+      );
+      const authDirectory = await mkdtemp(
+        join(requiredValue(env, 'RUNNER_TEMP'), 'alchemy-copy-check-'),
+      );
+      try {
+        await writeFile(
+          checkFile,
+          previewRevalidationSource(
+            control,
+            copyOrigin,
+            await isolationPullNumbers(request),
+            requiredValue(env, 'PREVIEW_WORKERS_DEV_SUFFIX'),
+          ),
+          { flag: 'wx' },
+        );
+        generated.add(checkFile);
+        const checkEnv: Record<string, string> = {
+          CI: 'true',
+          ALCHEMY_HOME: authDirectory,
+          CLOUDFLARE_API_TOKEN: token,
+          CLOUDFLARE_ACCOUNT_ID: account,
+          EXPECTED_CLOUDFLARE_ACCOUNT_ID: account,
+          ALCHEMY_PROFILE: profile,
+          ALCHEMY_PREVIEW_STATE_STORE_WORKER: OSS_PREVIEW_STATE_STORE_WORKER,
+        };
+        for (const key of [
+          'PATH',
+          'HOME',
+          'TMPDIR',
+          'USERPROFILE',
+          'SYSTEMROOT',
+        ])
+          if (env[key]) checkEnv[key] = env[key];
+        await ops.verifyCheckout(control, context.controlSha);
+        await ops.verifyCheckout(source, context.sourceSha);
+        console.log(
+          JSON.stringify({
+            phase: 'revalidate-existing-preview-copy',
+            target: context.target,
+          }),
+        );
+        const output = await ops.run({
+          argv: [
+            process.execPath,
+            '--no-env-file',
+            '--no-install',
+            `--config=${join(control, 'scripts/preview-lifecycle.bunfig.toml')}`,
+            checkFile,
+          ],
+          cwd: join(source, 'infra/platform'),
+          env: checkEnv,
+          phase: 'revalidate-existing-preview-copy',
+        });
+        let proof: unknown;
+        try {
+          proof = JSON.parse(output);
+        } catch {
+          throw new Error('Copy revalidation did not return JSON');
+        }
+        if (
+          !proof ||
+          typeof proof !== 'object' ||
+          !('verified' in proof) ||
+          proof.verified !== true
+        )
+          throw new Error('Existing preview copy was not verified');
+        await guard();
+      } finally {
+        await rm(authDirectory, { recursive: true, force: true });
+      }
+    }
     if (context.target === 'preview') {
       const baselineRoot = baselineVersion === version ? source : control;
       await writeFile(
@@ -691,6 +811,17 @@ export async function executeMaintenance(
     existingStatePreserved: true,
     canaryPassed: context.target === 'preview',
     cleanupPassed: true,
+    ...(copyOrigin && {
+      copyRevalidated: true,
+      continuousCallerPause: true,
+      copyOrigin: {
+        runId: copyOrigin.runId,
+        attempt: copyOrigin.attempt,
+        controlSha: copyOrigin.controlSha,
+        sourceSha: copyOrigin.sourceSha,
+        accountId: copyOrigin.accountId,
+      },
+    }),
   };
   await writeFile(
     requiredValue(env, 'RECEIPT_OUTPUT'),
@@ -724,11 +855,15 @@ async function main() {
   await assertOperator(request, context);
   await assertCandidate(request, context);
   await assertWritersPaused(request);
-  if (context.target === 'preview')
-    await assertIsolationRun(request, {
-      runId: context.isolationRun ?? '',
-      controlSha: context.controlSha,
-    });
+  if (context.target === 'preview') {
+    if (context.revalidateCopy)
+      await assertCopyOriginRun(request, context.isolationRun ?? '');
+    else
+      await assertIsolationRun(request, {
+        runId: context.isolationRun ?? '',
+        controlSha: context.controlSha,
+      });
+  }
   if (context.target === 'production') {
     const run = await assertPreviewRun(request, context);
     if (process.argv[2] !== 'check') {
