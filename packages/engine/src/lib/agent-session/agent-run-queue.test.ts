@@ -153,6 +153,7 @@ describe('agent run queue', () => {
         turns: 2,
         toolCalls: 1,
         elapsedMs: 250,
+        durationMs: 250,
         inputTokens: 14,
         outputTokens: 3,
         unreportedUsageCalls: 0,

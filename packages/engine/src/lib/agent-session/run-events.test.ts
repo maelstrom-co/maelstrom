@@ -1,13 +1,20 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
 import {
   AGENT_WIRE_VERSION,
   AgentEventSchema,
+  type AgentFinishReason,
   MessageId,
   RunId,
 } from '@maelstrom-co/protocol';
 
-import { buildAcceptanceEvents, buildRunEnding } from './run-events.js';
+import {
+  type AgentRunCounters,
+  buildAcceptanceEvents,
+  buildRunEnding,
+  type RunBudgetExhaustion,
+  type RunFailure,
+} from './run-events.js';
 
 const run = { runId: RunId('run-1'), started: 10.2 };
 const metrics = {
@@ -65,6 +72,7 @@ test('a completed run streams its reply before finishing with rounded elapsed ti
     reason: 'completed',
     outcome: 'succeeded',
     ...metrics,
+    durationMs: 20,
   });
   expect(
     ending.events.every((event) => AgentEventSchema.safeParse(event).success),
@@ -93,6 +101,7 @@ test('a failed run finishes without its reply and reports the failure code', () 
     reason: 'error',
     outcome: 'failed',
     ...metrics,
+    durationMs: 20,
     code: 'ui_apply_failed',
   });
 });
@@ -194,6 +203,7 @@ test('a completed agent run finishes with its counters, including its own elapse
     elapsedMs: 15,
     inputTokens: 14,
     outputTokens: 3,
+    durationMs: 15,
     unreportedUsageCalls: 1,
   });
 });
@@ -248,4 +258,38 @@ test('a budget ending sends the closing message under the close turn and makes i
   expect(
     ending.events.every((event) => AgentEventSchema.safeParse(event).success),
   ).toBe(true);
+});
+
+const endings: readonly (readonly [
+  AgentFinishReason,
+  RunFailure | RunBudgetExhaustion | undefined,
+])[] = [
+  ['completed', undefined],
+  [
+    'budget',
+    { reason: 'budget', limit: 'turns', closingMessage: 'Out of room.' },
+  ],
+  ['error', { code: 'internal_error', error: 'The run failed.' }],
+  [
+    'cancelled',
+    { reason: 'cancelled', code: 'cancelled', error: 'The run was cancelled.' },
+  ],
+];
+
+describe.each([
+  ['an agent run', counters],
+  ['a UI-only run', undefined],
+] as const)('%s', (_route, runCounters: AgentRunCounters | undefined) => {
+  test.each(endings)(
+    'an ending with reason %s reports durationMs equal to elapsedMs and the counters of finished.metrics',
+    (reason, outcome) => {
+      const ending = buildRunEnding(run, 30.4, 'Done.', outcome, runCounters);
+      const finished = ending.events.at(-1);
+      if (finished?.type !== 'finished') throw new Error('no finished event');
+      expect(finished.reason).toBe(reason);
+      expect(ending.metadata.durationMs).toBe(finished.metrics.elapsedMs);
+      for (const [counter, value] of Object.entries(finished.metrics))
+        expect(ending.metadata[counter]).toBe(value);
+    },
+  );
 });

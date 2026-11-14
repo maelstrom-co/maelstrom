@@ -123,6 +123,7 @@ export function buildRunEnding(
       reason,
       outcome: ok ? 'succeeded' : 'failed',
       ...metrics,
+      durationMs: metrics.elapsedMs,
       ...(failure ? { code: failure.code } : {}),
       ...(budget ? { limit: budget.limit } : {}),
       ...(counters
