@@ -141,7 +141,7 @@ export function createAgentRunQueue({
     const ending = buildRunEnding(
       { runId: run.runId, started: now },
       now,
-      finished.reply,
+      replyOf(finished),
       wireOutcome(finished),
       {
         ...finished.metrics,
@@ -369,7 +369,7 @@ export function createAgentRunQueue({
       const ending = buildRunEnding(
         { runId, started: now },
         now,
-        '',
+        undefined,
         CANCELLED_FAILURE,
         ZERO_COUNTERS,
       );
@@ -433,7 +433,6 @@ const CANCELLED_FAILURE: RunFailure = {
 const SETUP_FAILURE: AgentRunFailed = {
   type: 'finished',
   reason: 'error',
-  reply: '',
   code: 'setup_failed',
   error: 'The agent run could not start.',
   metrics: ZERO_METRICS,
@@ -500,11 +499,23 @@ function cancelledRun(
   return {
     type: 'finished',
     reason: 'cancelled',
-    reply: '',
     cause: undefined,
     metrics,
     unreportedUsageCalls,
   };
+}
+
+function replyOf(finished: AgentRunFinished): string | undefined {
+  switch (finished.reason) {
+    case 'completed':
+    case 'budget':
+      return finished.reply;
+    case 'error':
+    case 'cancelled':
+      return undefined;
+    default:
+      return assertNever(finished, 'agent run ending');
+  }
 }
 
 function wireOutcome(

@@ -44,7 +44,10 @@ const _replylessCandidateReply: Equals<
 > = true;
 const _strictValidated: Equals<
   ValidatedCandidate,
-  MaelstromResponse & { readonly diagnostics: EngineDiagnostics }
+  Omit<MaelstromResponse, 'userMessage'> & {
+    readonly userMessage: string;
+    readonly diagnostics: EngineDiagnostics;
+  }
 > = true;
 const _strictValidatedReply: Equals<ValidatedCandidate['userMessage'], string> =
   true;

@@ -24,7 +24,8 @@ export const toSessionHistoryEntry = (
         timestamp: entry.input.timestamp,
         content: entry.input.content,
       };
-    case 'turn':
+    case 'turn': {
+      const { userMessage } = entry.output.response;
       return {
         kind: 'turn',
         id: entry.input.id,
@@ -33,8 +34,9 @@ export const toSessionHistoryEntry = (
         userIntent: extractUserIntent(
           entry.input.request.context.updateReasons,
         ),
-        assistantMessage: entry.output.response.userMessage,
+        ...(userMessage === undefined ? {} : { assistantMessage: userMessage }),
       };
+    }
     default:
       // Compile-time exhaustiveness: a future HistoryEntry variant lands in
       // the engine's storage shape but not here, the typecheck fails. At

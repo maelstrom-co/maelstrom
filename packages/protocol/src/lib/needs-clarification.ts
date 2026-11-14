@@ -23,8 +23,10 @@ import {
  * Only valid when the chart request set `skipReply: true`. A caller that
  * leaves `skipReply` unset expects a reply-bearing response, so the Engine
  * rejects this result on that path. Engine validation accepts it when the
- * flag is set, but `Engine.handle` currently refuses it even then with
- * `Err(ValidationError)` on field `skipReply`.
+ * flag is set, but `Engine.handle` still refuses it with
+ * `Err(ValidationError)` on field `skipReply`, because a `chart_response` has
+ * no shape for a question. A replyless plan result does ship, with
+ * `userMessage` absent.
  */
 export interface NeedsClarification<M extends LayoutMode = LayoutMode> {
   /** Discriminant that tells this result apart from a plan result. */

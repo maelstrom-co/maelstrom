@@ -191,7 +191,7 @@ Illustrative grid-mode response payload:
 }
 ```
 
-`requestId` echoes the originating message ID. `userMessage` is the user-facing text; `rationale` is for diagnostics.
+`requestId` echoes the originating message ID. `userMessage` is the user-facing text and is absent when the request set `skipReply` and the Planner wrote no reply; `rationale` is for diagnostics.
 
 #### Engine behavior and boundaries
 
@@ -319,7 +319,7 @@ The Planner uses the available Actions and Variant transitions to propose an exe
 
 The Planner returns structured output with:
 
-- A user-facing message and a rationale
+- A user-facing message (omitted when the request set `skipReply`) and a rationale
 - An execution plan of Action invocations
 - A grid or tiling layout, depending on the request's layout mode
 

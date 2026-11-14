@@ -175,7 +175,7 @@ history: {
 For reference, the default projection (`defaults()`, also what runs when
 the hook is omitted) is: a `turn` projects to a user message (from
 `user_intent` reasons) plus an assistant message (from the response's
-`userMessage`); an `injection` projects to a single assistant message.
+`userMessage`, left out when the turn has no reply); an `injection` projects to a single assistant message. A custom hook sees an optional `userMessage`.
 
 ### Seed assistant context without invoking the LLM
 

@@ -268,21 +268,39 @@ describe('application plan requirements', () => {
     }
   });
 
-  test.each(['missing', 'blank', 'clarification'] as const)(
-    'keeps the delivery refusal for a %s reply without calling the application validator',
-    async (outcome) => {
+  test('keeps the delivery refusal for a clarification without calling the application validator', async () => {
+    const planner: ClarifyingPlanner = async () =>
+      ok({ type: 'needs_clarification', question: 'Which calendar?' });
+    const validatePlan = mock<PlanValidator>(() => [missingView]);
+    const engine = createEngine({
+      planner,
+      validatePlan,
+      logger: silentLogger,
+    });
+    const result = await engine.handle(
+      ChartRequestMessage({
+        sessionId: SessionId('replyless-plan-validation'),
+        request: { ...makeGridRequest(), skipReply: true },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: 'ValidationError', field: 'skipReply' },
+    });
+    expect(validatePlan).not.toHaveBeenCalled();
+  });
+
+  test.each(['missing', 'blank'] as const)(
+    'checks application requirements for a response with a %s reply to a skipReply request',
+    async (reply) => {
       const { userMessage: _reply, ...replyless } = buildGridResponse();
       const planner: ClarifyingPlanner = async () =>
-        ok(
-          outcome === 'clarification'
-            ? { type: 'needs_clarification', question: 'Which calendar?' }
-            : outcome === 'blank'
-              ? { ...replyless, userMessage: ' ' }
-              : replyless,
-        );
+        ok(reply === 'blank' ? { ...replyless, userMessage: ' ' } : replyless);
       const validatePlan = mock<PlanValidator>(() => [missingView]);
       const engine = createEngine({
         planner,
+        retry: false,
         validatePlan,
         logger: silentLogger,
       });
@@ -295,9 +313,13 @@ describe('application plan requirements', () => {
 
       expect(result).toMatchObject({
         ok: false,
-        error: { _tag: 'ValidationError', field: 'skipReply' },
+        error: {
+          _tag: 'ValidationError',
+          field: 'validatePlan',
+          cause: [missingView],
+        },
       });
-      expect(validatePlan).not.toHaveBeenCalled();
+      expect(validatePlan).toHaveBeenCalledTimes(1);
     },
   );
 

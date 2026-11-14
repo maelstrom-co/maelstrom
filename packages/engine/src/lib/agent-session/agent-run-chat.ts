@@ -580,7 +580,12 @@ function* endingEvents(
   switch (ending.reason) {
     case 'completed':
       yield withToolsSettled(
-        { type: 'finished', ...ending, reply: lastTurnText, ...counters },
+        {
+          type: 'finished',
+          ...ending,
+          ...(lastTurnText.trim() === '' ? {} : { reply: lastTurnText }),
+          ...counters,
+        },
         toolsSettled,
       );
       return;
@@ -603,7 +608,7 @@ function* endingEvents(
     case 'error':
     case 'cancelled':
       yield withToolsSettled(
-        { type: 'finished', ...ending, reply: '', ...counters },
+        { type: 'finished', ...ending, ...counters },
         toolsSettled,
       );
       return;

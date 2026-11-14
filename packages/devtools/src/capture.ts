@@ -315,7 +315,9 @@ export class DiagnosticCapture {
     this.record('engine_response', {
       requestId,
       durationMs,
-      userMessage: response.userMessage,
+      ...(response.userMessage !== undefined && {
+        userMessage: response.userMessage,
+      }),
       executionPlan: response.executionPlan,
     });
   }

@@ -244,6 +244,63 @@ describe('ServerEnvelope round-trip', () => {
     }
   });
 
+  test('engine.maelstrom.response round-trips a response without userMessage', () => {
+    const { userMessage: _omit, ...replyless } = validMaelstromResponse();
+    const msg = MaelstromResponseMessage({
+      requestId: MessageId('req-1'),
+      sessionId: SessionId('s-1'),
+      response: replyless,
+    });
+    const decoded = decodeServerEnvelope(encodeEnvelope(msg));
+    expect(decoded).toEqual(ok(msg));
+    if (!decoded.ok || decoded.value.type !== 'engine.maelstrom.response') {
+      throw new Error('expected engine.maelstrom.response');
+    }
+    expect('userMessage' in decoded.value.response).toBe(false);
+  });
+
+  test.each(['done', ''])(
+    'engine.maelstrom.response still decodes a userMessage of %j',
+    (userMessage) => {
+      const msg = MaelstromResponseMessage({
+        requestId: MessageId('req-1'),
+        sessionId: SessionId('s-1'),
+        response: { ...validMaelstromResponse(), userMessage },
+      });
+      expect(decodeServerEnvelope(encodeEnvelope(msg))).toEqual(ok(msg));
+    },
+  );
+
+  test('engine.history.response round-trips a turn entry without assistantMessage', () => {
+    const [turn, injection] = historyEntries();
+    if (turn?.kind !== 'turn' || injection === undefined) {
+      throw new Error('expected a turn entry followed by an injection');
+    }
+    const { assistantMessage: _omit, ...replylessTurn } = turn;
+    const msg = HistoryResponseMessage({
+      requestId: MessageId('req-1'),
+      entries: [replylessTurn, injection],
+    });
+    const decoded = decodeServerEnvelope(encodeEnvelope(msg));
+    expect(decoded).toEqual(ok(msg));
+    if (!decoded.ok || decoded.value.type !== 'engine.history.response') {
+      throw new Error('expected engine.history.response');
+    }
+    expect('assistantMessage' in (decoded.value.entries[0] ?? {})).toBe(false);
+  });
+
+  test('engine.history.response still decodes a turn entry with an empty assistantMessage', () => {
+    const [turn, injection] = historyEntries();
+    if (turn?.kind !== 'turn' || injection === undefined) {
+      throw new Error('expected a turn entry followed by an injection');
+    }
+    const msg = HistoryResponseMessage({
+      requestId: MessageId('req-1'),
+      entries: [{ ...turn, assistantMessage: '' }, injection],
+    });
+    expect(decodeServerEnvelope(encodeEnvelope(msg))).toEqual(ok(msg));
+  });
+
   test('engine.error', () => {
     const msg = EngineErrorMessage({
       error: 'boom',

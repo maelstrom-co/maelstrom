@@ -342,10 +342,12 @@ test('current Engine sends three sequential user turns and naturally retained ac
     expect(turns[index].request.vessels).toEqual(
       report.configuration.initialRequest.vessels,
     );
-    prior.push(
-      { role: 'user', content: intents[index] },
-      { role: 'assistant', content: turns[index].response.userMessage },
-    );
+    prior.push({ role: 'user', content: intents[index] });
+    if (turns[index].response.userMessage !== undefined)
+      prior.push({
+        role: 'assistant',
+        content: turns[index].response.userMessage,
+      });
   }
   expect(report.result.records.map(({ kind }) => kind)).toEqual([
     'diagnostic',
