@@ -45,6 +45,11 @@ export const latestOrderTool = serverTool({
       totals: { ...order.totals },
     };
   },
+  intentFacts: (order) => ({
+    orderId: order.orderId,
+    placedOn: order.placedOn,
+    skus: order.items.map((item) => item.sku),
+  }),
   summarize: (order) =>
     truncateToSummaryLength(
       `Order ${order.orderId} placed ${order.placedOn}: ${order.items

@@ -1,3 +1,4 @@
+import type { JsonValue } from '@maelstrom-co/protocol';
 import type { z } from 'zod';
 
 import {
@@ -32,6 +33,8 @@ export interface RegistrableServerTool {
   execute(input: never, ctx: ServerToolContext): Promise<unknown>;
   /** Pure, synchronous, user-safe one-line description of a result. */
   summarize(output: never): string;
+  /** Pure, synchronous facts about a successful result for the Planner. */
+  intentFacts?(output: never): Readonly<Record<string, JsonValue>>;
 }
 
 /** A registered tool with its normalized execution metadata. */
@@ -46,6 +49,10 @@ export interface ToolRegistryEntry {
   readonly approval: ToolApproval;
   /** The tool's author-written result summarizer. */
   readonly summarize: (output: unknown) => string;
+  /** The tool's author-written facts extractor, absent when the tool declares none. */
+  readonly intentFacts?: (
+    output: unknown,
+  ) => Readonly<Record<string, JsonValue>>;
 }
 
 /** Lookup over the registered tools. */
@@ -60,9 +67,9 @@ export interface ToolRegistry {
  * Builds a registry from tool declarations.
  * @throws When a name is not a string, is duplicated or does not match
  * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` or `execute` is not a function,
- * when `input` or `output` is not a schema with a `safeParseAsync` function,
- * or when `locus`, `sideEffect` or `approval` (after defaults) is not an
- * allowed value.
+ * when `intentFacts` is present and not a function, when `input` or `output`
+ * is not a schema with a `safeParseAsync` function, or when `locus`,
+ * `sideEffect` or `approval` (after defaults) is not an allowed value.
  */
 export function createToolRegistry(
   tools: readonly RegistrableServerTool[],
@@ -88,6 +95,12 @@ export function createToolRegistry(
     if (typeof tool.execute !== 'function') {
       throw new Error(`Server tool "${tool.name}" must define execute`);
     }
+    const { intentFacts } = tool;
+    if (intentFacts !== undefined && typeof intentFacts !== 'function') {
+      throw new Error(
+        `Server tool "${tool.name}" must define intentFacts as a function`,
+      );
+    }
     assertSchema(tool.name, 'input', tool.input);
     assertSchema(tool.name, 'output', tool.output);
     byName.set(tool.name, {
@@ -106,6 +119,9 @@ export function createToolRegistry(
         TOOL_APPROVALS,
       ),
       summarize: (output) => tool.summarize(output as never),
+      ...(intentFacts === undefined
+        ? {}
+        : { intentFacts: (output) => intentFacts.call(tool, output as never) }),
     });
   }
   return {
