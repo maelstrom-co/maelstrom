@@ -62,7 +62,7 @@ test('a UI change of an Agent Run is observed as run-owned', () => {
   expect(sessionOwned).toEqual([]);
 });
 
-test('a UI change outside any Agent Run is observed as session-owned with its metadata unchanged', () => {
+test('a UI change outside any Agent Run is observed as session-owned with its input id in metadata', () => {
   const { runOwned, sessionOwned, observers } = recordingObservers();
   observeUiChangeEmitted(uiChange(null), MessageId('input-1'), observers, {
     changeId: 'change-1',
@@ -71,7 +71,7 @@ test('a UI change outside any Agent Run is observed as session-owned with its me
   expect(sessionOwned).toEqual([
     [
       'engine.agent.ui_change.emitted',
-      { changeId: 'change-1', actions: 0 },
+      { changeId: 'change-1', actions: 0, inputId: 'input-1' },
       undefined,
     ],
   ]);

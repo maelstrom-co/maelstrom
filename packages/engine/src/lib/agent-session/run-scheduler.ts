@@ -297,7 +297,10 @@ export function createRunScheduler({
 
 /**
  * Observes `engine.agent.ui_change.emitted` for a change: run-owned when the
- * change belongs to an Agent Run, session-owned when its `runId` is null.
+ * change belongs to an Agent Run, session-owned with the `inputId` in
+ * metadata when its `runId` is null. Today every emitted change carries a
+ * `runId`, so the session-owned arm is a guard for a future change outside
+ * any run.
  */
 export function observeUiChangeEmitted(
   event: AgentUiChangeEvent,
@@ -311,7 +314,7 @@ export function observeUiChangeEmitted(
 ): void {
   const kind = 'engine.agent.ui_change.emitted';
   if (event.runId === null)
-    observers.observeSession(kind, metadata, readContent);
+    observers.observeSession(kind, { ...metadata, inputId }, readContent);
   else observers.observe(event.runId, inputId, kind, metadata, readContent);
 }
 
