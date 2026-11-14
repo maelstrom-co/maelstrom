@@ -184,7 +184,16 @@ test('run.finished fallbacks fill duration, keep an unknown reason finished and 
     'completed',
     'succeeded',
   );
-  const cases = [
+  const cases: {
+    name: string;
+    metadata: Record<string, unknown>;
+    expected: {
+      status: AgentRunTrace['status'];
+      durationMs: number;
+      inputTokens?: undefined;
+      outputTokens?: undefined;
+    };
+  }[] = [
     {
       name: 'elapsedMs without durationMs',
       metadata: { ...metrics, reason: 'completed' },
