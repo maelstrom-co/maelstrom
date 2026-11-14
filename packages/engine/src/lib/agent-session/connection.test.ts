@@ -332,9 +332,10 @@ test('a failed Planner ends its run once without exposing provider errors or pri
   expect(finished[0]).toMatchObject({
     ok: false,
     reason: 'error',
-    reply: '',
     error: 'The UI request failed.',
   });
+  expect(finished[0]).not.toHaveProperty('reply');
+  expect(events.some((event) => event.type === 'message')).toBe(false);
   expect(events.some((event) => event.type === 'ui_change')).toBe(false);
   expect(JSON.stringify(events)).not.toContain('private-provider-secret');
   expect(JSON.stringify(plannerInput)).not.toContain('private-user');
@@ -528,6 +529,7 @@ test('a missing or failed Action outcome cannot turn a UI change into a successf
     reason: 'error',
     code: 'ui_apply_failed',
   });
+  expect(events.at(-1)).not.toHaveProperty('reply');
   expect(events.some((event) => event.type === 'message')).toBe(false);
   expect(JSON.stringify(events)).not.toContain('untrusted-error-content');
   connection.close();

@@ -350,7 +350,7 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('a model failing after some deltas keeps them and ends as error with an empty reply and no closing message', async () => {
+    test('a model failing after some deltas keeps them and ends as error with no reply and no closing message', async () => {
       const secret = 'provider-secret-5d1e';
       const model = scriptedTextAdapter([
         scriptedFailingTurn(
@@ -376,10 +376,10 @@ describe('agent route through the Engine handle', () => {
         runId,
         reason: 'error',
         ok: false,
-        reply: '',
         code: expect.any(String),
         error: expect.any(String),
       });
+      expect(finished).not.toHaveProperty('reply');
       expect(JSON.stringify(session.received)).not.toContain(secret);
     });
   });
@@ -587,8 +587,10 @@ describe('agent route through the Engine handle', () => {
       expect(lastFinishedOf(session.received, firstRun)).toMatchObject({
         reason: 'cancelled',
         ok: false,
-        reply: '',
       });
+      expect(lastFinishedOf(session.received, firstRun)).not.toHaveProperty(
+        'reply',
+      );
       expect(indexOf(session.received, 'started', secondRun)).toBeGreaterThan(
         indexOf(session.received, 'finished', firstRun),
       );
@@ -909,10 +911,10 @@ describe('agent route through the Engine handle', () => {
         expect(failed).toMatchObject({
           reason: 'error',
           ok: false,
-          reply: '',
           code: expect.any(String),
           error: expect.any(String),
         });
+        expect(failed).not.toHaveProperty('reply');
         expect(JSON.stringify(session.received)).not.toContain(secret);
         expect(eventsOf(session.received, secondRun).map(typeOf)).toEqual([
           'accepted',

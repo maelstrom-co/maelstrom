@@ -44,14 +44,15 @@ const MaelstromLayoutSchema = z.discriminatedUnion('type', [
 /**
  * Wire-format Zod parser for {@link MaelstromResponse}. Validates the engine's
  * decision output as it crosses back to the client: the discriminator, the
- * correlation `requestId`, the user-facing/debug text, the parsed execution
+ * correlation `requestId`, the optional user-facing reply, the debug
+ * rationale, the parsed execution
  * plan (`params` as an object, not a JSON string), and the layout, whose
  * `type` must be `'grid'` or `'tiling'` and whose shape must match that arm.
  */
 export const MaelstromResponseSchema = z.object({
   type: z.literal('maelstrom_response'),
   requestId: MessageIdSchema,
-  userMessage: z.string(),
+  userMessage: z.string().optional(),
   rationale: z.string(),
   executionPlan: z.array(ActionExecutionParsedSchema),
   layout: MaelstromLayoutSchema,

@@ -221,8 +221,8 @@ export interface AgentRunCompleted extends AgentRunToolSettlement {
   readonly type: 'finished';
   /** Why the run ended. */
   readonly reason: 'completed';
-  /** Full text of the last model turn. */
-  readonly reply: string;
+  /** Full text of the last model turn. Absent when that turn produced no text. */
+  readonly reply?: string;
   /** Cost counters, with tokens as the sums of the usage providers reported. */
   readonly metrics: AgentRunMetrics;
   /** Provider calls that reported no usage or only part of it, so are missing from the token counters. */
@@ -272,16 +272,14 @@ export type AgentRunBudgetExhausted =
  * The run ended on a failure. The causes are a provider or adapter failure
  * (`code` is `provider_error` or `adapter_error`), a throwing gate (`code`
  * is `gate_failed`), and a stream that ended before the model finished
- * (`code` is `run_incomplete`). Text deltas already yielded stay, and no
- * closing message is sent.
+ * (`code` is `run_incomplete`). Text deltas already yielded stay, no
+ * closing message is sent and the ending carries no reply.
  */
 export interface AgentRunFailed extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
   readonly reason: 'error';
-  /** Always empty: a failed run has no reply. */
-  readonly reply: '';
   /** Machine-readable failure kind, with no closed taxonomy. */
   readonly code: string;
   /** User-safe failure description. Never a raw error message or stack. */
@@ -292,14 +290,12 @@ export interface AgentRunFailed extends AgentRunToolSettlement {
   readonly unreportedUsageCalls: number;
 }
 
-/** The run ended because its signal was aborted. */
+/** The run ended because its signal was aborted. The ending carries no reply. */
 export interface AgentRunCancelled extends AgentRunToolSettlement {
   /** Member discriminator. */
   readonly type: 'finished';
   /** Why the run ended. */
   readonly reason: 'cancelled';
-  /** Always empty: a cancelled run has no reply. */
-  readonly reply: '';
   /** The abort reason of the signal. Server-side only, never sent to the model, the wire or a transcript. */
   readonly cause: unknown;
   /** Cost counters, with tokens as the sums of the usage providers reported. */

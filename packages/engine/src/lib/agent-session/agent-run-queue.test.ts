@@ -206,6 +206,24 @@ describe('agent run queue', () => {
     expect(lastFinished(session.received).metrics.elapsedMs).toBe(0);
   });
 
+  test('a run whose last turn has no text finishes completed with no reply and no message', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn([], scriptedUsage(1, 1)),
+    ]);
+    const session = createSession({ model: model.adapter });
+
+    await session.queue.enqueue(utterance('input-1', 'hello'));
+
+    const runId = runIdOf(session.received, 'input-1');
+    expect(
+      eventsOf(session.received, runId).map((event) => event.type),
+    ).toEqual(['accepted', 'started', 'finished']);
+    const finished = lastFinished(session.received);
+    expect(finished).toMatchObject({ ok: true, reason: 'completed' });
+    expect(finished).not.toHaveProperty('reply');
+    expect(AgentEventSchema.safeParse(finished).success).toBe(true);
+  });
+
   test('the finished event reports the elapsed time the run froze, not time spent after it ended', async () => {
     const time = createFakeAgentRunTime();
     const startRun: AgentRunStarter = () =>
@@ -336,11 +354,11 @@ describe('agent run queue', () => {
     expect(
       eventsOf(session.received, firstRun).map((event) => event.type),
     ).toEqual(['accepted', 'started', 'tool_call', 'finished']);
-    expect(
-      session.received.find(
-        (event) => event.type === 'finished' && event.runId === firstRun,
-      ),
-    ).toMatchObject({ ok: false, reason: 'cancelled', reply: '' });
+    const cancelled = session.received.find(
+      (event) => event.type === 'finished' && event.runId === firstRun,
+    );
+    expect(cancelled).toMatchObject({ ok: false, reason: 'cancelled' });
+    expect(cancelled).not.toHaveProperty('reply');
     expect(lastFinished(session.received)).toMatchObject({
       runId: runIdOf(session.received, 'input-2'),
       reason: 'completed',
@@ -371,7 +389,6 @@ describe('agent run queue', () => {
         yield {
           type: 'finished',
           reason: 'cancelled',
-          reply: '',
           cause: signal.reason,
           metrics: { ...ZERO_METRICS, turns: 1 },
           unreportedUsageCalls: 0,
@@ -431,11 +448,11 @@ describe('agent run queue', () => {
     expect(
       eventsOf(session.received, secondRun).map((event) => event.type),
     ).toEqual(['accepted', 'finished']);
-    expect(
-      eventsOf(session.received, secondRun).find(
-        (event) => event.type === 'finished',
-      ),
-    ).toMatchObject({ reason: 'cancelled', ok: false });
+    const cancelled = eventsOf(session.received, secondRun).find(
+      (event) => event.type === 'finished',
+    );
+    expect(cancelled).toMatchObject({ reason: 'cancelled', ok: false });
+    expect(cancelled).not.toHaveProperty('reply');
   });
 
   test('cancelling the active run while its setup is pending finishes it as cancelled and starts the queued run', async () => {
@@ -466,10 +483,12 @@ describe('agent run queue', () => {
         type: 'finished',
         ok: false,
         reason: 'cancelled',
-        reply: '',
         metrics: ZERO_METRICS,
       }),
     ]);
+    expect(lastFinishedOf(session.received, firstRun)).not.toHaveProperty(
+      'reply',
+    );
     const secondRun = runIdOf(session.received, 'input-2');
     expect(
       eventsOf(session.received, secondRun).map((event) => event.type),
@@ -653,10 +672,12 @@ describe('agent run queue', () => {
           reason: 'error',
           code: 'setup_failed',
           error: 'The agent run could not start.',
-          reply: '',
           metrics: ZERO_METRICS,
         },
       ]);
+      expect(lastFinishedOf(session.received, firstRun)).not.toHaveProperty(
+        'reply',
+      );
       expect(JSON.stringify(session.received)).not.toContain('SECRET');
       expect(errors).toHaveLength(1);
       expect(
@@ -711,9 +732,11 @@ describe('agent run queue', () => {
           ok: false,
           reason: 'error',
           code: 'setup_failed',
-          reply: '',
         }),
       ]);
+      expect(lastFinishedOf(session.received, firstRun)).not.toHaveProperty(
+        'reply',
+      );
       const secondRun = runIdOf(session.received, 'input-2');
       expect(
         eventsOf(session.received, secondRun).map((event) => event.type),
@@ -806,8 +829,8 @@ describe('agent run queue', () => {
       ok: false,
       reason: 'error',
       code: 'provider_error',
-      reply: '',
     });
+    expect(lastFinished(session.received)).not.toHaveProperty('reply');
     expect(JSON.stringify(session.received)).not.toContain('SECRET');
 
     await session.queue.enqueue(utterance('input-2', 'again'));
@@ -1181,6 +1204,10 @@ function lastFinished(events: readonly AgentEvent[]) {
   const last = finished.at(-1);
   if (last === undefined) throw new Error('no finished event');
   return last;
+}
+
+function lastFinishedOf(events: readonly AgentEvent[], runId: RunId) {
+  return lastFinished(eventsOf(events, runId));
 }
 
 function serializeLoosely(value: unknown): string {

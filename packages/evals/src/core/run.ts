@@ -97,6 +97,7 @@ export interface RunRecord {
   readonly turnMs: number;
   /** The turn's request set `skipReply`, as the agent loop's planner calls do. */
   readonly skipReply?: true;
+  /** The shipped reply; absent when the response shipped without one. */
   readonly userMessage?: string;
   readonly error?: { readonly tag: string; readonly message: string };
   /** The scenario expects a deferral; excluded from every arm's overall pass rate. */
@@ -170,7 +171,8 @@ export interface EvalOptions {
   readonly repeats: number;
   /**
    * Sends every scenario's request with `skipReply: true`, as the agent
-   * loop does. The Engine refuses a replyless outcome, so such a turn
+   * loop does. The Engine ships a replyless response with `userMessage`
+   * absent. A needs-clarification result is still refused, so such a turn
    * records a `ValidationError` naming `skipReply`.
    */
   readonly skipReply?: boolean;
@@ -354,7 +356,9 @@ export async function grade(
       {
         request: scenario.request,
         response: {
-          userMessage: response.userMessage,
+          ...(response.userMessage !== undefined && {
+            userMessage: response.userMessage,
+          }),
           executionPlan: response.executionPlan,
           tree: layout.tree,
           instances: postActionInstances(
@@ -605,7 +609,9 @@ function createPlannerTurn(options: PlannerTurnOptions) {
               history: options.scenario.history ?? [],
               expected: options.scenario.expected,
               output: state.response,
-              assistantText: state.response.userMessage,
+              ...(state.response.userMessage !== undefined && {
+                assistantText: state.response.userMessage,
+              }),
             },
             { logger: options.runtime.logger ?? silent },
           );
@@ -729,7 +735,9 @@ function base(
       expectsActions: scenario.expected.actions.length > 0,
     }),
     ...(turn.response && {
-      userMessage: turn.response.userMessage,
+      ...(turn.response.userMessage !== undefined && {
+        userMessage: turn.response.userMessage,
+      }),
       tree:
         turn.response.layout.type === 'tiling' ? turn.response.layout.tree : [],
       executionPlan: turn.response.executionPlan,

@@ -304,6 +304,7 @@ export async function loadGraderLabels(
  * no actions, the rule-based score itself, when it found no action or
  * variant failure and every leaf is an existing instance, which proves the
  * plan was empty and every leaf kept its variant. `undefined` otherwise.
+ * A record with a tree and no reply is a shipped response without a reply.
  */
 export async function shippedFromRecord(
   record: RunRecord,
@@ -314,10 +315,14 @@ export async function shippedFromRecord(
     readonly records: readonly StageRecord[];
   },
 ): Promise<ShippedResponse | undefined> {
-  if (record.userMessage === undefined || record.tree === undefined)
-    return undefined;
+  if (record.tree === undefined) return undefined;
   const tree = record.tree as readonly TilingNode[];
-  const shipped = { userMessage: record.userMessage, tree };
+  const shipped = {
+    ...(record.userMessage !== undefined && {
+      userMessage: record.userMessage,
+    }),
+    tree,
+  };
   if (record.executionPlan !== undefined)
     return record.instances === undefined
       ? undefined

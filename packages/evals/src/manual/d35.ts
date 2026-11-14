@@ -193,10 +193,9 @@ export function scoreD35Turns(
       failures.push(
         `Prior user/assistant history not delivered at turn ${index + 1}`,
       );
-    prior.push(
-      { role: 'user', content: intents[index] },
-      { role: 'assistant', content: turn.response.userMessage },
-    );
+    prior.push({ role: 'user', content: intents[index] });
+    if (turn.response.userMessage !== undefined)
+      prior.push({ role: 'assistant', content: turn.response.userMessage });
   }
   const verdict = scoreThreeVesselAddition(
     turns.map((turn) => ({

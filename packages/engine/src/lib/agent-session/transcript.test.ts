@@ -145,7 +145,6 @@ describe('createTranscript', () => {
     transcript.recordEnding(firstRun, {
       type: 'finished',
       reason: 'error',
-      reply: '',
       code: 'provider_error',
       error: 'The model provider failed.',
       metrics,
@@ -171,7 +170,6 @@ describe('createTranscript', () => {
     transcript.recordEnding(firstRun, {
       type: 'finished',
       reason: 'cancelled',
-      reply: '',
       cause,
       metrics,
       unreportedUsageCalls: 0,

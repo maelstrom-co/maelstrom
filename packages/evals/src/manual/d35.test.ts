@@ -324,10 +324,12 @@ test('D35 synthetic Engine/planner requests carry actual prior replies and exact
             report.configuration.initialRequest.vessels,
           ),
     );
-    prior.push(
-      { role: 'user', content: intents[index] },
-      { role: 'assistant', content: turns[index].response.userMessage },
-    );
+    prior.push({ role: 'user', content: intents[index] });
+    if (turns[index].response.userMessage !== undefined)
+      prior.push({
+        role: 'assistant',
+        content: turns[index].response.userMessage,
+      });
   }
   expect(report.semanticReview.status).toBe('pending-human-review');
   for (const caveat of [

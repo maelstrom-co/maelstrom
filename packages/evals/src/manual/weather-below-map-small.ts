@@ -83,7 +83,8 @@ export interface WeatherBelowMapMeasurements {
   readonly mapShare: number | null;
   readonly weatherVariant: string | null;
   readonly weatherActions: readonly string[];
-  readonly userMessage: string;
+  /** The response's reply; absent when it shipped without one. */
+  readonly userMessage?: string;
 }
 
 /** A {@link Verdict} plus the measurements behind it, absent without a response. */
@@ -202,7 +203,9 @@ export function scoreWeatherBelowMapSmall(
           step.instanceId === weatherId && step.action.startsWith('show'),
       )
       .map((step) => step.action),
-    userMessage: response.userMessage,
+    ...(response.userMessage !== undefined && {
+      userMessage: response.userMessage,
+    }),
   };
   const visible = [mapId, weatherId].filter((id) => {
     const shown =

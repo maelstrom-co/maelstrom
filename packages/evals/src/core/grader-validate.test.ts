@@ -400,6 +400,46 @@ describe('shippedFromRecord', () => {
     } as never);
   });
 
+  test('reads a record with a tree and no reply as a shipped response without a reply', async () => {
+    const instances = [
+      { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
+    ];
+    const shipped = await shippedFromRecord(
+      record({
+        tree,
+        executionPlan: [],
+        instances,
+        fallbackCalls: 1,
+      } as unknown as Partial<RunRecord>),
+      swap,
+    );
+    expect(shipped).toEqual({
+      tree,
+      executionPlan: [],
+      instances,
+    } as never);
+    expect(shipped !== undefined && 'userMessage' in shipped).toBe(false);
+  });
+
+  test('infers a replyless response with an empty plan when the rule-based score proves it', async () => {
+    const shipped = await shippedFromRecord(
+      record({
+        scenarioId: 'swap',
+        tree,
+        fallbackCalls: 1,
+        expectsActions: false,
+        score: pass,
+      }),
+      swap,
+    );
+    expect(shipped).toEqual({
+      tree,
+      executionPlan: [],
+      instances: swap.request.instances,
+    });
+    expect(shipped !== undefined && 'userMessage' in shipped).toBe(false);
+  });
+
   test('never infers a response for a record that carries a plan but no tiling instances', async () => {
     expect(
       await shippedFromRecord(

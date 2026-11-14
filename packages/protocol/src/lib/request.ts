@@ -148,8 +148,9 @@ export interface ChartRequest {
    * that asks the user a question, optionally with the layout and Actions it
    * could already settle. Absent means `false`: the response carries a
    * `userMessage`. Clients rendering the reply leave it unset. `Engine.handle`
-   * does not yet ship replyless outcomes: it refuses them with a
-   * `ValidationError` on field `skipReply`.
+   * ships a replyless response with `userMessage` absent. It still refuses a
+   * {@link NeedsClarification} result with a `ValidationError` on field
+   * `skipReply`, because a `chart_response` has no shape for a question.
    */
   readonly skipReply?: boolean;
   /**

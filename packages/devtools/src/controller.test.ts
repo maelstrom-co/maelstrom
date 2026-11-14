@@ -981,6 +981,19 @@ test('application redaction composes with an existing capture store and its reta
   expect(capture.getSnapshot().outcome).toBe('[APP REDACTED]');
 });
 
+test('a response without a reply is captured without a userMessage field', () => {
+  const capture = new DiagnosticCapture();
+  capture.start('fixture', 'session', 'provider');
+  const { userMessage: _userMessage, ...replyless } = response();
+  capture.engineResponse('request', replyless, 5);
+  capture.stop();
+  const captured = JSON.parse(capture.export()).events.find(
+    (event: { kind: string }) => event.kind === 'engine_response',
+  );
+  expect(captured.executionPlan).toEqual(replyless.executionPlan);
+  expect('userMessage' in captured).toBe(false);
+});
+
 test('adding redaction cannot expand retained evidence beyond the configured capture budget', () => {
   const capture = new DiagnosticCapture(() => null, {
     maxCharacters: 600,

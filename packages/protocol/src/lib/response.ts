@@ -544,8 +544,12 @@ export interface MaelstromResponse {
   readonly type: 'maelstrom_response';
   /** Echoes the input message ID and matches the enclosing output correlation ID. */
   readonly requestId: MessageId;
-  /** Assistant text intended for display and optional speech output. */
-  readonly userMessage: string;
+  /**
+   * Assistant text intended for display and optional speech output. Absent
+   * when the request set `skipReply: true` and the Planner wrote no reply.
+   * The reference Engine never ships an empty string in its place.
+   */
+  readonly userMessage?: string;
   /** Engine rationale intended for diagnostics rather than user display. */
   readonly rationale: string;
   /** Applied after layout; order is preserved only within each target Instance. */

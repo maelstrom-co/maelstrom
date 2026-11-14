@@ -327,10 +327,9 @@ export function scoreWeatherTurns(
       failures.push(
         `Chart layout/Instance snapshot mismatch at turn ${index + 1}`,
       );
-    prior.push(
-      { role: 'user', content: intent },
-      { role: 'assistant', content: turn.response.userMessage },
-    );
+    prior.push({ role: 'user', content: intent });
+    if (turn.response.userMessage !== undefined)
+      prior.push({ role: 'assistant', content: turn.response.userMessage });
   }
   return { outcome: failures.length ? 'fail' : 'pass', failures };
 }

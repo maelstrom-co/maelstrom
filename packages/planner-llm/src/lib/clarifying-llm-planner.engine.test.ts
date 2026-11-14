@@ -208,7 +208,7 @@ describe.each(modes)(
       expect(mockChat).toHaveBeenCalledTimes(1);
     });
 
-    test('a skipReply replyless plan passes validation and the ship boundary refuses it', async () => {
+    test('a skipReply replyless plan passes validation and ships without a reply', async () => {
       mockChat.mockResolvedValueOnce(replylessOutputs[mode]);
 
       const { result, entries } = await handleWithEngine({
@@ -216,11 +216,14 @@ describe.each(modes)(
         skipReply: true,
       });
 
-      expectShipBoundaryRefusal(
-        result,
-        entries,
-        'a response without userMessage',
-      );
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.type).toBe('chart_response');
+      if (result.value.type !== 'chart_response') return;
+      expect(result.value.response.layout).toBeDefined();
+      expect(result.value.response).not.toHaveProperty('userMessage');
+      expect(entries.filter((entry) => entry.level === 'error')).toEqual([]);
+      expect(entries.filter((entry) => entry.msg === REFUSAL_LOG)).toEqual([]);
       expect(mockChat).toHaveBeenCalledTimes(1);
     });
 

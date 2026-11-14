@@ -196,7 +196,7 @@ if (!isOk(result) && result.error._tag === 'ProviderError') {
 ```
 
 If the result is `Ok` with a `chart_response` whose `response.userMessage`
-is non-empty, the new adapter is live.
+is non-empty (requests without `skipReply` always get one), the new adapter is live.
 
 ## Next steps
 

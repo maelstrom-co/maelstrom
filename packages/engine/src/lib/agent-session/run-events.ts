@@ -68,7 +68,7 @@ export function buildAcceptanceEvents(
 export function buildRunEnding(
   run: { readonly runId: RunId; readonly started: number },
   now: number,
-  reply: string,
+  reply?: string,
   outcome?: RunFailure | RunBudgetExhaustion,
   counters?: AgentRunCounters,
 ): RunEnding {
@@ -90,10 +90,11 @@ export function buildRunEnding(
     inputTokens: counters?.inputTokens ?? 0,
     outputTokens: counters?.outputTokens ?? 0,
   };
-  const finalReply = budget?.closingMessage ?? (ok ? reply : '');
+  const finalReply =
+    budget?.closingMessage ?? (ok && reply?.trim() ? reply : undefined);
   const turnId = budget ? `${runId}:close` : `${runId}:reply`;
   const message: AgentEvent[] =
-    budget || (ok && counters === undefined)
+    finalReply !== undefined && (budget || counters === undefined)
       ? [
           {
             type: 'message',
@@ -114,7 +115,7 @@ export function buildRunEnding(
         ...failure,
         ok,
         reason,
-        reply: finalReply,
+        ...(finalReply === undefined ? {} : { reply: finalReply }),
         metrics,
       },
     ],

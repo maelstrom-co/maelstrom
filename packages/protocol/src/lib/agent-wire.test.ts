@@ -264,6 +264,62 @@ describe('AgentEvent round-trip', () => {
     }
   });
 
+  test.each(['error', 'cancelled', 'completed'] as const)(
+    'finished round-trips without a reply when the reason is %s',
+    (reason) => {
+      const { reply: _omit, ...replyless } = eventFixtures.finished;
+      const value = {
+        ...replyless,
+        ok: reason === 'completed',
+        reason,
+        ...(reason === 'error'
+          ? { error: 'model failed', code: 'model_error' }
+          : {}),
+      };
+      const decoded = roundTrip(AgentEventSchema, value);
+      expect(decoded).toEqual(value);
+      expect('reply' in (decoded as object)).toBe(false);
+
+      const frame = AgentEventMessage({
+        sessionId: SessionId('s-1'),
+        id: MessageId(`frame-replyless-${reason}`),
+        event: value,
+      });
+      expect(decodeServerEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+    },
+  );
+
+  test.each(['Here is your calendar.', ''])(
+    'finished still decodes a reply of %j',
+    (reply) => {
+      const value = { ...eventFixtures.finished, reply };
+      expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+    },
+  );
+
+  test('ui_change round-trips a response without userMessage', () => {
+    const { userMessage: _omit, ...replyless } = response();
+    const value = { ...eventFixtures.ui_change, response: replyless };
+    const decoded = roundTrip(AgentEventSchema, value);
+    expect(decoded).toEqual(value);
+    expect('userMessage' in (decoded as typeof value).response).toBe(false);
+
+    const frame = AgentEventMessage({
+      sessionId: SessionId('s-1'),
+      id: MessageId('frame-replyless-ui-change'),
+      event: value,
+    });
+    expect(decodeServerEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+  });
+
+  test('ui_change still decodes a response with an empty userMessage', () => {
+    const value = {
+      ...eventFixtures.ui_change,
+      response: { ...response(), userMessage: '' },
+    };
+    expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+  });
+
   test('finished rejects an ok flag that contradicts the reason', () => {
     for (const value of [
       { ...eventFixtures.finished, ok: true, reason: 'error' },

@@ -104,7 +104,10 @@ export function scoreD17Response(
   if (!response)
     return { outcome: 'fail', failures: ['Missing complete Engine response'] };
   const failures: string[] = [];
-  const questions = response.userMessage.match(/[^.!?\n]+\?/g) ?? [];
+  const questions =
+    response.userMessage === undefined
+      ? []
+      : (response.userMessage.match(/[^.!?\n]+\?/g) ?? []);
   if (
     !questions.some(
       (question) =>

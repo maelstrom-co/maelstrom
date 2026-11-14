@@ -1128,9 +1128,8 @@ describe('engine.handle with skipReply and needs-clarification', () => {
       replylessTiling(),
       { ...makeTilingRequest(), skipReply: true },
     ],
-    ['a needs-clarification result', clarification, requestWith(true)],
   ])(
-    '%s is accepted by validation but refused at the shipping boundary when skipReply is true',
+    '%s ships as a chart_response with no userMessage key when skipReply is true',
     async (_case, output, request) => {
       const { logger, entries } = spyLogger();
       const { planner, inputs } = answering(output);
@@ -1139,18 +1138,62 @@ describe('engine.handle with skipReply and needs-clarification', () => {
       const result = await engine.handle(toChartRequestMessage(request));
 
       expect(inputs).toHaveLength(1);
-      expect(isErr(result) && result.error).toMatchObject({
-        _tag: 'ValidationError',
-        field: 'skipReply',
-        message: expect.stringContaining(
-          'skipReply is not supported on this path',
-        ),
-      });
-      expect(entries.map((entry) => entry.msg)).toContain(
+      if (!isOk(result) || result.value.type !== 'chart_response') {
+        throw new Error('expected Ok(chart_response)');
+      }
+      const { response } = result.value;
+      expect('userMessage' in response).toBe(false);
+      expect(response.layout.type).toBe(request.layout.type);
+      expect(entries.map((entry) => entry.msg)).not.toContain(
         'Refused a skipReply outcome the Engine cannot ship',
       );
     },
   );
+
+  test('a needs-clarification result is accepted by validation but refused at the shipping boundary when skipReply is true', async () => {
+    const { logger, entries } = spyLogger();
+    const { planner, inputs } = answering(clarification);
+    const engine = createEngine({ planner, logger, retry: { max: 3 } });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(true)),
+    );
+
+    expect(inputs).toHaveLength(1);
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'skipReply',
+      message: expect.stringContaining(
+        'a chart_response has no shape for a clarification',
+      ),
+    });
+    expect(entries.map((entry) => entry.msg)).toContain(
+      'Refused a skipReply outcome the Engine cannot ship',
+    );
+  });
+
+  test('a replyless turn shipped under skipReply is recorded and reads back without assistantMessage', async () => {
+    const engine = createEngine({
+      planner: answering(replyless()).planner,
+      logger: silentLogger,
+      history: {
+        maxEntries: 10,
+        maxChars: 10_000,
+        store: createInMemoryStore(),
+      },
+    });
+    const message = toChartRequestMessage(requestWith(true));
+
+    const shipped = await engine.handle(message);
+    const history = await engine.getHistory(message.sessionId);
+
+    expect(isOk(shipped)).toBe(true);
+    if (!isOk(history)) throw new Error('expected Ok(history)');
+    expect(history.value).toHaveLength(1);
+    const [entry] = history.value;
+    expect(entry?.kind).toBe('turn');
+    expect(entry !== undefined && 'assistantMessage' in entry).toBe(false);
+  });
 
   const observedKinds = (
     engine: ReturnType<typeof createEngine>,
@@ -1178,6 +1221,26 @@ describe('engine.handle with skipReply and needs-clarification', () => {
       events.filter((event) => event.kind === 'engine.planner.completed'),
     ).toEqual([{ kind: 'engine.planner.completed', outcome: 'failed' }]);
     expect(events.map((event) => event.kind)).not.toContain(
+      'engine.validation.completed',
+    );
+  });
+
+  test('a shipped replyless response reports the planner run as succeeded to diagnostics observers', async () => {
+    const engine = createEngine({
+      planner: answering(replyless()).planner,
+      logger: silentLogger,
+    });
+    const events = observedKinds(engine);
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(true)),
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(
+      events.filter((event) => event.kind === 'engine.planner.completed'),
+    ).toEqual([{ kind: 'engine.planner.completed', outcome: 'succeeded' }]);
+    expect(events.map((event) => event.kind)).toContain(
       'engine.validation.completed',
     );
   });

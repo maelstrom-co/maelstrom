@@ -186,10 +186,9 @@ export function scoreD25Turns(
       target.variant !== (index === 0 ? 'current' : 'hourly')
     )
       failures.push(`Weather Variant mismatch at turn ${index + 1}`);
-    prior.push(
-      { role: 'user', content: intents[index] },
-      { role: 'assistant', content: response.userMessage },
-    );
+    prior.push({ role: 'user', content: intents[index] });
+    if (response.userMessage !== undefined)
+      prior.push({ role: 'assistant', content: response.userMessage });
   }
   return { outcome: failures.length ? 'fail' : 'pass', failures };
 }
