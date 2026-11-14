@@ -1,6 +1,7 @@
 import {
   type ActionExecution,
   type ActionName,
+  type ChartRequest,
   ChartRequestMessage,
   type ChartResizeReason,
   describeDuplicateTilingLeaf,
@@ -26,6 +27,11 @@ import {
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
+import type {
+  ActionRecord,
+  BatchExecutionResult,
+} from '../command-processor/action-runner.types.js';
+import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
@@ -39,6 +45,7 @@ import { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
+import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
   type CapabilityOptionOmission,
@@ -49,8 +56,16 @@ import {
   readStructuralSnapshot,
   type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
+import {
+  AgentConversation,
+  type SettledAgentChange,
+} from './agent-conversation.js';
 import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
+import type {
+  AgentConversationEvents,
+  SendMessageOptions,
+} from './conversation-event.types.js';
 import { IntentScheduler } from './intent-scheduler.js';
 import type {
   EnqueueIntentOptions,
@@ -91,7 +106,9 @@ type FencedSend =
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
  *
- * The Orchestrator owns **zero private state** and emits **zero events**.
+ * The Orchestrator owns **zero private state** and emits no events of its own
+ * beyond the agent conversation events exposed through `agent`. All other
+ * events stay on the microkernel emitters.
  * It sequences calls across microkernels in the right order.
  * Consumers interact with microkernels directly for domain operations.
  *
@@ -145,6 +162,7 @@ export class Orchestrator {
   readonly #vesselManager: VesselManager;
   readonly #chartManager: ChartManager;
   readonly #requestCoordinator: RequestCoordinator;
+  readonly #agentConversation: AgentConversation;
 
   readonly #intentScheduler: IntentScheduler;
   #automaticPending = false;
@@ -153,6 +171,7 @@ export class Orchestrator {
   #immediateResponseDelivered = false;
   #localActions = 0;
   #isDisposed = false;
+  #pendingDisconnects = 0;
   #unsubscribers: (() => void)[] = [];
   // Held apart from #unsubscribers: a connector swap must detach this one
   // subscription without touching the three that belong to internal
@@ -323,6 +342,14 @@ export class Orchestrator {
       this.#commandProcessor.setLayout(initialLayout);
     }
 
+    this.#agentConversation = new AgentConversation({
+      currentConnector: () => this.#connector,
+      buildChart: () => this.#buildChart([]),
+      dispatchChange: (response) => this.#dispatchAgentChange(response),
+      captureFence: (subject) => this.#captureFence(subject),
+      logger: this.#logger,
+    });
+
     this.#setupSubscriptions();
     this.#setupDiagnostics();
   }
@@ -349,6 +376,29 @@ export class Orchestrator {
 
   get requestCoordinator(): RequestCoordinator {
     return this.#requestCoordinator;
+  }
+
+  /**
+   * Subscribe to the Agent Session conversation carried by the current
+   * connector. Every payload is the protocol object the agent sent, unchanged,
+   * except `conversation_lost`, which the Orchestrator emits itself.
+   *
+   * - `placeholder`: the agent sends text to show while it works on an input.
+   * - `message`: the agent streams part of a conversational reply.
+   * - `finished`: an Agent Run ends, whatever the reason.
+   * - `error`: the agent reports a failure outside any Agent Run, such as an
+   *   admission rejection. It carries the `inputId` when the failure relates
+   *   to an input.
+   * - `conversation_lost`: the conversation can no longer continue. Fires once
+   *   when the transport closes, cleanly or not, or when {@link setConnector}
+   *   replaces the connector, and only while a conversation exists, meaning at
+   *   least one input was sent or one agent event arrived since the last loss.
+   *
+   * UI changes the agent sends are applied and acknowledged internally and
+   * never surface here. Subscribing after {@link dispose} throws.
+   */
+  get agent(): EventSubscriber<AgentConversationEvents> {
+    return this.#agentConversation.events;
   }
 
   // ==========================================================================
@@ -559,6 +609,48 @@ export class Orchestrator {
     } finally {
       if (!applying) this.#intentScheduler.release();
     }
+  }
+
+  /**
+   * Send a message the user typed or said to the agent, with a Chart snapshot
+   * of the board as it stands now.
+   *
+   * Resolves with the message's input id once the connector accepted the
+   * frame, without waiting for any agent event. The agent answers through
+   * {@link agent}, and UI changes it plans are applied as they arrive, Layout
+   * first, then Actions.
+   *
+   * REJECTS WITH:
+   * - `AgentWireUnsupportedError`: the connector cannot carry agent inputs,
+   *   as with `HttpConnector`.
+   * - `Error('Orchestrator is not connected')`: the transport is not
+   *   connected. Nothing was sent.
+   * - the connector's own error: the transport refused the frame. Whether the
+   *   agent saw the message is unknown, so do not automatically resend it.
+   * - `Error('Orchestrator is disposed')`: called after {@link dispose}.
+   *
+   * INVARIANTS:
+   * - Never reports busy. It never rejects with `RequestInFlightError` and
+   *   does not wait for an intent, a flush, or command application.
+   * - Does not touch updates buffered for the next engine request. They stay
+   *   queued for {@link processIntent} or {@link flushUpdates}.
+   * - The returned input id is the one the agent's `placeholder` and `error`
+   *   events for this message carry.
+   */
+  async sendMessage(
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<MessageId> {
+    if (this.#isDisposed) {
+      throw new Error('Orchestrator is disposed');
+    }
+    if (
+      this.#pendingDisconnects > 0 ||
+      this.#connectionManager.store.state.connectionStatus !== 'connected'
+    ) {
+      throw new Error('Orchestrator is not connected');
+    }
+    return this.#agentConversation.sendMessage(text, options);
   }
 
   /** Shared admission state; network telemetry alone does not imply readiness. */
@@ -868,7 +960,17 @@ export class Orchestrator {
   }
 
   async disconnect(): Promise<void> {
+    this.#pendingDisconnects++;
+    try {
+      await this.#disconnect();
+    } finally {
+      this.#pendingDisconnects--;
+    }
+  }
+
+  async #disconnect(): Promise<void> {
     this.#intentScheduler.setConnected(false);
+    this.#agentConversation.reportDisconnected();
     // Preserve unflushed vessel_mutations across the disconnect so a click that
     // hasn't reached the wire replays on reconnect instead of vanishing.
     // takeCoalesced() drains + clears the coordinator (buffer + timers) like
@@ -1001,6 +1103,7 @@ export class Orchestrator {
     this.#requestCoordinator.setConnector(next);
 
     this.#attachPushSubscription();
+    this.#agentConversation.replaceConnector();
     this.#refreshDiagnosticConnector();
   }
 
@@ -1041,6 +1144,7 @@ export class Orchestrator {
     this.#unsubscribers = [];
     this.#unsubPush?.();
     this.#unsubPush = null;
+    this.#agentConversation.dispose();
 
     this.#updateCoordinator.dispose();
     this.#requestCoordinator.resolveFlushPromises(null);
@@ -1121,6 +1225,7 @@ export class Orchestrator {
     this.#unsubscribers.push(unsubFlush);
 
     this.#attachPushSubscription();
+    this.#agentConversation.attach();
   }
 
   #attachPushSubscription(): void {
@@ -1291,7 +1396,16 @@ export class Orchestrator {
     }
   }
 
-  #dispatchSettledResponse(response: MaelstromResponse, requestId?: MessageId) {
+  // A Layout refusal settles `failed` and abandons the Actions, so
+  // `onActionsCompleted` never fires for it. `onCommandComplete` runs
+  // synchronously after each command of this batch, so its last call precedes
+  // the next queued batch.
+  #dispatchSettledResponse(
+    response: MaelstromResponse,
+    requestId?: MessageId,
+    onActionsCompleted?: (result: BatchExecutionResult) => void,
+    onCommandComplete?: () => void,
+  ): Promise<CommandBatchResult> {
     const layoutCommand = {
       kind: 'set_layout' as const,
       layout: response.layout,
@@ -1364,10 +1478,55 @@ export class Orchestrator {
         }),
       );
     }
-    return this.#commandProcessor.dispatchSettled(
+    const releaseActionsListener = onActionsCompleted
+      ? this.#commandProcessor.events.on('actions_completed', (e) => {
+          if (e.command === actionsCommand) onActionsCompleted(e.result);
+        })
+      : undefined;
+    const releaseCompleteListener = onCommandComplete
+      ? this.#commandProcessor.events.on('command_complete', (e) => {
+          if (e.command === layoutCommand || e.command === actionsCommand)
+            onCommandComplete();
+        })
+      : undefined;
+    const settlement = this.#commandProcessor.dispatchSettled(
       layoutCommand,
       actionsCommand,
     );
+    if (releaseActionsListener) void settlement.finally(releaseActionsListener);
+    if (releaseCompleteListener)
+      void settlement.finally(releaseCompleteListener);
+    return settlement;
+  }
+
+  // The command processor refuses new listeners once disposed, so a change
+  // arriving during teardown settles `unknown` instead of dispatching.
+  async #dispatchAgentChange(
+    response: MaelstromResponse,
+  ): Promise<SettledAgentChange> {
+    if (this.#isDisposed) {
+      return {
+        batch: {
+          status: 'unknown',
+          error: new Error('Orchestrator is disposed'),
+        },
+        actions: undefined,
+        chart: undefined,
+      };
+    }
+    let actions: readonly ActionRecord[] | undefined;
+    let chart: ChartRequest | undefined;
+    const batch = await this.#dispatchSettledResponse(
+      response,
+      response.requestId,
+      (result) => {
+        actions = result.actions;
+      },
+      () => {
+        chart = this.#buildChart([]);
+      },
+    );
+    return { batch, actions, chart };
   }
 
   #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
@@ -1667,19 +1826,21 @@ export class Orchestrator {
   }
 
   #newRequest(updates: UpdateReason[]): ChartRequestMessage {
-    const messageId = MessageId();
-    const request = buildChartRequest({
+    return ChartRequestMessage({
+      sessionId: this.#config.sessionId,
+      id: MessageId(),
+      request: this.#buildChart(updates),
+    });
+  }
+
+  #buildChart(updates: UpdateReason[]): ChartRequest {
+    return buildChartRequest({
       updates,
       instances: this.#commandProcessor.store.state.instances,
       chartDimensions: this.#chartManager.store.state.chartDimensions,
       layout: this.#commandProcessor.store.state.layout,
       vessels: this.#vesselManager.getAll(),
       config: { layoutMode: this.#config.layoutMode },
-    });
-    return ChartRequestMessage({
-      sessionId: this.#config.sessionId,
-      id: messageId,
-      request,
     });
   }
 }
