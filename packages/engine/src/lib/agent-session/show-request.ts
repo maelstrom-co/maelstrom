@@ -116,24 +116,32 @@ function extractFacts(
 ): Readonly<Record<string, JsonValue>> | undefined {
   const extract = registry.get(toolName)?.intentFacts;
   if (extract === undefined) return undefined;
-  let facts: unknown;
+  let json: Readonly<Record<string, JsonValue>> | undefined;
   try {
-    facts = extract(output);
+    json = toJsonObject(extract(output));
   } catch {
     logger.warn('Server tool intentFacts threw', { toolName });
     return undefined;
   }
-  const parsed = isPlainObject(facts)
-    ? JsonValueSchema.safeParse(facts)
-    : undefined;
-  if (parsed === undefined || !parsed.success) {
+  if (json === undefined) {
     logger.warn('Server tool intentFacts returned no JSON object', {
       toolName,
     });
     return undefined;
   }
-  const json = parsed.data as Readonly<Record<string, JsonValue>>;
   return Object.keys(json).length === 0 ? undefined : json;
+}
+
+function toJsonObject(
+  facts: unknown,
+): Readonly<Record<string, JsonValue>> | undefined {
+  if (!isPlainObject(facts)) return undefined;
+  const parsed = JsonValueSchema.safeParse(facts);
+  if (!parsed.success) return undefined;
+  // A self-referencing object passes the schema but cannot be serialized, so
+  // serialize here, where a throw drops only this call's facts.
+  JSON.stringify(parsed.data);
+  return parsed.data as Readonly<Record<string, JsonValue>>;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

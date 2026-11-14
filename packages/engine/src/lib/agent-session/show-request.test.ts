@@ -180,6 +180,35 @@ describe('collectShowFacts', () => {
     },
   );
 
+  test.each([
+    ['a self-referencing object', selfReferencingFacts()],
+    ['an object with a throwing getter', throwingGetterFacts()],
+  ])(
+    'an extractor returning %s drops that call facts without throwing',
+    (_label, facts) => {
+      const { logger, warnings } = recordingLogger();
+      const show = collectShowFacts(
+        phase([
+          success('c1', 'returning', { text: SECRET_OUTPUT }),
+          success('c2', 'latest_order', { orderId: 'ORD-10455' }),
+        ]),
+        registry(facts),
+        logger,
+      );
+
+      expect(show).toEqual({
+        toolNames: ['returning', 'latest_order'],
+        intentFacts: { 'latest_order:c2': { orderId: 'ORD-10455' } },
+      });
+      expect(warnings.map((warning) => warning.data)).toEqual([
+        { toolName: 'returning' },
+      ]);
+      const logged = JSON.stringify(warnings);
+      expect(logged).not.toContain(SECRET_OUTPUT);
+      expect(logged).not.toContain(SECRET_ERROR);
+    },
+  );
+
   test('an extractor returning an empty object adds no facts', () => {
     const { logger, warnings } = recordingLogger();
     const show = collectShowFacts(
@@ -396,6 +425,20 @@ function registry(returnedFacts?: unknown): ToolRegistry {
         invalid<Readonly<Record<string, JsonValue>>>(returnedFacts),
     }),
   ]);
+}
+
+function selfReferencingFacts(): Record<string, unknown> {
+  const facts: Record<string, unknown> = { orderId: 'ORD-10455' };
+  facts['self'] = facts;
+  return facts;
+}
+
+function throwingGetterFacts(): Record<string, unknown> {
+  return {
+    get orderId(): string {
+      throw new Error(SECRET_ERROR);
+    },
+  };
 }
 
 function recordingLogger(): {
