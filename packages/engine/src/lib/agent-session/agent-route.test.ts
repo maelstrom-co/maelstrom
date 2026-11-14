@@ -751,7 +751,18 @@ describe('agent route through the Engine handle', () => {
       expect(second?.intentFacts).toEqual({
         'latest_order:c2': orderFacts(LATEST_ORDER),
       });
-      expect(session.received.map(typeOf)).not.toContain('error');
+      expect(
+        session.received.filter((event) => event.type === 'error'),
+      ).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: firstChange?.changeId,
+          runId: runIdOf(session.received, 'input-1'),
+          code: 'ui_ack_timeout',
+          error: 'The UI acknowledgement did not arrive.',
+        },
+      ]);
     });
 
     test.each([
@@ -811,7 +822,7 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('closing the connection aborts a show plan in flight and sends no ui_change for it', async () => {
+    test('closing the connection leaves a show plan in flight unaborted and sends nothing for it', async () => {
       const gate = defer<PlannerCandidate>();
       const blocking = blockingPlanner(gate);
       const signals: (AbortSignal | undefined)[] = [];
@@ -840,7 +851,7 @@ describe('agent route through the Engine handle', () => {
       await settle();
 
       expect(signals).toHaveLength(1);
-      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[0]?.aborted).toBe(false);
       expect(session.received.slice(beforeClose)).toEqual([]);
     });
 
