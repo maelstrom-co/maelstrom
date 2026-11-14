@@ -240,6 +240,29 @@ describe('createTranscript', () => {
       ]);
     });
 
+    test('hands each later show note to a listener after recording it, until it stops', () => {
+      const transcript = createTranscript();
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'before');
+      const heard: {
+        runId: RunId;
+        turnId: string;
+        text: string;
+        rendered: string;
+      }[] = [];
+      const stop = transcript.onShowNote((runId, turnId, text) => {
+        heard.push({ runId, turnId, text, rendered: serialized(transcript) });
+      });
+
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'during');
+      stop();
+      transcript.recordShowNote(firstRun, 'run-1:t2', 'after');
+
+      expect(heard.map(({ rendered: _rendered, ...note }) => note)).toEqual([
+        { runId: firstRun, turnId: 'run-1:t1', text: 'during' },
+      ]);
+      expect(heard[0]?.rendered).toContain('[show run-1:t1] during');
+    });
+
     test('evicts a show note together with its run', () => {
       const transcript = createTranscript({ maxChars: 300 });
       recordRunWithTool(transcript, firstRun, 'a'.repeat(30));

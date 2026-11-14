@@ -337,10 +337,10 @@ test('a UI-only Planner clarification fails its run with the skipReply Validatio
 
   await connection.send(utterance());
 
-  const accepted = events.find((event) => event.type === 'accepted');
-  if (!accepted?.runId) throw new Error('Missing UI-only run');
+  const finished = events.at(-1);
+  if (finished?.type !== 'finished') throw new Error('Missing finished event');
   expect(plannerInputs.map((input) => input.owner)).toEqual([
-    { runId: accepted.runId, inputId: MessageId('input-1') },
+    { runId: finished.runId, inputId: MessageId('input-1') },
   ]);
   expect(events.map((event) => event.type)).toEqual([
     'placeholder',

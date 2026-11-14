@@ -16,6 +16,14 @@ export function toolCallRef(runId: RunId, callId: CallId): ToolCallRef {
 }
 
 /**
+ * Renders a show note as the line a {@link Transcript} renders it,
+ * `[show <turnId>] <text>`, for handing the same line to a run in progress.
+ */
+export function renderShowNote(turnId: string, text: string): string {
+  return `[show ${turnId}] ${text}`;
+}
+
+/**
  * The in-memory record of what an Agent Session emitted, rendered into the
  * prior messages of each later run. It keeps tool summaries only, never full
  * tool results, and accepts no identity. It keeps only the most recent runs
@@ -51,6 +59,13 @@ export interface Transcript {
    * run was evicted is kept until the bound evicts it.
    */
   recordShowNote(runId: RunId, turnId: string, text: string): void;
+  /**
+   * Calls `listener` with each show note recorded from now on, right after
+   * recording it. Returns a function that stops the calls.
+   */
+  onShowNote(
+    listener: (runId: RunId, turnId: string, text: string) => void,
+  ): () => void;
   /** Records the closing message a run sent when a budget ran out. */
   recordClosingMessage(runId: RunId, text: string): void;
   /**
@@ -93,6 +108,9 @@ export function createTranscript({
 }: TranscriptOptions = {}): Transcript {
   const entries: TranscriptEntry[] = [];
   const runsWithReplyText = new Set<RunId>();
+  const showNoteListeners = new Set<
+    (runId: RunId, turnId: string, text: string) => void
+  >();
   let totalChars = 0;
   let newestRunId: RunId | undefined;
 
@@ -155,6 +173,13 @@ export function createTranscript({
     },
     recordShowNote(runId, turnId, text) {
       append({ kind: 'show_note', runId, turnId, text });
+      for (const listener of showNoteListeners) listener(runId, turnId, text);
+    },
+    onShowNote(listener) {
+      showNoteListeners.add(listener);
+      return () => {
+        showNoteListeners.delete(listener);
+      };
     },
     recordClosingMessage(runId, text) {
       append({ kind: 'closing_message', runId, text });
@@ -240,7 +265,7 @@ function renderEntry(entry: TranscriptEntry): string {
     case 'tool_result':
       return `[tool result ${entry.ref}] ${entry.ok ? 'ok' : 'failed'}: ${entry.summary}`;
     case 'show_note':
-      return `[show ${entry.turnId}] ${entry.text}`;
+      return renderShowNote(entry.turnId, entry.text);
     case 'closing_message':
       return `[closing message ${entry.runId}] ${entry.text}`;
     case 'ending':

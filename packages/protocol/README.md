@@ -202,7 +202,7 @@ type AgentEvent =
   | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
   | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
   | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply?: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
+  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; runId?: RunId; error: string; code?: string }
   | { type: 'started'; version: 1; runId: RunId }
   | { type: 'tool_call'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string }
   | { type: 'tool_result'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string; ok: boolean; summary: string };
@@ -222,6 +222,8 @@ UI-only utterances start a server-minted run without a model loop. Their event o
 `finished` carries `reply` only when there is reply text. It is the last turn's full text on success and the closing message on a budget ending. It is absent when the run failed, was cancelled or ended without text.
 
 Agent runs send `placeholder`, then `accepted` with disposition `agent` and a non-null `runId`. `started` follows once the loop actually begins, which may be after a queue wait. `started` is sent for agent runs only, never for `ui_only` runs. While the loop runs, `message` deltas stream per `turnId` and each `tool_call` is followed by one `tool_result` with the same `callId`. A non-null `runId` in `accepted` is followed by exactly one `finished` for that run. A `tool_call` names the tool but carries no arguments. A `tool_result` reports `ok` and a `summary` that is not whitespace-only and at most 200 characters, and a failed call describes its cause in `summary`.
+
+An agent run can also send a loop-driven `ui_change` after a tool phase. It carries the run's `runId` and a `changeId`, and has no `userMessage`. A failed loop-driven show is reported with `error` carrying `runId` and `changeId`, not with `finished`. That `changeId` may name a change that no `ui_change` carried. An acknowledgement timeout is reported the same way with code `ui_ack_timeout`. Runs never wait for their shows, so these `ui_change` and `error` events may arrive after the run's `finished`.
 
 ---
 

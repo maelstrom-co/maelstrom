@@ -104,9 +104,14 @@ async function* streamAgentRun(
   let reachedEnd = false;
   try {
     if (policy.start() === undefined) {
-      chunks = startChat(input, policy, calls, executions, instrumentation)[
-        Symbol.asyncIterator
-      ]();
+      chunks = startChat(
+        input,
+        options,
+        policy,
+        calls,
+        executions,
+        instrumentation,
+      )[Symbol.asyncIterator]();
       const runAborted = abortedPromise(policy.abortController.signal);
       let lastFinishReason: string | null | undefined;
       for (;;) {
@@ -207,6 +212,7 @@ async function* streamAgentRun(
 
 function startChat(
   input: AgentRunInput,
+  options: AgentRunOptions,
   policy: AgentRunPolicy,
   calls: ToolCallTracker,
   executions: ToolExecutionFence,
@@ -251,9 +257,18 @@ function startChat(
   };
   const runEventsMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-events',
-    onConfig: (ctx) => {
-      if (ctx.phase === 'beforeModel') calls.startTurn(ctx.iteration + 1);
-      return undefined;
+    // After the policy middleware, whose gate wait can record more notes.
+    onConfig: (ctx, config) => {
+      if (ctx.phase !== 'beforeModel') return undefined;
+      calls.startTurn(ctx.iteration + 1);
+      const notes = options.takeSessionNotes?.() ?? [];
+      if (notes.length === 0) return undefined;
+      return {
+        messages: [
+          ...config.messages,
+          { role: 'user', content: notes.join('\n') },
+        ],
+      };
     },
     onBeforeToolCall: (ctx, hookCtx) => admitArgs(ctx, hookCtx, hookCtx.args),
     onToolPhaseComplete: (_ctx, info) => {
