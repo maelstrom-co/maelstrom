@@ -463,8 +463,10 @@ export interface PanelApp {
 export interface PanelEvidence {
   events: PanelEvent[];
   requestEvents?: PanelEvent[];
+  runEvents?: PanelEvent[];
   transportHistory?: PanelEvent[];
   droppedRequestEvents?: number;
+  droppedRunEvents?: number;
   omittedRequestEvents?: number;
   apps: PanelApp[];
   dropped?: number;
