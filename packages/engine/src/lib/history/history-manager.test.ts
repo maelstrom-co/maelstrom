@@ -17,6 +17,7 @@ import { makeGridRequest } from '../__test-helpers__/fixtures.js';
 import { createHistoryManager } from './history-manager.js';
 import type { HistoryEntry, HistoryStore } from './history-store.js';
 import { createInMemoryStore } from './in-memory-store.js';
+import { toSessionHistoryEntry } from './wire-projection.js';
 
 // Adapts the shared makeGridRequest fixture, overriding the user_intent
 // reason. Dropping the local hand-rolled request removed an
@@ -50,12 +51,12 @@ const buildInput = (
 const buildOutput = (
   sessionId: ReturnType<typeof SessionId>,
   id: ReturnType<typeof MessageId>,
-  userMessage: string,
+  userMessage: string | undefined,
 ): ChartResponseOutput => {
   const response: MaelstromResponse = {
     type: 'maelstrom_response',
     requestId: id,
-    userMessage,
+    ...(userMessage === undefined ? {} : { userMessage }),
     rationale: '',
     executionPlan: [],
     layout: { type: 'grid', positions: [] },
@@ -593,6 +594,57 @@ describe('HistoryManager.getHistory', () => {
     });
     expect(await mgr.getHistory(SessionId('fresh'))).toEqual([]);
   });
+
+  test('keeps a replyless turn and projects it to the wire without assistantMessage', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1_000,
+    });
+    const s = SessionId('s');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('t1'), 'show my latest order', 1),
+      buildOutput(s, MessageId('t1'), undefined),
+    );
+
+    const entries = await mgr.getHistory(s);
+
+    expect(entries.map(toSessionHistoryEntry)).toEqual([
+      {
+        kind: 'turn',
+        id: MessageId('t1'),
+        sessionId: s,
+        timestamp: 1,
+        userIntent: 'show my latest order',
+      },
+    ]);
+  });
+
+  test('projects a reply-bearing turn to the wire with its assistantMessage', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1_000,
+    });
+    const s = SessionId('s');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('t1'), 'show my latest order', 1),
+      buildOutput(s, MessageId('t1'), 'Here it is'),
+    );
+
+    const entries = await mgr.getHistory(s);
+
+    expect(entries.map(toSessionHistoryEntry)).toEqual([
+      {
+        kind: 'turn',
+        id: MessageId('t1'),
+        sessionId: s,
+        timestamp: 1,
+        userIntent: 'show my latest order',
+        assistantMessage: 'Here it is',
+      },
+    ]);
+  });
 });
 
 describe('HistoryManager.getLLMContext', () => {
@@ -673,6 +725,31 @@ describe('HistoryManager.getLLMContext', () => {
       maxChars: 1_000,
     });
     expect(await mgr.getLLMContext(SessionId('fresh'))).toEqual([]);
+  });
+
+  test('a replyless turn yields the user message and no assistant message', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1_000,
+    });
+    const s = SessionId('s');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('t1'), 'show my latest order'),
+      buildOutput(s, MessageId('t1'), undefined),
+    );
+    await mgr.recordTurn(
+      buildInput(s, MessageId('t2'), 'thanks'),
+      buildOutput(s, MessageId('t2'), 'You are welcome'),
+    );
+
+    const ctx = await mgr.getLLMContext(s);
+
+    expect(ctx).toEqual([
+      { role: 'user', content: 'show my latest order' },
+      { role: 'user', content: 'thanks' },
+      { role: 'assistant', content: 'You are welcome' },
+    ]);
   });
 
   test('emits an assistant message even when response.userMessage is empty', async () => {

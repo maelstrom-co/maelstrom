@@ -53,8 +53,9 @@ export type ReplylessCandidate =
  * `'plan'` or `'needs_clarification'`, so a switch on it tells them apart.
  * Validation accepts a replyless candidate
  * without `userMessage` and a needs-clarification result only for a request
- * that set `skipReply: true`, and `Engine.handle` currently refuses both even
- * then with `Err(ValidationError)` on field `skipReply`.
+ * that set `skipReply: true`. `Engine.handle` then ships the replyless
+ * candidate without `userMessage` and still refuses the clarification with
+ * `Err(ValidationError)` on field `skipReply`.
  */
 export type PlannerOutput =
   | PlannerCandidate
@@ -128,8 +129,9 @@ export type ValidatedReplylessCandidate = Omit<
   /**
    * The reply to the user. Always present and non-blank unless the request
    * set `skipReply: true`, in which case the planner may have omitted it and
-   * a supplied reply passes through unchanged, even when blank. The Engine
-   * refuses an absent or blank reply at the ship boundary.
+   * a supplied reply passes through unchanged, even when blank. At the ship
+   * boundary the Engine drops a blank reply, so the response it ships has no
+   * `userMessage` key rather than an empty string.
    */
   readonly userMessage?: string;
   /** What healing changed, and whether a retry is recommended. */

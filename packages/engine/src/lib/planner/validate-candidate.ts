@@ -138,13 +138,7 @@ function processPlan(
 ): Result<FullValidatedReplylessCandidate, EngineError> {
   const processed = processCandidate({ ...input, llmOutput: candidate });
   if (isErr(processed) || input.validatePlan === undefined) return processed;
-  const { userMessage } = processed.value;
-  if (userMessage === undefined || userMessage.trim() === '') return processed;
-  return validateApplicationPlan(
-    input,
-    { ...processed.value, userMessage },
-    input.validatePlan,
-  );
+  return validateApplicationPlan(input, processed.value, input.validatePlan);
 }
 
 function rejectUnknownResultType(

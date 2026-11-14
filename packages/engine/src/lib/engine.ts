@@ -140,10 +140,12 @@ export interface Engine {
    * fault, cancellation, prompt-build failure, invalid Action parameter
    * definitions in the Vessel catalog (field `'vessels'`), history error,
    * missing `userMessage`, a planner that deferred with no fallback or
-   * threw). A request that set `skipReply: true` still ships only a
-   * response with a non-blank `userMessage`: a candidate without one or with
-   * a blank one, or a needs-clarification result, is `Err(ValidationError)` on field
-   * `'skipReply'`, since a `chart_response` always carries a reply.
+   * threw). A request that set `skipReply: true` may ship a response without
+   * a reply: when the candidate omits `userMessage` or leaves it blank, the
+   * `chart_response` carries no `userMessage` key at all, never an empty
+   * string. A needs-clarification result is still `Err(ValidationError)` on
+   * field `'skipReply'`, since a `chart_response` has no shape for a
+   * clarification.
    * Invalid `validatePlan` callbacks and unmet application requirements also
    * return `ValidationError` on field `'validatePlan'`.
    * Layout problems heal into diagnostics rather than surfacing here — see
@@ -707,10 +709,10 @@ function isStageResult(
   );
 }
 
-// A chart_response always carries a userMessage and has no shape for a
-// clarification, so replyless outcomes are refused here rather than widening
-// the wire response. Validation accepts these outcomes under skipReply, so
-// this is the Engine's ship boundary for them.
+// Validation accepts a missing or blank reply and a clarification only under
+// skipReply, so this is the Engine's ship boundary for them. "No reply" ships
+// as an absent userMessage, never as '', so a blank one is dropped here. A
+// chart_response has no shape for a clarification, so that is refused.
 function requireShippableReply(
   outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
@@ -724,15 +726,11 @@ function requireShippableReply(
         logger,
       );
     case 'maelstrom_response': {
-      const { userMessage } = outcome;
+      const { userMessage, ...withoutReply } = outcome;
       if (userMessage === undefined || userMessage.trim() === '') {
-        return refuseReplylessOutcome(
-          'a response without userMessage',
-          messageId,
-          logger,
-        );
+        return ok(withoutReply);
       }
-      return ok({ ...outcome, userMessage });
+      return ok({ ...withoutReply, userMessage });
     }
     default: {
       const unhandled: never = outcome;
@@ -752,7 +750,7 @@ function refuseReplylessOutcome(
   logger: Logger,
 ): Result<never, EngineError> {
   const failure = validationError(
-    `skipReply is not supported on this path: the planner returned ${outcome}, and a chart_response must carry a userMessage`,
+    `skipReply is not supported on this path: the planner returned ${outcome}, and a chart_response has no shape for a clarification`,
     'skipReply',
   );
   logger.warn('Refused a skipReply outcome the Engine cannot ship', {

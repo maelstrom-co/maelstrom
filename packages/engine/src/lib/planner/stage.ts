@@ -136,9 +136,10 @@ export type Planner = Stage<PlanningInput, PlannerCandidate>;
  * A {@link Planner} that may also answer with a {@link ReplylessCandidate} or
  * a needs-clarification result: any {@link PlannerOutput}. Every `Planner` is
  * a `ClarifyingPlanner`. Validation accepts a missing `userMessage` and a
- * clarification only for a request that set `skipReply: true`, and
- * `Engine.handle` currently refuses both even then with
- * `Err(ValidationError)` on field `skipReply`.
+ * clarification only for a request that set `skipReply: true`.
+ * `Engine.handle` then ships the replyless candidate without `userMessage`
+ * and still refuses the clarification with `Err(ValidationError)` on field
+ * `skipReply`.
  */
 export type ClarifyingPlanner = Stage<PlanningInput, PlannerOutput>;
 

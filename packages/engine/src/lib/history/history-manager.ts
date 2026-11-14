@@ -358,9 +358,9 @@ const defaultDeriveLLMContext = <TMeta>(
   if (userContent.length > 0) {
     messages.push({ role: 'user', content: userContent });
   }
-  messages.push({
-    role: 'assistant',
-    content: entry.output.response.userMessage,
-  });
+  const { userMessage } = entry.output.response;
+  if (userMessage !== undefined) {
+    messages.push({ role: 'assistant', content: userMessage });
+  }
   return messages;
 };
