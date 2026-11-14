@@ -1085,7 +1085,7 @@ describe('createPlannerShowQueue', () => {
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
     expect(idle.settled).toBe(false);
     expect(harness.notes).toEqual([
       {
@@ -1139,7 +1139,7 @@ describe('createPlannerShowQueue', () => {
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
     expect(idle.settled).toBe(false);
 
     const nextChange = harness.nextUiChange();
@@ -1165,7 +1165,7 @@ describe('createPlannerShowQueue', () => {
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
     expect(idle.settled).toBe(false);
 
     const nextChange = harness.nextUiChange();

@@ -53,7 +53,9 @@ export const SHOW_PLANNING_TIMEOUT_MS = 30_000;
 export interface PlannerShowQueueOptions {
   /**
    * Plans each show with a `skipReply: true` request. Any `userMessage` it
-   * returns is dropped from the change.
+   * returns is dropped from the change. The call's signal aborts when the
+   * planning timeout passes, the run that asked for the show is dropped, or
+   * the queue closes.
    */
   readonly planner: SessionPlanner;
   /** The connection's ordered event stream. */
