@@ -94,7 +94,7 @@ const response: MaelstromResponse = {
 
 Four response fields, each with a different purpose:
 
-- **`userMessage`** — the conversational reply, shown in the chat.
+- **`userMessage`** — the conversational reply, shown in the chat. Absent when the request set `skipReply` and the Planner wrote no reply.
 - **`rationale`** — internal reasoning for debugging and logs. Never user-facing.
 - **`executionPlan`** — actions to invoke on existing instances, in order. Each `ActionExecution` carries `instanceId`, `action`, and optional `params`.
 - **`layout`** — the resulting placement: a `GridLayout` or `TilingLayout`. See [Grid vs Tiling Layout](/understanding/grid-vs-tiling/).

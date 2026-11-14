@@ -41,6 +41,7 @@ const result = await engine.handle(message);
 
 if (isOk(result) && result.value.type === 'chart_response') {
   // result.value.response is the MaelstromResponse
+  // Absent only when the request set skipReply and the Planner wrote no reply
   console.log(result.value.response.userMessage);
 }
 ```
@@ -86,7 +87,7 @@ The protocol's factories and codecs own the message shapes. A host supplies tran
 
 `send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves when planning ends or the connection closes, without waiting for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.
 
-The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied`. Only then does the connection emit the Planner reply as `message` followed by `finished`. Missing Action outcomes leave the change pending. Failed Action outcomes fail the run without a successful reply.
+The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied`. Only then does the connection emit the Planner reply as `message` followed by `finished`. The `message` event is emitted only when there is reply text. Missing Action outcomes leave the change pending. Failed Action outcomes fail the run without a successful reply.
 
 Planning stays serialized through acknowledgement. Queued utterances use the newest Chart the browser reported. An utterance sent while a UI change awaits acknowledgement uses the acknowledged Chart instead of its own. The connection admits at most 32 pending utterances and remembers at most 4,096 input IDs without eviction. Duplicate input IDs are ignored. New inputs beyond these limits receive `queue_full` or `session_capacity`; a capacity-limited session needs a new connection.
 
@@ -234,7 +235,7 @@ const engine = createEngine({
 });
 ```
 
-When neither hook is supplied the engine uses its defaults: turns project to a user message (from user_intent reasons) + an assistant message (from the response's userMessage); injections project to a single assistant message.
+When neither hook is supplied the engine uses its defaults: turns project to a user message (from user_intent reasons) + an assistant message (from the response's userMessage, omitted when the turn has no reply); injections project to a single assistant message.
 
 Consecutive `assistant_message` injections produce consecutive `role: 'assistant'` messages in the LLM prompt. Modern chat APIs (Gemini, OpenAI, Anthropic) tolerate this; models that require strict user/assistant alternation will need an adapter-level shim.
 
@@ -339,13 +340,15 @@ Every planner result carries a top-level `type`: `'plan'` for a candidate (`Grid
 The flag changes what validation accepts:
 
 - Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
-- With `skipReply: true`, a candidate may omit `userMessage` (a supplied one, even blank, is passed through unchanged), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options?, layout?, executionPlan? }`, see `isNeedsClarification`) instead. A `layout` or `executionPlan` it carries goes through the same healing as a plan's: a `layout` is healed together with the Actions, and an `executionPlan` without a `layout` is checked against the current Instances. Healable repairs are applied and recorded in the diagnostics. A layout entry that healing would drop, or an Action skipped for a reason a better answer would avoid (an unknown Instance or an Action the Variant does not offer, for example), rejects the whole result with `Err(ValidationError)` on field `'planner'`. Actions refused for turn or engine-state reasons are skipped as they are for a plan. The validated clarification keeps its `question` and `options` plus the healed changes, and `withRetry` returns it on the attempt that produced it.
+- With `skipReply: true`, a candidate may omit `userMessage` (a supplied one, even blank, is passed through validation unchanged), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options?, layout?, executionPlan? }`, see `isNeedsClarification`) instead. A `layout` or `executionPlan` it carries goes through the same healing as a plan's: a `layout` is healed together with the Actions, and an `executionPlan` without a `layout` is checked against the current Instances. Healable repairs are applied and recorded in the diagnostics. A layout entry that healing would drop, or an Action skipped for a reason a better answer would avoid (an unknown Instance or an Action the Variant does not offer, for example), rejects the whole result with `Err(ValidationError)` on field `'planner'`. Actions refused for turn or engine-state reasons are skipped as they are for a plan. The validated clarification keeps its `question` and `options` plus the healed changes, and `withRetry` returns it on the attempt that produced it.
 
 The types keep the two cases apart. `PlannerCandidate` and `ValidatedCandidate` always carry a `userMessage`. `ReplylessCandidate` and `ValidatedReplylessCandidate` are the same shapes with `userMessage` optional, and `PlannerOutput` is `PlannerCandidate | ReplylessCandidate | NeedsClarification`. In a stage, `ctx.validate` returns a `ValidatedCandidate` for a `PlannerCandidate` and a `ValidatedReplylessCandidate` for a `ReplylessCandidate`. It does not accept a `NeedsClarification`.
 
 A plain `Planner` keeps its strict types through the combinators: `withRetry`, `withFallback` and `pipeline` return a `Planner` for it, and its `RetryFeedback.previous` is a `PlannerCandidate`. A stage whose output is wider gets a result that is just as wide. For example, `withRetry` on a stage returning any `PlannerOutput` yields a `ClarifyingPlanner` and hands it `Retryable<In, ReplylessCandidate>` feedback. A `Planner` that only returns strict candidates is still a valid `EngineConfig.planner`.
 
-`Engine.handle()` still answers with a `chart_response` whose `userMessage` is required. A `skipReply: true` request whose planner returns no `userMessage` or a blank one, or a needs-clarification result, is refused with `Err(ValidationError)` on field `'skipReply'` until the Engine has a path that can return those outcomes.
+`Engine.handle()` ships a replyless outcome as a `chart_response` whose `userMessage` is absent. The key is missing, never `''`, so a blank reply is dropped at that boundary. A `skipReply: true` request whose planner returns a needs-clarification result is still refused with `Err(ValidationError)` on field `'skipReply'`, because a `chart_response` has no shape for a clarification.
+
+A replyless outcome still runs through the `validatePlan` hook (see `PlanValidator`). Only a needs-clarification result bypasses it. History records a replyless turn, and the default `deriveLLMContext` adds no assistant message for it. A custom `deriveLLMContext` sees an optional `userMessage`.
 
 ```ts
 import { pipeline, withFallback } from '@maelstrom-co/engine';
@@ -443,7 +446,7 @@ Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are fi
 
 `Engine.handle()` returns `Err` only for genuinely unrecoverable conditions:
 
-- The LLM produced no `userMessage` at all. With `skipReply: true` validation accepts that, but `handle()` still refuses to ship it (see [skipReply and needs-clarification](#skipreply-and-needs-clarification)).
+- The LLM produced no `userMessage` at all, on a request without `skipReply`. With `skipReply: true` that is accepted and shipped without a reply (see [skipReply and needs-clarification](#skipreply-and-needs-clarification)).
 - The configured `layoutMode` is unsupported (programmer error).
 - A provider error / cancellation / history error occurred upstream (see `Errors` below).
 
@@ -511,7 +514,7 @@ The application owns SDKs, exporters, flush, and disposal. See the
 
 - **`ProviderError`** — LLM adapter failure (rate limit, service unavailable, non-Error rejection).
 - **`ValidationError`**: a planner that cannot build its prompt from the request, `assistant_message` without history configured, unsupported `layoutMode`, and similar caller-fixable conditions.
-- **`ParseError`** — LLM output failed structural validation (e.g. missing `userMessage`).
+- **`ParseError`** — LLM output failed structural validation (e.g. a missing or blank `userMessage` on a request without `skipReply`).
 - **`TimeoutError`** — configured LLM call timeout elapsed.
 - **`CancellationError`** — the `AbortSignal` fired before or during the call.
 - **`HistoryError`** — the configured `HistoryStore` failed during a record/persist operation. Distinct from `ProviderError` (LLM adapter) so callers can route LLM vs. store failures to different recovery paths. `operation` identifies which engine entry point surfaced the failure (`'record_turn' | 'add_assistant_message' | 'clear'`).
