@@ -2,6 +2,7 @@ import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
   type AgentRunMetrics,
+  type AgentUiAppliedInput,
   type AgentUtteranceInput,
   RunId,
 } from '@maelstrom-co/protocol';
@@ -25,6 +26,7 @@ import {
   runAgent,
 } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
+import type { PlannerShowQueue } from './planner-show-queue.js';
 import {
   type AgentRunCounters,
   buildAcceptanceEvents,
@@ -33,15 +35,10 @@ import {
   type RunFailure,
 } from './run-events.js';
 import type { RunObserver } from './run-scheduler.js';
-import {
-  createToolResultStore,
-  type ToolResultStore,
-} from './tool-result-store.js';
-import {
-  createTranscript,
-  TRANSCRIPT_MAX_CHARS,
-  type Transcript,
-} from './transcript.js';
+import { describeShowQueued } from './screen-note.js';
+import { collectShowFacts } from './show-request.js';
+import type { ToolResultStore } from './tool-result-store.js';
+import type { Transcript } from './transcript.js';
 
 /** Starts one Agent Run. Defaults to {@link runAgent}. */
 export type AgentRunStarter = (
@@ -66,12 +63,14 @@ export interface AgentRunQueueOptions {
   /** Schedules a callback and returns a function that cancels it. */
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
   /**
-   * Session transcript later runs build on. Defaults to a new one bounded by
-   * {@link TRANSCRIPT_MAX_CHARS}.
+   * The connection's loop-driven shows. A tool phase with a successful
+   * result requests one, and the queue closes them when it closes.
    */
-  readonly transcript?: Transcript;
-  /** Session store of full tool results. Defaults to a new one. */
-  readonly toolResults?: ToolResultStore;
+  readonly shows: PlannerShowQueue;
+  /** Session transcript later runs build on, the one the shows record their notes in. */
+  readonly transcript: Transcript;
+  /** Session store of full tool results. */
+  readonly toolResults: ToolResultStore;
   /** Starts each run. Defaults to {@link runAgent}. */
   readonly startRun?: AgentRunStarter;
 }
@@ -79,7 +78,9 @@ export interface AgentRunQueueOptions {
 /**
  * Serial Agent Runs of one connection, one at a time in arrival order. A run's
  * ending is emitted at once, but the next run starts only after every tool
- * call of the previous run that is not `read_only` has settled.
+ * call of the previous run that is not `read_only` has settled. A tool phase
+ * with a successful result queues one loop-driven show, which runs beside the
+ * runs and never holds them up.
  */
 export interface AgentRunQueue {
   /** Queued runs plus the active one. */
@@ -92,7 +93,13 @@ export interface AgentRunQueue {
    * finishes as `cancelled` without starting. Unknown runs are ignored.
    */
   cancelRun(runId: RunId): void;
-  /** Aborts the active run and drops all queued ones. Emits nothing further. */
+  /**
+   * Settles the loop-driven change awaiting acknowledgement and records what
+   * the screen now shows as a note later runs read. An unknown `changeId` or
+   * a wrong outcome count is refused with an agent `error` event.
+   */
+  acknowledge(input: AgentUiAppliedInput): void;
+  /** Aborts the active run, drops all queued runs and shows. Emits nothing further. */
   close(): void;
 }
 
@@ -105,8 +112,9 @@ export function createAgentRunQueue({
   logger,
   clock,
   scheduleTimeout,
-  transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS }),
-  toolResults = createToolResultStore(),
+  shows,
+  transcript,
+  toolResults,
   startRun = runAgent,
 }: AgentRunQueueOptions): AgentRunQueue {
   const queue: QueuedAgentRun[] = [];
@@ -114,7 +122,6 @@ export function createAgentRunQueue({
   let active: ActiveAgentRun | undefined;
   let toolsSettling: Promise<void> | undefined;
   let closed = false;
-
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
 
   const measuredSince = (
@@ -215,9 +222,24 @@ export function createAgentRunQueue({
           summary: event.summary,
         });
         return;
-      case 'tool_phase_ended':
+      case 'tool_phase_ended': {
         toolResults.recordToolPhase(runId, event);
+        const facts = collectShowFacts(event, agent.registry, logger);
+        if (facts === undefined) return;
+        transcript.recordShowNote(
+          runId,
+          event.turnId,
+          describeShowQueued(facts.toolNames),
+        );
+        shows.request({
+          runId,
+          inputId: run.input.inputId,
+          turnId: event.turnId,
+          intent: run.input.text,
+          ...facts,
+        });
         return;
+      }
       case 'finished':
         return;
     }
@@ -340,6 +362,7 @@ export function createAgentRunQueue({
         done: deferred(),
       };
       queue.push(run);
+      shows.noteChart(input.chart);
       events.emit(...buildAcceptanceEvents(input.inputId, run.runId, 'agent'));
       observe(
         run.runId,
@@ -382,9 +405,14 @@ export function createAgentRunQueue({
       );
       queued.done.resolve();
     },
+    acknowledge(input) {
+      if (closed) return;
+      shows.acknowledge(input);
+    },
     close() {
       if (closed) return;
       closed = true;
+      shows.close();
       const run = active;
       active = undefined;
       if (run !== undefined) {

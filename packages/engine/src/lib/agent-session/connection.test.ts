@@ -20,6 +20,9 @@ import {
   makeTilingRequest,
   silentLogger,
 } from '../__test-helpers__/fixtures.js';
+import type { Logger } from '../logger.js';
+import { createAgentConnection } from './connection.js';
+import type { SessionPlanInput } from './session-planner.js';
 
 const utterance = (): AgentUtteranceInput => ({
   type: 'utterance',
@@ -304,6 +307,62 @@ test('closing a connection aborts its Planner and never emits its late result', 
     'placeholder',
     'accepted',
   ]);
+});
+
+test('a UI-only Planner clarification fails its run with the skipReply ValidationError and a warning', async () => {
+  const events: AgentEvent[] = [];
+  const warnings: { message: string; data: unknown }[] = [];
+  const logger: Logger = {
+    ...silentLogger,
+    warn: (message, data) => warnings.push({ message, data }),
+  };
+  const plannerInputs: SessionPlanInput[] = [];
+  const connection = createAgentConnection(
+    { sessionId: SessionId('clarification'), user: null, clock: () => 10 },
+    {
+      planner: async (input) => {
+        plannerInputs.push(input);
+        return ok({
+          type: 'needs_clarification',
+          question: 'Which calendar?',
+        });
+      },
+      observe: () => undefined,
+      logger,
+    },
+  );
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+
+  await connection.send(utterance());
+
+  const accepted = events.find((event) => event.type === 'accepted');
+  if (!accepted?.runId) throw new Error('Missing UI-only run');
+  expect(plannerInputs.map((input) => input.owner)).toEqual([
+    { runId: accepted.runId, inputId: MessageId('input-1') },
+  ]);
+  expect(events.map((event) => event.type)).toEqual([
+    'placeholder',
+    'accepted',
+    'finished',
+  ]);
+  expect(events.at(-1)).toMatchObject({
+    ok: false,
+    reason: 'error',
+    code: 'ValidationError',
+    error: 'The UI request failed.',
+  });
+  expect(warnings).toEqual([
+    {
+      message: 'Refused a skipReply outcome the Engine cannot ship',
+      data: {
+        messageId: MessageId('input-1'),
+        outcome: 'a needs-clarification result',
+      },
+    },
+  ]);
+  connection.close();
 });
 
 test('a failed Planner ends its run once without exposing provider errors or private identity', async () => {

@@ -16,24 +16,15 @@ import {
 } from '@maelstrom-co/protocol';
 
 import type { EngineError } from '../errors.js';
+import type { Logger } from '../logger.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import {
   buildAcceptanceEvents,
   buildRunEnding,
   type RunFailure,
 } from './run-events.js';
+import { requireResponse, type SessionPlanner } from './session-planner.js';
 import { userIntentRequest } from './show-request.js';
-
-export interface UiPlanInput {
-  readonly request: ChartRequest;
-  readonly messageId: MessageId;
-  readonly runId: RunId;
-  readonly signal: AbortSignal;
-}
-
-export type UiChangePlanner = (
-  input: UiPlanInput,
-) => Promise<Result<MaelstromResponse, EngineError>>;
 
 export type RunObserver = (
   runId: RunId,
@@ -44,8 +35,9 @@ export type RunObserver = (
 ) => void;
 
 export interface RunSchedulerOptions {
-  readonly plan: UiChangePlanner;
+  readonly planner: SessionPlanner;
   readonly observe: RunObserver;
+  readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly signal: AbortSignal;
   readonly clock: () => number;
@@ -79,8 +71,9 @@ type RunState =
     };
 
 export function createRunScheduler({
-  plan,
+  planner,
   observe,
+  logger,
   events,
   signal,
   clock,
@@ -160,14 +153,18 @@ export function createRunScheduler({
     if (!run) return;
     state = { phase: 'planning', run };
     const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
+    const messageId = run.input.inputId;
     let result: Result<MaelstromResponse, EngineError>;
     try {
-      result = await plan({
-        messageId: run.input.inputId,
-        runId: run.runId,
+      const planned = await planner({
+        messageId,
+        owner: { runId: run.runId, inputId: messageId },
         signal,
         request,
       });
+      result = isErr(planned)
+        ? planned
+        : requireResponse(planned.value, messageId, logger);
     } catch {
       failPlanning(run, {
         code: 'internal_error',
@@ -283,7 +280,8 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
-function changeError(
+/** Builds the agent `error` event that refuses a `ui_applied` input. */
+export function changeError(
   changeId: ChangeId,
   code: string,
   error: string,

@@ -44,6 +44,13 @@ export interface Transcript {
     ok: boolean,
     summary: string,
   ): void;
+  /**
+   * Records a one-line note about a show the run asked the Planner for, such
+   * as that it is queued or what the screen then displays. It belongs to the
+   * run, so it leaves with that run on eviction. A note recorded after its
+   * run was evicted is kept until the bound evicts it.
+   */
+  recordShowNote(runId: RunId, turnId: string, text: string): void;
   /** Records the closing message a run sent when a budget ran out. */
   recordClosingMessage(runId: RunId, text: string): void;
   /**
@@ -54,7 +61,7 @@ export interface Transcript {
   recordEnding(runId: RunId, finished: AgentRunFinished): void;
   /**
    * Renders every retained entry, oldest first. User inputs become
-   * `user` messages. Reply text, tool calls, tool summaries, closing messages
+   * `user` messages, and so do show notes. Reply text, tool calls, tool summaries, closing messages
    * and abnormal endings become `assistant` content, with consecutive
    * entries of the same role joined by newlines into one message.
    */
@@ -73,7 +80,8 @@ export interface TranscriptOptions {
    * Most rendered characters to keep across all recorded runs. When the total
    * exceeds it, whole runs leave oldest first, so a run's input, replies,
    * tool calls, tool results and ending always leave together. The newest
-   * run is always kept, even when it alone exceeds the bound. Defaults to
+   * run, the one most recently started, is always kept, even when it alone
+   * exceeds the bound. Defaults to
    * {@link TRANSCRIPT_MAX_CHARS}.
    */
   readonly maxChars?: number;
@@ -86,6 +94,7 @@ export function createTranscript({
   const entries: TranscriptEntry[] = [];
   const runsWithReplyText = new Set<RunId>();
   let totalChars = 0;
+  let newestRunId: RunId | undefined;
 
   const append = (entry: TranscriptEntry) => {
     entries.push(entry);
@@ -94,10 +103,11 @@ export function createTranscript({
   };
 
   const evictOldestRuns = () => {
-    const newestRunId = entries.at(-1)?.runId;
     while (totalChars > maxChars) {
-      const oldestRunId = entries[0]?.runId;
-      if (oldestRunId === undefined || oldestRunId === newestRunId) return;
+      const oldestRunId = entries.find(
+        (entry) => entry.runId !== newestRunId,
+      )?.runId;
+      if (oldestRunId === undefined) return;
       for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index];
         if (entry?.runId !== oldestRunId) continue;
@@ -110,6 +120,7 @@ export function createTranscript({
 
   return {
     recordUserInput(runId, text) {
+      newestRunId = runId;
       append({ kind: 'user_input', runId, text });
     },
     recordMessage(runId, turnId, text) {
@@ -142,6 +153,9 @@ export function createTranscript({
         summary,
       });
     },
+    recordShowNote(runId, turnId, text) {
+      append({ kind: 'show_note', runId, turnId, text });
+    },
     recordClosingMessage(runId, text) {
       append({ kind: 'closing_message', runId, text });
     },
@@ -156,7 +170,10 @@ export function createTranscript({
     renderPriorMessages() {
       const messages: ModelMessage<string>[] = [];
       for (const entry of entries) {
-        const role = entry.kind === 'user_input' ? 'user' : 'assistant';
+        const role =
+          entry.kind === 'user_input' || entry.kind === 'show_note'
+            ? 'user'
+            : 'assistant';
         const content = renderEntry(entry);
         const last = messages.at(-1);
         if (last?.role === role) {
@@ -197,6 +214,12 @@ type TranscriptEntry =
       readonly summary: string;
     }
   | {
+      readonly kind: 'show_note';
+      readonly runId: RunId;
+      readonly turnId: string;
+      readonly text: string;
+    }
+  | {
       readonly kind: 'closing_message';
       readonly runId: RunId;
       readonly text: string;
@@ -216,6 +239,8 @@ function renderEntry(entry: TranscriptEntry): string {
       return `[tool call ${entry.ref}] ${entry.name} ${entry.args}`;
     case 'tool_result':
       return `[tool result ${entry.ref}] ${entry.ok ? 'ok' : 'failed'}: ${entry.summary}`;
+    case 'show_note':
+      return `[show ${entry.turnId}] ${entry.text}`;
     case 'closing_message':
       return `[closing message ${entry.runId}] ${entry.text}`;
     case 'ending':

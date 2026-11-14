@@ -9,12 +9,15 @@ import {
   createOrderedEmitter,
   type OrderedEmitter,
 } from './ordered-emitter.js';
+import { createPlannerShowQueue } from './planner-show-queue.js';
 import {
   createRunScheduler,
   type RunObserver,
   type RunScheduler,
-  type UiChangePlanner,
 } from './run-scheduler.js';
+import type { SessionPlanner } from './session-planner.js';
+import { createToolResultStore } from './tool-result-store.js';
+import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';
 
 /** Server-owned context and clock for one connection. Never supplied to the Planner. */
 export interface OpenConnectionOptions {
@@ -37,10 +40,12 @@ export interface OpenConnectionOptions {
   /**
    * Maximum wait in milliseconds for the browser to acknowledge a UI change
    * with `ui_applied`. Defaults to 30,000. Must be a positive integer no
-   * greater than 2,147,483,647, or opening the connection throws. When it
-   * elapses, the run finishes with code `ui_ack_timeout`, every queued
-   * utterance finishes as `cancelled`, and the next utterance plans against
-   * its own Chart.
+   * greater than 2,147,483,647, or opening the connection throws. On the
+   * UI-only route, when it elapses, the run finishes with code
+   * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
+   * next utterance plans against its own Chart. A loop-driven change of an
+   * Agent Run waits as long, then the next queued show starts on the last
+   * acknowledged Chart while the runs carry on.
    */
   readonly acknowledgementTimeoutMs?: number;
 }
@@ -58,7 +63,9 @@ export interface OpenConnectionOptions {
  *   to continue.
  * - Each UI change waits for acknowledgement for at most
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
- *   default. A timeout fails the run and cancels queued work.
+ *   default. On the UI-only route a timeout fails the run and cancels queued
+ *   work. On an agent connection a timeout of a loop-driven change only lets
+ *   the next queued show start.
  */
 export interface AgentConnection {
   /** Accepts untrusted input. Resolves after handling it, without waiting for a later UI acknowledgement. */
@@ -69,12 +76,21 @@ export interface AgentConnection {
   close(): void;
 }
 
+/** What the Engine wires into each {@link AgentConnection}. */
+export interface AgentConnectionDependencies {
+  /** Plans every UI change of the connection, on either route. */
+  readonly planner: SessionPlanner;
+  /** Receives diagnostic observations of each run and change. */
+  readonly observe: RunObserver;
+  /** Receives delivered events and run failures. */
+  readonly logger: Logger;
+  /** The resolved agent slot. Without it every utterance takes the UI-only route. */
+  readonly agent?: ResolvedAgentConfig;
+}
+
 export function createAgentConnection(
   options: OpenConnectionOptions,
-  plan: UiChangePlanner,
-  observe: RunObserver,
-  logger: Logger,
-  agent?: ResolvedAgentConfig,
+  { planner, observe, logger, agent }: AgentConnectionDependencies,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -98,28 +114,25 @@ export function createAgentConnection(
   const runs =
     agent === undefined
       ? createRunScheduler({
-          plan,
+          planner,
           observe,
+          logger,
           events,
           signal: controller.signal,
           clock,
           acknowledgementTimeoutMs,
         })
       : agentRuns(
-          createAgentRunQueue({
+          createAgentRoute({
+            options,
             agent,
-            identity: {
-              user: options.user,
-              ...(options.token === undefined ? {} : { token: options.token }),
-            },
-            events,
+            planner,
             observe,
             logger,
+            events,
             clock,
-            scheduleTimeout: options.scheduleTimeout ?? scheduleGlobalTimeout,
+            acknowledgementTimeoutMs,
           }),
-          options.sessionId,
-          logger,
           events,
         );
   return {
@@ -143,21 +156,63 @@ export function createAgentConnection(
   };
 }
 
+function createAgentRoute({
+  options,
+  agent,
+  planner,
+  observe,
+  logger,
+  events,
+  clock,
+  acknowledgementTimeoutMs,
+}: {
+  readonly options: OpenConnectionOptions;
+  readonly agent: ResolvedAgentConfig;
+  readonly planner: SessionPlanner;
+  readonly observe: RunObserver;
+  readonly logger: Logger;
+  readonly events: OrderedEmitter<AgentEvent>;
+  readonly clock: () => number;
+  readonly acknowledgementTimeoutMs: number;
+}): AgentRunQueue {
+  const scheduleTimeout = options.scheduleTimeout ?? scheduleGlobalTimeout;
+  const transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS });
+  const shows = createPlannerShowQueue({
+    planner,
+    events,
+    observe,
+    recordShowNote: (runId, turnId, text) =>
+      transcript.recordShowNote(runId, turnId, text),
+    logger,
+    scheduleTimeout,
+    acknowledgementTimeoutMs,
+  });
+  return createAgentRunQueue({
+    agent,
+    identity: {
+      user: options.user,
+      ...(options.token === undefined ? {} : { token: options.token }),
+    },
+    events,
+    observe,
+    logger,
+    clock,
+    scheduleTimeout,
+    shows,
+    transcript,
+    toolResults: createToolResultStore(),
+  });
+}
+
 function agentRuns(
   queue: AgentRunQueue,
-  sessionId: SessionId,
-  logger: Logger,
   events: OrderedEmitter<AgentEvent>,
 ): RunScheduler {
   return {
     pendingRuns: () => queue.pendingRuns(),
     reject: (event) => events.emit(event),
     enqueue: (input) => queue.enqueue(input),
-    acknowledge: (input) =>
-      logger.warn('Ignored ui_applied on an agent connection', {
-        sessionId,
-        changeId: input.changeId,
-      }),
+    acknowledge: (input) => queue.acknowledge(input),
     close: () => queue.close(),
   };
 }
