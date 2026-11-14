@@ -326,6 +326,7 @@ test('deployment static files cannot bypass protected-route middleware through a
         public: await read('/static/public.txt'),
         protected: await read('/static/admin/secret.txt'),
         encoded: await read('/static/%%36%31dmin/secret.txt'),
+        backslash: await read('/static/public' + String.fromCharCode(92) + '..' + String.fromCharCode(92) + 'admin/secret.txt'),
       }));
     } finally {
       if (server) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -341,6 +342,8 @@ test('deployment static files cannot bypass protected-route middleware through a
   expect(response.protected.status).toBe(401);
   expect(response.encoded.status).toBe(404);
   expect(response.encoded.body).not.toContain('protected fixture');
+  expect(response.backslash.status).toBe(400);
+  expect(response.backslash.body).not.toContain('protected fixture');
 }, 15000);
 
 const qsPackage = installedDependency(
@@ -486,3 +489,22 @@ test('docs selector parsing retains the linear-time security backport', () => {
   expect(result.status, result.error?.message ?? result.stderr).toBe(0);
   expect(JSON.parse(result.stdout).ratio).toBeLessThan(2);
 }, 40000);
+
+test('wildcard route handlers cannot bypass their scoped authentication middleware', async () => {
+  const installed = installedDependency('apps/demo/package.json', 'hono');
+  const { Hono } = installed.require('hono');
+  const app = new Hono();
+  let handlerReached = false;
+  app.use(
+    '/admin/*',
+    (context: { text: (body: string, status: number) => Response }) =>
+      context.text('Unauthorized', 401),
+  );
+  app.get('/admin*', () => {
+    handlerReached = true;
+    return new Response('private');
+  });
+  const response = await app.request('https://fixture.invalid/admin/private');
+  expect(response.status).toBe(401);
+  expect(handlerReached).toBe(false);
+});

@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import {
+  OSS_PREVIEW_STATE_STORE_WORKER,
+  PREVIEW_STATE_STORE_CAPABILITY,
+} from '../infra/platform/src/PreviewStateStoreContract.ts';
+
 /** These directories resolve independent Alchemy installations in this workspace. */
 export const alchemyProjects = [
   'infra/platform',
@@ -43,6 +48,29 @@ export function assertWorkspaceAlchemyVersion(
 ) {
   for (const project of alchemyProjects)
     assertAlchemyVersion(root, required, project);
+}
+
+/** Fences source revisions that cannot route preview state to the isolated backend. */
+export function assertPreviewStateStore(
+  root: string,
+  required: string | undefined,
+) {
+  if (!required) return;
+  if (required !== OSS_PREVIEW_STATE_STORE_WORKER)
+    throw new Error('PREVIEW_STATE_STORE_REQUIREMENT_INVALID');
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  } catch {
+    throw new Error('PREVIEW_STATE_STORE_CAPABILITY_REQUIRED');
+  }
+  if (
+    typeof manifest !== 'object' ||
+    manifest === null ||
+    !(PREVIEW_STATE_STORE_CAPABILITY in manifest) ||
+    manifest[PREVIEW_STATE_STORE_CAPABILITY] !== required
+  )
+    throw new Error('PREVIEW_STATE_STORE_CAPABILITY_REQUIRED');
 }
 
 if (import.meta.main)

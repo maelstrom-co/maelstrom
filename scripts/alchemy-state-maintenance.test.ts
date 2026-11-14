@@ -3,6 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
+  OSS_PREVIEW_STATE_STORE_WORKER,
+  PREVIEW_ISOLATION_WORKFLOW,
+} from '../infra/platform/src/PreviewStateStoreContract.ts';
+import {
   assertCandidate,
   assertPreviewReceipt,
   assertPreviewRun,
@@ -32,6 +36,8 @@ const environment = (target = 'preview') => ({
   ALCHEMY_REQUIRED_VERSION: '2.0.0-beta.85',
   CONFIRM_PRODUCTION: 'true',
   PREVIEW_RUN_ID: '500',
+  ISOLATION_RUN_ID: '400',
+  ALCHEMY_PREVIEW_STATE_STORE_WORKER: OSS_PREVIEW_STATE_STORE_WORKER,
 });
 const run = {
   id: 500,
@@ -52,6 +58,7 @@ const goodReceipt = {
   attempt: '1',
   version: '2.0.0-beta.85',
   protocol: 8,
+  storeWorker: OSS_PREVIEW_STATE_STORE_WORKER,
   existingStatePreserved: true,
   canaryPassed: true,
   cleanupPassed: true,
@@ -164,6 +171,8 @@ async function fixture(
     changeRecord?: boolean;
     wrongAccount?: boolean;
     delayedCanary?: boolean;
+    invalidIsolation?: boolean;
+    previewProtocol?: number;
   } = {},
 ) {
   const directory = await mkdtemp('/tmp/alchemy-maintenance-');
@@ -211,6 +220,7 @@ async function fixture(
     CONTROL_ROOT: control,
     SOURCE_ROOT: source,
     RECEIPT_OUTPUT: join(directory, 'receipt.json'),
+    ISOLATION_RECEIPT: join(directory, 'isolation.json'),
     GH_TOKEN: 'never-inherit-github-token',
     UNRELATED_SECRET: 'never-inherit-another-secret',
     PREVIEW_ACCOUNT_ID: 'c'.repeat(32),
@@ -220,11 +230,42 @@ async function fixture(
     PREVIEW_WORKERS_DEV_SUFFIX: 'fixture.workers.dev',
   };
   const calls: Array<{ phase: string; root: string; argv: string[] }> = [];
-  let protocol = 7;
+  await writeFile(
+    env.ISOLATION_RECEIPT,
+    JSON.stringify({
+      mode: 'copy',
+      version: '2.0.0-beta.85',
+      runId: '400',
+      attempt: '1',
+      controlSha,
+      sourceSha: options.invalidIsolation ? controlSha : sourceSha,
+      accountId: 'c'.repeat(32),
+      sourceWorker: 'alchemy-state-store',
+      destinationWorker: OSS_PREVIEW_STATE_STORE_WORKER,
+      sourceProtocol: 7,
+      destinationProtocol: 8,
+      sourceUnchanged: true,
+      manifestVerified: true,
+      destinationWasAbsent: true,
+      defaultStorePreserved: true,
+      resources: 0,
+      outputs: 0,
+      legacyWorkers: 0,
+      scopes: [],
+    }),
+  );
+  let protocol = target === 'preview' ? (options.previewProtocol ?? 8) : 7;
   let moved = false;
   let baselineReads = 0;
   let canaryReads = 0;
   const request = async <T>(path: string) => {
+    if (path === '/actions/runs/400')
+      return {
+        ...run,
+        id: 400,
+        path: PREVIEW_ISOLATION_WORKFLOW,
+        updated_at: new Date().toISOString(),
+      } as T;
     if (path.startsWith('/pulls/'))
       return {
         state: 'open',
@@ -263,8 +304,12 @@ async function fixture(
           success: true,
           result: { subdomain: 'fixture' },
         });
-      if (url.pathname === '/version')
+      if (url.pathname === '/version') {
+        expect(url.hostname).toBe(
+          `${target === 'preview' ? OSS_PREVIEW_STATE_STORE_WORKER : 'alchemy-state-store'}.fixture.workers.dev`,
+        );
         return Response.json({ version: protocol });
+      }
       canaryReads++;
       if (options.delayedCanary && canaryReads < 4)
         return new Response('propagating', { status: 503 });
@@ -278,6 +323,14 @@ async function fixture(
     }) => {
       expect(operation.env.GH_TOKEN).toBeUndefined();
       expect(operation.env.UNRELATED_SECRET).toBeUndefined();
+      if (target === 'preview')
+        expect(operation.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER).toBe(
+          OSS_PREVIEW_STATE_STORE_WORKER,
+        );
+      else
+        expect(
+          operation.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
+        ).toBeUndefined();
       expect(operation.argv).toContain('--no-env-file');
       calls.push({
         phase: operation.phase,
@@ -325,12 +378,11 @@ test('preview verifies the original encrypted record before updating and cleanin
   expect(result.calls.map((call) => call.phase)).toEqual([
     'seed-preview-before-upgrade',
     'read-existing-state-before-upgrade',
-    'bootstrap-state-store',
     'read-existing-state-after-upgrade',
     'deploy-preview-canary',
     'cleanup-preview-canary',
   ]);
-  expect(result.calls[0]?.root).toContain('/control/');
+  expect(result.calls[0]?.root).toContain('/source/');
   expect(result.calls.at(-1)?.root).toContain('/source/');
   expect(result.receipt).toMatchObject({
     existingStatePreserved: true,
@@ -339,7 +391,7 @@ test('preview verifies the original encrypted record before updating and cleanin
   });
 });
 
-test('a baseline failure cleans up with beta.83 and never attempts the protocol upgrade', async () => {
+test('a preview baseline failure cleans up with beta.85 in the isolated store', async () => {
   const result = await fixture({ failRead: true });
   expect(result.failure).toBeDefined();
   expect(
@@ -348,37 +400,17 @@ test('a baseline failure cleans up with beta.83 and never attempts the protocol 
   expect(result.calls.at(-1)).toMatchObject({
     phase: 'cleanup-preview-canary',
   });
-  expect(result.calls.at(-1)?.root).toContain('/control/');
+  expect(result.calls.at(-1)?.root).toContain('/source/');
   expect(result.receipt).toBeUndefined();
 });
 
-for (const protocol of [7, 8] as const) {
-  test(`a partially failed upgrade never sends beta.83 cleanup into a possibly upgraded store (${protocol})`, async () => {
-    const result = await fixture({ failBootstrap: protocol });
+test('an unverified copy or an unexpected preview protocol cannot create a canary', async () => {
+  for (const options of [{ invalidIsolation: true }, { previewProtocol: 7 }]) {
+    const result = await fixture(options);
     expect(result.failure).toBeDefined();
-    const cleanup = result.calls.filter(
-      (call) => call.phase === 'cleanup-preview-canary',
-    );
-    if (protocol === 7) expect(cleanup).toEqual([]);
-    else expect(cleanup[0]?.root).toContain('/source/');
+    expect(result.calls).toEqual([]);
     expect(result.receipt).toBeUndefined();
-  });
-}
-
-test('refused cleanup preserves the bootstrap failure and the repair identity', async () => {
-  const result = await fixture({ failBootstrap: 7 });
-  expect(result.failure).toBeInstanceOf(Error);
-  const message = (result.failure as Error).message;
-  expect(message).toContain('simulated partial bootstrap');
-  expect(message).toContain(
-    'State-store protocol is uncertain after bootstrap',
-  );
-  expect(message).toContain('stack=MaelstromStateStoreCanary');
-  expect(message).toContain('stage=maintenance-600-1');
-  expect(message).toContain('worker=maelstrom-state-canary-600-1');
-  expect(message).toContain('Keep all callers paused');
-  expect(message).not.toContain('not-for-logs');
-  expect(result.receipt).toBeUndefined();
+  }
 });
 
 test('a moved PR head cannot prevent cleanup of the immutable deployed canary', async () => {

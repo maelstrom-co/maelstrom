@@ -2,10 +2,15 @@ import { createHash } from 'node:crypto';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
+import { OSS_PREVIEW_STATE_STORE_WORKER } from '../infra/platform/src/PreviewStateStoreContract.ts';
 import {
   assertAlchemyVersion,
   assertWorkspaceAlchemyVersion,
 } from './alchemy-version.ts';
+import {
+  assertIsolationRun,
+  assertIsolationReceipt,
+} from './preview-state-isolation-receipt.ts';
 
 const repository = 'maelstrom-co/maelstrom';
 const version = '2.0.0-beta.85';
@@ -54,6 +59,7 @@ interface Context {
   runId: string;
   attempt: string;
   previewRun: string | undefined;
+  isolationRun?: string;
   actor: string;
 }
 
@@ -97,6 +103,15 @@ export function maintenanceContext(env: Environment): Context {
     throw new Error(
       'Production requires explicit confirmation and a successful preview run',
     );
+  if (
+    env.MAINTENANCE_TARGET === 'preview' &&
+    (!env.ISOLATION_RUN_ID ||
+      !idPattern.test(env.ISOLATION_RUN_ID) ||
+      env.ALCHEMY_PREVIEW_STATE_STORE_WORKER !== OSS_PREVIEW_STATE_STORE_WORKER)
+  )
+    throw new Error(
+      'Preview requires a successful isolation run and the named store pointer',
+    );
   const actor = env.GITHUB_TRIGGERING_ACTOR ?? env.GITHUB_ACTOR;
   if (!actor || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(actor))
     throw new Error('Invalid maintenance actor');
@@ -108,6 +123,7 @@ export function maintenanceContext(env: Environment): Context {
     runId: requiredValue(env, 'GITHUB_RUN_ID'),
     attempt: requiredValue(env, 'GITHUB_RUN_ATTEMPT'),
     previewRun: env.PREVIEW_RUN_ID,
+    isolationRun: env.ISOLATION_RUN_ID,
     actor,
   };
 }
@@ -233,6 +249,7 @@ export function assertPreviewReceipt(
     receipt.attempt !== String(run.run_attempt) ||
     receipt.version !== version ||
     receipt.protocol !== 8 ||
+    receipt.storeWorker !== OSS_PREVIEW_STATE_STORE_WORKER ||
     receipt.existingStatePreserved !== true ||
     receipt.canaryPassed !== true ||
     receipt.cleanupPassed !== true
@@ -290,7 +307,7 @@ import * as Cloudflare from '${cliVersion === version ? '@alchemy.run/cloudflare
 import * as Effect from 'effect/Effect';
 export default Alchemy.Stack('MaelstromStateStoreCanary', {
   providers: Cloudflare.providers(),
-  state: Cloudflare.state(${cliVersion === version ? '{ accountId: process.env.EXPECTED_CLOUDFLARE_ACCOUNT_ID! }' : ''}),
+  state: Cloudflare.state(${cliVersion === version ? '{ workerName: process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER!, accountId: process.env.EXPECTED_CLOUDFLARE_ACCOUNT_ID! }' : ''}),
 }, Effect.gen(function* () {
   const worker = yield* Cloudflare.Worker('Canary', {
     name: ${JSON.stringify(name)}, workersDev: true,
@@ -397,6 +414,25 @@ export async function executeMaintenance(
   await ops.verifyCheckout(control, context.controlSha);
   await ops.verifyCheckout(source, context.sourceSha);
   const { expected: account, token } = accountEnvironment(env, context);
+  const storeWorker =
+    context.target === 'preview'
+      ? OSS_PREVIEW_STATE_STORE_WORKER
+      : 'alchemy-state-store';
+  if (context.target === 'preview') {
+    const run = await assertIsolationRun(request, {
+      runId: context.isolationRun ?? '',
+      controlSha: context.controlSha,
+    });
+    const raw = await readFile(requiredValue(env, 'ISOLATION_RECEIPT'), 'utf8');
+    if (raw.length > 262_144) throw new Error('Isolation receipt is too large');
+    assertIsolationReceipt(JSON.parse(raw), {
+      runId: context.isolationRun ?? '',
+      attempt: String(run.run_attempt),
+      controlSha: context.controlSha,
+      sourceSha: context.sourceSha,
+      accountId: account,
+    });
+  }
   const profile = `${context.target}-ci`;
   const marker = `alchemy-state-canary-${context.runId}-${context.attempt}`;
   const name = `maelstrom-state-canary-${context.runId}-${context.attempt}`;
@@ -431,14 +467,11 @@ export async function executeMaintenance(
       'Preview account subdomain does not match the configured suffix',
     );
   const servedProtocol = async () => {
-    const response = await ops.fetch(
-      `https://alchemy-state-store.${host}/version`,
-      {
-        redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
-        headers: { 'Cache-Control': 'no-cache' },
-      },
-    );
+    const response = await ops.fetch(`https://${storeWorker}.${host}/version`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'Cache-Control': 'no-cache' },
+    });
     if (!response.ok)
       throw new Error('Cannot verify the serving state-store protocol');
     const data = (await response.json()) as { version: unknown };
@@ -476,6 +509,9 @@ export async function executeMaintenance(
       EXPECTED_CLOUDFLARE_ACCOUNT_ID: account,
       CLOUDFLARE_API_TOKEN: token,
     });
+    if (context.target === 'preview')
+      childEnv.ALCHEMY_PREVIEW_STATE_STORE_WORKER =
+        OSS_PREVIEW_STATE_STORE_WORKER;
     console.log(JSON.stringify({ phase, target: context.target, cliVersion }));
     return ops.run({
       argv: [
@@ -496,6 +532,8 @@ export async function executeMaintenance(
   };
   assertWorkspaceAlchemyVersion(source, version);
   const before = await servedProtocol();
+  if (context.target === 'preview' && before !== 8)
+    throw new Error('Isolated preview state must already serve protocol 8');
   const baselineVersion = before === 7 ? '2.0.0-beta.83' : version;
   const readArgs =
     context.target === 'preview'
@@ -555,12 +593,14 @@ export async function executeMaintenance(
       ),
     );
     await guard();
-    bootstrapAttempted = true;
-    await invoke(
-      version,
-      ['state', 'bootstrap', '--backend', 'cloudflare'],
-      'bootstrap-state-store',
-    );
+    if (context.target === 'production') {
+      bootstrapAttempted = true;
+      await invoke(
+        version,
+        ['state', 'bootstrap', '--backend', 'cloudflare'],
+        'bootstrap-state-store',
+      );
+    }
     if ((await servedProtocol()) !== 8)
       throw new Error('Bootstrap did not serve protocol 8');
     if (
@@ -647,6 +687,7 @@ export async function executeMaintenance(
     attempt: context.attempt,
     version,
     protocol: 8,
+    storeWorker,
     existingStatePreserved: true,
     canaryPassed: context.target === 'preview',
     cleanupPassed: true,
@@ -683,6 +724,11 @@ async function main() {
   await assertOperator(request, context);
   await assertCandidate(request, context);
   await assertWritersPaused(request);
+  if (context.target === 'preview')
+    await assertIsolationRun(request, {
+      runId: context.isolationRun ?? '',
+      controlSha: context.controlSha,
+    });
   if (context.target === 'production') {
     const run = await assertPreviewRun(request, context);
     if (process.argv[2] !== 'check') {

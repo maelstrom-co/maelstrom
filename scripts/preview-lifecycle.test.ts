@@ -859,11 +859,16 @@ describe('deployPreviewApp', () => {
 });
 
 describe('teardown policy and execution', () => {
-  for (const scope of ['all', 'legacy'] as const) {
-    test(`a version mismatch blocks Alchemy but preserves authorized ${scope} Worker cleanup`, async () => {
+  for (const [scope, mismatch] of [
+    ['all', 'version'],
+    ['legacy', 'version'],
+    ['all', 'store'],
+  ] as const) {
+    test(`a ${mismatch} mismatch blocks Alchemy but preserves authorized ${scope} Worker cleanup`, async () => {
       const root = await mkdtemp('/tmp/preview-version-mismatch-');
       const alchemy = join(root, 'infra/platform/node_modules/alchemy');
       const previous = process.env.ALCHEMY_REQUIRED_VERSION;
+      const previousStore = process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER;
       const processes: string[] = [];
       const scopes: string[] = [];
       const state = baseState({
@@ -882,7 +887,14 @@ describe('teardown policy and execution', () => {
           join(alchemy, 'package.json'),
           JSON.stringify({ version: '2.0.0-beta.83' }),
         );
-        process.env.ALCHEMY_REQUIRED_VERSION = '2.0.0-beta.85';
+        if (mismatch === 'version')
+          process.env.ALCHEMY_REQUIRED_VERSION = '2.0.0-beta.85';
+        else {
+          delete process.env.ALCHEMY_REQUIRED_VERSION;
+          process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER =
+            'alchemy-state-store-maelstrom-oss-preview';
+          await writeFile(join(root, 'package.json'), JSON.stringify({}));
+        }
         const result = await teardownPreview(
           {
             repository: REPOSITORY,
@@ -917,6 +929,9 @@ describe('teardown policy and execution', () => {
       } finally {
         if (previous === undefined) delete process.env.ALCHEMY_REQUIRED_VERSION;
         else process.env.ALCHEMY_REQUIRED_VERSION = previous;
+        if (previousStore === undefined)
+          delete process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER;
+        else process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER = previousStore;
         await rm(root, { recursive: true, force: true });
       }
     });

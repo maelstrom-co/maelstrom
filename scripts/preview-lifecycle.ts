@@ -1,6 +1,9 @@
 import { appendFileSync } from 'node:fs';
 
-import { assertWorkspaceAlchemyVersion } from './alchemy-version.ts';
+import {
+  assertWorkspaceAlchemyVersion,
+  assertPreviewStateStore,
+} from './alchemy-version.ts';
 import {
   type DeletePreviewWorkersOptions,
   deletePreviewWorkers,
@@ -911,6 +914,12 @@ const cloudflareEnvironment = (
     CLOUDFLARE_API_TOKEN: apiToken,
     EXPECTED_CLOUDFLARE_ACCOUNT_ID: expectedAccountId,
     PREVIEW_STAGE: `pr-${prNumber}`,
+    ...(process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER
+      ? {
+          ALCHEMY_PREVIEW_STATE_STORE_WORKER:
+            process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
+        }
+      : {}),
   });
 
 /** Refuse to mutate when the credential's account is not the expected one. */
@@ -1004,6 +1013,10 @@ const deployApp = async (
   assertWorkspaceAlchemyVersion(
     options.sourceRoot,
     process.env.ALCHEMY_REQUIRED_VERSION,
+  );
+  assertPreviewStateStore(
+    options.sourceRoot,
+    process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
   );
   const cwd = `${options.sourceRoot}/apps/${metadata.directory}`;
   const env = cloudflareEnvironment(
@@ -1329,6 +1342,10 @@ export const teardownPreview = async (
         assertWorkspaceAlchemyVersion(
           options.root,
           process.env.ALCHEMY_REQUIRED_VERSION,
+        );
+        assertPreviewStateStore(
+          options.root,
+          process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
         );
         await dependencies.runProcess({
           argv: [
