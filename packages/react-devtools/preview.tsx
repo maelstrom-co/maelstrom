@@ -51,6 +51,8 @@ const connector: EngineConnector = {
   connect: async () => {},
   disconnect: async () => {},
   subscribe: () => () => {},
+  sendInput: async () => {},
+  onEvent: () => () => {},
   addAssistantMessage: async () => {},
   getHistory: async () => [],
   process: async (message) => ({

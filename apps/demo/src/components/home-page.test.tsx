@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { EngineConnector } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
@@ -183,13 +184,5 @@ async function renderHome() {
 }
 
 function idleConnector(): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    subscribe: () => () => {},
-    process: () => new Promise(() => {}),
-  };
+  return createTestConnector({ process: () => new Promise(() => {}) });
 }

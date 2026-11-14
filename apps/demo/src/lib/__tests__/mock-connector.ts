@@ -1,10 +1,5 @@
-import type {
-  AssistantMessage,
-  ConnectorCapabilities,
-  ConnectorEvent,
-  EngineConnector,
-  Unsubscribe,
-} from '@maelstrom-co/client';
+import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
@@ -16,17 +11,7 @@ import type {
 export function createMockConnector(): EngineConnector {
   const subscribers: Array<(event: ConnectorEvent) => void> = [];
 
-  return {
-    capabilities: {
-      voice: false,
-      streaming: false,
-      stateful: false,
-    } satisfies ConnectorCapabilities,
-
-    async connect() {
-      // no-op
-    },
-
+  return createTestConnector({
     async disconnect() {
       for (const handler of subscribers) {
         handler({
@@ -48,20 +33,12 @@ export function createMockConnector(): EngineConnector {
       };
     },
 
-    subscribe(handler: (event: ConnectorEvent) => void): Unsubscribe {
+    subscribe(handler) {
       subscribers.push(handler);
       return () => {
         const idx = subscribers.indexOf(handler);
         if (idx >= 0) subscribers.splice(idx, 1);
       };
     },
-
-    async addAssistantMessage(_message: AssistantMessage): Promise<void> {
-      // no-op
-    },
-
-    async getHistory() {
-      return [];
-    },
-  };
+  });
 }

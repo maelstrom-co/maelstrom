@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
-import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   createDevtools,
   DiagnosticCapture,
@@ -23,17 +24,11 @@ afterEach(() => {
   if (nodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = nodeEnv;
 });
-const connector: EngineConnector = {
-  capabilities: { voice: false, streaming: false, stateful: false },
-  connect: async () => {},
-  disconnect: async () => {},
+const connector = createTestConnector({
   process: async () => {
     throw new Error('unexpected request');
   },
-  subscribe: () => () => {},
-  addAssistantMessage: async () => {},
-  getHistory: async () => [],
-};
+});
 
 test('one shared panel keeps a retained capture accessible after every Provider detaches', async () => {
   process.env.NODE_ENV = 'development';

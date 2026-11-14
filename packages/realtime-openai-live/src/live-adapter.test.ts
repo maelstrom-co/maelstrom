@@ -1,10 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 
-import {
-  type EngineConnector,
-  Orchestrator,
-  RequestInFlightError,
-} from '@maelstrom-co/client';
+import { Orchestrator, RequestInFlightError } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createEngine, type PlannerCandidate } from '@maelstrom-co/engine';
 import {
   type ChartRequestMessage,
@@ -1055,13 +1052,7 @@ test('an exact duplicate function identity at the same output slot dispatches on
 async function scopedHarness() {
   const requests: ChartRequestMessage[] = [];
   const responses: ReturnType<typeof deferred<{ userMessage: string }>>[] = [];
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
+  const connector = createTestConnector({
     process: async (request) => {
       requests.push(request);
       const response = deferred<{ userMessage: string }>();
@@ -1076,7 +1067,7 @@ async function scopedHarness() {
         layout: { type: 'tiling', tree: [], instances: [] },
       };
     },
-  };
+  });
   const orchestrator = new Orchestrator(connector, {
     sessionId: SessionId('application'),
   });
@@ -1711,13 +1702,7 @@ for (const endVoice of [false, true]) {
           executionPlan: [{ instanceId: 'labs', action: 'load' }],
         } as unknown as PlannerCandidate),
     });
-    const connector: EngineConnector = {
-      capabilities: { voice: false, streaming: false, stateful: false },
-      connect: async () => {},
-      disconnect: async () => {},
-      subscribe: () => () => {},
-      addAssistantMessage: async () => {},
-      getHistory: async () => [],
+    const connector = createTestConnector({
       process: async (message) => {
         calls++;
         expect(message.request.context).toBeDefined();
@@ -1727,7 +1712,7 @@ for (const endVoice of [false, true]) {
           throw new Error('Expected chart response');
         return result.value.response;
       },
-    };
+    });
     const orchestrator = new Orchestrator(connector, {
       vessels: [
         {

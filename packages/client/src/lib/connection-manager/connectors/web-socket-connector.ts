@@ -4,6 +4,8 @@ import {
   isHeartbeatPongFrame,
 } from '@maelstrom-co/connectors';
 import type {
+  AgentEvent,
+  AgentInput,
   ChartRequestMessage,
   DiagnosticEvent,
   EnvelopeError,
@@ -14,6 +16,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   AcknowledgedAssistantMessage,
+  AgentInputMessage,
   AssistantInjectionMessage,
   decodeServerEnvelope,
   encodeEnvelope,
@@ -30,6 +33,7 @@ import {
   type AssistantMessage,
   type AssistantMessageOutcome,
   type ConnectorCapabilities,
+  ConnectorError,
   type ConnectorEvent,
   WireEngineError,
 } from '../connector.types.js';
@@ -200,6 +204,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
   #assistantCorrelator = new RequestCorrelator<AssistantMessageOutcome>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
+  #engineEventHandlers = new Set<(event: AgentEvent) => void>();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   // Pings sent since the last pong was seen. Reset to 0 whenever a pong
   // arrives; checked (and incremented) on every heartbeat tick.
@@ -406,6 +411,43 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       return promise;
     }
     return promise;
+  }
+
+  /**
+   * Send one {@link AgentInput} as a `client.agent.input` frame for the
+   * connected session. Resolves once the socket accepted the frame and does
+   * not wait for any {@link AgentEvent}.
+   *
+   * @throws {ConnectorError} With kind `transport` when the socket is not
+   *   open or no session is established yet.
+   * @throws If `WebSocket.send` fails.
+   */
+  async sendInput(input: AgentInput): Promise<void> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new ConnectorError('transport', 'WebSocket not connected');
+    }
+    if (this.#sessionId === null) {
+      throw new ConnectorError(
+        'transport',
+        'WebSocketConnector.sendInput called before connect() completed',
+      );
+    }
+    this.#ws.send(
+      encodeEnvelope(AgentInputMessage({ sessionId: this.#sessionId, input })),
+    );
+  }
+
+  /**
+   * Subscribe to {@link AgentEvent}s the engine sends over this socket.
+   * Only events from the currently connected socket are delivered, so events
+   * from a replaced or disconnected socket are dropped. A throwing handler is
+   * logged and does not affect other handlers.
+   */
+  onEvent(handler: (event: AgentEvent) => void): Unsubscribe {
+    this.#engineEventHandlers.add(handler);
+    return () => {
+      this.#engineEventHandlers.delete(handler);
+    };
   }
 
   /**
@@ -736,9 +778,18 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       }
 
       case 'engine.agent.event': {
-        console.warn(
-          `[WebSocketConnector] engine.agent.event is not supported yet: event=${envelope.event.type}`,
-        );
+        for (const handler of [...this.#engineEventHandlers]) {
+          if (socket !== this.#ws) return;
+          if (!this.#engineEventHandlers.has(handler)) continue;
+          try {
+            handler(envelope.event);
+          } catch (error) {
+            console.warn(
+              `[WebSocketConnector] agent event handler threw: event=${envelope.event.type}`,
+              error,
+            );
+          }
+        }
         return;
       }
 

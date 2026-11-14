@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import type { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
   InstanceId,
@@ -65,15 +66,7 @@ describe('Labs actual React/client wiring', () => {
     const first = 'labs-client-first';
     const second = 'labs-client-second';
     let response: MaelstromResponse;
-    const connector: EngineConnector = {
-      capabilities: { voice: false, streaming: false, stateful: false },
-      connect: async () => {},
-      disconnect: async () => {},
-      subscribe: () => () => {},
-      process: async () => response,
-      addAssistantMessage: async () => {},
-      getHistory: async () => [],
-    };
+    const connector = createTestConnector({ process: async () => response });
     let state: ReturnType<typeof m.useMaelstrom> | undefined;
     const errors: Error[] = [];
     function Instance({ id }: { id: string }) {

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import type { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import {
   defineVessel,
@@ -21,17 +22,11 @@ test('selection highlights only the owning app and replays after its Chart remou
     unobserve() {}
     disconnect() {}
   };
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
+  const connector = createTestConnector({
     process: async () => {
       throw new Error('unexpected request');
     },
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-  };
+  });
   const definition = defineVessel({
     id: 'highlight-fixture',
     name: 'Highlight fixture',

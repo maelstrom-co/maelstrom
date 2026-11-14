@@ -32,6 +32,10 @@ const client = new Orchestrator({
   process: async () => {
     throw new Error('No application work is expected');
   },
+  sendInput: async () => {
+    throw new Error('No agent input is expected');
+  },
+  onEvent: () => () => {},
 });
 const release = tools.attach(client);
 client.diagnostics.emitDiagnostic(

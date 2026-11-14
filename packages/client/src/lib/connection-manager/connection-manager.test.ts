@@ -8,6 +8,7 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
+import { createTestConnector } from '../__test-helpers__/test-connector.js';
 import type { Unsubscribe } from '../types.js';
 import type { ConnectionManagerEvents } from './connection-manager.js';
 import { ConnectionManager } from './connection-manager.js';
@@ -24,7 +25,7 @@ function createMockConnector(): EngineConnector & {
 } {
   const handlers = new Set<(event: ConnectorEvent) => void>();
 
-  return {
+  const connector = createTestConnector({
     capabilities: {
       voice: false,
       streaming: true,
@@ -55,7 +56,10 @@ function createMockConnector(): EngineConnector & {
     addAssistantMessage: mock(() => Promise.resolve()),
 
     getHistory: mock(() => Promise.resolve([])),
+  });
 
+  return {
+    ...connector,
     triggerEvent: (event: ConnectorEvent) => {
       handlers.forEach((h) => {
         h(event);

@@ -1,14 +1,8 @@
-import type {
-  AssistantMessage,
-  ConnectorCapabilities,
-  ConnectorEvent,
-  EngineConnector,
-  Unsubscribe,
-} from '@maelstrom-co/client';
+import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
-  SessionId,
 } from '@maelstrom-co/protocol';
 
 export function createMockConnector(overrides?: {
@@ -16,17 +10,7 @@ export function createMockConnector(overrides?: {
 }): EngineConnector {
   const subscribers: Array<(event: ConnectorEvent) => void> = [];
 
-  return {
-    capabilities: {
-      voice: false,
-      streaming: false,
-      stateful: false,
-    } satisfies ConnectorCapabilities,
-
-    async connect(_sessionId: SessionId) {
-      // no-op
-    },
-
+  return createTestConnector({
     async disconnect() {
       for (const handler of subscribers) {
         handler({
@@ -37,7 +21,7 @@ export function createMockConnector(overrides?: {
       }
     },
 
-    async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
+    async process(message) {
       if (overrides?.process) {
         return overrides.process(message);
       }
@@ -51,20 +35,12 @@ export function createMockConnector(overrides?: {
       };
     },
 
-    subscribe(handler: (event: ConnectorEvent) => void): Unsubscribe {
+    subscribe(handler) {
       subscribers.push(handler);
       return () => {
         const idx = subscribers.indexOf(handler);
         if (idx >= 0) subscribers.splice(idx, 1);
       };
     },
-
-    async addAssistantMessage(_message: AssistantMessage): Promise<void> {
-      // no-op for tests
-    },
-
-    async getHistory(_sessionId: SessionId) {
-      return [];
-    },
-  };
+  });
 }

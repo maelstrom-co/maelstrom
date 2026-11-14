@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import { createDevtools } from '@maelstrom-co/devtools/production';
 import { fireEvent } from '@testing-library/react';
 
@@ -293,17 +294,13 @@ test('recorded transcript text renders as text while missing request evidence st
 
 test('live voice updates preserve selected JSON until that observation is evicted', () => {
   const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 2 });
-  const client = new Orchestrator({
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    process: async () => {
-      throw new Error('No application work is expected');
-    },
-  });
+  const client = new Orchestrator(
+    createTestConnector({
+      process: async () => {
+        throw new Error('No application work is expected');
+      },
+    }),
+  );
   cleanups.push(() => {
     void client.dispose();
   }, tools.attach(client));

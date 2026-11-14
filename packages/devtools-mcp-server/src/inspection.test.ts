@@ -1,7 +1,9 @@
 import { afterAll, afterEach, expect, spyOn, test } from 'bun:test';
 
 // oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
-import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { Orchestrator } from '@maelstrom-co/client';
+// oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 // oxlint-disable-next-line eslint/no-restricted-imports -- Integration tests compose browser and server packages outside the published runtime.
 import { createDevtools, type DevtoolsOptions } from '@maelstrom-co/devtools';
 import {
@@ -16,17 +18,11 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { createDevtoolsMcpServer } from './index.js';
 
 function app() {
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
+  const connector = createTestConnector({
     process: async () => {
       throw new Error('No Engine calls in metadata tests.');
     },
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-  };
+  });
   const client = new Orchestrator(connector);
   releases.push(() => client.dispose());
   return client;

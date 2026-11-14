@@ -23,6 +23,12 @@
  *     const res = await fetch('/api/assistant-message', { method: 'POST', body: JSON.stringify(msg) });
  *     if (!res.ok) throw new Error(`HTTP ${res.status}`);
  *   }
+ *   async sendInput(_input: AgentInput): Promise<void> {
+ *     throw new AgentWireUnsupportedError('Agent inputs are not supported over HTTP');
+ *   }
+ *   onEvent(_handler: (event: AgentEvent) => void): Unsubscribe {
+ *     return () => {}; // HTTP never delivers agent events
+ *   }
  * }
  *
  * // WebSocket connector
@@ -33,6 +39,8 @@
  */
 
 import type {
+  AgentEvent,
+  AgentInput,
   ChartRequestMessage,
   MaelstromResponse,
   MessageId,
@@ -120,11 +128,12 @@ export type ConnectorEvent =
  *
  * ## Overview
  *
- * An EngineConnector is a **pure transport layer** with 4 responsibilities:
+ * An EngineConnector is a **pure transport layer** with 5 responsibilities:
  * 1. Opening/closing the connection (`connect`, `disconnect`)
  * 2. Sending requests and receiving responses (`process`)
  * 3. Notifying when the transport closes or errors (`subscribe`)
  * 4. Declaring capabilities (`capabilities`)
+ * 5. Carrying Agent Session traffic (`sendInput`, `onEvent`)
  *
  * ## Event System (Critical for ConnectionManager)
  *
@@ -167,6 +176,8 @@ export type ConnectorEvent =
  * - [ ] `subscribe()`: Emit `disconnected` on close, `error` on errors
  * - [ ] `capabilities`: Set `stateful: true` for WebSocket/WebRTC
  * - [ ] `addAssistantMessage()`: Inject assistant message into conversation history
+ * - [ ] `sendInput()`: Send one agent input frame, reject with {@link AgentWireUnsupportedError} when the transport cannot carry it
+ * - [ ] `onEvent()`: Deliver decoded agent events, return a no-op unsubscribe when the transport never carries them
  *
  * ## Minimal HTTP Example (Stateless)
  *
@@ -202,6 +213,15 @@ export type ConnectorEvent =
  *       body: JSON.stringify(msg),
  *     });
  *     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+ *   }
+ *
+ *   async sendInput(_input: AgentInput): Promise<void> {
+ *     throw new AgentWireUnsupportedError('Agent inputs are not supported over HTTP');
+ *   }
+ *
+ *   onEvent(_handler: (event: AgentEvent) => void): Unsubscribe {
+ *     // HTTP never delivers agent events
+ *     return () => {};
  *   }
  * }
  * ```
@@ -277,6 +297,17 @@ export type ConnectorEvent =
  *       content: msg.message,
  *       id: msg.id,
  *     })));
+ *   }
+ *
+ *   async sendInput(input: AgentInput): Promise<void> {
+ *     // Resolves once the frame is sent, never waits for an agent event.
+ *     if (this.ws?.readyState !== WebSocket.OPEN) throw new Error('Not connected');
+ *     this.ws.send(encodeEnvelope(AgentInputMessage({ sessionId: this.sessionId, input })));
+ *   }
+ *
+ *   onEvent(handler: (event: AgentEvent) => void): Unsubscribe {
+ *     this.engineEventHandlers.add(handler);
+ *     return () => this.engineEventHandlers.delete(handler);
  *   }
  * }
  * ```
@@ -431,6 +462,29 @@ export interface EngineConnector {
    * that behavior themselves.
    */
   getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]>;
+
+  /**
+   * Send one {@link AgentInput} to the engine over the Agent Session wire.
+   *
+   * Resolves when the transport accepted the frame and does not wait for any
+   * {@link AgentEvent}. Rejects when the transport is not connected, no
+   * session is established, or the transport cannot carry agent inputs, in
+   * which case it rejects with {@link AgentWireUnsupportedError}.
+   */
+  sendInput(input: AgentInput): Promise<void>;
+
+  /**
+   * Subscribe to decoded {@link AgentEvent}s the engine sends over the Agent
+   * Session wire.
+   *
+   * Transports that never carry agent events return a no-op unsubscribe and
+   * never invoke the handler. Connection status changes arrive through
+   * {@link EngineConnector.subscribe} instead.
+   *
+   * @param handler - Callback invoked for each decoded agent event
+   * @returns Unsubscribe function to remove the handler
+   */
+  onEvent(handler: (event: AgentEvent) => void): Unsubscribe;
 }
 
 // ============================================================================
@@ -456,6 +510,19 @@ export class WireEngineError extends Error {
     super(message);
     this.name = 'WireEngineError';
     if (code !== undefined) this.code = code;
+  }
+}
+
+/**
+ * The error {@link EngineConnector.sendInput} rejects with when the
+ * transport cannot carry Agent Session inputs at all, as opposed to a
+ * transient failure such as a closed connection.
+ */
+export class AgentWireUnsupportedError extends Error {
+  /** Creates the error with a message naming the unsupported transport. */
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentWireUnsupportedError';
   }
 }
 

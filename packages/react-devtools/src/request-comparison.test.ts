@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
-import { type EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import { Orchestrator } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   createDevtools,
   type Devtools,
@@ -70,17 +71,11 @@ function recording(events: object[]) {
 }
 
 function attach(tools: Devtools) {
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
+  const connector = createTestConnector({
     process: async () => {
       throw new Error('This test only observes client diagnostics');
     },
-  };
+  });
   const client = new Orchestrator(connector, {
     sessionId: SessionId('shared'),
     vessels: [],

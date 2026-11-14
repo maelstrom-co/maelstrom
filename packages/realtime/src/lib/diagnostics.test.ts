@@ -6,6 +6,7 @@ import {
   type IntentSnapshot,
   Orchestrator,
 } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   type DiagnosticEvent,
   MessageId,
@@ -560,17 +561,13 @@ test('a legacy source scheduler cannot override an explicit diagnostic capabilit
 });
 
 function harness(override: Partial<RealtimeInstance> = {}) {
-  const client = new Orchestrator({
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    process: async () => {
-      throw new Error('Unexpected planner call');
-    },
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-  });
+  const client = new Orchestrator(
+    createTestConnector({
+      process: async () => {
+        throw new Error('Unexpected planner call');
+      },
+    }),
+  );
   const events = new Set<(event: RealtimeAdapterEvent) => void>();
   const media = new Set<(event: AdapterVoiceObservation) => void>();
   const provider = new Set<(event: AdapterDiagnosticObservation) => void>();

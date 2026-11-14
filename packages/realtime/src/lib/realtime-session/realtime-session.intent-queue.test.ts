@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import {
-  type EngineConnector,
   type IntentQueueOptions,
   type IntentScope,
   Orchestrator,
 } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
   type ChartRequestMessage,
@@ -108,20 +108,14 @@ describe('RealtimeSession shared intent admission', () => {
   async function setup(policy: IntentQueueOptions = {}, greeting = false) {
     const sent: ChartRequestMessage[] = [];
     const pending: ReturnType<typeof deferred<MaelstromResponse>>[] = [];
-    const connector: EngineConnector = {
-      capabilities: { voice: false, streaming: false, stateful: false },
-      connect: async () => {},
-      disconnect: async () => {},
-      subscribe: () => () => {},
-      getHistory: async () => [],
-      addAssistantMessage: async () => {},
+    const connector = createTestConnector({
       process: (request) => {
         sent.push(request);
         const gate = deferred<MaelstromResponse>();
         pending.push(gate);
         return gate.promise;
       },
-    };
+    });
     const client = new Orchestrator(connector, {
       sessionId,
       intentQueue: policy,

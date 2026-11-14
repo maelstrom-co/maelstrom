@@ -6,6 +6,7 @@ import {
   type Orchestrator,
   WireEngineError,
 } from '@maelstrom-co/client';
+import { createTestConnector } from '@maelstrom-co/client/_testing';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
@@ -430,20 +431,15 @@ function scriptedEngine({ gatedConnect = false } = {}) {
         openConnection = resolve;
       })
     : Promise.resolve();
-  const engineConnector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
+  const engineConnector = createTestConnector({
     connect: () => connected,
-    disconnect: async () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    subscribe: () => () => {},
     process: (request) => {
       sent.push(request);
       return new Promise((resolve, reject) =>
         pending.push({ resolve, reject }),
       );
     },
-  };
+  });
   return {
     connector: engineConnector,
     sent,

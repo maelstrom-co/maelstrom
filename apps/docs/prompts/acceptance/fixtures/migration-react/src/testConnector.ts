@@ -46,6 +46,10 @@ export function createSimulatedConnector(): EngineConnector {
         if (index >= 0) subscribers.splice(index, 1);
       };
     },
+    async sendInput() {},
+    onEvent(): Unsubscribe {
+      return () => {};
+    },
     async addAssistantMessage(_message: AssistantMessage) {},
     async getHistory(_sessionId: SessionId) {
       return [];
