@@ -69,6 +69,13 @@ test('run-owned and session-level agent events are retained while request and un
     }),
     observation('engine.agent.input.rejected', { requestId: 'request-3' }),
     observation('engine.agent.input.accepted', { requestId: '[REDACTED]' }),
+    observation('engine.agent.turn.started', { runId: '[REDACTED]' }),
+    observation('engine.agent.turn.started', { runId: 'run-1 [TRUNCATED]' }),
+    observation(
+      'client.agent.input.sent',
+      { runId: '[REDACTED]' },
+      { inputId: 'input-1' },
+    ),
     session('voice.session'),
     session('engine.connection.opened'),
   ]) {

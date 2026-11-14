@@ -100,8 +100,8 @@ export interface AgentRunLinkSubject {
   kind: string;
   /** Receiving client, when reported. */
   clientId?: string;
-  /** Run owner, when reported. */
-  runId?: string;
+  /** Raw run owner, which may be redacted. */
+  runId?: unknown;
   /** Raw request owner, which may be redacted. */
   requestId?: unknown;
   /** Structural event metadata. */
@@ -123,7 +123,8 @@ export interface AgentRunLinks {
   /**
    * Returns the run a run-owned event belongs to, or the run a client event or
    * rejected acknowledgement links to by `[clientId, inputId]` or
-   * `[clientId, changeId]`. Returns undefined for anything else.
+   * `[clientId, changeId]`. An event reporting an unreadable runId resolves
+   * to no run. Returns undefined for anything else.
    */
   runOf(event: AgentRunLinkSubject): AgentRunLink | undefined;
 }
@@ -140,6 +141,7 @@ export function agentRunLinks(
 ): AgentRunLinks {
   const inputs = new Map<string, AgentRunLink>();
   const changes = new Map<string, AgentRunLink>();
+  const lookups = { inputId: inputs, changeId: changes };
   for (const event of events) {
     const run = ownRun(event);
     if (!run) continue;
@@ -156,13 +158,11 @@ export function agentRunLinks(
       const own = ownRun(event);
       if (own) return own;
       if (!event.clientId || !isSessionAgentEvent(event.kind, event)) return;
-      const lookup = linkedLookup(event.kind);
-      if (!lookup) return;
-      const id = identity(event.metadata[lookup.idKey]);
+      const idKey = linkedLookup(event.kind);
+      if (!idKey) return;
+      const id = identity(event.metadata[idKey]);
       if (!id) return;
-      return (lookup.idKey === 'inputId' ? inputs : changes).get(
-        linkKey(event.clientId, id),
-      );
+      return lookups[idKey].get(linkKey(event.clientId, id));
     },
   };
 }
@@ -221,12 +221,13 @@ function isAgentKind(kind: string): boolean {
 }
 
 function ownRun(event: AgentRunLinkSubject): AgentRunLink | undefined {
-  if (!event.clientId || !event.runId) return;
+  const runId = identity(event.runId);
+  if (!event.clientId || !runId) return;
   if (identityAvailability(event.requestId) !== 'not-reported') return;
   return {
-    key: linkKey(event.clientId, event.runId),
+    key: linkKey(event.clientId, runId),
     clientId: event.clientId,
-    runId: event.runId,
+    runId,
   };
 }
 
@@ -234,15 +235,13 @@ function linkKey(clientId: string, id: string): string {
   return JSON.stringify([clientId, id]);
 }
 
-function linkedLookup(
-  kind: string,
-): { idKey: 'inputId' | 'changeId' } | undefined {
+function linkedLookup(kind: string): 'inputId' | 'changeId' | undefined {
   switch (kind) {
     case 'client.agent.input.sent':
-      return { idKey: 'inputId' };
+      return 'inputId';
     case 'client.agent.ui.applied':
     case 'engine.agent.ui_applied.rejected':
-      return { idKey: 'changeId' };
+      return 'changeId';
     default:
       return undefined;
   }
@@ -252,7 +251,7 @@ function linkSubject(event: PanelEvent): AgentRunLinkSubject {
   return {
     kind: event.kind,
     clientId: event.clientId,
-    runId: event.runId,
+    runId: event.raw.runId,
     requestId: event.raw.requestId,
     metadata: event.metadata,
   };
