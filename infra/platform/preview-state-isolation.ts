@@ -392,18 +392,41 @@ export async function isolationWorkerNames(
   runtime: IsolationRuntime,
   accountId: string,
 ) {
-  const rows = await runtime.run(
+  const { result: rows, resultInfo: info } = await runtime.run(
     workers.listScripts({ accountId }),
     'ISOLATION_WORKER_INVENTORY_FAILED',
   );
+  if (!Array.isArray(rows))
+    throw new Error('ISOLATION_WORKER_INVENTORY_INCOMPLETE');
+  const names = rows.map((row) => row.id);
   if (
-    !Array.isArray(rows) ||
     rows.length >= 1000 ||
-    rows.some((row) => !row.id) ||
-    new Set(rows.map((row) => row.id)).size !== rows.length
+    !names.every(
+      (name): name is string => typeof name === 'string' && name.length > 0,
+    ) ||
+    new Set(names).size !== rows.length ||
+    [
+      info?.count,
+      info?.totalCount,
+      info?.page,
+      info?.perPage,
+      info?.totalPages,
+    ].some(
+      (value) => value != null && (!Number.isInteger(value) || value < 0),
+    ) ||
+    (info?.count != null && info.count !== rows.length) ||
+    (info?.totalCount != null && info.totalCount !== rows.length) ||
+    (info?.page != null && info.page !== 1) ||
+    (info?.perPage != null && info.perPage < rows.length) ||
+    (info?.totalPages != null &&
+      info.totalPages !== 1 &&
+      (info.totalPages !== 0 || rows.length !== 0)) ||
+    info?.cursor ||
+    info?.cursors?.after ||
+    info?.cursors?.before
   )
     throw new Error('ISOLATION_WORKER_INVENTORY_INCOMPLETE');
-  return rows.map((row) => row.id);
+  return names;
 }
 
 /** Refuses any preexisting or uncertain target, including one without active versions. */

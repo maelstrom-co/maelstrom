@@ -7,6 +7,7 @@ import * as HttpClientRequest from 'effect/http/HttpClientRequest';
 import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 
 import {
+  isolationWorkerNames,
   makePreviewIsolationRuntime,
   previewWirePort,
   previewWireReader,
@@ -32,6 +33,101 @@ const config = {
 const source = 'https://alchemy-state-store.fixture.workers.dev';
 const target = `https://${OSS_PREVIEW_STATE_STORE_WORKER}.fixture.workers.dev`;
 const scope = { stack: 'MaelstromDemoPreview', stage: 'pr-42' };
+
+test.each([
+  [
+    'registered workers',
+    [{ id: 'alchemy-state-store' }, { id: OSS_PREVIEW_STATE_STORE_WORKER }],
+    { count: 2, total_count: 2, page: 1, total_pages: 1, per_page: 2 },
+  ],
+  [
+    'an empty account',
+    [],
+    { count: 0, total_count: 0, page: 1, total_pages: 0 },
+  ],
+  ['a listing without pagination metadata', [{ id: 'owned' }], undefined],
+])(
+  'the SDK inventory envelope preserves %s before target checks',
+  async (_, rows, info) => {
+    const sent: string[] = [];
+    const runtime = makePreviewIsolationRuntime(
+      config,
+      HttpClient.make((request) =>
+        Effect.sync(() => {
+          sent.push(`${request.method} ${request.url}`);
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              success: true,
+              errors: [],
+              messages: [],
+              result: rows,
+              result_info: info,
+            }),
+          );
+        }),
+      ),
+    );
+    try {
+      expect(await isolationWorkerNames(runtime, config.accountId)).toEqual(
+        rows.map((row) => row.id),
+      );
+      expect(sent).toEqual([
+        `GET https://api.cloudflare.com/client/v4/accounts/${config.accountId}/workers/scripts`,
+      ]);
+    } finally {
+      await runtime.dispose();
+    }
+  },
+);
+
+test.each([
+  ['missing identity', [{}], undefined],
+  ['duplicate identity', [{ id: 'owned' }, { id: 'owned' }], undefined],
+  [
+    'the response bound',
+    Array.from({ length: 1000 }, (_, i) => ({ id: `worker-${i}` })),
+    undefined,
+  ],
+  ['omitted records', [{ id: 'owned' }], { total_count: 2 }],
+  ['another page', [{ id: 'owned' }], { page: 1, total_pages: 2 }],
+  ['a later page', [{ id: 'owned' }], { page: 2 }],
+  ['a conflicting row count', [{ id: 'owned' }], { count: 0 }],
+  ['an undersized page', [{ id: 'owned' }], { per_page: 0 }],
+  ['a fractional bound', [{ id: 'owned' }], { per_page: 1.5 }],
+  ['a negative bound', [{ id: 'owned' }], { per_page: -1 }],
+  ['a cursor', [{ id: 'owned' }], { cursor: 'next' }],
+  ['a forward cursor', [{ id: 'owned' }], { cursors: { after: 'next' } }],
+  ['a backward cursor', [{ id: 'owned' }], { cursors: { before: 'previous' } }],
+])(
+  'worker inventory refuses %s before declaring a destination absent',
+  async (_, rows, info) => {
+    const runtime = makePreviewIsolationRuntime(
+      config,
+      HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              success: true,
+              errors: [],
+              messages: [],
+              result: rows,
+              result_info: info,
+            }),
+          ),
+        ),
+      ),
+    );
+    try {
+      await expect(
+        isolationWorkerNames(runtime, config.accountId),
+      ).rejects.toThrow('ISOLATION_WORKER_INVENTORY_INCOMPLETE');
+    } finally {
+      await runtime.dispose();
+    }
+  },
+);
 
 test('the real SDK wire client preserves encoded secrets, old chains, outputs and escaped FQNs', async () => {
   const row = {
