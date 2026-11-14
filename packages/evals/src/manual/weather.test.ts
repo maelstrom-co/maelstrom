@@ -511,10 +511,12 @@ test('current Engine performs only selected turns and passes actual prior replie
         replies(selected)[index].userMessage,
       );
       expect(turns[index].requestId).toContain(report.result.identity.runId);
-      prior.push(
-        { role: 'user', content: intents[selected][index] },
-        { role: 'assistant', content: turns[index].response.userMessage },
-      );
+      prior.push({ role: 'user', content: intents[selected][index] });
+      if (turns[index].response.userMessage !== undefined)
+        prior.push({
+          role: 'assistant',
+          content: turns[index].response.userMessage,
+        });
     }
     expect(new Set(turns.map(({ requestId }) => requestId)).size).toBe(
       turns.length,

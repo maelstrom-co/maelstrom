@@ -225,7 +225,7 @@ test('without skipReply the request and the record carry no skipReply', async ()
   expect(records.every((record) => !('skipReply' in record))).toBe(true);
 });
 
-test("under skipReply the Engine refuses a replyless candidate, recorded as the turn's error", async () => {
+test('under skipReply a replyless candidate ships and is recorded without a reply', async () => {
   const { userMessage: _userMessage, ...replyless } = TOKYO_CANDIDATE;
   const [record] = await run(
     { candidate: () => replyless as PlannerCandidate },
@@ -233,9 +233,10 @@ test("under skipReply the Engine refuses a replyless candidate, recorded as the 
     { arms: ['fake'], skipReply: true },
   );
   expect(record?.skipReply).toBe(true);
-  expect(record?.error?.tag).toBe('ValidationError');
-  expect(record?.error?.message).toContain('skipReply');
-  expect(record?.score).toBe(undefined);
+  expect(record?.error).toBe(undefined);
+  expect(record?.tree?.length).toBeGreaterThan(0);
+  expect(record !== undefined && 'userMessage' in record).toBe(false);
+  expect(record?.score?.pass).toBe(true);
 });
 
 test('a deferral runs the counted fallback and is recorded with its stage and reason', async () => {

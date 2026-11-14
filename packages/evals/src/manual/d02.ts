@@ -236,13 +236,14 @@ export async function runD02(
           failures.push('Expected three completed turns');
         for (const [index, turn] of observed.entries()) {
           const { response } = turn;
-          const text = response.userMessage.toLowerCase();
+          const text = response.userMessage?.toLowerCase();
           if (
             turn.index !== index ||
             turn.intent !== inputs.turns[index]?.intent
           )
             failures.push(`Changed prompt or order at turn ${index + 1}`);
           if (
+            text === undefined ||
             !text.trim() ||
             !text.includes(expectations.requiredIdentity.toLowerCase()) ||
             text.includes(expectations.forbiddenIdentity.toLowerCase())

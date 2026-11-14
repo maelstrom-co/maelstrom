@@ -51,7 +51,8 @@ export const NEAR_BOUNDARY_SAMPLES = 3;
 
 /** What a planner shipped: the parts of a validated response the grader reads. */
 export interface ShippedResponse {
-  readonly userMessage: string;
+  /** The reply shown to the user; absent when the response shipped without one. */
+  readonly userMessage?: string;
   readonly executionPlan: readonly ActionExecution[];
   readonly tree: readonly TilingNode[];
   /** Every retained instance in the variant the response leaves it in. */
@@ -222,7 +223,9 @@ function graderState({ request, response }: GradeInput) {
       action: step.action,
       ...(step.params !== undefined && { params: step.params }),
     })),
-    userMessage: response.userMessage,
+    ...(response.userMessage !== undefined && {
+      userMessage: response.userMessage,
+    }),
   };
 }
 
