@@ -44,12 +44,13 @@ const _replylessCandidateReply: Equals<
 > = true;
 const _strictValidated: Equals<
   ValidatedCandidate,
-  MaelstromResponse & { readonly diagnostics: EngineDiagnostics }
+  Omit<MaelstromResponse, 'userMessage'> & {
+    readonly userMessage: string;
+    readonly diagnostics: EngineDiagnostics;
+  }
 > = true;
-const _validatedReplyIsOptional: Equals<
-  ValidatedCandidate['userMessage'],
-  string | undefined
-> = true;
+const _strictValidatedReply: Equals<ValidatedCandidate['userMessage'], string> =
+  true;
 const _replylessValidatedReply: Equals<
   ValidatedReplylessCandidate['userMessage'],
   string | undefined
@@ -184,7 +185,7 @@ test('strict and replyless planner types stay distinct', () => {
     _strictCandidateReply,
     _replylessCandidateReply,
     _strictValidated,
-    _validatedReplyIsOptional,
+    _strictValidatedReply,
     _replylessValidatedReply,
     _plannerOutput,
     _strictFeedback,

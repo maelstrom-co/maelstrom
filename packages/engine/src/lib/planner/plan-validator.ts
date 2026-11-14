@@ -12,7 +12,11 @@ export interface PlanValidationIssue {
 export interface PlanValidationInput {
   /** The original client request, even when a planner narrows its input. */
   readonly request: ChartRequest;
-  /** The healed layout and accepted Actions that would reach the client. */
+  /**
+   * The healed layout and accepted Actions that would reach the client. Under
+   * `skipReply: true` its `userMessage` may be absent or blank, and the Engine
+   * drops a blank one before shipping.
+   */
   readonly response: MaelstromResponse;
 }
 

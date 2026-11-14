@@ -46,8 +46,8 @@ import {
   validationFailure,
 } from './operational-outcome.js';
 import type {
-  FullValidatedCandidate,
   FullValidatedPlannerOutput,
+  FullValidatedReplylessCandidate,
   PlannerOutput,
 } from './planner/candidate.js';
 import type {
@@ -717,7 +717,7 @@ function requireShippableReply(
   outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
   logger: Logger,
-): Result<FullValidatedCandidate, EngineError> {
+): Result<FullValidatedReplylessCandidate, EngineError> {
   switch (outcome.type) {
     case 'needs_clarification':
       return refuseReplylessOutcome(

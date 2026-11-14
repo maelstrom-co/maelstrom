@@ -113,7 +113,13 @@ export interface EngineDiagnostics {
  * `type` is the response's own `'maelstrom_response'`: the candidate's
  * `type: 'plan'` is not carried over.
  */
-export type ValidatedCandidate = MaelstromResponse & {
+export type ValidatedCandidate = Omit<MaelstromResponse, 'userMessage'> & {
+  /**
+   * The reply to the user. Always present and non-blank on the strict path:
+   * validation rejects a missing or blank reply unless the request set
+   * `skipReply: true`.
+   */
+  readonly userMessage: string;
   /** What healing changed, and whether a retry is recommended. */
   readonly diagnostics: EngineDiagnostics;
 };

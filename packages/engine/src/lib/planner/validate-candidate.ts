@@ -234,9 +234,9 @@ function processNeedsClarification(
 
 function validateApplicationPlan(
   input: CandidateValidatorInput,
-  processed: FullValidatedCandidate,
+  processed: FullValidatedReplylessCandidate,
   validatePlan: PlanValidator,
-): Result<FullValidatedCandidate, EngineError> {
+): Result<FullValidatedReplylessCandidate, EngineError> {
   try {
     const { diagnostics, ...response } = processed;
     const returned: unknown = validatePlan({
