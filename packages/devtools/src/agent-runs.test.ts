@@ -408,6 +408,36 @@ test('a reused inputId links the client event to the newest run', () => {
   ]);
 });
 
+test('a reused changeId links the client ui.applied event to the newest run', () => {
+  const older = runOwned('run-old', 'input-1');
+  const newer = runOwned('run-new', 'input-2');
+  const { runs, sessionTimelines } = groupAgentRuns(
+    panelEvents([
+      older('engine.agent.ui_change.emitted', {
+        changeId: 'change-1',
+        actions: 1,
+      }),
+      newer('engine.agent.ui_change.emitted', {
+        changeId: 'change-1',
+        actions: 1,
+      }),
+      session('client.agent.ui.applied', {
+        changeId: 'change-1',
+        durationMs: 3,
+      }),
+    ]),
+  );
+  expect(sessionTimelines).toEqual([]);
+  const byRun = new Map(runs.map((run) => [run.runId, run]));
+  expect(byRun.get('run-old')!.events.map((entry) => entry.kind)).toEqual([
+    'engine.agent.ui_change.emitted',
+  ]);
+  expect(byRun.get('run-new')!.events.map((entry) => entry.kind)).toEqual([
+    'engine.agent.ui_change.emitted',
+    'client.agent.ui.applied',
+  ]);
+});
+
 test('session-level agent events stay in their client session timeline and a known rejected acknowledgement joins its run', () => {
   const event = runOwned('run-1', 'input-1');
   const other = (kind: string, metadata: Record<string, unknown>) =>
@@ -449,8 +479,18 @@ test('session-level agent events stay in their client session timeline and a kno
         code: 'invalid_action_outcomes',
       }),
       observation('engine.agent.input.accepted', { requestId: 'request-1' }),
+      observation(
+        'engine.agent.turn.started',
+        { runId: 'run-1', requestId: 'request-2' },
+        { inputId: 'input-1', turnId: 'run-1:t1', turnIndex: 1 },
+      ),
     ]),
   );
+  const grouped = [
+    ...runs.flatMap((run) => run.events),
+    ...sessionTimelines.flatMap((timeline) => timeline.events),
+  ];
+  expect(grouped.filter((entry) => entry.raw.requestId)).toEqual([]);
   expect(
     sessionTimelines.map((timeline) => ({
       clientId: timeline.clientId,

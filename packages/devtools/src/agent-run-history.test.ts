@@ -175,6 +175,44 @@ test('a reused input id links the client event to the newest run for eviction', 
   expect(events).toEqual([newerAccepted, sent]);
 });
 
+test('a reused change id links the client event to the newest run for eviction', () => {
+  const older = runOwned('run-1', 'input-1');
+  const newer = runOwned('run-2', 'input-2');
+  const olderEvents = [
+    older('engine.agent.input.accepted', { disposition: 'agent' }),
+    older('engine.agent.ui_change.emitted', { changeId: 'change-1' }),
+    older('engine.agent.run.finished', { reason: 'completed' }),
+  ];
+  const newerEmitted = newer('engine.agent.ui_change.emitted', {
+    changeId: 'change-1',
+  });
+  const applied = session('client.agent.ui.applied', {
+    changeId: 'change-1',
+    durationMs: 3,
+  });
+  const { events } = retainAll([...olderEvents, newerEmitted, applied], 4);
+  expect(events).toEqual([newerEmitted, applied]);
+});
+
+test('an active run holding the oldest group is evicted whole by later session events', () => {
+  const run = runOwned('run-1', 'input-1');
+  const accepted = run('engine.agent.input.accepted', { disposition: 'agent' });
+  const sessionEvents = ['input-a', 'input-b', 'input-c'].map((inputId) =>
+    session('engine.agent.input.ignored', {
+      inputId,
+      reason: 'duplicate_input',
+    }),
+  );
+  const turn = run('engine.agent.turn.started', {
+    turnId: 'run-1:t1',
+    turnIndex: 1,
+  });
+  expect(retainAll([accepted, ...sessionEvents, turn], 4)).toEqual({
+    events: sessionEvents,
+    dropped: 2,
+  });
+});
+
 test('the same run id from two clients is retained and evicted as two runs', () => {
   const fromFirst = runOwned('run-1', 'input-1', 'first');
   const fromSecond = runOwned('run-1', 'input-1', 'second');
