@@ -116,7 +116,7 @@ async function handleLine(line: string): Promise<void> {
   try {
     if (line === '') return;
     if (!line.startsWith('/')) {
-      const inputId = await orchestrator.sendUtterance(line);
+      const inputId = await orchestrator.sendMessage(line);
       log('sent', `inputId=${inputId}`);
       return;
     }
@@ -343,11 +343,11 @@ function createLoggingConnector(): WebSocketConnector {
   return new (class extends WebSocketConnector {
     constructor() {
       super({ url });
-      this.onAgentEvent(logWireOnlyEvent);
+      this.onEvent(logWireOnlyEvent);
     }
 
-    override async sendAgentInput(agentInput: AgentInput): Promise<void> {
-      await super.sendAgentInput(agentInput);
+    override async sendInput(agentInput: AgentInput): Promise<void> {
+      await super.sendInput(agentInput);
       if (agentInput.type !== 'ui_applied') return;
       const outcomes = agentInput.actionOutcomes.map((outcome) =>
         outcome.ok ? 'ok' : `failed(${outcome.error ?? ''})`,
