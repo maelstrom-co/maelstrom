@@ -230,6 +230,66 @@ test('the Agent tab reports a selected run and event evicted by run retention an
   );
 });
 
+test('the Agent tab keeps focus on the Agent view when the focused session event leaves the page on a live update', async () => {
+  const tools = createDevtools({ initialIsOpen: true });
+  const deliver = attachWithDelivery(tools);
+  for (let index = 1; index <= 51; index++)
+    deliver(
+      sessionEvent('engine.agent.input.rejected', { code: 'queue_full' }),
+    );
+  const { shadow, click } = mount(tools);
+  click('Agent');
+  const oldest = shadow.querySelector<HTMLElement>(
+    '[aria-label="Agent session timeline"] .agent-event',
+  )!;
+  oldest.focus();
+  expect(shadow.activeElement).toBe(oldest);
+
+  deliver(sessionEvent('engine.agent.input.rejected', { code: 'queue_full' }));
+  await Promise.resolve();
+  expect(oldest.isConnected).toBe(false);
+  expect((shadow.activeElement as HTMLElement | null)?.dataset.focusKey).toBe(
+    'agent-runs',
+  );
+});
+
+test('the Agent tab keeps a session event selected after it is relinked into a newer run', () => {
+  const tools = createDevtools({ initialIsOpen: true });
+  const deliver = attachWithDelivery(tools);
+  deliver(agentEvent('run-1', 'engine.agent.input.accepted'));
+  deliver(agentEvent('run-2', 'engine.agent.input.accepted'));
+  const { shadow, click } = mount(tools);
+  click('Agent');
+  selectRun(shadow, 'run-1');
+  sequence++;
+  deliver({
+    id: `client-sent-${sequence}`,
+    kind: 'client.agent.input.sent',
+    at: sequence,
+    sessionId: 'session',
+    metadata: { inputId: 'relinked-input' },
+  });
+  shadow
+    .querySelector<HTMLElement>(
+      '[aria-label="Agent session timeline"] [aria-label="Inspect Client sent input"]',
+    )!
+    .click();
+
+  sequence++;
+  deliver({
+    id: `relinked-accepted-${sequence}`,
+    kind: 'engine.agent.input.accepted',
+    at: sequence,
+    sessionId: 'session',
+    runId: 'run-3',
+    metadata: { inputId: 'relinked-input', disposition: 'agent' },
+  });
+  expect(visibleText(shadow)).not.toContain(
+    'The selected agent event is no longer retained.',
+  );
+  expect(visibleText(shadow)).toContain('Selected agent event');
+});
+
 test('the Agent tab pages runs and session events and keeps a selected run visible past the page', () => {
   const tools = createDevtools({ initialIsOpen: true });
   const deliver = attachWithDelivery(tools);

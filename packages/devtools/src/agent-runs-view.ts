@@ -60,6 +60,10 @@ export function agentRunsView(
       ),
     );
   const content = element('section', undefined, 'agent-runs');
+  content.tabIndex = -1;
+  content.dataset.focusKey = 'agent-runs';
+  content.setAttribute('role', 'region');
+  content.setAttribute('aria-label', 'Agent runs');
   const selectEvent = (event: PanelEvent, runKey?: string) =>
     change({ ...state, runKey: runKey ?? state.runKey, eventKey: event.key });
   if (selected)
@@ -77,7 +81,7 @@ export function agentRunsView(
   );
   const event = state.eventKey
     ? [
-        ...(selected?.events ?? []),
+        ...runs.flatMap((run) => run.events),
         ...timelines.flatMap((timeline) => timeline.events),
       ].find((item) => item.key === state.eventKey)
     : undefined;
