@@ -1602,7 +1602,7 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(activity[1]).toEqual({
       type: 'tool_started',
       turnId: 'run-1:t1',
-      callId: 'c1',
+      callId: CallId('c1'),
       name: 'increment',
       args: { by: 1 },
     });
