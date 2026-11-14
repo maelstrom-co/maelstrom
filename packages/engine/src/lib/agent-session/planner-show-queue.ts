@@ -95,7 +95,7 @@ export interface PlannerShowQueueOptions {
   readonly observe: RunObserver;
   /** Records a show note for the run and turn that asked for the show. */
   readonly recordShowNote: (runId: RunId, turnId: string, text: string) => void;
-  /** Receives warnings for shows dropped without a Chart and for Planner calls that throw. */
+  /** Receives warnings for shows dropped without a Chart and for failed shows. */
   readonly logger: Logger;
   /** Schedules a callback and returns a function that cancels it. */
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
@@ -226,9 +226,23 @@ export function createPlannerShowQueue({
     startNextShow();
   };
 
-  const failShow = (job: ShowJob, code: string) => {
+  const failShow = (
+    job: ShowJob,
+    code: string,
+    logContext?: ShowFailureLogContext,
+  ) => {
     const { show, changeId } = job;
     state = { phase: 'idle' };
+    // Never the Planner error message: it may carry model text.
+    logger.warn('Loop-driven show failed', {
+      changeId,
+      messageId: job.messageId,
+      runId: show.runId,
+      turnId: show.turnId,
+      toolNames: show.toolNames,
+      code,
+      ...logContext,
+    });
     events.emit({
       ...changeError(changeId, code, PLANNER_FAILURE_TEXT),
       runId: show.runId,
@@ -258,15 +272,7 @@ export function createPlannerShowQueue({
     if (closed || state.phase !== 'planning' || state.job !== job) return;
     job.cancelPlanningTimeout();
     if (settled.type === 'threw') {
-      logger.warn('Loop-driven show planning threw', {
-        changeId: job.changeId,
-        messageId: job.messageId,
-        runId: job.show.runId,
-        turnId: job.show.turnId,
-        toolNames: job.show.toolNames,
-        errorName: settled.errorName,
-      });
-      failShow(job, 'internal_error');
+      failShow(job, 'internal_error', { errorName: settled.errorName });
       return;
     }
     const { result } = settled;
@@ -462,6 +468,12 @@ interface ShowJob {
   readonly request: ChartRequest;
   readonly controller: AbortController;
   readonly cancelPlanningTimeout: () => void;
+}
+
+/** Extra warning context for a failed show, beyond its ids and code. */
+interface ShowFailureLogContext {
+  /** Name or type of the error a thrown Planner call raised. */
+  readonly errorName: string;
 }
 
 type PlanSettlement =
