@@ -104,6 +104,7 @@ export function agentRunsView(
 const statusLabels: Readonly<Record<AgentRunStatus, string>> = {
   queued: 'Queued',
   running: 'Running',
+  finished: 'Finished, reason unknown',
   completed: 'Completed',
   budget: 'Budget reached',
   error: 'Error',
@@ -113,6 +114,7 @@ const statusLabels: Readonly<Record<AgentRunStatus, string>> = {
 const statusTones: Readonly<Record<AgentRunStatus, string>> = {
   queued: 'neutral',
   running: 'neutral',
+  finished: 'warning',
   completed: 'neutral',
   budget: 'warning',
   error: 'error',

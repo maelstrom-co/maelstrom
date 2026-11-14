@@ -3,11 +3,14 @@ import type { PanelEvent } from './panel-model.js';
 
 /**
  * Lifecycle status of one Agent Run. `queued` and `running` come from the
- * events seen so far, the others are the `reason` of `engine.agent.run.finished`.
+ * events seen before any `engine.agent.run.finished`. `completed`, `budget`,
+ * `error` and `cancelled` are its known `reason`. `finished` means the run
+ * finished but its `reason` is missing or not one of the known reasons.
  */
 export type AgentRunStatus =
   | 'queued'
   | 'running'
+  | 'finished'
   | 'completed'
   | 'budget'
   | 'error'
@@ -291,7 +294,7 @@ function attach(trace: AgentRunTrace, event: PanelEvent, owned: boolean) {
     turn.turnIndex ??= count(metadata.turnIndex);
   }
   if (event.kind === 'engine.agent.run.finished') {
-    trace.status = finishedStatus(metadata.reason) ?? 'running';
+    trace.status = finishedStatus(metadata.reason) ?? 'finished';
     trace.outcome = identity(metadata.outcome);
     trace.code = identity(metadata.code);
     trace.limit = identity(metadata.limit);
