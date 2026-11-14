@@ -67,7 +67,9 @@ export function describeShowFailed(toolNames: readonly string[]): string {
  * Nothing to show reads `Show skipped: nothing new to show for latest_order
  * result.` A clarification reads `Show skipped: the Planner needs more detail
  * to show latest_order result. Question: <question>`, so the model can ask the
- * user itself. The question is the only Planner text a note carries.
+ * user itself. The question is the only Planner text a note carries, so a
+ * clarification note is capped at {@link SCREEN_NOTE_MAX_CHARS} like a screen
+ * update note.
  *
  * @param toolNames - Names of the tools whose results the show reflects, in
  * call order. Must not be empty.
@@ -82,7 +84,9 @@ export function describeShowSkipped(
   if (skip.reason === 'nothing_to_show') {
     return `Show skipped: nothing new to show for ${results}.`;
   }
-  return `Show skipped: the Planner needs more detail to show ${results}. Question: ${skip.question}`;
+  return capNote(
+    `Show skipped: the Planner needs more detail to show ${results}. Question: ${skip.question}`,
+  );
 }
 
 /**

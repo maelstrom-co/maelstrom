@@ -16,6 +16,7 @@ import {
   describeShowNotConfirmed,
   describeShowQueued,
   describeShowSkipped,
+  SCREEN_NOTE_MAX_CHARS,
 } from './screen-note.js';
 
 const ok: AgentActionOutcome = { ok: true };
@@ -84,6 +85,21 @@ describe('describeShowSkipped', () => {
     ).toBe(
       'Show skipped: the Planner needs more detail to show latest_order and search_products results. Question: Which one?',
     );
+  });
+
+  test('caps a long Planner question at the screen note limit ending with an ellipsis', () => {
+    const note = describeShowSkipped(['latest_order'], {
+      reason: 'needs_clarification',
+      question: 'Which order? '.repeat(100),
+    });
+
+    expect(note).toHaveLength(SCREEN_NOTE_MAX_CHARS);
+    expect(note.endsWith('…')).toBe(true);
+    expect(
+      note.startsWith(
+        'Show skipped: the Planner needs more detail to show latest_order result. Question: Which order?',
+      ),
+    ).toBe(true);
   });
 });
 
