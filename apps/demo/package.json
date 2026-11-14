@@ -18,7 +18,8 @@
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "deploy": "bunx nx run @maelstrom-co/demo:deploy",
-    "verify:hibernation": "bun run scripts/verify-hibernation.ts"
+    "verify:hibernation": "bun run scripts/verify-hibernation.ts",
+    "agent-repl": "bun --conditions=@maelstrom-co/source run scripts/agent-repl.ts"
   },
   "nx": {
     "targets": {

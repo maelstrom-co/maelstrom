@@ -59,6 +59,46 @@ describe('agent slot wiring', () => {
     );
   });
 
+  it('MAELSTROM_AGENT=off leaves the agent out of the local LLM engine', () => {
+    engineBuilders.createPlaygroundEngine.mockReturnValue(STUB_ENGINE);
+
+    quietly(() =>
+      buildLocalEngine({ OPENAI_API_KEY: OPENAI_KEY, MAELSTROM_AGENT: 'off' }),
+    );
+
+    expect(engineBuilders.createPlaygroundEngine).toHaveBeenCalledTimes(1);
+    const [options] = engineBuilders.createPlaygroundEngine.mock.calls[0] as [
+      PlaygroundEngineOptions,
+    ];
+    expect(options).not.toHaveProperty('agent');
+  });
+
+  it('MAELSTROM_AGENT=off leaves the agent out of the local Jev engine', () => {
+    engineBuilders.createJevPlaygroundEngine.mockReturnValue(STUB_ENGINE);
+
+    quietly(() =>
+      buildLocalEngine({
+        MAELSTROM_PLANNER: 'jev',
+        MAELSTROM_AGENT: 'off',
+        OPENAI_API_KEY: OPENAI_KEY,
+        TYPESAFE_API_KEY: 'ts-agent-slot-test-key',
+        JEV_MODEL: 'jev-1.13.0',
+      }),
+    );
+
+    const [options] = engineBuilders.createJevPlaygroundEngine.mock
+      .calls[0] as [JevPlaygroundEngineOptions];
+    expect(options).not.toHaveProperty('agent');
+  });
+
+  it('rejects an unknown MAELSTROM_AGENT value', () => {
+    expect(() =>
+      quietly(() =>
+        buildLocalEngine({ OPENAI_API_KEY: OPENAI_KEY, MAELSTROM_AGENT: 'no' }),
+      ),
+    ).toThrow('MAELSTROM_AGENT must be on or off');
+  });
+
   it('the hosted Worker engine factory passes no agent', () => {
     engineBuilders.createPlaygroundEngine.mockReturnValue(STUB_ENGINE);
 
