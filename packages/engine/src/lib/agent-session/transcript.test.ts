@@ -216,6 +216,47 @@ describe('createTranscript', () => {
     ]);
   });
 
+  describe('show notes', () => {
+    test('renders a show note as a user-role line tagged with its turn', () => {
+      const transcript = createTranscript();
+
+      transcript.recordUserInput(firstRun, 'Show my last order');
+      transcript.recordToolCall(firstRun, CallId('c1'), 'latest_order', {});
+      transcript.recordShowNote(
+        firstRun,
+        'run-1:t1',
+        'Show queued: latest_order result.',
+      );
+      transcript.recordMessage(firstRun, 'run-1:t2', 'Done.');
+
+      expect(transcript.renderPriorMessages()).toEqual([
+        { role: 'user', content: 'Show my last order' },
+        { role: 'assistant', content: '[tool call run-1:c1] latest_order {}' },
+        {
+          role: 'user',
+          content: '[show run-1:t1] Show queued: latest_order result.',
+        },
+        { role: 'assistant', content: 'Done.' },
+      ]);
+    });
+
+    test('evicts a show note together with its run', () => {
+      const transcript = createTranscript({ maxChars: 300 });
+      recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
+      transcript.recordShowNote(firstRun, 'run-1:t1', 'note-of-run-1');
+      recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
+
+      expect(serialized(transcript)).toContain('note-of-run-1');
+
+      recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
+
+      const rendered = serialized(transcript);
+      expect(rendered).not.toContain('note-of-run-1');
+      expect(rendered).not.toContain('run-1');
+      expect(rendered).toContain('b'.repeat(30));
+    });
+  });
+
   describe('retention bound', () => {
     test('defaults to the transcript character cap', () => {
       expect(TRANSCRIPT_MAX_CHARS).toBe(64_000);

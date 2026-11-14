@@ -44,6 +44,12 @@ export interface Transcript {
     ok: boolean,
     summary: string,
   ): void;
+  /**
+   * Records a one-line note about a show the run asked the Planner for, such
+   * as that it is queued or what the screen then displays. It belongs to the
+   * run, so it leaves with that run on eviction.
+   */
+  recordShowNote(runId: RunId, turnId: string, text: string): void;
   /** Records the closing message a run sent when a budget ran out. */
   recordClosingMessage(runId: RunId, text: string): void;
   /**
@@ -54,7 +60,7 @@ export interface Transcript {
   recordEnding(runId: RunId, finished: AgentRunFinished): void;
   /**
    * Renders every retained entry, oldest first. User inputs become
-   * `user` messages. Reply text, tool calls, tool summaries, closing messages
+   * `user` messages, and so do show notes. Reply text, tool calls, tool summaries, closing messages
    * and abnormal endings become `assistant` content, with consecutive
    * entries of the same role joined by newlines into one message.
    */
@@ -142,6 +148,9 @@ export function createTranscript({
         summary,
       });
     },
+    recordShowNote(runId, turnId, text) {
+      append({ kind: 'show_note', runId, turnId, text });
+    },
     recordClosingMessage(runId, text) {
       append({ kind: 'closing_message', runId, text });
     },
@@ -156,7 +165,10 @@ export function createTranscript({
     renderPriorMessages() {
       const messages: ModelMessage<string>[] = [];
       for (const entry of entries) {
-        const role = entry.kind === 'user_input' ? 'user' : 'assistant';
+        const role =
+          entry.kind === 'user_input' || entry.kind === 'show_note'
+            ? 'user'
+            : 'assistant';
         const content = renderEntry(entry);
         const last = messages.at(-1);
         if (last?.role === role) {
@@ -197,6 +209,12 @@ type TranscriptEntry =
       readonly summary: string;
     }
   | {
+      readonly kind: 'show_note';
+      readonly runId: RunId;
+      readonly turnId: string;
+      readonly text: string;
+    }
+  | {
       readonly kind: 'closing_message';
       readonly runId: RunId;
       readonly text: string;
@@ -216,6 +234,8 @@ function renderEntry(entry: TranscriptEntry): string {
       return `[tool call ${entry.ref}] ${entry.name} ${entry.args}`;
     case 'tool_result':
       return `[tool result ${entry.ref}] ${entry.ok ? 'ok' : 'failed'}: ${entry.summary}`;
+    case 'show_note':
+      return `[show ${entry.turnId}] ${entry.text}`;
     case 'closing_message':
       return `[closing message ${entry.runId}] ${entry.text}`;
     case 'ending':
