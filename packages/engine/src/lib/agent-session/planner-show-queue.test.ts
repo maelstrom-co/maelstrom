@@ -398,6 +398,7 @@ describe('createPlannerShowQueue', () => {
     {
       failure: 'returns an error result',
       code: 'ProviderError',
+      errorContext: {},
       fail: (harness: Harness) =>
         harness.planner.fail(
           0,
@@ -410,18 +411,20 @@ describe('createPlannerShowQueue', () => {
     {
       failure: 'throws',
       code: 'internal_error',
+      errorContext: { errorName: 'Error' },
       fail: (harness: Harness) =>
         harness.planner.throws(0, new Error(`thrown ${ERROR_SENTINEL}`)),
     },
     {
       failure: 'outlasts the planning timeout',
       code: 'planning_timeout',
+      errorContext: {},
       fail: (harness: Harness) =>
         harness.time.advance(SHOW_PLANNING_TIMEOUT_MS),
     },
   ])(
-    'reports a show whose Planner call $failure with an error event, a failed note and a diagnostic, then plans the next show',
-    async ({ code, fail }) => {
+    'reports a show whose Planner call $failure with an error event, a failed note, a diagnostic and one warning, then plans the next show',
+    async ({ code, errorContext, fail }) => {
       const harness = createHarness();
       harness.queue.noteChart(monthChart);
       harness.queue.request(show(1));
@@ -460,6 +463,20 @@ describe('createPlannerShowQueue', () => {
           kind: 'engine.agent.show.failed',
           metadata: { changeId, turnId: show(1).turnId, code },
           readContent: undefined,
+        },
+      ]);
+      expect(harness.warnings()).toEqual([
+        {
+          message: 'Loop-driven show failed',
+          data: {
+            changeId,
+            messageId: harness.planner.input(0).messageId,
+            runId: show(1).runId,
+            turnId: show(1).turnId,
+            toolNames: show(1).toolNames,
+            code,
+            ...errorContext,
+          },
         },
       ]);
       expect(harness.planner.calls).toHaveLength(2);
@@ -526,7 +543,7 @@ describe('createPlannerShowQueue', () => {
     expect(harness.errors()).toEqual([]);
   });
 
-  test('logs a thrown Planner call without its message', async () => {
+  test('logs a thrown Planner call once with its error name but without its message', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
@@ -536,17 +553,19 @@ describe('createPlannerShowQueue', () => {
 
     expect(harness.warnings()).toEqual([
       {
-        message: 'Loop-driven show planning threw',
+        message: 'Loop-driven show failed',
         data: {
           changeId: harness.errors()[0]?.changeId,
           messageId: harness.planner.input(0).messageId,
           runId: show(1).runId,
           turnId: show(1).turnId,
           toolNames: show(1).toolNames,
+          code: 'internal_error',
           errorName: 'TypeError',
         },
       },
     ]);
+    expect(JSON.stringify(harness.logs)).not.toContain(ERROR_SENTINEL);
   });
 
   test('records a skipped note and a diagnostic when there is nothing to show, sends nothing and plans the next show', async () => {
