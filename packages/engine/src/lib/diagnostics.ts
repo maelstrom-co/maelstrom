@@ -34,9 +34,17 @@ export type EngineDiagnosticObserver = (
 /** Raw server-local producer scalars for operational projection, without envelopes or content readers. */
 export type EngineMetadataObserver = TelemetryMetadataObserver;
 
-type DiagnosticOwner =
-  | MessageId
-  | { readonly runId: RunId; readonly inputId: MessageId };
+/** The Agent Run a Planner call or event belongs to, in place of a legacy request id. */
+export interface RunOwner {
+  /** The Agent Run that owns the events. */
+  readonly runId: RunId;
+  /** The input that started the run. */
+  readonly inputId: MessageId;
+  /** The model turn that asked for the work, when one did. */
+  readonly turnId?: string;
+}
+
+type DiagnosticOwner = MessageId | RunOwner;
 
 export class EngineDiagnosticEmitter {
   private readonly listeners = new Set<EngineDiagnosticObserver>();
@@ -139,7 +147,13 @@ export class EngineDiagnosticEmitter {
       metadata:
         typeof requestId === 'string'
           ? metadata
-          : { ...metadata, inputId: requestId.inputId },
+          : {
+              ...metadata,
+              inputId: requestId.inputId,
+              ...(requestId.turnId === undefined
+                ? {}
+                : { turnId: requestId.turnId }),
+            },
     };
     for (const listener of this.listeners) {
       try {

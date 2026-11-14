@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 
 import type {
   ChartRequest,
+  DiagnosticEvent,
   EngineMessage,
   NeedsClarification,
 } from '@maelstrom-co/protocol';
@@ -14,9 +15,11 @@ import {
   isOk,
   MessageId,
   ok,
+  RunId,
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import { defer } from './__test-helpers__/defer.js';
 import {
   brandTilingResponse,
   buildGridResponse,
@@ -27,11 +30,14 @@ import {
 } from './__test-helpers__/fixtures.js';
 import { spyLogger } from './__test-helpers__/stage-context.js';
 import {
+  blockingPlanner,
+  failingPlanner,
   scriptedPlanner,
   throwingPlanner,
 } from './__test-helpers__/stub-planner.js';
+import type { ShowPlanInput } from './agent-session/planner-show-queue.js';
 import type { EngineConfig } from './config.js';
-import { createEngine } from './engine.js';
+import { createEngine, createEngineInternals } from './engine.js';
 import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
@@ -1286,6 +1292,195 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     expect(inputs).toHaveLength(1);
     expect(inputs[0]?.request.skipReply).toBe(true);
     expect<unknown>(inputs[0]?.request.intentFacts).toEqual(intentFacts);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loop-driven show planner
+// ---------------------------------------------------------------------------
+
+describe('loop-driven show planner', () => {
+  const SHOW_INTENT = 'Show the order the agent just looked up';
+  const RUN_ID = RunId('run-show-1');
+  const INPUT_ID = MessageId('utterance-1');
+  const SHOW_MESSAGE_ID = MessageId('show-planner-call-1');
+  const TURN_ID = 'turn-show-1';
+  const SENTINEL = 'PLANNER PROSE SENTINEL';
+
+  const showInput = (signal = new AbortController().signal): ShowPlanInput => {
+    const request = makeGridRequest();
+    return {
+      request: {
+        ...request,
+        skipReply: true,
+        context: {
+          ...request.context,
+          updateReasons: [{ type: 'user_intent', intent: SHOW_INTENT }],
+        },
+      },
+      messageId: SHOW_MESSAGE_ID,
+      runId: RUN_ID,
+      inputId: INPUT_ID,
+      turnId: TURN_ID,
+      signal,
+    };
+  };
+
+  const clarifyingStage: Stage<PlanningInput, PlannerOutput> = async () =>
+    ok({
+      type: 'needs_clarification',
+      question: 'Which order do you mean?',
+      options: ['The latest order', 'The order from last week'],
+    });
+
+  test('a response arrives without the planner userMessage', async () => {
+    const { createShowPlanner } = createEngineInternals({
+      planner: scriptedPlanner([buildGridResponse({ userMessage: SENTINEL })]),
+      logger: silentLogger,
+    });
+
+    const result = await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+
+    if (!isOk(result)) throw new Error('expected Ok(show outcome)');
+    expect(result.value.type).toBe('response');
+    if (result.value.type !== 'response') return;
+    expect('userMessage' in result.value.response).toBe(false);
+    expect('diagnostics' in result.value.response).toBe(false);
+    expect(Object.keys(result.value).sort()).toEqual(['response', 'type']);
+    expect(JSON.stringify(result.value)).not.toContain(SENTINEL);
+  });
+
+  test('a needs-clarification result carries only the planner question', async () => {
+    const { createShowPlanner } = createEngineInternals({
+      planner: clarifyingStage,
+      logger: silentLogger,
+    });
+
+    const result = await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+
+    expect(result).toEqual(
+      ok({
+        type: 'needs_clarification',
+        question: 'Which order do you mean?',
+      }),
+    );
+  });
+
+  test('a failing planner yields Err', async () => {
+    const { createShowPlanner } = createEngineInternals({
+      planner: failingPlanner(providerError('provider down', undefined)),
+      logger: silentLogger,
+      retry: false,
+    });
+
+    const result = await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+
+    expect(isErr(result) && result.error._tag).toBe('ProviderError');
+  });
+
+  test('an aborted signal cancels a planner call in flight', async () => {
+    const gate = defer<PlannerCandidate>();
+    const blocking = blockingPlanner(gate);
+    const { createShowPlanner } = createEngineInternals({
+      planner: blocking.planner,
+      logger: silentLogger,
+      retry: false,
+    });
+    const controller = new AbortController();
+
+    const pending = createShowPlanner(DEFAULT_SESSION_ID)(
+      showInput(controller.signal),
+    );
+    await blocking.entered;
+    controller.abort('connection closed');
+
+    const result = await pending;
+    expect(isErr(result) && result.error._tag).toBe('CancellationError');
+  });
+
+  test('the planner sees the show message id, an empty history and the show request', async () => {
+    const inputs: PlanningInput[] = [];
+    const inner = scriptedPlanner([buildGridResponse()]);
+    const { createShowPlanner } = createEngineInternals({
+      planner: async (input, ctx) => {
+        inputs.push(input);
+        return inner(input, ctx);
+      },
+      logger: silentLogger,
+    });
+
+    await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.messageId).toBe(SHOW_MESSAGE_ID);
+    expect(inputs[0]?.sessionId).toBe(DEFAULT_SESSION_ID);
+    expect(inputs[0]?.history).toEqual([]);
+    expect(inputs[0]?.request.skipReply).toBe(true);
+  });
+
+  test.each([
+    ['a response', () => scriptedPlanner([buildGridResponse()])],
+    ['a needs-clarification result', () => clarifyingStage],
+  ])(
+    'diagnostics of %s carry the run owner and turn without a request id',
+    async (_case, buildStage) => {
+      const { engine, createShowPlanner } = createEngineInternals({
+        planner: pipeline(named('arrange', buildStage())),
+        logger: silentLogger,
+      });
+      const events: DiagnosticEvent[] = [];
+      const contents = new Map<string, () => unknown>();
+      engine.observeDiagnostics?.((event, readContent) => {
+        events.push(event);
+        if (readContent) contents.set(event.kind, readContent);
+      });
+
+      await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+
+      const kinds = events.map((event) => event.kind);
+      expect(kinds).toEqual(
+        expect.arrayContaining([
+          'engine.planner.started',
+          'engine.planner.completed',
+          'engine.stage.started',
+          'engine.stage.completed',
+          'engine.candidate.validated',
+          'engine.validation.completed',
+        ]),
+      );
+      for (const event of events) {
+        expect(event.runId).toBe(RUN_ID);
+        expect(event.requestId).toBeUndefined();
+        expect(event.metadata.inputId).toBe(INPUT_ID);
+        expect(event.metadata.turnId).toBe(TURN_ID);
+        expect(JSON.stringify(event.metadata)).not.toContain(SHOW_INTENT);
+      }
+      expect(
+        events.find((event) => event.kind === 'engine.planner.completed')
+          ?.metadata.outcome,
+      ).toBe('succeeded');
+      expect(
+        JSON.stringify(contents.get('engine.planner.started')?.()),
+      ).toContain(SHOW_INTENT);
+    },
+  );
+
+  test('handle() still refuses a needs-clarification result after the show planner ships one', async () => {
+    const { engine, createShowPlanner } = createEngineInternals({
+      planner: clarifyingStage,
+      logger: silentLogger,
+    });
+
+    const shown = await createShowPlanner(DEFAULT_SESSION_ID)(showInput());
+    const handled = await engine.handle(
+      toChartRequestMessage({ ...makeGridRequest(), skipReply: true }),
+    );
+
+    expect(isOk(shown)).toBe(true);
+    expect(isErr(handled) && handled.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'skipReply',
+    });
   });
 });
 
