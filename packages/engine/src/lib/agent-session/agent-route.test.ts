@@ -1147,7 +1147,7 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('closing the connection leaves a show plan in flight unaborted and sends and records nothing for it', async () => {
+    test('closing the connection aborts a show plan in flight and sends and records nothing for it', async () => {
       const time = createFakeAgentRunTime();
       const gate = defer<PlannerCandidate>();
       const blocking = blockingPlanner(gate);
@@ -1180,12 +1180,11 @@ describe('agent route through the Engine handle', () => {
       session.connection.close();
       time.advance(30_000);
       await settle();
-      expect(signals[0]?.aborted).toBe(false);
+      expect(signals[0]?.aborted).toBe(true);
       gate.resolve(addEventCandidate(calendarChart()));
       await settle();
 
       expect(signals).toHaveLength(1);
-      expect(signals[0]?.aborted).toBe(false);
       expect(session.received.slice(beforeClose)).toEqual([]);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),

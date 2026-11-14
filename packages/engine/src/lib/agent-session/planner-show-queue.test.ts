@@ -768,7 +768,7 @@ describe('createPlannerShowQueue', () => {
         }),
     },
   ])(
-    'close leaves the Planner call in flight unaborted and discards its later $outcome and the queued shows',
+    'close aborts the Planner call in flight and discards its later $outcome and the queued shows',
     async ({ settle }) => {
       const harness = createHarness();
       harness.queue.noteChart(monthChart);
@@ -777,7 +777,7 @@ describe('createPlannerShowQueue', () => {
       const { signal } = harness.planner.input(0);
 
       harness.queue.close();
-      expect(signal.aborted).toBe(false);
+      expect(signal.aborted).toBe(true);
       expect(harness.time.pending()).toBe(0);
       settle(harness);
       await flushMicrotasks();
@@ -785,7 +785,6 @@ describe('createPlannerShowQueue', () => {
       harness.queue.request(show(3));
       harness.queue.noteChart(weekChart);
 
-      expect(signal.aborted).toBe(false);
       expect(harness.planner.calls).toHaveLength(1);
       expect(harness.received).toEqual([]);
       expect(harness.observed).toEqual([]);
@@ -808,8 +807,8 @@ describe('createPlannerShowQueue', () => {
     expect(
       await trackSettled(harness.queue.whenIdle()).promise,
     ).toBeUndefined();
-    expect(harness.planner.input(0).signal.aborted).toBe(false);
     expect(harness.notes).toEqual([]);
+    expect(harness.observed).toEqual([]);
   });
 
   test('whenIdle resolves at once when nothing is queued, planning or awaiting acknowledgement', async () => {
