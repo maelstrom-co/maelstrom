@@ -330,7 +330,11 @@ export function createPlannerShowQueue({
       show.inputId,
       diagnostics,
       { changeId, turnId: show.turnId, actions: response.executionPlan.length },
-      () => ({ intent: show.intent, intentFacts: show.intentFacts }),
+      () => ({
+        intent: show.intent,
+        intentFacts: show.intentFacts,
+        response: event.response,
+      }),
     );
     events.emit(event);
   }

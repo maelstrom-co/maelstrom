@@ -226,10 +226,13 @@ export function createRunScheduler({
       cancelTimeout: () => clearTimeout(timeout),
     };
     events.emit(event);
-    observeUiChangeEmitted(event, run.input.inputId, diagnostics, {
-      changeId: event.changeId,
-      actions: response.executionPlan.length,
-    });
+    observeUiChangeEmitted(
+      event,
+      run.input.inputId,
+      diagnostics,
+      { changeId: event.changeId, actions: response.executionPlan.length },
+      () => ({ response }),
+    );
     run.ready.resolve();
     void pump();
   }
@@ -240,6 +243,9 @@ export function createRunScheduler({
     const run = queue.shift();
     if (!run) return;
     state = { phase: 'planning', run };
+    diagnostics.run(run.runId, run.input.inputId, 'engine.agent.run.started', {
+      disposition: 'ui_only',
+    });
     const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
     const messageId = run.input.inputId;
     let result: Result<MaelstromResponse, EngineError>;

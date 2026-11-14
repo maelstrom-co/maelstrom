@@ -832,8 +832,10 @@ test('server-minted run diagnostics remain isolated when two connections reuse a
         layout: { tree: [], instances: [] },
       }),
   });
-  engine.observeDiagnostics?.((event) => {
+  const contents = new Map<DiagnosticEvent, () => unknown>();
+  engine.observeDiagnostics?.((event, readContent) => {
     diagnostics.push(event);
+    if (readContent) contents.set(event, readContent);
   });
   const first = engine.openConnection({
     sessionId: SessionId('shared'),
@@ -872,9 +874,32 @@ test('server-minted run diagnostics remain isolated when two connections reuse a
     ).toEqual(
       new Set([
         'engine.agent.input.accepted',
+        'engine.agent.run.started',
         'engine.agent.ui_change.emitted',
       ]),
     );
+    for (const runId of runs) {
+      const ofRun = diagnostics.filter((event) => event.runId === runId);
+      const kinds = ofRun.map((event) => event.kind);
+      expect(
+        ofRun.find((event) => event.kind === 'engine.agent.run.started')
+          ?.metadata,
+      ).toEqual({ inputId: 'input-1', disposition: 'ui_only' });
+      expect(kinds.indexOf('engine.agent.run.started')).toBeLessThan(
+        kinds.indexOf('engine.planner.started'),
+      );
+      const emitted = ofRun.find(
+        (event) => event.kind === 'engine.agent.ui_change.emitted',
+      );
+      const wireChange = changes.find(
+        (event) => event.type === 'ui_change' && event.runId === runId,
+      );
+      if (!emitted || wireChange?.type !== 'ui_change')
+        throw new Error('Missing UI change');
+      expect(contents.get(emitted)?.()).toEqual({
+        response: wireChange.response,
+      });
+    }
     expect(
       diagnostics.every(
         (event) =>
@@ -913,8 +938,10 @@ test('run diagnostics describe acknowledgement and termination without publishin
     user: null,
   });
   let change: Extract<AgentEvent, { type: 'ui_change' }> | undefined;
+  let finished: Extract<AgentEvent, { type: 'finished' }> | undefined;
   connection.subscribe((event) => {
     if (event.type === 'ui_change') change = event;
+    if (event.type === 'finished') finished = event;
   });
   try {
     await connection.send(utterance());
@@ -929,10 +956,15 @@ test('run diagnostics describe acknowledgement and termination without publishin
     expect(diagnostics.map((event) => event.kind)).toContain(
       'engine.agent.ui_change.applied',
     );
+    if (!finished) throw new Error('Missing finished event');
     expect(diagnostics.at(-1)).toMatchObject({
       kind: 'engine.agent.run.finished',
       runId: change.runId,
-      metadata: { reason: 'completed', outcome: 'succeeded' },
+      metadata: {
+        reason: 'completed',
+        outcome: 'succeeded',
+        durationMs: finished.metrics.elapsedMs,
+      },
     });
     expect(diagnostics.every((event) => event.content === undefined)).toBe(
       true,

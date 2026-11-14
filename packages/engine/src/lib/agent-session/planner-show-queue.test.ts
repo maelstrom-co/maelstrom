@@ -785,7 +785,7 @@ describe('createPlannerShowQueue', () => {
     ).not.toContain(PROSE_SENTINEL);
   });
 
-  test('observes the emitted and applied change with ids in metadata and text behind readContent', async () => {
+  test('observes the emitted and applied change with ids in metadata and text and the response behind readContent', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
@@ -824,6 +824,7 @@ describe('createPlannerShowQueue', () => {
     expect(emitted?.readContent?.()).toEqual({
       intent: show(1).intent,
       intentFacts: show(1).intentFacts,
+      response: change.response,
     });
     const screenNote = harness.notes[0]?.text;
     expect(appliedEntry?.readContent?.()).toEqual({

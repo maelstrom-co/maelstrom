@@ -4,6 +4,7 @@ import {
   type AgentRunMetrics,
   type AgentUiAppliedInput,
   type AgentUtteranceInput,
+  type DiagnosticMetadata,
   RunId,
 } from '@maelstrom-co/protocol';
 
@@ -17,6 +18,7 @@ import {
 } from './agent-config.js';
 import type { RunObserver } from './agent-diagnostics.js';
 import {
+  type AgentRunActivity,
   type AgentRunClock,
   type AgentRunEvent,
   type AgentRunFailed,
@@ -141,6 +143,12 @@ export function createAgentRunQueue({
   });
 
   const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
+
+  const observeActivity = (run: ActiveAgentRun, activity: AgentRunActivity) => {
+    if (!isCurrent(run) || run.cancelled) return;
+    const { kind, metadata, readContent } = activityObservation(activity);
+    observe(run.runId, run.input.inputId, kind, metadata, readContent);
+  };
 
   const measuredSince = (
     finished: AgentRunFinished,
@@ -309,6 +317,9 @@ export function createAgentRunQueue({
       version: AGENT_WIRE_VERSION,
       runId: run.runId,
     });
+    observe(run.runId, run.input.inputId, 'engine.agent.run.started', {
+      disposition: 'agent',
+    });
     const iterator = startRun(
       {
         runId: run.runId,
@@ -328,6 +339,7 @@ export function createAgentRunQueue({
         gate: ({ turn }) =>
           turn === 1 ? earlierShowsSettled(run.controller.signal) : undefined,
         takeSessionNotes: () => run.sessionNotes.splice(0),
+        onActivity: (activity) => observeActivity(run, activity),
       },
     )[Symbol.asyncIterator]();
     run.iterator = iterator;
@@ -614,4 +626,60 @@ function deferred(): Deferred {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function activityObservation(activity: AgentRunActivity): {
+  readonly kind: string;
+  readonly metadata: DiagnosticMetadata;
+  readonly readContent?: () => unknown;
+} {
+  switch (activity.type) {
+    case 'turn_started':
+      return {
+        kind: 'engine.agent.turn.started',
+        metadata: { turnId: activity.turnId, turnIndex: activity.turnIndex },
+      };
+    case 'turn_finished':
+      return {
+        kind: 'engine.agent.turn.finished',
+        metadata: {
+          turnId: activity.turnId,
+          turnIndex: activity.turnIndex,
+          toolCalls: activity.toolCalls,
+          ...(activity.inputTokens === undefined
+            ? {}
+            : { inputTokens: activity.inputTokens }),
+          ...(activity.outputTokens === undefined
+            ? {}
+            : { outputTokens: activity.outputTokens }),
+        },
+        readContent: () => ({ text: activity.text }),
+      };
+    case 'tool_started':
+      return {
+        kind: 'engine.agent.tool.started',
+        metadata: {
+          turnId: activity.turnId,
+          callId: activity.callId,
+          toolName: activity.name,
+        },
+        readContent: () => ({ args: activity.args }),
+      };
+    case 'tool_completed':
+      return {
+        kind: 'engine.agent.tool.completed',
+        metadata: {
+          turnId: activity.turnId,
+          callId: activity.callId,
+          toolName: activity.name,
+          outcome: activity.outcome,
+          ...(activity.durationMs === undefined
+            ? {}
+            : { durationMs: activity.durationMs }),
+        },
+        readContent: () => ({ result: activity.result }),
+      };
+    default:
+      return assertNever(activity, 'agent run activity');
+  }
 }
