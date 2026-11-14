@@ -1,3 +1,4 @@
+import { isSessionAgentEvent } from './agent-runs.js';
 import { identity, identityAvailability } from './diagnostic-identity.js';
 import type { PanelEvent, PanelEvidence, RequestTrace } from './panel-model.js';
 
@@ -89,15 +90,17 @@ export function isComparisonSourceIncomplete(
  * True when a source event could belong to a request comparison but lacks a
  * usable requestId or clientId, so the comparison cannot be treated as
  * complete. Run-owned diagnostics, which report a runId and no requestId, are
- * exempt because they never belong to a request. An event that reports a
- * requestId, even a redacted one, is not run-owned and stays unassigned.
+ * exempt because they never belong to a request, as are session-level Agent
+ * Session diagnostics that report no requestId. An event that reports a
+ * requestId, even a redacted one, is neither and stays unassigned.
  */
 export function isIncompleteSourceEvent(
   event: PanelEvent,
   comparedKinds: ReadonlySet<string>,
 ): boolean {
   if (event.requestId && event.clientId) return false;
-  if (isRunOwned(event)) return false;
+  if (isRunOwned(event) || isSessionAgentEvent(event.kind, event.raw))
+    return false;
   return (
     comparedKinds.has(event.kind) ||
     event.raw.requestId !== undefined ||
