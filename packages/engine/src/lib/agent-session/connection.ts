@@ -70,7 +70,11 @@ export interface OpenConnectionOptions {
  *   the next queued show start.
  */
 export interface AgentConnection {
-  /** Accepts untrusted input. Resolves after handling it, without waiting for a later UI acknowledgement. */
+  /**
+   * Accepts untrusted input. Resolves after handling it, without waiting for
+   * a later UI acknowledgement. Input sent after close() is dropped without an
+   * event or a diagnostic.
+   */
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
   subscribe(listener: (event: AgentEvent) => void): () => void;

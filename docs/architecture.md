@@ -384,10 +384,10 @@ it stays disabled in production. The Engine never imports a browser DevTools pac
 Agent Session diagnostics add two owners beside the request. A run-owned event
 carries a server-minted `runId` in place of `requestId`, with the originating
 `inputId` in metadata. A session-owned event carries neither id. It reports an
-ignored or rejected input, a refused acknowledgement, or a UI change outside any
-run. A diagnostic connection forwards run-owned and session-owned events of its
-own session only. Both skip request ambiguity tracking and the in-flight request
-cap, which stay request-only. Forwarding stays disabled in production.
+ignored or rejected input or a refused acknowledgement. A diagnostic connection
+forwards run-owned and session-owned events of its own session only. Both skip
+request ambiguity tracking and the in-flight request cap, which stay
+request-only. Forwarding stays disabled in production.
 
 The default DevTools production entrypoints are inert. Explicit `/production`
 imports enable browser tools in every build without changing server policy.

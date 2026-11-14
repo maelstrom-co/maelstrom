@@ -52,13 +52,14 @@ export interface SessionDiagnosticOwner {
 }
 
 /**
- * Publishes an event with neither `requestId` nor `runId`. A diagnostic
- * connection forwards it only to subscribers of the same session.
+ * Owner marker for Agent Session events with neither `requestId` nor `runId`.
+ * A diagnostic connection forwards such events only for its own session.
  */
 export const SESSION_DIAGNOSTIC_OWNER: SessionDiagnosticOwner = Object.freeze({
   session: true,
 });
 
+/** Who owns an event: a legacy request id, an Agent Run, or the session. */
 type DiagnosticOwner = MessageId | RunOwner | SessionDiagnosticOwner;
 
 export class EngineDiagnosticEmitter {
@@ -290,6 +291,9 @@ export function createDiagnosticConnection(
     try {
       release = engine.observeDiagnostics?.((event, readContent) => {
         if (event.sessionId !== options.sessionId) return;
+        // Run-owned and session-owned events carry no requestId. The session
+        // check above already limits them to this connection's session, so
+        // only request-owned events need a tracked request.
         const owned =
           event.requestId === undefined || requests.has(event.requestId);
         if (event.kind === 'engine.request.finished' && event.requestId)

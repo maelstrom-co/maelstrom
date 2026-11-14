@@ -259,6 +259,6 @@ export function utterance(
 /** The tiling layout of a Chart. Throws for any other layout. */
 export function tilingLayoutOf(request: ChartRequest) {
   if (request.layout.type !== 'tiling')
-    throw new Error('agent route tests send tiling Charts');
+    throw new Error('agent session tests send tiling Charts');
   return request.layout;
 }
