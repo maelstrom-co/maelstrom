@@ -114,6 +114,14 @@ export interface AgentRunOptions {
   readonly inbox?: never;
   /** Optional pause before each model turn. */
   readonly gate?: AgentRunGate;
+  /**
+   * Optional source of session notes, called before each model turn after
+   * the gate settles. Returns the rendered session notes recorded since the
+   * run's prior messages were rendered, each returned only once. The run
+   * appends them to that turn's messages as one user-role message, the notes
+   * joined by newlines, and adds nothing when the list is empty.
+   */
+  readonly takeSessionNotes?: () => readonly string[];
 }
 
 /** A fragment of model reply text. */

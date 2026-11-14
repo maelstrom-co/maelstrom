@@ -2097,6 +2097,136 @@ describe('runAgent budgets and stops on chat()', () => {
   });
 });
 
+describe('runAgent session notes', () => {
+  test('the consumer receives tool_phase_ended before the next gate, so a note recorded on it reaches that turn', async () => {
+    const order: string[] = [];
+    const pending: string[] = [];
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(4, 1)),
+      textTurn(['Done.'], usage(4, 1)),
+    ]);
+    const run = runAgent(runInput({ adapter: model.adapter }), {
+      signal: new AbortController().signal,
+      gate: ({ turn }) => {
+        order.push(`gate ${turn}`);
+      },
+      takeSessionNotes: () => pending.splice(0),
+    });
+
+    for await (const event of run) {
+      order.push(event.type);
+      if (event.type === 'tool_phase_ended') pending.push(QUEUED_NOTE);
+    }
+
+    expect(order.indexOf('tool_phase_ended')).toBeLessThan(
+      order.indexOf('gate 2'),
+    );
+    expect(requestMessages(model, 1).at(-1)).toEqual({
+      role: 'user',
+      content: QUEUED_NOTE,
+    });
+  });
+
+  test('notes taken before turn 2 end that request as one user message joined by newlines and are not repeated in turn 3', async () => {
+    const takes: (readonly string[])[] = [[], [QUEUED_NOTE, SCREEN_NOTE], []];
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(4, 1)),
+      toolTurn([{ id: 'c2', name: 'latest_order', args: {} }], usage(4, 1)),
+      textTurn(['Done.'], usage(4, 1)),
+    ]);
+    const joined = `${QUEUED_NOTE}\n${SCREEN_NOTE}`;
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter }), {
+        signal: new AbortController().signal,
+        takeSessionNotes: () => takes.shift() ?? [],
+      }),
+    );
+
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+    expect(requestMessages(model, 0).at(-1)).toEqual({
+      role: 'user',
+      content: 'what was my last order?',
+    });
+    expect(requestMessages(model, 1).at(-1)).toEqual({
+      role: 'user',
+      content: joined,
+    });
+    const turnThree = requestMessages(model, 2);
+    expect(turnThree.at(-1)).toMatchObject({ role: 'tool' });
+    expect(
+      turnThree.filter((message) => message.content === joined),
+    ).toHaveLength(1);
+  });
+
+  test('a run whose notes source returns nothing adds no message to any request', async () => {
+    const script = () => [
+      toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(4, 1)),
+      textTurn(['Done.'], usage(4, 1)),
+    ];
+    const plain = scriptedAdapter(script());
+    const empty = scriptedAdapter(script());
+    let takes = 0;
+
+    await collect(
+      runAgent(runInput({ adapter: plain.adapter }), {
+        signal: new AbortController().signal,
+      }),
+    );
+    await collect(
+      runAgent(runInput({ adapter: empty.adapter }), {
+        signal: new AbortController().signal,
+        takeSessionNotes: () => {
+          takes += 1;
+          return [];
+        },
+      }),
+    );
+
+    expect(takes).toBe(2);
+    expect(empty.requests.map((request) => request.messages.length)).toEqual(
+      plain.requests.map((request) => request.messages.length),
+    );
+    expect(requestMessages(empty, 1).map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+    ]);
+  });
+
+  test('a note recorded while the gate holds turn 2 reaches that turn', async () => {
+    const gate = defer<void>();
+    const pending: string[] = [];
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(4, 1)),
+      textTurn(['Done.'], usage(4, 1)),
+    ]);
+    const iterator = runAgent(runInput({ adapter: model.adapter }), {
+      signal: new AbortController().signal,
+      gate: ({ turn }) => (turn === 2 ? gate.promise : undefined),
+      takeSessionNotes: () => pending.splice(0),
+    })[Symbol.asyncIterator]();
+
+    await takeUntil(iterator, (event) => event.type === 'tool_phase_ended');
+    const held = iterator.next();
+    await flushMacrotask();
+    expect(model.requests).toHaveLength(1);
+    pending.push(SCREEN_NOTE);
+    gate.resolve();
+    await held;
+    await drain(iterator);
+
+    expect(requestMessages(model, 1).at(-1)).toEqual({
+      role: 'user',
+      content: SCREEN_NOTE,
+    });
+  });
+});
+
+const QUEUED_NOTE = '[show run-1:t1] Show queued: latest_order result.';
+const SCREEN_NOTE =
+  '[show run-1:t1] Screen updated: latest_order result is on screen.';
+
 const SECRET = 'sk-SECRET-123';
 const USER_SENTINEL = 'USER-SENTINEL-42';
 const TOKEN_SENTINEL = 'TOKEN-SENTINEL-42';
@@ -2688,6 +2818,15 @@ function toolMessageContents(request: TextOptions | undefined): unknown[] {
         ? JSON.parse(message.content)
         : message.content,
     );
+}
+
+function requestMessages(
+  model: { readonly serializedRequests: readonly string[] },
+  index: number,
+): { readonly role: string; readonly content: unknown }[] {
+  const request = model.serializedRequests[index];
+  if (request === undefined) throw new Error(`no request ${index}`);
+  return (JSON.parse(request) as Pick<TextOptions, 'messages'>).messages;
 }
 
 function serializeLoosely(value: unknown): string {
