@@ -122,7 +122,107 @@ export interface AgentRunOptions {
    * joined by newlines, and adds nothing when the list is empty.
    */
   readonly takeSessionNotes?: () => readonly string[];
+  /**
+   * Optional observer of turn and tool activity, called synchronously as the
+   * work happens, so a timestamp taken inside it is accurate. Each admitted
+   * model turn reports `turn_started` and then `turn_finished`, and each
+   * announced tool call reports at most one `tool_started` and exactly one
+   * `tool_completed`, all before the run yields `finished` and never after it.
+   * The activity carries the turn text, arguments and results itself, because
+   * the yielded events that record them may not be pulled yet.
+   */
+  readonly onActivity?: (activity: AgentRunActivity) => void;
 }
+
+/** A model turn the run admitted began. */
+export interface AgentRunTurnStartedActivity {
+  /** Member discriminator. */
+  readonly type: 'turn_started';
+  /** The turn, `<runId>:t<n>`. */
+  readonly turnId: string;
+  /** The turn number, 1-based. */
+  readonly turnIndex: number;
+}
+
+/**
+ * A model turn ended: its tool phase completed, the next turn is about to
+ * start or the run is about to yield `finished`.
+ */
+export interface AgentRunTurnFinishedActivity {
+  /** Member discriminator. */
+  readonly type: 'turn_finished';
+  /** The turn, `<runId>:t<n>`. */
+  readonly turnId: string;
+  /** The turn number, 1-based. */
+  readonly turnIndex: number;
+  /** Tool calls the model requested in this turn, including refused ones. */
+  readonly toolCalls: number;
+  /** Input tokens the turn's provider calls reported. Absent when none reported them, never zero-filled. */
+  readonly inputTokens?: number;
+  /** Output tokens the turn's provider calls reported. Absent when none reported them, never zero-filled. */
+  readonly outputTokens?: number;
+  /** The text the model streamed in this turn, empty when it streamed none. */
+  readonly text: string;
+}
+
+/** A Server Tool began executing. A call refused or failed before execution never reports this. */
+export interface AgentRunToolStartedActivity {
+  /** Member discriminator. */
+  readonly type: 'tool_started';
+  /** The turn that requested the call. */
+  readonly turnId: string;
+  /** The run-unique call id, the same one the `tool_call` event carries. */
+  readonly callId: CallId;
+  /** The tool name. */
+  readonly name: string;
+  /** The arguments the model sent, before the tool's input schema parsed them. */
+  readonly args: unknown;
+}
+
+/** How a tool call ended: it returned a result, it failed or was stopped after starting, or it never started. */
+export type AgentRunToolOutcome = 'succeeded' | 'failed' | 'not_run';
+
+/** The result of a tool call as its activity reports it, without any server-side failure cause. */
+export type AgentRunActivityToolResult =
+  | {
+      readonly ok: true;
+      /** The tool output, validated against its output schema. */
+      readonly value: unknown;
+      /** The model-facing summary. */
+      readonly summary: string;
+    }
+  | {
+      readonly ok: false;
+      /** The sanitized failure code. */
+      readonly code: string;
+      /** The sanitized model-facing summary. */
+      readonly summary: string;
+    };
+
+/** A tool call settled. Reported once per announced call, after any middleware replaced its result. */
+export interface AgentRunToolCompletedActivity {
+  /** Member discriminator. */
+  readonly type: 'tool_completed';
+  /** The turn that requested the call. */
+  readonly turnId: string;
+  /** The run-unique call id, the same one the `tool_call` event carries. */
+  readonly callId: CallId;
+  /** The tool name. */
+  readonly name: string;
+  /** How the call ended. */
+  readonly outcome: AgentRunToolOutcome;
+  /** Milliseconds from execution start to settlement on {@link AgentRunClock}. Present only when the tool started. */
+  readonly durationMs?: number;
+  /** The settled result. */
+  readonly result: AgentRunActivityToolResult;
+}
+
+/** Turn and tool activity of one Agent Run, reported through {@link AgentRunOptions.onActivity}. */
+export type AgentRunActivity =
+  | AgentRunTurnStartedActivity
+  | AgentRunTurnFinishedActivity
+  | AgentRunToolStartedActivity
+  | AgentRunToolCompletedActivity;
 
 /** A fragment of model reply text. */
 export interface AgentRunMessageEvent {

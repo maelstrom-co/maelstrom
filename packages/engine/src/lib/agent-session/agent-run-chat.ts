@@ -5,6 +5,8 @@ import {
   withUsage,
 } from '@maelstrom-co/telemetry/usage-adapter';
 import {
+  type AfterToolCallDecision,
+  type AfterToolCallInfo,
   type AnyTextAdapter,
   type BeforeToolCallDecision,
   chat,
@@ -29,6 +31,9 @@ import {
   stoppedToolResult,
 } from './agent-run-policy.js';
 import {
+  type AgentRunActivity,
+  type AgentRunActivityToolResult,
+  type AgentRunClock,
   type AgentRunEvent,
   type AgentRunFinished,
   type AgentRunInput,
@@ -98,7 +103,11 @@ async function* streamAgentRun(
     signal: options.signal,
     gate: options.gate,
   });
-  const calls = createToolCallTracker(input.runId);
+  const calls = createToolCallTracker(
+    input.runId,
+    input.clock,
+    options.onActivity,
+  );
   const executions = createToolExecutionFence();
   let chunks: AsyncIterator<StreamChunk> | undefined;
   let reachedEnd = false;
@@ -192,6 +201,7 @@ async function* streamAgentRun(
     policy.finish();
     reachedEnd = true;
     yield* calls.closeQueue();
+    calls.closeActivity();
     yield* endingEvents(
       input.runId,
       policy.ending ?? { reason: 'cancelled', cause: undefined },
@@ -221,6 +231,7 @@ function startChat(
   const adapter = admittingProviderCalls(
     withUsage(input.adapter, 'agent', (call) => {
       policy.recordProviderCall(call);
+      calls.recordProviderCall(call);
       instrumentation.onProviderCall?.(call);
     }),
     policy,
@@ -260,7 +271,7 @@ function startChat(
     // After the policy middleware, whose gate wait can record more notes.
     onConfig: (ctx, config) => {
       if (ctx.phase !== 'beforeModel') return undefined;
-      calls.startTurn(ctx.iteration + 1);
+      calls.startTurn(ctx.iteration + 1, policy.ending === undefined);
       const notes = options.takeSessionNotes?.() ?? [];
       if (notes.length === 0) return undefined;
       return {
@@ -273,35 +284,46 @@ function startChat(
     onBeforeToolCall: (ctx, hookCtx) => admitArgs(ctx, hookCtx, hookCtx.args),
     onToolPhaseComplete: (_ctx, info) => {
       calls.endToolPhase(info.toolCalls.map((call) => call.id));
+      calls.finishTurn();
     },
   };
-  // Last in the array, so it sees every other middleware's substitution.
+  const guardResult = async (
+    info: AfterToolCallInfo,
+  ): Promise<AfterToolCallDecision> => {
+    const entry = input.registry.get(info.toolName);
+    if (entry === undefined) return undefined;
+    if (!info.ok && info.result === undefined) return undefined;
+    const own = calls.settledResult(info.toolCallId);
+    if (
+      own !== undefined &&
+      isSameModelPayload(info.result, toModelToolPayload(own))
+    ) {
+      return undefined;
+    }
+    const validation = await validateToolResultEnvelope(entry, info.result);
+    if (!validation.valid) {
+      input.logger.warn('Agent run replaced an invalid substituted result', {
+        runId: input.runId,
+        tool: entry.tool.name,
+        reason: validation.reason,
+      });
+    }
+    const result = validation.valid
+      ? validation.result
+      : invalidSubstitutionResult(entry);
+    calls.settle(info.toolCallId, result);
+    return { type: 'replaceResult', result: toModelToolPayload(result) };
+  };
+  // Last in the array, so it sees every other middleware's substitution and
+  // the call's settlement is final once it has run.
   const resultGuardMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-result-guard',
     onAfterToolCall: async (_ctx, info) => {
-      const entry = input.registry.get(info.toolName);
-      if (entry === undefined) return undefined;
-      if (!info.ok && info.result === undefined) return undefined;
-      const own = calls.settledResult(info.toolCallId);
-      if (
-        own !== undefined &&
-        isSameModelPayload(info.result, toModelToolPayload(own))
-      ) {
-        return undefined;
+      try {
+        return await guardResult(info);
+      } finally {
+        calls.completeCall(info.toolCallId);
       }
-      const validation = await validateToolResultEnvelope(entry, info.result);
-      if (!validation.valid) {
-        input.logger.warn('Agent run replaced an invalid substituted result', {
-          runId: input.runId,
-          tool: entry.tool.name,
-          reason: validation.reason,
-        });
-      }
-      const result = validation.valid
-        ? validation.result
-        : invalidSubstitutionResult(entry);
-      calls.settle(info.toolCallId, result);
-      return { type: 'replaceResult', result: toModelToolPayload(result) };
     },
   };
   return chat({
@@ -377,7 +399,7 @@ function toChatTool(
       callId === undefined
         ? validatedArgs
         : (rawArgsOf(callId) ?? validatedArgs);
-    if (callId !== undefined) calls.markStarted(callId);
+    if (callId !== undefined) calls.markStarted(callId, rawArgs);
     const result = await executions.track(
       entry,
       executeToolCall(
@@ -404,6 +426,16 @@ interface AnnouncedToolCall {
   readonly name: string;
   readonly turnId: string;
   started: boolean;
+  startedAt?: number;
+  settledAt?: number;
+  completionReported: boolean;
+}
+
+interface OpenTurn {
+  readonly index: number;
+  toolCalls: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 type ToolCallTracker = ReturnType<typeof createToolCallTracker>;
@@ -430,8 +462,14 @@ function createToolExecutionFence() {
   };
 }
 
-function createToolCallTracker(runId: RunId) {
+function createToolCallTracker(
+  runId: RunId,
+  clock: AgentRunClock,
+  onActivity: ((activity: AgentRunActivity) => void) | undefined,
+) {
   let turn = 0;
+  let openTurn: OpenTurn | undefined;
+  let activityClosed = false;
   let textTurn = 0;
   let text = '';
   let accepting = true;
@@ -445,9 +483,55 @@ function createToolCallTracker(runId: RunId) {
   const settled = new Map<CallId, ToolCallResult>();
   const turnId = () => `${runId}:t${turn}`;
 
+  const report = (activity: AgentRunActivity) => {
+    if (!activityClosed) onActivity?.(activity);
+  };
+
+  const reportCompletion = (call: AnnouncedToolCall) => {
+    if (call.completionReported) return;
+    call.completionReported = true;
+    const result = settled.get(call.callId) ?? unsettledResult(call);
+    report({
+      type: 'tool_completed',
+      turnId: call.turnId,
+      callId: call.callId,
+      name: call.name,
+      outcome: result.ok ? 'succeeded' : call.started ? 'failed' : 'not_run',
+      ...(call.startedAt === undefined
+        ? {}
+        : {
+            durationMs: Math.max(
+              0,
+              Math.round((call.settledAt ?? clock.now()) - call.startedAt),
+            ),
+          }),
+      result: activityResultOf(result),
+    });
+  };
+
+  const finishTurn = () => {
+    const finishing = openTurn;
+    if (finishing === undefined) return;
+    openTurn = undefined;
+    report({
+      type: 'turn_finished',
+      turnId: `${runId}:t${finishing.index}`,
+      turnIndex: finishing.index,
+      toolCalls: finishing.toolCalls,
+      ...(finishing.inputTokens === undefined
+        ? {}
+        : { inputTokens: finishing.inputTokens }),
+      ...(finishing.outputTokens === undefined
+        ? {}
+        : { outputTokens: finishing.outputTokens }),
+      text: textTurn === finishing.index ? text : '',
+    });
+  };
+
   const settleAnnounced = (
     call: AnnouncedToolCall,
   ): { event: AgentRunEvent; phaseResult: AgentRunToolPhaseResult } => {
+    reportCompletion(call);
     const result = settled.get(call.callId) ?? unsettledResult(call);
     announced.delete(call.callId);
     return {
@@ -484,21 +568,55 @@ function createToolCallTracker(runId: RunId) {
 
   return {
     drainQueued,
-    startTurn(next: number) {
+    startTurn(next: number, admitted: boolean) {
+      finishTurn();
       turn = next;
+      if (!admitted) return;
+      openTurn = { index: next, toolCalls: 0 };
+      report({ type: 'turn_started', turnId: turnId(), turnIndex: next });
+    },
+    finishTurn,
+    closeActivity() {
+      finishTurn();
+      activityClosed = true;
+    },
+    recordProviderCall(call: ProviderCallRecord) {
+      if (openTurn === undefined) return;
+      const { inputTokens, outputTokens } = call.usage ?? {};
+      if (inputTokens !== undefined)
+        openTurn.inputTokens = (openTurn.inputTokens ?? 0) + inputTokens;
+      if (outputTokens !== undefined)
+        openTurn.outputTokens = (openTurn.outputTokens ?? 0) + outputTokens;
     },
     settle(providerCallId: string, result: ToolCallResult) {
       const callId = callIdByProviderId.get(providerCallId);
-      if (callId !== undefined) settled.set(callId, result);
+      if (callId === undefined) return;
+      settled.set(callId, result);
+      const call = announced.get(callId);
+      if (call !== undefined) call.settledAt = clock.now();
+    },
+    completeCall(providerCallId: string) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
+      if (call !== undefined) reportCompletion(call);
     },
     settledResult(providerCallId: string): ToolCallResult | undefined {
       const callId = callIdByProviderId.get(providerCallId);
       return callId === undefined ? undefined : settled.get(callId);
     },
-    markStarted(providerCallId: string) {
+    markStarted(providerCallId: string, args: unknown) {
       const callId = callIdByProviderId.get(providerCallId);
       const call = callId === undefined ? undefined : announced.get(callId);
-      if (call !== undefined) call.started = true;
+      if (call === undefined) return;
+      call.started = true;
+      call.startedAt = clock.now();
+      report({
+        type: 'tool_started',
+        turnId: call.turnId,
+        callId: call.callId,
+        name: call.name,
+        args,
+      });
     },
     endToolPhase(providerCallIds: readonly string[]) {
       if (!accepting) return;
@@ -558,7 +676,9 @@ function createToolCallTracker(runId: RunId) {
             name: call.name,
             turnId: call.turnId,
             started: false,
+            completionReported: false,
           });
+          if (openTurn !== undefined) openTurn.toolCalls += 1;
           yield {
             type: 'tool_call',
             turnId: call.turnId,
@@ -763,6 +883,12 @@ function parseJsonOrKeep(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+function activityResultOf(result: ToolCallResult): AgentRunActivityToolResult {
+  return result.ok
+    ? { ok: true, value: result.value, summary: result.summary }
+    : { ok: false, code: result.code, summary: result.summary };
 }
 
 function unsettledResult(call: AnnouncedToolCall): ToolCallResult {

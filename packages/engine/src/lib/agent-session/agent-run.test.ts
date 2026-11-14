@@ -21,6 +21,7 @@ import {
   STOPPED_TOOL_SUMMARY,
 } from './agent-run-policy.js';
 import {
+  type AgentRunActivity,
   type AgentRunBudgets,
   type AgentRunEvent,
   type AgentRunFinished,
@@ -1558,6 +1559,67 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(events[1]).toEqual(stoppedResult('run-1:t1', 'c1', 'increment'));
     expect(lastEvent(events)).toMatchObject({ reason: 'cancelled' });
     expect(await iterator.next()).toEqual({ done: true, value: undefined });
+  });
+
+  test('reports turn and tool activity with a stopped call as failed, and nothing after finished when a tool that ignores the abort settles later', async () => {
+    const controller = new AbortController();
+    const release = defer<void>();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await release.promise;
+      },
+      ignoresAbort: true,
+    });
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'increment', args: { by: 1 } }], usage(4, 1)),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+    const iterator = runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      },
+    )[Symbol.asyncIterator]();
+
+    await drain(iterator);
+    const reportedBeforeFinished = activity.length;
+    release.resolve();
+    await flushMacrotask();
+    await flushMacrotask();
+
+    expect(activity).toHaveLength(reportedBeforeFinished);
+    expect(activity.map((entry) => entry.type)).toEqual([
+      'turn_started',
+      'tool_started',
+      'tool_completed',
+      'turn_finished',
+    ]);
+    expect(activity[1]).toEqual({
+      type: 'tool_started',
+      turnId: 'run-1:t1',
+      callId: 'c1',
+      name: 'increment',
+      args: { by: 1 },
+    });
+    expect(activity[2]).toMatchObject({
+      type: 'tool_completed',
+      callId: 'c1',
+      outcome: 'failed',
+      result: { ok: false, code: 'cancelled' },
+    });
+    expect(activity[3]).toMatchObject({
+      type: 'turn_finished',
+      turnId: 'run-1:t1',
+      turnIndex: 1,
+      toolCalls: 1,
+      inputTokens: 4,
+      outputTokens: 1,
+    });
   });
 
   describe('toolsSettled on the ending', () => {
