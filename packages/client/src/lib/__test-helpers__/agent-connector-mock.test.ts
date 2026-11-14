@@ -3,13 +3,24 @@ import { describe, expect, test } from 'bun:test';
 import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
+  AgentEventSchema,
   type AgentInput,
-  type ChangeId,
-  type MessageId,
+  ChangeId,
+  MessageId,
+  RunId,
 } from '@maelstrom-co/protocol';
 
-import type { ConnectorEvent } from '../src/lib/connection-manager/connector.types.js';
-import { createMockAgentConnector } from './agent-connector-mock.js';
+import type { ConnectorEvent } from '../connection-manager/connector.types.js';
+import {
+  agentAcceptedEvent,
+  agentErrorEvent,
+  agentFinishedEvent,
+  agentMessageEvent,
+  agentPlaceholderEvent,
+  agentStartedEvent,
+  agentUiChangeEvent,
+  createMockAgentConnector,
+} from './agent-connector-mock.js';
 
 const placeholder = {
   type: 'placeholder',
@@ -80,5 +91,38 @@ describe('createMockAgentConnector', () => {
     };
     await mock.connector.sendInput(utterance);
     expect(await pending).toBe(utterance);
+  });
+});
+
+describe('agent event builders', () => {
+  test('build events the agent wire schema accepts', () => {
+    const inputId = MessageId('input-1');
+    const runId = RunId('run-1');
+    const events: AgentEvent[] = [
+      agentAcceptedEvent(inputId, runId),
+      agentAcceptedEvent(inputId, null),
+      agentStartedEvent(runId),
+      agentPlaceholderEvent(inputId),
+      agentMessageEvent(runId, 'hello'),
+      agentFinishedEvent(runId),
+      agentFinishedEvent(runId, {
+        ok: false,
+        reason: 'error',
+        error: 'boom',
+      }),
+      agentErrorEvent({ inputId, error: 'rejected' }),
+      agentUiChangeEvent(runId, ChangeId('change-1'), {
+        type: 'maelstrom_response',
+        requestId: MessageId('response-1'),
+        rationale: 'agent change',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      }),
+    ];
+
+    for (const event of events) {
+      expect(AgentEventSchema.safeParse(event).success).toBe(true);
+    }
+    expect(agentAcceptedEvent(inputId, null).disposition).toBe('noise');
   });
 });

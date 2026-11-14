@@ -384,8 +384,15 @@ export class Orchestrator {
   /**
    * Subscribe to the Agent Session conversation carried by the current
    * connector. Every payload is the protocol object the agent sent, unchanged,
-   * except `conversation_lost`, which the Orchestrator emits itself.
+   * except `accepted`, `ui_change` and `conversation_lost`, which the
+   * Orchestrator builds itself.
    *
+   * - `accepted`: the agent accepts an input. It carries the `inputId` that
+   *   {@link sendMessage} resolved to and the `runId` of the Agent Run that
+   *   handles it, which is `null` for the `noise` disposition.
+   * - `ui_change`: the Orchestrator finished applying a UI change the agent
+   *   sent. It carries the `runId`, the `changeId` and the outcome of each
+   *   Action, the same outcomes the `ui_applied` acknowledgement carries.
    * - `placeholder`: the agent sends text to show while it works on an input.
    * - `message`: the agent streams part of a conversational reply.
    * - `finished`: an Agent Run ends, whatever the reason.
@@ -404,8 +411,10 @@ export class Orchestrator {
    *   a new session, so a `ui_applied` for a change still being applied is
    *   dropped. After the other reasons no further events arrive.
    *
-   * UI changes the agent sends are applied and acknowledged internally and
-   * never surface here. Subscribing after {@link dispose} throws.
+   * UI changes the agent sends are applied and acknowledged internally, and a
+   * `ui_change` event reports each one after it was applied, whether or not
+   * its acknowledgement could be sent. Listeners cannot alter the apply or the
+   * acknowledgement. Subscribing after {@link dispose} throws.
    */
   get agent(): EventSubscriber<AgentConversationEvents> {
     return this.#agentConversation.events;

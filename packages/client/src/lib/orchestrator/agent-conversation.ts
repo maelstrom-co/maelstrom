@@ -280,6 +280,12 @@ export class AgentConversation {
         this.#applyUiChange(event, connector, isFenced);
         return;
       case 'accepted':
+        this.#events.emit('accepted', {
+          inputId: event.inputId,
+          runId: event.runId,
+          disposition: event.disposition,
+        });
+        return;
       case 'started':
       case 'tool_call':
       case 'tool_result':
@@ -302,7 +308,7 @@ export class AgentConversation {
     } catch (error) {
       settlement = Promise.reject(toError(error));
     }
-    void this.#acknowledgeUiChange(
+    void this.#settleUiChange(
       event,
       connector,
       isFenced,
@@ -312,7 +318,7 @@ export class AgentConversation {
     );
   }
 
-  async #acknowledgeUiChange(
+  async #settleUiChange(
     event: AgentUiChangeEvent,
     connector: EngineConnector,
     isFenced: FenceCheck,
@@ -330,6 +336,34 @@ export class AgentConversation {
         chart: undefined,
       };
     }
+    const actionOutcomes = toActionOutcomes(event.response, settled);
+    await this.#acknowledgeUiChange(
+      event,
+      connector,
+      isFenced,
+      sessionGeneration,
+      settled,
+      actionOutcomes,
+      receivedAt,
+    );
+    // Emitted after the acknowledgement step so a listener can neither alter
+    // nor delay the ui_applied, which may also have been dropped as stale.
+    this.#events.emit('ui_change', {
+      runId: event.runId,
+      changeId: event.changeId,
+      actionOutcomes: [...actionOutcomes],
+    });
+  }
+
+  async #acknowledgeUiChange(
+    event: AgentUiChangeEvent,
+    connector: EngineConnector,
+    isFenced: FenceCheck,
+    sessionGeneration: number,
+    settled: SettledAgentChange,
+    actionOutcomes: AgentActionOutcome[],
+    receivedAt: number,
+  ): Promise<void> {
     if (this.#isAcknowledgementStale(event, isFenced, sessionGeneration))
       return;
 
@@ -338,7 +372,7 @@ export class AgentConversation {
       version: AGENT_WIRE_VERSION,
       changeId: event.changeId,
       chart: settled.chart ?? this.#dependencies.buildChart(),
-      actionOutcomes: toActionOutcomes(event.response, settled),
+      actionOutcomes,
     };
     this.#staleRunWatch.changeAcknowledged(event.changeId);
     this.#dependencies.diagnostics.emit('client.agent.ui.applied', {

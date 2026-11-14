@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   type ActionExecution,
@@ -25,11 +25,11 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 
+import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
 import {
   createMockAgentConnector,
   type MockAgentConnector,
-} from '../../../test-utils/agent-connector-mock.js';
-import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
+} from '../__test-helpers__/agent-connector-mock.js';
 import type { ActionResult } from '../command-processor/action-result.js';
 import type { EngineConnector } from '../connection-manager/connector.types.js';
 import { AgentWireUnsupportedError } from '../connection-manager/connector.types.js';
@@ -461,6 +461,8 @@ describe('Orchestrator agent path', () => {
       const received: {
         [K in keyof AgentConversationEvents]: AgentConversationEvents[K][];
       } = {
+        accepted: [],
+        ui_change: [],
         placeholder: [],
         message: [],
         finished: [],
@@ -493,8 +495,8 @@ describe('Orchestrator agent path', () => {
         received.conversation_lost.push(event);
       });
       const subscribeToInternalEvent = () => {
-        // @ts-expect-error accepted is consumed internally and cannot be subscribed to
-        orchestrator.agent.on('accepted', () => {});
+        // @ts-expect-error started is consumed internally and cannot be subscribed to
+        orchestrator.agent.on('started', () => {});
       };
       void subscribeToInternalEvent;
 
@@ -571,6 +573,166 @@ describe('Orchestrator agent path', () => {
     }
   });
 
+  describe('surfaced accepted and ui_change events', () => {
+    it('emits accepted with the inputId, runId and disposition, and a null runId for noise', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const accepted: AgentConversationEvents['accepted'][] = [];
+        orchestrator.agent.on('accepted', (event) => accepted.push(event));
+
+        agent.emit({
+          type: 'accepted',
+          version: AGENT_WIRE_VERSION,
+          inputId: MessageId('input-agent'),
+          runId: RunId('run-1'),
+          disposition: 'agent',
+          ack: 'on it',
+        });
+        agent.emit({
+          type: 'accepted',
+          version: AGENT_WIRE_VERSION,
+          inputId: MessageId('input-noise'),
+          runId: null,
+          disposition: 'noise',
+          ack: '',
+        });
+
+        expect(accepted).toEqual([
+          {
+            inputId: MessageId('input-agent'),
+            runId: RunId('run-1'),
+            disposition: 'agent',
+          },
+          {
+            inputId: MessageId('input-noise'),
+            runId: null,
+            disposition: 'noise',
+          },
+        ]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits ui_change once after the change is applied, with the outcomes its ui_applied carries', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        orchestrator.commandProcessor.registerRunner(newBoard, {
+          step: () => Promise.resolve<ActionResult>(ok(undefined)),
+          fail: () =>
+            Promise.resolve<ActionResult>(err(new Error('step failed'))),
+        });
+        const changes: AgentConversationEvents['ui_change'][] = [];
+        const instanceVisibleAtEvent: boolean[] = [];
+        orchestrator.agent.on('ui_change', (event) => {
+          changes.push(event);
+          instanceVisibleAtEvent.push(
+            orchestrator.commandProcessor.store.state.instances.has(newBoard),
+          );
+        });
+
+        agent.emit(
+          uiChange(
+            'change-surfaced',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [step(newBoard, 'step'), step(newBoard, 'fail')],
+          ),
+        );
+        await waitUntil(
+          () => changes.length > 0 && uiAppliedInputs(agent).length > 0,
+        );
+        await settleBriefly();
+
+        const [acknowledgement] = uiAppliedInputs(agent);
+        expect(changes).toHaveLength(1);
+        expect(changes[0]).toEqual({
+          runId: RunId('run-1'),
+          changeId: ChangeId('change-surfaced'),
+          actionOutcomes: acknowledgement?.actionOutcomes ?? [],
+        });
+        expect(acknowledgement?.changeId).toBe(ChangeId('change-surfaced'));
+        expect(acknowledgement?.actionOutcomes).toHaveLength(2);
+        expect(instanceVisibleAtEvent).toEqual([true]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits ui_change for a change whose run already finished', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const changes: AgentConversationEvents['ui_change'][] = [];
+        orchestrator.agent.on('ui_change', (event) => changes.push(event));
+        const inputId = await orchestrator.sendMessage('show the board');
+        agent.emit({
+          type: 'accepted',
+          version: AGENT_WIRE_VERSION,
+          inputId,
+          runId: RunId('run-1'),
+          disposition: 'agent',
+          ack: 'on it',
+        });
+        agent.emit(finishedEvent());
+
+        agent.emit(
+          uiChange(
+            'change-after-finished',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [],
+          ),
+        );
+        await waitUntil(
+          () => changes.length > 0 && uiAppliedInputs(agent).length > 0,
+        );
+
+        expect(changes).toEqual([
+          {
+            runId: RunId('run-1'),
+            changeId: ChangeId('change-after-finished'),
+            actionOutcomes: [],
+          },
+        ]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('still sends ui_applied when a ui_change listener throws', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const consoleError = spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        let throwingListenerCalls = 0;
+        orchestrator.agent.on('ui_change', () => {
+          throwingListenerCalls++;
+          throw new Error('listener failed');
+        });
+
+        agent.emit(
+          uiChange(
+            'change-throwing-listener',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [],
+          ),
+        );
+        await waitUntil(
+          () => throwingListenerCalls > 0 && uiAppliedInputs(agent).length > 0,
+        );
+
+        expect(throwingListenerCalls).toBe(1);
+        expect(uiAppliedInputs(agent).map((input) => input.changeId)).toEqual([
+          ChangeId('change-throwing-listener'),
+        ]);
+      } finally {
+        consoleError.mockRestore();
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('conversation lost on transport close', () => {
     it('emits one disconnected loss for an unclean close after an utterance, then resets', async () => {
       const agent = createMockAgentConnector();
@@ -614,7 +776,9 @@ describe('Orchestrator agent path', () => {
     });
 
     it('applies a change still running at an unclean close but sends no ui_applied into the reconnected session', async () => {
-      const agent = createMockAgentConnector();
+      const agent = createMockAgentConnector({
+        connect: mock(() => Promise.resolve()),
+      });
       const orchestrator = await connectedOrchestrator(agent.connector, {
         connection: { initialDelayMs: 1 },
       });

@@ -1,12 +1,48 @@
 import type {
+  AgentActionOutcome,
+  AgentDisposition,
   AgentErrorEvent,
   AgentFinishedEvent,
   AgentInputSource,
   AgentMessageEvent,
   AgentPlaceholderEvent,
+  ChangeId,
   MessageId,
   RunId,
 } from '@maelstrom-co/protocol';
+
+/**
+ * Emitted when the agent accepts an input. It is the only link from the
+ * `inputId` that `sendMessage` resolved to the Agent Run that handles it.
+ */
+export type InputAcceptedEvent = {
+  /** The input the agent accepted, as resolved by `sendMessage`. */
+  inputId: MessageId;
+  /**
+   * The Agent Run that handles the input, or `null` when the disposition is
+   * `noise` and no run starts.
+   */
+  runId: RunId | null;
+  /** How the agent decided to handle the input. */
+  disposition: AgentDisposition;
+};
+
+/**
+ * Emitted once per agent UI change after the Orchestrator finished applying
+ * it. It is a notification only: the change is applied and acknowledged
+ * internally whatever its listeners do.
+ */
+export type UiChangeAppliedEvent = {
+  /** The Agent Run that caused the change, or `null` outside any run. */
+  runId: RunId | null;
+  /** The change the agent sent, as echoed in its acknowledgement. */
+  changeId: ChangeId;
+  /**
+   * Outcome of each Action in Execution Plan order, the same outcomes the
+   * acknowledgement carries.
+   */
+  actionOutcomes: AgentActionOutcome[];
+};
 
 /**
  * Why the Agent Session conversation can no longer continue.
@@ -86,6 +122,10 @@ export type StaleInputLostEvent = {
  * Subscribe through `orchestrator.agent.on(...)`.
  */
 export type AgentConversationEvents = {
+  /** Fires when the agent accepts an input, naming the run that handles it. */
+  accepted: InputAcceptedEvent;
+  /** Fires once for each UI change after the Orchestrator applied it. */
+  ui_change: UiChangeAppliedEvent;
   /** Fires when the agent sends a placeholder to show while it works. */
   placeholder: AgentPlaceholderEvent;
   /** Fires when the agent sends a conversational message for the user. */

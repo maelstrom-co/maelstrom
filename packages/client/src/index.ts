@@ -153,9 +153,11 @@ export type {
   ConversationEndedEvent,
   ConversationLostEvent,
   ConversationLostReason,
+  InputAcceptedEvent,
   StaleInputLostEvent,
   StaleRunLostEvent,
   SendMessageOptions,
+  UiChangeAppliedEvent,
 } from './lib/orchestrator/conversation-event.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {
