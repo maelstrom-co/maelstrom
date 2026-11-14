@@ -6,6 +6,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
 
+import { retainAgentEvents } from './agent-run-history.js';
 import {
   assertCaptureImportSize,
   projectCaptureEvents,
@@ -57,6 +58,8 @@ class Controller implements Devtools {
     droppedActivityEvents: 0,
     requestActivity: [],
     droppedRequestEvents: 0,
+    runActivity: [],
+    droppedRunEvents: 0,
     transportHistory: [],
     imported: null,
   };
@@ -258,6 +261,11 @@ class Controller implements Devtools {
           metadata,
           this.options.maxRequestEvents ?? 1000,
         );
+        const runs = retainAgentEvents(
+          this.snapshot.runActivity,
+          metadata,
+          this.options.maxRunEvents ?? 1000,
+        );
         let transportHistory = this.snapshot.transportHistory;
         if (
           event.kind === 'voice.transport' &&
@@ -285,6 +293,8 @@ class Controller implements Devtools {
           requestActivity: requests.events,
           droppedRequestEvents:
             this.snapshot.droppedRequestEvents + requests.dropped,
+          runActivity: runs.events,
+          droppedRunEvents: this.snapshot.droppedRunEvents + runs.dropped,
           transportHistory,
           droppedActivityEvents:
             this.snapshot.droppedActivityEvents +
@@ -416,6 +426,8 @@ class Controller implements Devtools {
       droppedActivityEvents: 0,
       requestActivity: [],
       droppedRequestEvents: 0,
+      runActivity: [],
+      droppedRunEvents: 0,
       transportHistory: [],
       imported: null,
     });
@@ -516,6 +528,7 @@ export function createDevtoolsCollector(options: DevtoolsOptions): Devtools {
   for (const [name, value] of Object.entries({
     maxActivityEvents: options.maxActivityEvents ?? 100,
     maxRequestEvents: options.maxRequestEvents ?? 1000,
+    maxRunEvents: options.maxRunEvents ?? 1000,
     maxSessions: options.maxSessions ?? 16,
   }))
     if (!Number.isInteger(value) || value < 1)

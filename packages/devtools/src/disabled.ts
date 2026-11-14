@@ -66,6 +66,8 @@ export function createDevtools(_options: DevtoolsOptions = {}): Devtools {
       droppedActivityEvents: 0,
       requestActivity: [],
       droppedRequestEvents: 0,
+      runActivity: [],
+      droppedRunEvents: 0,
       transportHistory: [],
       imported: null,
     }),
