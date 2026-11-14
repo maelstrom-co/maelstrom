@@ -10,9 +10,9 @@ import { createMockConnector } from './connector-mocks.js';
 export interface MockAgentConnector {
   /** The connector to pass to an Orchestrator. */
   connector: EngineConnector;
-  /** Every input passed to `sendAgentInput`, in call order. */
+  /** Every input passed to `sendInput`, in call order. */
   inputs: AgentInput[];
-  /** Delivers a scripted event to every `onAgentEvent` handler. */
+  /** Delivers a scripted event to every `onEvent` handler. */
   emit(event: AgentEvent): void;
   /** Fires a `disconnected` connector event to every `subscribe` handler. */
   close(options: { clean: boolean }): void;
@@ -32,12 +32,12 @@ export function createMockAgentConnector(): MockAgentConnector {
   const connectorHandlers = new Set<(event: ConnectorEvent) => void>();
 
   const connector = createMockConnector({
-    sendAgentInput: (input: AgentInput) => {
+    sendInput: (input: AgentInput) => {
       inputs.push(input);
       for (const waiter of [...inputWaiters]) waiter(input);
       return Promise.resolve();
     },
-    onAgentEvent: (handler: (event: AgentEvent) => void): Unsubscribe => {
+    onEvent: (handler: (event: AgentEvent) => void): Unsubscribe => {
       agentHandlers.add(handler);
       return () => {
         agentHandlers.delete(handler);

@@ -98,7 +98,7 @@ export class AgentConversation {
     this.#startNewSession();
     const connector = this.#dependencies.currentConnector();
     const isFenced = this.#dependencies.captureFence('Agent event');
-    const releaseAgentEvents = connector.onAgentEvent((event) => {
+    const releaseAgentEvents = connector.onEvent((event) => {
       if (this.#attachment?.connector !== connector) return;
       if (isFenced(`${event.type} dropped`)) return;
       this.#conversationExists = true;
@@ -149,7 +149,7 @@ export class AgentConversation {
     const sessionGeneration = this.#sessionGeneration;
     this.#pendingUtterances++;
     try {
-      await attachment.connector.sendAgentInput({
+      await attachment.connector.sendInput({
         type: 'utterance',
         version: AGENT_WIRE_VERSION,
         inputId,
@@ -291,7 +291,7 @@ export class AgentConversation {
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
     try {
-      await connector.sendAgentInput(acknowledgement);
+      await connector.sendInput(acknowledgement);
     } catch (error) {
       this.#dependencies.logger.warn(
         `Agent conversation: ui_applied for ${event.changeId} was not sent`,

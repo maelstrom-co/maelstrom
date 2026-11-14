@@ -31,8 +31,8 @@ function uiApplied(changeId: string): AgentInput {
 describe('createMockAgentConnector', () => {
   test('records every sent input in order', async () => {
     const mock = createMockAgentConnector();
-    await mock.connector.sendAgentInput(uiApplied('a'));
-    await mock.connector.sendAgentInput(uiApplied('b'));
+    await mock.connector.sendInput(uiApplied('a'));
+    await mock.connector.sendInput(uiApplied('b'));
     expect(mock.inputs.map((input) => input.type)).toEqual([
       'ui_applied',
       'ui_applied',
@@ -42,9 +42,7 @@ describe('createMockAgentConnector', () => {
   test('emit reaches handlers until they unsubscribe', () => {
     const mock = createMockAgentConnector();
     const received: AgentEvent[] = [];
-    const unsubscribe = mock.connector.onAgentEvent((event) =>
-      received.push(event),
-    );
+    const unsubscribe = mock.connector.onEvent((event) => received.push(event));
     mock.emit(placeholder);
     unsubscribe();
     mock.emit(placeholder);
@@ -62,13 +60,13 @@ describe('createMockAgentConnector', () => {
 
   test('nextInput resolves only on a future input of the matching type', async () => {
     const mock = createMockAgentConnector();
-    await mock.connector.sendAgentInput(uiApplied('old'));
+    await mock.connector.sendInput(uiApplied('old'));
     const pending = mock.nextInput('utterance');
     let settled = false;
     void pending.then(() => {
       settled = true;
     });
-    await mock.connector.sendAgentInput(uiApplied('new'));
+    await mock.connector.sendInput(uiApplied('new'));
     await Promise.resolve();
     expect(settled).toBe(false);
 
@@ -80,7 +78,7 @@ describe('createMockAgentConnector', () => {
       chart: { width: 1, height: 1, instances: [] } as never,
       source: 'text',
     };
-    await mock.connector.sendAgentInput(utterance);
+    await mock.connector.sendInput(utterance);
     expect(await pending).toBe(utterance);
   });
 });

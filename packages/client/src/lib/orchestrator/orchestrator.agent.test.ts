@@ -1050,10 +1050,10 @@ function uiAppliedInputs(agent: MockAgentConnector): AgentUiAppliedInput[] {
 }
 
 function holdNextSend(connector: EngineConnector): { release(): void } {
-  const send = connector.sendAgentInput.bind(connector);
+  const send = connector.sendInput.bind(connector);
   const held = Promise.withResolvers<void>();
   let holding = true;
-  connector.sendAgentInput = async (input) => {
+  connector.sendInput = async (input) => {
     if (!holding) return send(input);
     holding = false;
     await held.promise;
