@@ -93,13 +93,18 @@ export interface PlannerShowQueueOptions {
 /**
  * Loop-driven shows of one connection, planned one at a time in arrival
  * order. A show holds the queue from planning until the browser acknowledges
- * its change, and each show plans on the latest acknowledged Chart. Nothing
- * here blocks the agent loop.
+ * its change, and each show plans on the latest acknowledged Chart. A show in
+ * planning restarts when an utterance brings a Chart that changes its request.
+ * Nothing here blocks the agent loop.
  */
 export interface PlannerShowQueue {
   /** Queues a show and starts it at once when nothing is planning or awaiting acknowledgement. */
   request(show: LoopDrivenShow): void;
-  /** Takes an utterance's Chart as the latest unless a change awaits acknowledgement. */
+  /**
+   * Takes an utterance's Chart as the latest unless a change awaits
+   * acknowledgement. A show in planning whose request the Chart changes is
+   * planned again on it.
+   */
   noteChart(chart: ChartRequest): void;
   /**
    * Settles the change awaiting acknowledgement. An unknown `changeId` or a
@@ -247,6 +252,19 @@ export function createPlannerShowQueue({
     noteChart(next) {
       if (closed || state.phase === 'awaiting_ack') return;
       chart = next;
+      if (state.phase !== 'planning') return;
+      const { job } = state;
+      const request = buildShowRequest(
+        next,
+        job.show.intent,
+        job.show.intentFacts,
+      );
+      if (isStructurallyEqual(request, job.request)) return;
+      // The show in planning was built on a Chart this one supersedes: plan it again.
+      job.controller.abort();
+      queue.unshift(job.show);
+      state = { phase: 'idle' };
+      pump();
     },
     acknowledge(input) {
       if (closed) return;

@@ -270,24 +270,94 @@ describe('createPlannerShowQueue', () => {
     );
   });
 
-  test('takes a Chart noted while a show is planning or after the slot is free', async () => {
+  test('plans a show in planning again on a newer Chart that changes its request, with fresh ids', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
-    harness.queue.noteChart(weekChart);
-    harness.queue.request(show(2));
-    harness.planner.respond(0, nothingToShow(monthChart));
-    await harness.planner.nextCall();
+    const first = harness.planner.input(0);
 
-    expect(harness.planner.input(1).request.instances).toEqual(
+    harness.queue.noteChart(weekChart);
+
+    expect(first.signal.aborted).toBe(true);
+    expect(harness.planner.calls).toHaveLength(2);
+    const replanned = harness.planner.input(1);
+    expect(replanned.runId).toBe(show(1).runId);
+    expect(replanned.turnId).toBe(show(1).turnId);
+    expect(replanned.request).toEqual(
+      buildShowRequest(weekChart, show(1).intent, show(1).intentFacts),
+    );
+    expect(replanned.messageId).not.toBe(first.messageId);
+    expect(replanned.signal.aborted).toBe(false);
+
+    harness.planner.respond(0, changeResponse(monthChart));
+    await flushMicrotasks();
+    expect(harness.received).toEqual([]);
+
+    harness.planner.respond(1, changeResponse(weekChart));
+    await flushMicrotasks();
+    const changes = harness.received.filter(
+      (event) => event.type === 'ui_change',
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.runId).toBe(show(1).runId);
+    expect(harness.observed[0]?.metadata).toMatchObject({
+      changeId: changes[0]?.changeId,
+    });
+    expect(harness.warnings()).toEqual([]);
+    expect(harness.notes).toEqual([]);
+  });
+
+  test('keeps planning when the Chart noted during planning leaves the request unchanged', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    const { signal } = harness.planner.input(0);
+
+    harness.queue.noteChart(structuredClone(monthChart));
+    harness.queue.noteChart({
+      ...structuredClone(monthChart),
+      context: {
+        ...monthChart.context,
+        updateReasons: [{ type: 'user_intent', intent: 'Something else' }],
+      },
+    });
+
+    expect(signal.aborted).toBe(false);
+    expect(harness.planner.calls).toHaveLength(1);
+    harness.planner.respond(0, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+    expect(change.runId).toBe(show(1).runId);
+  });
+
+  test('keeps queue order when a show in planning is planned again', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+
+    harness.queue.noteChart(weekChart);
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(1).runId);
+    harness.planner.respond(1, nothingToShow(weekChart));
+    await harness.planner.nextCall();
+    expect(harness.planner.input(2).runId).toBe(show(2).runId);
+    expect(harness.planner.input(2).request.instances).toEqual(
       weekChart.instances,
     );
+  });
 
-    harness.planner.respond(1, nothingToShow(weekChart));
+  test('takes a Chart noted after the slot is free', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.planner.respond(0, nothingToShow(monthChart));
     await flushMicrotasks();
+
     harness.queue.noteChart(dayChart);
-    harness.queue.request(show(3));
-    expect(harness.planner.input(2).request.instances).toEqual(
+    harness.queue.request(show(2));
+
+    expect(harness.planner.input(1).request.instances).toEqual(
       dayChart.instances,
     );
   });
