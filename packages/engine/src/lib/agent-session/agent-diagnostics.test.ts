@@ -114,6 +114,44 @@ describe('session-level input diagnostics', () => {
     session.connection.close();
     await Promise.all(sends);
   });
+
+  test('on a UI-only connection an invalid input yields exactly one input.rejected and no ui_applied.rejected', async () => {
+    const session = openUiOnlySession();
+
+    await session.connection.send({ type: 'not_an_input' });
+
+    expect(
+      sessionEventsOfKind(
+        session.diagnostics,
+        'engine.agent.input.rejected',
+      ).map((event) => event.metadata),
+    ).toEqual([{ code: 'invalid_input' }]);
+    expect(
+      sessionEventsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_applied.rejected',
+      ),
+    ).toHaveLength(0);
+    session.connection.close();
+  });
+
+  test('on a UI-only connection a repeated input id yields one input.ignored', async () => {
+    const session = openUiOnlySession();
+
+    await session.connection.send(utterance('input-1', 'hello'));
+    await session.connection.send(utterance('input-1', 'hello'));
+
+    const ignored = sessionEventsOfKind(
+      session.diagnostics,
+      'engine.agent.input.ignored',
+    );
+    expect(ignored).toHaveLength(1);
+    expect(ignored[0]?.metadata).toEqual({
+      inputId: 'input-1',
+      reason: 'duplicate_input',
+    });
+    session.connection.close();
+  });
 });
 
 describe('session-level acknowledgement diagnostics', () => {

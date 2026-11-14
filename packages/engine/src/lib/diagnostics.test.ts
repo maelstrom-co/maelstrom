@@ -658,6 +658,43 @@ test('a diagnostic connection forwards session-owned and run-owned events of its
   connection.dispose();
 });
 
+test('two diagnostic connections of one session both forward a session-owned event', async () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const { engine } = heldEngine(emitter);
+  const firstFrames: string[] = [];
+  const secondFrames: string[] = [];
+  const first = createDiagnosticConnection(engine, {
+    enabled: true,
+    sessionId: SessionId('authorized'),
+    send: (frame) => firstFrames.push(frame),
+  });
+  const second = createDiagnosticConnection(engine, {
+    enabled: true,
+    sessionId: SessionId('authorized'),
+    send: (frame) => secondFrames.push(frame),
+  });
+  await first.handle(subscription('authorized'));
+  await second.handle(subscription('authorized'));
+  emitter.emit(
+    SessionId('authorized'),
+    SESSION_DIAGNOSTIC_OWNER,
+    'engine.agent.input.ignored',
+    { inputId: 'input-1', reason: 'duplicate_input' },
+  );
+  for (const frames of [firstFrames, secondFrames]) {
+    const events = forwardedEvents(frames);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      sessionId: 'authorized',
+      kind: 'engine.agent.input.ignored',
+    });
+    expect(events[0]).not.toHaveProperty('runId');
+    expect(events[0]).not.toHaveProperty('requestId');
+  }
+  first.dispose();
+  second.dispose();
+});
+
 test('run-owned and session-owned events skip request ambiguity and the in-flight request cap', async () => {
   const emitter = new EngineDiagnosticEmitter();
   const { engine, release } = heldEngine(emitter);
