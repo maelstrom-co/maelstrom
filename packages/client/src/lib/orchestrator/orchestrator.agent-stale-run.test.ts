@@ -87,7 +87,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
 
       await clock.tickAsync(justUnderWindowMs);
       expect(losses).toEqual([]);
@@ -106,7 +106,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
 
       await clock.tickAsync(justUnderWindowMs);
       agent.emit(placeholderEvent(inputId));
@@ -127,7 +127,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
 
       const steadyEvents = [
         acceptedEvent(inputId, runA),
@@ -155,7 +155,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
 
       await clock.tickAsync(100_000);
       agent.emit(acceptedEvent(inputId, runA));
@@ -178,7 +178,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const losses = recordConversationLosses(orchestrator);
       const messages: AgentConversationEvents['message'][] = [];
       orchestrator.agent.on('message', (event) => messages.push(event));
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
       agent.emit(acceptedEvent(inputId, runA));
       await clock.tickAsync(defaultStaleWindowMs);
       expect(losses).toHaveLength(1);
@@ -199,7 +199,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('um');
+      const inputId = await orchestrator.sendMessage('um');
 
       agent.emit(acceptedEvent(inputId, null));
       await clock.tickAsync(farPastWindowMs);
@@ -215,7 +215,7 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
 
       agent.emit(errorEvent(inputId));
       await clock.tickAsync(farPastWindowMs);
@@ -241,7 +241,7 @@ describe('Orchestrator agent stale run safety net', () => {
           return ok(undefined);
         },
       });
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
       agent.emit(acceptedEvent(inputId, runA));
       agent.emit(startedEvent(runA));
 
@@ -270,10 +270,10 @@ describe('Orchestrator agent stale run safety net', () => {
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
-      const inputA = await orchestrator.sendUtterance('first');
+      const inputA = await orchestrator.sendMessage('first');
       agent.emit(acceptedEvent(inputA, runA));
       agent.emit(startedEvent(runA));
-      const inputB = await orchestrator.sendUtterance('second');
+      const inputB = await orchestrator.sendMessage('second');
       agent.emit(acceptedEvent(inputB, runB));
 
       for (const delta of ['one', 'two', 'three']) {
@@ -311,10 +311,10 @@ describe('Orchestrator agent stale run safety net', () => {
           return ok(undefined);
         },
       });
-      const inputA = await orchestrator.sendUtterance('first');
+      const inputA = await orchestrator.sendMessage('first');
       agent.emit(acceptedEvent(inputA, runA));
       agent.emit(startedEvent(runA));
-      const inputB = await orchestrator.sendUtterance('second');
+      const inputB = await orchestrator.sendMessage('second');
       agent.emit(acceptedEvent(inputB, runB));
 
       const applied = agent.nextInput('ui_applied');
@@ -351,10 +351,10 @@ describe('Orchestrator agent stale run safety net', () => {
           return ok(undefined);
         },
       });
-      const inputA = await orchestrator.sendUtterance('first');
+      const inputA = await orchestrator.sendMessage('first');
       agent.emit(acceptedEvent(inputA, runA));
       agent.emit(startedEvent(runA));
-      const inputB = await orchestrator.sendUtterance('second');
+      const inputB = await orchestrator.sendMessage('second');
       agent.emit(acceptedEvent(inputB, runB));
 
       const applied = agent.nextInput('ui_applied');
@@ -396,10 +396,10 @@ describe('Orchestrator agent stale run safety net', () => {
             return ok(undefined);
           },
         });
-        const inputA = await orchestrator.sendUtterance('first');
+        const inputA = await orchestrator.sendMessage('first');
         agent.emit(acceptedEvent(inputA, runA));
         agent.emit(startedEvent(runA));
-        const inputB = await orchestrator.sendUtterance('second');
+        const inputB = await orchestrator.sendMessage('second');
         agent.emit(acceptedEvent(inputB, runB));
         agent.emit(finishedEvent(runA));
 
@@ -438,7 +438,7 @@ describe('Orchestrator agent stale run safety net', () => {
             return ok(undefined);
           },
         });
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
 
         const applied = agent.nextInput('ui_applied');
         agent.emit(uiChangeEvent(null, 'change-unowned', [step(mainBoard)]));
@@ -469,7 +469,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        await orchestrator.sendUtterance('show the board');
+        await orchestrator.sendMessage('show the board');
         agent.emit(startedEvent(runA));
         await clock.tickAsync(1000);
         agent.emit(finishedEvent(runA));
@@ -489,7 +489,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        await orchestrator.sendUtterance('show the board');
+        await orchestrator.sendMessage('show the board');
 
         await clock.tickAsync(farPastWindowMs);
 
@@ -503,16 +503,16 @@ describe('Orchestrator agent stale run safety net', () => {
 
   it('leaves no timer for an utterance whose send rejects', async () => {
     const agent = createMockAgentConnector();
-    agent.connector.sendAgentInput = () =>
+    agent.connector.sendInput = () =>
       Promise.reject(new Error('transport refused the frame'));
     const orchestrator = await connectedOrchestrator(agent.connector);
     try {
       const losses = recordConversationLosses(orchestrator);
 
       const timersBefore = clock.countTimers();
-      await expect(
-        orchestrator.sendUtterance('show the board'),
-      ).rejects.toThrow('transport refused the frame');
+      await expect(orchestrator.sendMessage('show the board')).rejects.toThrow(
+        'transport refused the frame',
+      );
 
       expect(clock.countTimers()).toBe(timersBefore);
       await clock.tickAsync(farPastWindowMs);
@@ -539,10 +539,10 @@ describe('Orchestrator agent stale run safety net', () => {
           return ok(undefined);
         },
       });
-      const inputA = await orchestrator.sendUtterance('first');
+      const inputA = await orchestrator.sendMessage('first');
       agent.emit(acceptedEvent(inputA, runA));
       agent.emit(startedEvent(runA));
-      const inputB = await orchestrator.sendUtterance('second');
+      const inputB = await orchestrator.sendMessage('second');
       agent.emit(acceptedEvent(inputB, runB));
       agent.emit(startedEvent(runB));
 
@@ -568,7 +568,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(inputId, runA));
         agent.emit(startedEvent(runA));
         agent.emit(finishedEvent(runA));
@@ -600,7 +600,7 @@ describe('Orchestrator agent stale run safety net', () => {
             return ok(undefined);
           },
         });
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(inputId, runA));
         agent.emit(startedEvent(runA));
 
@@ -627,10 +627,10 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const first = await orchestrator.sendUtterance('show the board');
+        const first = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(first, runA));
         agent.emit(startedEvent(runA));
-        const amend = await orchestrator.sendUtterance('make it bigger');
+        const amend = await orchestrator.sendMessage('make it bigger');
         agent.emit(acceptedEvent(amend, runA, 'amend'));
         agent.emit(finishedEvent(runA));
 
@@ -645,10 +645,10 @@ describe('Orchestrator agent stale run safety net', () => {
     it('leaves no live timer after dispose', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const first = await orchestrator.sendUtterance('show the board');
+      const first = await orchestrator.sendMessage('show the board');
       agent.emit(acceptedEvent(first, runA));
       agent.emit(startedEvent(runA));
-      const amend = await orchestrator.sendUtterance('make it bigger');
+      const amend = await orchestrator.sendMessage('make it bigger');
       agent.emit(acceptedEvent(amend, runA, 'amend'));
 
       await orchestrator.dispose();
@@ -664,7 +664,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(inputId, runA));
         agent.emit(finishedEvent(runA));
 
@@ -679,9 +679,9 @@ describe('Orchestrator agent stale run safety net', () => {
     it('after dispose', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
-      const inputId = await orchestrator.sendUtterance('show the board');
+      const inputId = await orchestrator.sendMessage('show the board');
       agent.emit(acceptedEvent(inputId, runA));
-      await orchestrator.sendUtterance('and another');
+      await orchestrator.sendMessage('and another');
 
       await orchestrator.dispose();
 
@@ -695,9 +695,9 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(oldAgent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         oldAgent.emit(acceptedEvent(inputId, runA));
-        await orchestrator.sendUtterance('and another');
+        await orchestrator.sendMessage('and another');
 
         orchestrator.setConnector(newAgent.connector);
         await clock.tickAsync(farPastWindowMs);
@@ -717,7 +717,7 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         setTimeout(() => {
           agent.close({ clean: false });
         }, defaultStaleWindowMs);
@@ -737,9 +737,9 @@ describe('Orchestrator agent stale run safety net', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(inputId, runA));
-        await orchestrator.sendUtterance('and another');
+        await orchestrator.sendMessage('and another');
 
         await clock.tickAsync(justUnderWindowMs);
         agent.close({ clean: false });
@@ -762,8 +762,8 @@ describe('Orchestrator agent stale run safety net', () => {
       });
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
-        await orchestrator.sendUtterance('and another');
+        const inputId = await orchestrator.sendMessage('show the board');
+        await orchestrator.sendMessage('and another');
         agent.emit(acceptedEvent(inputId, runA));
 
         await clock.tickAsync(farPastWindowMs);
@@ -781,7 +781,7 @@ describe('Orchestrator agent stale run safety net', () => {
       });
       try {
         const losses = recordConversationLosses(orchestrator);
-        const inputId = await orchestrator.sendUtterance('show the board');
+        const inputId = await orchestrator.sendMessage('show the board');
 
         await clock.tickAsync(shortStaleWindowMs - 1);
         expect(losses).toEqual([]);
@@ -814,8 +814,8 @@ function replyBeforeSendResolves(
   agent: MockAgentConnector,
   reply: (inputId: MessageId) => AgentEvent,
 ): void {
-  const send = agent.connector.sendAgentInput.bind(agent.connector);
-  agent.connector.sendAgentInput = async (input) => {
+  const send = agent.connector.sendInput.bind(agent.connector);
+  agent.connector.sendInput = async (input) => {
     if (input.type === 'utterance') agent.emit(reply(input.inputId));
     await send(input);
   };

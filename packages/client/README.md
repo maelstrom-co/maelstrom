@@ -85,7 +85,7 @@ const offLost = orchestrator.agent.on('conversation_lost', (event) => {
 
 Each `on` call returns an unsubscribe function. On each `ui_change` the Orchestrator applies the layout, runs the actions, then reports the result to the engine. The agent session ends with the socket, so `conversation_lost` fires on every disconnect after agent activity. An `error` event reports a failure outside any Agent Run, such as an admission rejection, and carries the `inputId` when the failure relates to an input.
 
-`agentRunStaleTimeoutMs` (default 150000, `Infinity` disables) is a rolling silence window for each pending utterance and each Agent Run. Any event for it restarts the window. If the window runs out before `finished`, `conversation_lost` fires with reason `stale_run`, so the UI can stop waiting on a run that looks stale. This does not prove the server failed. Late events for that run can still arrive and are delivered.
+`agentRunStaleTimeoutMs` (default 150000, `Infinity` disables) is a rolling silence window for each pending message and each Agent Run. Any event for it restarts the window. If the window runs out before `finished`, `conversation_lost` fires with reason `stale_run`, so the UI can stop waiting on a run that looks stale. This does not prove the server failed. Late events for that run can still arrive and are delivered.
 
 `HttpConnector` cannot carry the agent conversation. `sendMessage` rejects with `AgentWireUnsupportedError` there, so use `WebSocketConnector`.
 
