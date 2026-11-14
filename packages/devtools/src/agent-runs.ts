@@ -142,10 +142,10 @@ export function agentRunLinks(
     if (!run) continue;
     if (event.kind === 'engine.agent.input.accepted') {
       const inputId = identity(event.metadata.inputId);
-      if (inputId) inputs.set(JSON.stringify([run.clientId, inputId]), run);
+      if (inputId) inputs.set(linkKey(run.clientId, inputId), run);
     } else if (event.kind === 'engine.agent.ui_change.emitted') {
       const changeId = identity(event.metadata.changeId);
-      if (changeId) changes.set(JSON.stringify([run.clientId, changeId]), run);
+      if (changeId) changes.set(linkKey(run.clientId, changeId), run);
     }
   }
   return {
@@ -158,7 +158,7 @@ export function agentRunLinks(
       const id = identity(event.metadata[lookup.idKey]);
       if (!id) return;
       return (lookup.idKey === 'inputId' ? inputs : changes).get(
-        JSON.stringify([event.clientId, id]),
+        linkKey(event.clientId, id),
       );
     },
   };
@@ -221,10 +221,14 @@ function ownRun(event: AgentRunLinkSubject): AgentRunLink | undefined {
   if (!event.clientId || !event.runId) return;
   if (identityAvailability(event.requestId) !== 'not-reported') return;
   return {
-    key: JSON.stringify([event.clientId, event.runId]),
+    key: linkKey(event.clientId, event.runId),
     clientId: event.clientId,
     runId: event.runId,
   };
+}
+
+function linkKey(clientId: string, id: string): string {
+  return JSON.stringify([clientId, id]);
 }
 
 function linkedLookup(
