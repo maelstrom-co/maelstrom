@@ -180,10 +180,11 @@ test('each run.finished reason maps to its status and an unfinished run is queue
 });
 
 test('run.finished fallbacks fill duration, keep an unknown reason finished and reject invalid counters', () => {
-  const { reason: _reason, durationMs: _durationMs, ...metrics } = finished(
-    'completed',
-    'succeeded',
-  );
+  const {
+    reason: _reason,
+    durationMs: _durationMs,
+    ...metrics
+  } = finished('completed', 'succeeded');
   const cases: {
     name: string;
     metadata: Record<string, unknown>;
