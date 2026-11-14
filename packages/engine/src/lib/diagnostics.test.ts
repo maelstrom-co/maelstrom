@@ -5,6 +5,7 @@ import {
   type DiagnosticEvent,
   MessageId,
   ok,
+  RunId,
   SessionId,
 } from '@maelstrom-co/protocol';
 
@@ -18,6 +19,7 @@ import {
   createDiagnosticConnection,
   type DiagnosticConnectionOptions,
   EngineDiagnosticEmitter,
+  SESSION_DIAGNOSTIC_OWNER,
 } from './diagnostics.js';
 import type { Engine } from './engine.js';
 import { createEngine } from './engine.js';
@@ -552,3 +554,217 @@ test.each([
     }
   },
 );
+
+const runOwner = { runId: RunId('run-1'), inputId: MessageId('input-1') };
+
+function heldEngine(emitter: EngineDiagnosticEmitter) {
+  const work = Promise.withResolvers<void>();
+  const engine: Engine = {
+    openConnection: () => {
+      throw new Error('unexpected streaming connection');
+    },
+    handle: async (message) => {
+      await work.promise;
+      return ok({
+        type: 'assistant_message_result',
+        sessionId: message.sessionId,
+        id: message.id,
+        outcome: 'inserted',
+      });
+    },
+    getHistory: async () => ok([]),
+    observeDiagnostics: (listener) => emitter.subscribe(listener),
+  };
+  return { engine, release: () => work.resolve() };
+}
+
+function forwardedEvents(frames: readonly string[]): DiagnosticEvent[] {
+  return frames.map(
+    (frame) => (JSON.parse(frame) as { event: DiagnosticEvent }).event,
+  );
+}
+
+test('a session-owned event reaches Engine observers with neither a request id nor a run id and its metadata unchanged', () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const observations: DiagnosticEvent[] = [];
+  emitter.subscribe((event) => observations.push(event));
+  emitter.emit(
+    SessionId('authorized'),
+    SESSION_DIAGNOSTIC_OWNER,
+    'engine.agent.input.ignored',
+    { inputId: 'input-1', reason: 'duplicate_input' },
+  );
+  expect(observations).toHaveLength(1);
+  const [event] = observations;
+  expect(event).not.toHaveProperty('requestId');
+  expect(event).not.toHaveProperty('runId');
+  expect(event).toMatchObject({
+    sessionId: 'authorized',
+    kind: 'engine.agent.input.ignored',
+  });
+  expect(event?.metadata).toEqual({
+    inputId: 'input-1',
+    reason: 'duplicate_input',
+  });
+});
+
+test('a diagnostic connection forwards session-owned and run-owned events of its own session only', async () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const { engine } = heldEngine(emitter);
+  const frames: string[] = [];
+  const connection = createDiagnosticConnection(engine, {
+    enabled: true,
+    sessionId: SessionId('authorized'),
+    send: (frame) => frames.push(frame),
+  });
+  await connection.handle(subscription('authorized'));
+  for (const sessionId of ['other', 'authorized']) {
+    emitter.emit(
+      SessionId(sessionId),
+      SESSION_DIAGNOSTIC_OWNER,
+      'engine.agent.input.ignored',
+      { inputId: 'input-1', reason: 'duplicate_input' },
+    );
+    emitter.emit(SessionId(sessionId), runOwner, 'engine.agent.run.finished', {
+      reason: 'completed',
+    });
+  }
+  expect(
+    forwardedEvents(frames).map((event) => [
+      event.sessionId,
+      event.kind,
+      event.runId,
+      event.requestId,
+    ]),
+  ).toEqual([
+    ['authorized', 'engine.agent.input.ignored', undefined, undefined],
+    ['authorized', 'engine.agent.run.finished', 'run-1', undefined],
+  ]);
+  connection.dispose();
+});
+
+test('run-owned and session-owned events skip request ambiguity and the in-flight request cap', async () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const { engine, release } = heldEngine(emitter);
+  const frames: string[] = [];
+  const connection = createDiagnosticConnection(engine, {
+    enabled: true,
+    sessionId: SessionId('authorized'),
+    send: (frame) => frames.push(frame),
+  });
+  const pending = Array.from({ length: 129 }, (_, index) =>
+    connection.handle(request(`request-${index}`)),
+  );
+  await connection.handle(subscription('authorized'));
+  const finishFirst = emitter.trackRequest(
+    SessionId('authorized'),
+    MessageId('request-0'),
+  );
+  const finishSecond = emitter.trackRequest(
+    SessionId('authorized'),
+    MessageId('request-0'),
+  );
+  const emitAll = () => {
+    emitter.emit(
+      SessionId('authorized'),
+      MessageId('request-0'),
+      'engine.planner.started',
+    );
+    emitter.emit(
+      SessionId('authorized'),
+      MessageId('request-128'),
+      'engine.planner.started',
+    );
+    emitter.emit(SessionId('authorized'), runOwner, 'engine.planner.started');
+    emitter.emit(
+      SessionId('authorized'),
+      SESSION_DIAGNOSTIC_OWNER,
+      'engine.agent.input.rejected',
+      { code: 'queue_full' },
+    );
+  };
+  emitAll();
+  expect(
+    forwardedEvents(frames).map((event) => event.runId ?? event.requestId),
+  ).toEqual(['run-1', undefined]);
+  expect(forwardedEvents(frames)[1]?.kind).toBe('engine.agent.input.rejected');
+  finishFirst();
+  finishSecond();
+  release();
+  await Promise.all(pending);
+  connection.dispose();
+});
+
+test('without a diagnostic listener run-owned and session-owned emits publish no event but still reach metadata observers', () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const kinds: string[] = [];
+  emitter.subscribeMetadata((kind) => {
+    kinds.push(kind);
+  });
+  const original = crypto.randomUUID;
+  crypto.randomUUID = () => {
+    throw new Error('Unexpected diagnostic envelope');
+  };
+  try {
+    expect(() => {
+      emitter.emit(
+        SessionId('authorized'),
+        SESSION_DIAGNOSTIC_OWNER,
+        'engine.agent.input.ignored',
+        { inputId: 'input-1', reason: 'duplicate_input' },
+        () => {
+          throw new Error('Unexpected content read');
+        },
+      );
+      emitter.emit(
+        SessionId('authorized'),
+        runOwner,
+        'engine.agent.run.finished',
+        { reason: 'completed' },
+      );
+    }).not.toThrow();
+  } finally {
+    crypto.randomUUID = original;
+  }
+  expect(kinds).toEqual([
+    'engine.agent.input.ignored',
+    'engine.agent.run.finished',
+  ]);
+});
+
+test('in production a diagnostic connection forwards no run-owned or session-owned event, even with an enabled subscription', async () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const { engine } = heldEngine(emitter);
+  const frames: string[] = [];
+  const observed: DiagnosticEvent[] = [];
+  emitter.subscribe((event) => observed.push(event));
+  const environment = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const connection = createDiagnosticConnection(engine, {
+      enabled: true,
+      sessionId: SessionId('authorized'),
+      send: (frame) => frames.push(frame),
+    });
+    await connection.handle(subscription('authorized', true, true));
+    emitter.emit(
+      SessionId('authorized'),
+      SESSION_DIAGNOSTIC_OWNER,
+      'engine.agent.input.ignored',
+      { inputId: 'input-1', reason: 'duplicate_input' },
+    );
+    emitter.emit(
+      SessionId('authorized'),
+      runOwner,
+      'engine.agent.run.finished',
+      {
+        reason: 'completed',
+      },
+    );
+    connection.dispose();
+  } finally {
+    process.env.NODE_ENV = environment;
+  }
+  expect(observed).toHaveLength(2);
+  expect(frames).toEqual([]);
+});

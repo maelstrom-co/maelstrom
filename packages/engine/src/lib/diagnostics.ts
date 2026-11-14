@@ -44,7 +44,21 @@ export interface RunOwner {
   readonly turnId?: string;
 }
 
-type DiagnosticOwner = MessageId | RunOwner;
+/** The owner of Agent Session events that belong to no Agent Run and no request. */
+export interface SessionDiagnosticOwner {
+  /** Marks the session arm of the owner union. */
+  readonly session: true;
+}
+
+/**
+ * Publishes an event with neither `requestId` nor `runId`. A diagnostic
+ * connection forwards it only to subscribers of the same session.
+ */
+export const SESSION_DIAGNOSTIC_OWNER: SessionDiagnosticOwner = Object.freeze({
+  session: true,
+});
+
+type DiagnosticOwner = MessageId | RunOwner | SessionDiagnosticOwner;
 
 export class EngineDiagnosticEmitter {
   private readonly listeners = new Set<EngineDiagnosticObserver>();
@@ -136,24 +150,17 @@ export class EngineDiagnosticEmitter {
         this.requests.get(sessionId)?.get(requestId)?.ambiguous)
     )
       return;
+    const { metadata: ownedMetadata, ...owner } = ownedFields(
+      requestId,
+      metadata,
+    );
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
       sessionId,
-      ...(typeof requestId === 'string'
-        ? { requestId }
-        : { runId: requestId.runId }),
+      ...owner,
       kind,
       at: Date.now(),
-      metadata:
-        typeof requestId === 'string'
-          ? metadata
-          : {
-              ...metadata,
-              inputId: requestId.inputId,
-              ...(requestId.turnId === undefined
-                ? {}
-                : { turnId: requestId.turnId }),
-            },
+      metadata: ownedMetadata,
     };
     for (const listener of this.listeners) {
       try {
@@ -283,8 +290,7 @@ export function createDiagnosticConnection(
       release = engine.observeDiagnostics?.((event, readContent) => {
         if (event.sessionId !== options.sessionId) return;
         const owned =
-          event.runId !== undefined ||
-          (event.requestId !== undefined && requests.has(event.requestId));
+          event.requestId === undefined || requests.has(event.requestId);
         if (event.kind === 'engine.request.finished' && event.requestId)
           requests.delete(event.requestId);
         if (!enabled || !owned) return;
@@ -352,6 +358,22 @@ export function createDiagnosticConnection(
         if (requestId && requests.get(requestId) === ownership)
           requests.delete(requestId);
       }
+    },
+  };
+}
+
+function ownedFields(
+  owner: DiagnosticOwner,
+  metadata: DiagnosticMetadata,
+): Pick<DiagnosticEvent, 'requestId' | 'runId' | 'metadata'> {
+  if (typeof owner === 'string') return { requestId: owner, metadata };
+  if (!('runId' in owner)) return { metadata };
+  return {
+    runId: owner.runId,
+    metadata: {
+      ...metadata,
+      inputId: owner.inputId,
+      ...(owner.turnId === undefined ? {} : { turnId: owner.turnId }),
     },
   };
 }
