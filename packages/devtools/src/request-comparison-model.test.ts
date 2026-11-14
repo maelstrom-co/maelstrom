@@ -243,3 +243,64 @@ test('comparison source stays complete with run-owned diagnostics and turns inco
     isComparisonSourceIncomplete(evidence(mixed, [unassigned!]), [a, b]),
   ).toBe(true);
 });
+
+test('session-level agent events do not make request comparison evidence incomplete', () => {
+  const cases: Array<{
+    name: string;
+    kind: string;
+    fields: Record<string, unknown>;
+    comparedKinds: string[];
+    incomplete: boolean;
+  }> = [
+    {
+      name: 'session-owned rejected input',
+      kind: 'engine.agent.input.rejected',
+      fields: {},
+      comparedKinds: [],
+      incomplete: false,
+    },
+    {
+      name: 'session-owned ui change of a compared kind',
+      kind: 'engine.agent.ui_change.emitted',
+      fields: {},
+      comparedKinds: ['engine.agent.ui_change.emitted'],
+      incomplete: false,
+    },
+    {
+      name: 'agent event with a redacted requestId',
+      kind: 'engine.agent.input.accepted',
+      fields: { requestId: '[REDACTED]' },
+      comparedKinds: [],
+      incomplete: true,
+    },
+    {
+      name: 'engine stage without owner',
+      kind: 'engine.stage.completed',
+      fields: {},
+      comparedKinds: [],
+      incomplete: true,
+    },
+    {
+      name: 'engine event that only resembles an agent kind',
+      kind: 'engine.agentic.started',
+      fields: {},
+      comparedKinds: [],
+      incomplete: true,
+    },
+  ];
+  for (const { name, kind, fields, comparedKinds, incomplete } of cases) {
+    const [event] = panelEvents([
+      {
+        id: name,
+        sessionId: 'session',
+        kind,
+        ...fields,
+        metadata: { clientId: 'app' },
+      },
+    ]);
+    expect({
+      name,
+      incomplete: isIncompleteSourceEvent(event!, new Set(comparedKinds)),
+    }).toEqual({ name, incomplete });
+  }
+});
