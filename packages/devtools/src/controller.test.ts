@@ -516,6 +516,10 @@ function setupWithDelivery(options: Parameters<typeof createDevtools>[0] = {}) {
     detach,
   );
   const deliver = (event: DiagnosticEvent) => {
+    if (serverListeners.size === 0)
+      throw new Error(
+        'deliver: the Orchestrator bridge never subscribed to server diagnostics',
+      );
     for (const listener of serverListeners) listener(event);
   };
   return { tools, client, deliver };
