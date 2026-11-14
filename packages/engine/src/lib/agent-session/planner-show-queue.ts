@@ -42,8 +42,8 @@ export interface ShowPlanInput {
   /** The model turn whose tool phase asked for the show. */
   readonly turnId: string;
   /**
-   * Aborted when the planning timeout passes or the run that asked for the
-   * show is dropped. Closing the queue leaves it untouched.
+   * Aborted when the planning timeout passes, the run that asked for the
+   * show is dropped, or the queue closes.
    */
   readonly signal: AbortSignal;
 }
@@ -147,9 +147,8 @@ export interface PlannerShowQueue {
    */
   dropRun(runId: RunId): void;
   /**
-   * Drops queued shows and cancels pending timers. A Planner call in flight is
-   * not aborted, and its outcome is discarded when it settles. Nothing reaches
-   * the wire or the transcript afterwards.
+   * Drops queued shows, aborts the show Planner call in flight and cancels
+   * pending timers. Nothing reaches the wire or the transcript afterwards.
    */
   close(): void;
 }
@@ -179,6 +178,11 @@ export function createPlannerShowQueue({
     state = { phase: 'idle' };
     pump();
     if (state.phase === 'idle') resolveIdleWaiters();
+  };
+
+  const abortPlanning = (job: ShowJob) => {
+    job.cancelPlanningTimeout();
+    job.controller.abort();
   };
 
   const noteFor = (show: LoopDrivenShow, text: string) =>
@@ -438,8 +442,7 @@ export function createPlannerShowQueue({
           ? state.job
           : undefined;
       if (planning !== undefined) {
-        planning.cancelPlanningTimeout();
-        planning.controller.abort();
+        abortPlanning(planning);
         state = { phase: 'idle' };
         noteFor(planning.show, describeShowCancelled(planning.show.toolNames));
       }
@@ -450,7 +453,7 @@ export function createPlannerShowQueue({
     close() {
       closed = true;
       queue.length = 0;
-      if (state.phase === 'planning') state.job.cancelPlanningTimeout();
+      if (state.phase === 'planning') abortPlanning(state.job);
       if (state.phase === 'awaiting_ack') state.cancelTimeout();
       state = { phase: 'idle' };
       resolveIdleWaiters();

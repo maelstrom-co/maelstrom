@@ -1200,7 +1200,7 @@ describe('agent run queue', () => {
       expect(session.queue.pendingRuns()).toBe(0);
     });
 
-    test('closing the queue leaves the show in flight unaborted and emits no later change', async () => {
+    test('closing the queue aborts the show in flight and emits no later change', async () => {
       const planned = defer<void>();
       const outcome = defer<MaelstromResponse>();
       const model = scriptedTextAdapter([
@@ -1224,7 +1224,7 @@ describe('agent run queue', () => {
       session.queue.close();
       const [plan] = session.showPlans;
       if (plan === undefined) throw new Error('no show planned');
-      expect(plan.signal.aborted).toBe(false);
+      expect(plan.signal.aborted).toBe(true);
       outcome.resolve(showResponse(plan, 1));
       await flushMacrotasks();
 
