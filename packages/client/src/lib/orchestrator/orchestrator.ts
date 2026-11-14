@@ -413,7 +413,9 @@ export class Orchestrator {
    *
    * UI changes the agent sends are applied and acknowledged internally, and a
    * `ui_change` event reports each one after it was applied, whether or not
-   * its acknowledgement could be sent. Listeners cannot alter the apply or the
+   * its acknowledgement could be sent. A change still applying when the
+   * conversation is lost to `disconnected` or `connector_replaced` is applied
+   * but reports no `ui_change`. Listeners cannot alter the apply or the
    * acknowledgement. Subscribing after {@link dispose} throws.
    */
   get agent(): EventSubscriber<AgentConversationEvents> {

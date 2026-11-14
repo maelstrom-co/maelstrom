@@ -48,8 +48,10 @@ export interface MockAgentConnector {
 /**
  * Creates a {@link MockAgentConnector}. Members not involved in the agent
  * conversation keep the inert defaults of `createTestConnector` unless
- * `overrides` replaces them. `sendInput`, `onEvent` and `subscribe` are always
- * the scripted ones.
+ * `overrides` replaces them. `onEvent` and `subscribe` are always the scripted
+ * ones. `sendInput` always records the input and wakes `nextInput` waiters
+ * first, then delegates to `overrides.sendInput` when given, so a test can make
+ * the send reject or never settle. Without an override it resolves.
  */
 export function createMockAgentConnector(
   overrides: Partial<EngineConnector> = {},
@@ -64,7 +66,7 @@ export function createMockAgentConnector(
     sendInput: (input: AgentInput) => {
       inputs.push(input);
       for (const waiter of [...inputWaiters]) waiter(input);
-      return Promise.resolve();
+      return overrides.sendInput?.(input) ?? Promise.resolve();
     },
     onEvent: (handler: (event: AgentEvent) => void): Unsubscribe => {
       agentHandlers.add(handler);

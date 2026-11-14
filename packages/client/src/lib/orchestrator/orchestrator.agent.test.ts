@@ -24,9 +24,11 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
 import {
+  agentAcceptedEvent,
   createMockAgentConnector,
   type MockAgentConnector,
 } from '../__test-helpers__/agent-connector-mock.js';
@@ -581,30 +583,20 @@ describe('Orchestrator agent path', () => {
         const accepted: AgentConversationEvents['accepted'][] = [];
         orchestrator.agent.on('accepted', (event) => accepted.push(event));
 
-        agent.emit({
-          type: 'accepted',
-          version: AGENT_WIRE_VERSION,
-          inputId: MessageId('input-agent'),
-          runId: RunId('run-1'),
-          disposition: 'agent',
-          ack: 'on it',
-        });
-        agent.emit({
-          type: 'accepted',
-          version: AGENT_WIRE_VERSION,
-          inputId: MessageId('input-noise'),
-          runId: null,
-          disposition: 'noise',
-          ack: '',
-        });
+        agent.emit(
+          agentAcceptedEvent(MessageId('input-agent'), RunId('run-1')),
+        );
+        agent.emit(agentAcceptedEvent(MessageId('input-noise'), null));
 
         expect(accepted).toEqual([
           {
+            type: 'accepted',
             inputId: MessageId('input-agent'),
             runId: RunId('run-1'),
             disposition: 'agent',
           },
           {
+            type: 'accepted',
             inputId: MessageId('input-noise'),
             runId: null,
             disposition: 'noise',
@@ -615,8 +607,14 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('emits ui_change once after the change is applied, with the outcomes its ui_applied carries', async () => {
-      const agent = createMockAgentConnector();
+    it('emits ui_change once after the change is applied and its ui_applied was handed to the connector', async () => {
+      const sequence: string[] = [];
+      const agent = createMockAgentConnector({
+        sendInput: (input) => {
+          sequence.push(input.type);
+          return Promise.resolve();
+        },
+      });
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         orchestrator.commandProcessor.registerRunner(newBoard, {
@@ -627,12 +625,14 @@ describe('Orchestrator agent path', () => {
         const changes: AgentConversationEvents['ui_change'][] = [];
         const instanceVisibleAtEvent: boolean[] = [];
         orchestrator.agent.on('ui_change', (event) => {
+          sequence.push('ui_change');
           changes.push(event);
           instanceVisibleAtEvent.push(
             orchestrator.commandProcessor.store.state.instances.has(newBoard),
           );
         });
 
+        const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
             'change-surfaced',
@@ -640,20 +640,24 @@ describe('Orchestrator agent path', () => {
             [step(newBoard, 'step'), step(newBoard, 'fail')],
           ),
         );
-        await waitUntil(
-          () => changes.length > 0 && uiAppliedInputs(agent).length > 0,
-        );
-        await settleBriefly();
+        const acknowledgement = await applied;
+        await drainMicrotasks();
 
-        const [acknowledgement] = uiAppliedInputs(agent);
-        expect(changes).toHaveLength(1);
-        expect(changes[0]).toEqual({
-          runId: RunId('run-1'),
-          changeId: ChangeId('change-surfaced'),
-          actionOutcomes: acknowledgement?.actionOutcomes ?? [],
-        });
-        expect(acknowledgement?.changeId).toBe(ChangeId('change-surfaced'));
-        expect(acknowledgement?.actionOutcomes).toHaveLength(2);
+        const expectedOutcomes = [
+          { ok: true },
+          { ok: false, error: expect.stringContaining('step failed') },
+        ];
+        expect(sequence).toEqual(['ui_applied', 'ui_change']);
+        expect(acknowledgement.changeId).toBe(ChangeId('change-surfaced'));
+        expect(acknowledgement.actionOutcomes).toEqual(expectedOutcomes);
+        expect(changes).toEqual([
+          {
+            type: 'ui_change',
+            runId: RunId('run-1'),
+            changeId: ChangeId('change-surfaced'),
+            actionOutcomes: expectedOutcomes,
+          },
+        ]);
         expect(instanceVisibleAtEvent).toEqual([true]);
       } finally {
         await orchestrator.dispose();
@@ -667,16 +671,10 @@ describe('Orchestrator agent path', () => {
         const changes: AgentConversationEvents['ui_change'][] = [];
         orchestrator.agent.on('ui_change', (event) => changes.push(event));
         const inputId = await orchestrator.sendMessage('show the board');
-        agent.emit({
-          type: 'accepted',
-          version: AGENT_WIRE_VERSION,
-          inputId,
-          runId: RunId('run-1'),
-          disposition: 'agent',
-          ack: 'on it',
-        });
+        agent.emit(agentAcceptedEvent(inputId, RunId('run-1')));
         agent.emit(finishedEvent());
 
+        const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
             'change-after-finished',
@@ -684,12 +682,12 @@ describe('Orchestrator agent path', () => {
             [],
           ),
         );
-        await waitUntil(
-          () => changes.length > 0 && uiAppliedInputs(agent).length > 0,
-        );
+        await applied;
+        await drainMicrotasks();
 
         expect(changes).toEqual([
           {
+            type: 'ui_change',
             runId: RunId('run-1'),
             changeId: ChangeId('change-after-finished'),
             actionOutcomes: [],
@@ -711,6 +709,7 @@ describe('Orchestrator agent path', () => {
           throw new Error('listener failed');
         });
 
+        const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
             'change-throwing-listener',
@@ -718,9 +717,8 @@ describe('Orchestrator agent path', () => {
             [],
           ),
         );
-        await waitUntil(
-          () => throwingListenerCalls > 0 && uiAppliedInputs(agent).length > 0,
-        );
+        await applied;
+        await drainMicrotasks();
 
         expect(throwingListenerCalls).toBe(1);
         expect(uiAppliedInputs(agent).map((input) => input.changeId)).toEqual([
@@ -728,6 +726,138 @@ describe('Orchestrator agent path', () => {
         ]);
       } finally {
         consoleError.mockRestore();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits ui_change and logs a warning when the ui_applied send rejects', async () => {
+      const agent = createMockAgentConnector({
+        sendInput: () => Promise.reject(new Error('transport down')),
+      });
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const consoleWarn = spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const changed = Promise.withResolvers<void>();
+        const changes: AgentConversationEvents['ui_change'][] = [];
+        orchestrator.agent.on('ui_change', (event) => {
+          changes.push(event);
+          changed.resolve();
+        });
+
+        agent.emit(
+          uiChange(
+            'change-rejected-send',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [],
+          ),
+        );
+        await changed.promise;
+        await drainMicrotasks();
+
+        expect(changes.map((change) => change.changeId)).toEqual([
+          ChangeId('change-rejected-send'),
+        ]);
+        expect(uiAppliedInputs(agent)).toHaveLength(1);
+        expect(warningsMentioning(consoleWarn, 'change-rejected-send')).toEqual(
+          [expect.stringContaining('was not sent')],
+        );
+      } finally {
+        consoleWarn.mockRestore();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits ui_change when the ui_applied send never settles', async () => {
+      const sequence: string[] = [];
+      const agent = createMockAgentConnector({
+        sendInput: (input) => {
+          sequence.push(input.type);
+          return new Promise<void>(() => {});
+        },
+      });
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        orchestrator.agent.on('ui_change', () => sequence.push('ui_change'));
+
+        agent.emit(
+          uiChange(
+            'change-unsettled-send',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [],
+          ),
+        );
+        await orchestrator.commandProcessor.waitForIdle();
+        await drainMicrotasks();
+
+        expect(sequence).toEqual(['ui_applied', 'ui_change']);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('emits consecutive ui_change events in order while the first send is still pending', async () => {
+      const firstSend = Promise.withResolvers<void>();
+      let sends = 0;
+      const agent = createMockAgentConnector({
+        sendInput: () =>
+          sends++ === 0 ? firstSend.promise : Promise.resolve(),
+      });
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        const changes: ChangeId[] = [];
+        orchestrator.agent.on('ui_change', (event) =>
+          changes.push(event.changeId),
+        );
+        const layout = boardLayout([
+          { instanceId: newBoard, variant: 'collapsed' },
+        ]);
+
+        agent.emit(uiChange('change-first', layout, []));
+        agent.emit(uiChange('change-second', layout, []));
+        await orchestrator.commandProcessor.waitForIdle();
+        await drainMicrotasks();
+
+        expect(changes).toEqual([
+          ChangeId('change-first'),
+          ChangeId('change-second'),
+        ]);
+        firstSend.resolve();
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
+    it('reports no ui_change for a change still applying when the connector is replaced', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      try {
+        const losses = recordConversationLosses(orchestrator);
+        const changes: AgentConversationEvents['ui_change'][] = [];
+        orchestrator.agent.on('ui_change', (event) => changes.push(event));
+        const action = holdNextAction(orchestrator, slowBoard, 'step');
+        await orchestrator.sendMessage('hello');
+        oldAgent.emit(
+          uiChange(
+            'change-before-swap',
+            boardLayout([{ instanceId: slowBoard, variant: 'collapsed' }]),
+            [step(slowBoard, 'step')],
+          ),
+        );
+        await action.started;
+
+        orchestrator.setConnector(newAgent.connector);
+        action.release();
+        await orchestrator.commandProcessor.waitForIdle();
+        await drainMicrotasks();
+
+        expect(losses).toEqual([
+          { type: 'conversation_lost', reason: 'connector_replaced' },
+        ]);
+        expect(changes).toEqual([]);
+        expect(uiAppliedInputs(oldAgent)).toEqual([]);
+        expect(uiAppliedInputs(newAgent)).toEqual([]);
+      } finally {
         await orchestrator.dispose();
       }
     });
@@ -775,7 +905,10 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('applies a change still running at an unclean close but sends no ui_applied into the reconnected session', async () => {
+    it('applies a change still running at an unclean close but sends no ui_applied or ui_change into the reconnected session', async () => {
+      const clock = FakeTimers.install({
+        toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+      });
       const agent = createMockAgentConnector({
         connect: mock(() => Promise.resolve()),
       });
@@ -784,17 +917,9 @@ describe('Orchestrator agent path', () => {
       });
       try {
         const losses = recordConversationLosses(orchestrator);
-        const actionStarted = Promise.withResolvers<void>();
-        const releaseAction = Promise.withResolvers<void>();
-        let actionFinished = false;
-        orchestrator.commandProcessor.registerRunner(slowBoard, {
-          step: async () => {
-            actionStarted.resolve();
-            await releaseAction.promise;
-            actionFinished = true;
-            return ok(undefined);
-          },
-        });
+        const changes: AgentConversationEvents['ui_change'][] = [];
+        orchestrator.agent.on('ui_change', (event) => changes.push(event));
+        const action = holdNextAction(orchestrator, slowBoard, 'step');
         await orchestrator.sendMessage('hello');
         agent.emit(
           uiChange(
@@ -803,18 +928,18 @@ describe('Orchestrator agent path', () => {
             [step(slowBoard, 'step')],
           ),
         );
-        await actionStarted.promise;
+        await action.started;
 
         const connect = agent.connector.connect as unknown as {
           mock: { calls: unknown[] };
         };
         const connectsBeforeClose = connect.mock.calls.length;
         agent.close({ clean: false });
-        await waitUntil(() => connect.mock.calls.length > connectsBeforeClose);
-        releaseAction.resolve();
-        await waitUntil(() => actionFinished);
+        await clock.tickAsync(1);
+        expect(connect.mock.calls.length).toBeGreaterThan(connectsBeforeClose);
+        action.release();
         await orchestrator.commandProcessor.waitForIdle();
-        await settleBriefly();
+        await drainMicrotasks();
 
         expect(losses).toEqual([
           { type: 'conversation_lost', reason: 'disconnected' },
@@ -823,8 +948,10 @@ describe('Orchestrator agent path', () => {
           orchestrator.commandProcessor.store.state.instances.has(slowBoard),
         ).toBe(true);
         expect(uiAppliedInputs(agent)).toEqual([]);
+        expect(changes).toEqual([]);
       } finally {
         await orchestrator.dispose();
+        clock.uninstall();
       }
     });
 
@@ -1675,6 +1802,20 @@ function recordConversationLosses(
   const losses: ConversationLostEvent[] = [];
   orchestrator.agent.on('conversation_lost', (event) => losses.push(event));
   return losses;
+}
+
+// Runs after every pending microtask, without depending on elapsed time.
+async function drainMicrotasks(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+function warningsMentioning(
+  consoleWarn: { mock: { calls: unknown[][] } },
+  text: string,
+): string[] {
+  return consoleWarn.mock.calls
+    .map((call) => call.map(String).join(' '))
+    .filter((line) => line.includes(text));
 }
 
 // Long enough for a dropped change to have run its Layout, Actions and

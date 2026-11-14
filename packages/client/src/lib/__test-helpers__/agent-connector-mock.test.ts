@@ -50,6 +50,26 @@ describe('createMockAgentConnector', () => {
     ]);
   });
 
+  test('records the input and wakes waiters before delegating to a sendInput override', async () => {
+    const failure = new Error('send failed');
+    const delegated: AgentInput[] = [];
+    const mock = createMockAgentConnector({
+      sendInput: (input) => {
+        delegated.push(input);
+        return Promise.reject(failure);
+      },
+    });
+    const next = mock.nextInput('ui_applied');
+    const input = uiApplied('rejected');
+
+    const sent = mock.connector.sendInput(input);
+
+    expect(mock.inputs).toEqual([input]);
+    expect(delegated).toEqual([input]);
+    expect<AgentInput>(await next).toBe(input);
+    await expect(sent).rejects.toBe(failure);
+  });
+
   test('emit reaches handlers until they unsubscribe', () => {
     const mock = createMockAgentConnector();
     const received: AgentEvent[] = [];

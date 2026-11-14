@@ -16,11 +16,13 @@ import type {
  * `inputId` that `sendMessage` resolved to the Agent Run that handles it.
  */
 export type InputAcceptedEvent = {
+  /** Discriminant, always `'accepted'`. */
+  type: 'accepted';
   /** The input the agent accepted, as resolved by `sendMessage`. */
   inputId: MessageId;
   /**
-   * The Agent Run that handles the input, or `null` when the disposition is
-   * `noise` and no run starts.
+   * The Agent Run that handles the input. It is `null` exactly when the
+   * disposition is `noise`, since no run starts then.
    */
   runId: RunId | null;
   /** How the agent decided to handle the input. */
@@ -29,19 +31,24 @@ export type InputAcceptedEvent = {
 
 /**
  * Emitted once per agent UI change after the Orchestrator finished applying
- * it. It is a notification only: the change is applied and acknowledged
- * internally whatever its listeners do.
+ * it. It is a notification only, listeners can alter neither the apply nor
+ * the acknowledgement. The change is acknowledged to the agent unless its
+ * Agent Session ended or the send failed, and its outcomes may report failed
+ * Actions. A change still applying when the conversation is lost to
+ * `disconnected` or `connector_replaced` is applied but reports no event.
  */
 export type UiChangeAppliedEvent = {
+  /** Discriminant, always `'ui_change'`. */
+  type: 'ui_change';
   /** The Agent Run that caused the change, or `null` outside any run. */
   runId: RunId | null;
   /** The change the agent sent, as echoed in its acknowledgement. */
   changeId: ChangeId;
   /**
-   * Outcome of each Action in Execution Plan order, the same outcomes the
-   * acknowledgement carries.
+   * Outcome of each Action in Execution Plan order, as computed for the
+   * acknowledgement, whether or not it was sent.
    */
-  actionOutcomes: AgentActionOutcome[];
+  actionOutcomes: readonly Readonly<AgentActionOutcome>[];
 };
 
 /**

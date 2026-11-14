@@ -94,6 +94,7 @@ export class AgentConversation {
   #conversationExists = false;
   #pendingUtterances = 0;
   #sessionGeneration = 0;
+  #endedSessions = 0;
 
   /** Creates a detached conversation. Call {@link attach} to start listening. */
   constructor(dependencies: AgentConversationDependencies) {
@@ -145,6 +146,7 @@ export class AgentConversation {
   replaceConnector(): void {
     const hadConversation = this.#hasConversation();
     this.#conversationExists = false;
+    this.#endedSessions++;
     this.attach();
     if (hadConversation)
       this.#events.emit('conversation_lost', {
@@ -249,6 +251,7 @@ export class AgentConversation {
   #reportLoss(reason: 'disconnected'): void {
     const hadConversation = this.#hasConversation();
     this.#conversationExists = false;
+    this.#endedSessions++;
     this.#startNewSession();
     this.#staleRunWatch.clear();
     if (!hadConversation) return;
@@ -281,6 +284,7 @@ export class AgentConversation {
         return;
       case 'accepted':
         this.#events.emit('accepted', {
+          type: 'accepted',
           inputId: event.inputId,
           runId: event.runId,
           disposition: event.disposition,
@@ -300,32 +304,28 @@ export class AgentConversation {
     connector: EngineConnector,
     isFenced: FenceCheck,
   ): void {
-    const receivedAt = this.#dependencies.now();
-    const sessionGeneration = this.#sessionGeneration;
+    const change: AppliedUiChange = {
+      event,
+      connector,
+      isFenced,
+      sessionGeneration: this.#sessionGeneration,
+      endedSessions: this.#endedSessions,
+      receivedAt: this.#dependencies.now(),
+    };
     let settlement: Promise<SettledAgentChange>;
     try {
       settlement = this.#dependencies.dispatchChange(event.response);
     } catch (error) {
       settlement = Promise.reject(toError(error));
     }
-    void this.#settleUiChange(
-      event,
-      connector,
-      isFenced,
-      sessionGeneration,
-      settlement,
-      receivedAt,
-    );
+    void this.#settleUiChange(change, settlement);
   }
 
   async #settleUiChange(
-    event: AgentUiChangeEvent,
-    connector: EngineConnector,
-    isFenced: FenceCheck,
-    sessionGeneration: number,
+    change: AppliedUiChange,
     settlement: Promise<SettledAgentChange>,
-    receivedAt: number,
   ): Promise<void> {
+    const { event } = change;
     let settled: SettledAgentChange;
     try {
       settled = await settlement;
@@ -337,35 +337,40 @@ export class AgentConversation {
       };
     }
     const actionOutcomes = toActionOutcomes(event.response, settled);
-    await this.#acknowledgeUiChange(
-      event,
-      connector,
-      isFenced,
-      sessionGeneration,
+    // The acknowledgement step runs synchronously up to handing its frame to
+    // the connector, so emitting once it started keeps the ui_applied ahead of
+    // the event and out of listeners' reach, while a slow or never settling
+    // send cannot delay the event. The event fires even when the
+    // acknowledgement was dropped or its send failed.
+    const acknowledgement = this.#acknowledgeUiChange(
+      change,
       settled,
       actionOutcomes,
-      receivedAt,
     );
-    // Emitted after the acknowledgement step so a listener can neither alter
-    // nor delay the ui_applied, which may also have been dropped as stale.
-    this.#events.emit('ui_change', {
-      runId: event.runId,
-      changeId: event.changeId,
-      actionOutcomes: [...actionOutcomes],
-    });
+    if (change.endedSessions === this.#endedSessions)
+      this.#events.emit('ui_change', {
+        type: 'ui_change',
+        runId: event.runId,
+        changeId: event.changeId,
+        actionOutcomes: [...actionOutcomes],
+      });
+    try {
+      await acknowledgement;
+    } catch (error) {
+      this.#dependencies.logger.warn(
+        `Agent conversation: ui_applied for ${event.changeId} was not sent`,
+        error,
+      );
+    }
   }
 
   async #acknowledgeUiChange(
-    event: AgentUiChangeEvent,
-    connector: EngineConnector,
-    isFenced: FenceCheck,
-    sessionGeneration: number,
+    change: AppliedUiChange,
     settled: SettledAgentChange,
     actionOutcomes: AgentActionOutcome[],
-    receivedAt: number,
   ): Promise<void> {
-    if (this.#isAcknowledgementStale(event, isFenced, sessionGeneration))
-      return;
+    const { event, connector } = change;
+    if (this.#isAcknowledgementStale(change)) return;
 
     const acknowledgement: AgentUiAppliedInput = {
       type: 'ui_applied',
@@ -377,12 +382,11 @@ export class AgentConversation {
     this.#staleRunWatch.changeAcknowledged(event.changeId);
     this.#dependencies.diagnostics.emit('client.agent.ui.applied', {
       changeId: event.changeId,
-      durationMs: Math.max(0, this.#dependencies.now() - receivedAt),
+      durationMs: Math.max(0, this.#dependencies.now() - change.receivedAt),
     });
     // Diagnostic observers run synchronously and may swap the connector or
     // end the Agent Session before the acknowledgement goes out.
-    if (this.#isAcknowledgementStale(event, isFenced, sessionGeneration))
-      return;
+    if (this.#isAcknowledgementStale(change)) return;
     try {
       await connector.sendInput(acknowledgement);
     } catch (error) {
@@ -393,11 +397,11 @@ export class AgentConversation {
     }
   }
 
-  #isAcknowledgementStale(
-    event: AgentUiChangeEvent,
-    isFenced: FenceCheck,
-    sessionGeneration: number,
-  ): boolean {
+  #isAcknowledgementStale({
+    event,
+    isFenced,
+    sessionGeneration,
+  }: AppliedUiChange): boolean {
     if (isFenced(`ui_applied for ${event.changeId} not sent`)) return true;
     if (sessionGeneration === this.#sessionGeneration) return false;
     this.#dependencies.logger.warn(
@@ -406,6 +410,15 @@ export class AgentConversation {
     return true;
   }
 }
+
+type AppliedUiChange = {
+  readonly event: AgentUiChangeEvent;
+  readonly connector: EngineConnector;
+  readonly isFenced: FenceCheck;
+  readonly sessionGeneration: number;
+  readonly endedSessions: number;
+  readonly receivedAt: number;
+};
 
 function toActionOutcomes(
   response: MaelstromResponse,

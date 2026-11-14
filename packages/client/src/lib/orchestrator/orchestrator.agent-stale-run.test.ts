@@ -234,6 +234,8 @@ describe('Orchestrator agent stale run safety net', () => {
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
         record: async () => {
@@ -304,6 +306,8 @@ describe('Orchestrator agent stale run safety net', () => {
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
         record: async () => {
@@ -523,13 +527,15 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
-  it('sends no ui_applied for a change still applying when another run is reported stale', async () => {
+  it('still reports ui_change but sends no ui_applied for a change still applying when another run is reported stale', async () => {
     const agent = createMockAgentConnector();
     const orchestrator = await connectedOrchestrator(agent.connector, {
       agentRunStaleTimeoutMs: shortStaleWindowMs,
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       let actionFinished = false;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
@@ -558,6 +564,14 @@ describe('Orchestrator agent stale run safety net', () => {
       expect(agent.inputs.map((input) => input.type)).not.toContain(
         'ui_applied',
       );
+      expect(changes).toEqual([
+        {
+          type: 'ui_change',
+          runId: runB,
+          changeId: ChangeId('change-slow'),
+          actionOutcomes: [{ ok: true }],
+        },
+      ]);
     } finally {
       await orchestrator.dispose();
     }
