@@ -223,7 +223,7 @@ UI-only utterances start a server-minted run without a model loop. Their event o
 
 Agent runs send `placeholder`, then `accepted` with disposition `agent` and a non-null `runId`. `started` follows once the loop actually begins, which may be after a queue wait. `started` is sent for agent runs only, never for `ui_only` runs. While the loop runs, `message` deltas stream per `turnId` and each `tool_call` is followed by one `tool_result` with the same `callId`. A non-null `runId` in `accepted` is followed by exactly one `finished` for that run. A `tool_call` names the tool but carries no arguments. A `tool_result` reports `ok` and a `summary` that is not whitespace-only and at most 200 characters, and a failed call describes its cause in `summary`.
 
-An agent run can also send a loop-driven `ui_change` after a tool phase. It carries the run's `runId` and a `changeId`, and has no `userMessage`. A failed loop-driven show is reported with `error` carrying `runId` and usually `changeId`, not with `finished`. An acknowledgement timeout is reported the same way with code `ui_ack_timeout`. Runs never wait for their shows, so these `ui_change` and `error` events may arrive after the run's `finished`.
+An agent run can also send a loop-driven `ui_change` after a tool phase. It carries the run's `runId` and a `changeId`, and has no `userMessage`. A failed loop-driven show is reported with `error` carrying `runId` and `changeId`, not with `finished`. That `changeId` may name a change that no `ui_change` carried. An acknowledgement timeout is reported the same way with code `ui_ack_timeout`. Runs never wait for their shows, so these `ui_change` and `error` events may arrive after the run's `finished`.
 
 ---
 
