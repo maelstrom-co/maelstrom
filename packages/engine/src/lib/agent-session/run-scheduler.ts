@@ -22,6 +22,7 @@ import {
   buildRunEnding,
   type RunFailure,
 } from './run-events.js';
+import { userIntentRequest } from './show-request.js';
 
 export interface UiPlanInput {
   readonly request: ChartRequest;
@@ -158,7 +159,7 @@ export function createRunScheduler({
     const run = queue.shift();
     if (!run) return;
     state = { phase: 'planning', run };
-    const request = planningRequest(chart ?? run.input.chart, run.input.text);
+    const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
     let result: Result<MaelstromResponse, EngineError>;
     try {
       result = await plan({
@@ -280,17 +281,6 @@ function deferred(): Deferred {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-function planningRequest(chart: ChartRequest, intent: string): ChartRequest {
-  const { skipReply: _skipReply, ...snapshot } = chart;
-  return {
-    ...snapshot,
-    context: {
-      ...snapshot.context,
-      updateReasons: [{ type: 'user_intent', intent }],
-    },
-  };
 }
 
 function changeError(
