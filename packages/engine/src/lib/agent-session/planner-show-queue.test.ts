@@ -1064,6 +1064,159 @@ describe('createPlannerShowQueue', () => {
     expect(harness.errors()).toEqual([]);
     expect(harness.notes).toEqual([]);
   });
+
+  test('a show requested from inside the error listener of a failed show is planned and keeps whenIdle waiting', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let requested = false;
+    harness.events.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.runId === show(1).runId &&
+        !requested
+      ) {
+        requested = true;
+        harness.queue.request(show(2));
+      }
+    });
+    harness.queue.request(show(1));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.planner.fail(0, providerError('provider detail', 'provider'));
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1).runId,
+        turnId: show(1).turnId,
+        text: 'Show failed: latest_order result could not be shown.',
+      },
+    ]);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    const change = await nextChange;
+    expect(change.runId).toBe(show(2).runId);
+
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+    await flushMicrotasks();
+    expect(idle.settled).toBe(true);
+    expect(harness.notes).toHaveLength(2);
+    expect(harness.notes[1]).toEqual(
+      expect.objectContaining({
+        runId: show(2).runId,
+        turnId: show(2).turnId,
+        text: expect.stringMatching(/^Screen updated: /),
+      }),
+    );
+  });
+
+  test('a show requested from inside the error listener of an acknowledgement timeout is planned and keeps whenIdle waiting', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let requested = false;
+    harness.events.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.code === 'ui_ack_timeout' &&
+        event.runId === show(1).runId &&
+        !requested
+      ) {
+        requested = true;
+        harness.queue.request(show(2));
+      }
+    });
+    harness.queue.request(show(1));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    expect((await nextChange).runId).toBe(show(2).runId);
+  });
+
+  test('dropRun from inside the error listener keeps the queued show of another run', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let dropped = false;
+    harness.events.subscribe((event) => {
+      if (event.type === 'error' && event.runId === show(1).runId && !dropped) {
+        dropped = true;
+        harness.queue.dropRun(show(1).runId);
+      }
+    });
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.planner.fail(0, providerError('provider detail', 'provider'));
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    expect((await nextChange).runId).toBe(show(2).runId);
+  });
+
+  test.each([
+    {
+      failure: 'a failed Planner call',
+      code: 'ProviderError',
+      end: async (harness: Harness) => {
+        harness.planner.fail(0, providerError('provider detail', 'provider'));
+        await flushMicrotasks();
+      },
+    },
+    {
+      failure: 'an acknowledgement timeout',
+      code: 'ui_ack_timeout',
+      end: async (harness: Harness) => {
+        harness.planner.respond(0, changeResponse(monthChart));
+        await harness.nextUiChange();
+        harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+        await flushMicrotasks();
+      },
+    },
+  ])(
+    'close from inside the error listener of $failure records and observes nothing more',
+    async ({ code, end }) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.events.subscribe((event) => {
+        if (event.type === 'error' && event.code === code)
+          harness.queue.close();
+      });
+      harness.queue.request(show(1));
+      harness.queue.request(show(2));
+
+      await end(harness);
+
+      expect(harness.errors()).toHaveLength(1);
+      expect(harness.notes).toEqual([]);
+      expect(
+        harness.observed.filter(
+          ({ kind }) => kind !== 'engine.agent.ui_change.emitted',
+        ),
+      ).toEqual([]);
+      expect(harness.planner.calls).toHaveLength(1);
+    },
+  );
 });
 
 interface Observation {

@@ -175,8 +175,8 @@ export function createPlannerShowQueue({
     for (const resolve of idleWaiters.splice(0)) resolve();
   };
 
+  // Callers leave their show first. A listener may already have started the next one.
   const startNextShow = () => {
-    state = { phase: 'idle' };
     pump();
     if (state.phase === 'idle') resolveIdleWaiters();
   };
@@ -223,6 +223,7 @@ export function createPlannerShowQueue({
       ...changeError(changeId, 'ui_ack_timeout', ACKNOWLEDGEMENT_TIMEOUT_TEXT),
       runId: show.runId,
     });
+    if (closed) return;
     noteFor(show, describeShowNotConfirmed(show.toolNames));
     observe(show.runId, show.inputId, 'engine.agent.ui_change.timed_out', {
       changeId,
@@ -252,6 +253,7 @@ export function createPlannerShowQueue({
       ...changeError(changeId, code, PLANNER_FAILURE_TEXT),
       runId: show.runId,
     });
+    if (closed) return;
     noteFor(show, describeShowFailed(show.toolNames));
     observe(show.runId, show.inputId, 'engine.agent.show.failed', {
       changeId,
@@ -401,6 +403,7 @@ export function createPlannerShowQueue({
         return;
       }
       cancelTimeout();
+      state = { phase: 'idle' };
       chart = input.chart;
       const screenNote = describeScreenUpdate({
         executionPlan,
