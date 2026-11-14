@@ -283,7 +283,8 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
-function changeError(
+/** Builds the agent `error` event that refuses a `ui_applied` input. */
+export function changeError(
   changeId: ChangeId,
   code: string,
   error: string,
