@@ -364,16 +364,19 @@ export interface AgentFinishedEvent {
  * A failure outside any Agent Run that the Engine detects after the frame
  * decoded, such as a `ui_applied` echoing an unknown `changeId`. `inputId`
  * names the offending input and `changeId` the UI change a failed
- * `ui_applied` refers to. A frame that does not decode is reported by the
- * `engine.error` frame instead, never by this event. Failures inside a run are
- * reported by `finished` with reason `error`. `error` and `code` have the same
- * meaning as on the `engine.error` frame.
+ * `ui_applied` refers to. `runId` names the run whose loop-driven UI change
+ * failed. A frame that does not decode is reported by the `engine.error` frame
+ * instead, never by this event. Failures of the run itself are reported by
+ * `finished` with reason `error`, while a failed loop-driven UI change is
+ * reported here. `error` and `code` have the same meaning as on the
+ * `engine.error` frame.
  */
 export const AgentErrorEventSchema = z.object({
   type: z.literal('error'),
   version: z.literal(AGENT_WIRE_VERSION),
   inputId: MessageIdSchema.optional(),
   changeId: ChangeIdSchema.optional(),
+  runId: RunIdSchema.optional(),
   error: z.string(),
   code: z.string().optional(),
 });
@@ -392,6 +395,12 @@ export interface AgentErrorEvent {
    * no `inputId`.
    */
   changeId?: ChangeId;
+  /**
+   * The run whose loop-driven UI change failed. The event can arrive after that
+   * run's `finished`, and its `changeId` may name a change that no `ui_change`
+   * carried, because a change is named before it is planned.
+   */
+  runId?: RunId;
   /** Human-readable failure description. */
   error: string;
   /** Optional machine-readable failure kind with no closed taxonomy. */
