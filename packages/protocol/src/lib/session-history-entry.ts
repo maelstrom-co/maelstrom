@@ -27,7 +27,8 @@ import { SessionIdSchema } from './session.ts';
  *    the originating request's `user_intent` UpdateReasons. May be `''` when
  *    the turn carried no user-intent reasons (e.g. a layout-only update from
  *    a resize) — empty is a legal value with semantic meaning ("no user input
- *    on this turn"). `assistantMessage` is the assistant's reply.
+ *    on this turn"). `assistantMessage` is the assistant's reply, absent
+ *    when the turn shipped without one.
  *  - `injection`: `content` is the injected assistant text verbatim.
  *
  * The exact derivation of `userIntent` is the engine's choice — the reference
@@ -47,7 +48,7 @@ export type SessionHistoryEntry =
       readonly sessionId: SessionId;
       readonly timestamp: number;
       readonly userIntent: string;
-      readonly assistantMessage: string;
+      readonly assistantMessage?: string;
     }
   | {
       readonly kind: 'injection';
@@ -78,7 +79,7 @@ const TurnEntrySchema = z.object({
   ...baseShape,
   kind: z.literal('turn'),
   userIntent: z.string(),
-  assistantMessage: z.string(),
+  assistantMessage: z.string().optional(),
 });
 
 const InjectionEntrySchema = z.object({
@@ -94,7 +95,8 @@ const InjectionEntrySchema = z.object({
  * Empty `userIntent` / `assistantMessage` / `content` are *allowed* — they
  * are legal values with semantic meaning (an injection of `''` is rejected
  * upstream by `AssistantInjectionMessageSchema`, but a `turn` recorded with
- * no user-intent reasons legitimately has `userIntent: ''`).
+ * no user-intent reasons legitimately has `userIntent: ''`). An absent
+ * `assistantMessage` means the turn shipped without a reply.
  */
 export const SessionHistoryEntrySchema = z.discriminatedUnion('kind', [
   TurnEntrySchema,

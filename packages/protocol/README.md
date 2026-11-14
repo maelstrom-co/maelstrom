@@ -201,7 +201,7 @@ type AgentEvent =
   | { type: 'accepted'; version: 1; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
   | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
   | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
-  | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
+  | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply?: string; metrics: AgentRunMetrics; error?: string; code?: string }
   | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string }
   | { type: 'started'; version: 1; runId: RunId }
   | { type: 'tool_call'; version: 1; runId: RunId; turnId: string; callId: CallId; name: string }
@@ -218,6 +218,8 @@ ws.send(encodeEnvelope(frame));
 Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is unstable until the client event applier ships, and version bumps apply from then on. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 UI-only utterances start a server-minted run without a model loop. Their event order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after a valid `ui_applied`. In `accepted`, only `noise` has a null `runId`. The acknowledgement must contain one outcome per Action, in Execution Plan order. Failed outcomes end the run without a successful reply.
+
+`finished` carries `reply` only when there is reply text. It is the last turn's full text on success and the closing message on a budget ending. It is absent when the run failed, was cancelled or ended without text.
 
 Agent runs send `placeholder`, then `accepted` with disposition `agent` and a non-null `runId`. `started` follows once the loop actually begins, which may be after a queue wait. `started` is sent for agent runs only, never for `ui_only` runs. While the loop runs, `message` deltas stream per `turnId` and each `tool_call` is followed by one `tool_result` with the same `callId`. A non-null `runId` in `accepted` is followed by exactly one `finished` for that run. A `tool_call` names the tool but carries no arguments. A `tool_result` reports `ok` and a `summary` that is not whitespace-only and at most 200 characters, and a failed call describes its cause in `summary`.
 
@@ -249,7 +251,7 @@ Identity (`id`), session binding (`sessionId`), and timestamp live on the surrou
 
 Both fields are optional and absent by default. A client that renders the Planner's reply leaves them unset. They are for a caller that owns the conversation itself, such as an agent loop.
 
-- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output).
+- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output). `Engine.handle` ships a replyless plan result as a `MaelstromResponse` without `userMessage`. It still refuses a `NeedsClarification` result with a `ValidationError` on field `skipReply`, because a `chart_response` has no shape for a question.
 - **`intentFacts`**: structured values the caller already learned about the intent, for example from tool results, keyed by a name the Planner can reason about. They are inputs to planning, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `ChartRequestSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
 
 ```ts
@@ -297,7 +299,7 @@ The payload returned inside `ChartResponseOutput`.
 interface MaelstromResponse {
   type: 'maelstrom_response';
   requestId: MessageId;
-  userMessage: string;
+  userMessage?: string;
   rationale: string;
   executionPlan: readonly ActionExecution[];
   layout: GridLayout | TilingLayout;
@@ -312,7 +314,7 @@ interface ActionExecution {
 
 `requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply (in order) before the layout transition. `userMessage` is the natural-language summary the LLM produced for end users; `rationale` is the LLM's internal reasoning, useful for logging and debugging.
 
-`MaelstromResponse` always carries `userMessage`, whatever the request's `skipReply` flag.
+`userMessage` is absent when the request set `skipReply: true` and the Planner wrote no reply. The reference Engine never sends an empty string in its place. Clients that render the reply must handle an absent value.
 
 ---
 

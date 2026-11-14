@@ -304,7 +304,9 @@ export interface AgentUiChangeEvent {
 /**
  * The end of an Agent Run with its structured outcome. `ok` is determined by
  * `reason`, so consumers may branch on either. `reply` is the last turn's full
- * text for clients that do not assemble `message` deltas. `error` and `code`
+ * text for clients that do not assemble `message` deltas, or the closing
+ * message on a budget ending. It is absent when the run failed, was cancelled
+ * or ended without text. `error` and `code`
  * carry the cause when the run did not end as intended.
  */
 export const AgentFinishedEventSchema = z
@@ -314,7 +316,7 @@ export const AgentFinishedEventSchema = z
     runId: RunIdSchema,
     ok: z.boolean(),
     reason: AgentFinishReasonSchema,
-    reply: z.string(),
+    reply: z.string().optional(),
     metrics: AgentRunMetricsSchema,
     error: z.string().optional(),
     code: z.string().optional(),
@@ -343,10 +345,10 @@ export interface AgentFinishedEvent {
   /** Why the run ended. */
   reason: AgentFinishReason;
   /**
-   * Full text of the final reply, empty when the run ended before producing
-   * one.
+   * Full text of the final reply, or the closing message on a budget ending.
+   * Absent when the run failed, was cancelled or ended without text.
    */
-  reply: string;
+  reply?: string;
   /** Cost counters for the run. */
   metrics: AgentRunMetrics;
   /** Human-readable failure description when `ok` is `false`. */
