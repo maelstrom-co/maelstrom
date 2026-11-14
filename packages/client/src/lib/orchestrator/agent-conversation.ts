@@ -66,7 +66,11 @@ export type AgentConversationDependencies = {
   readonly logger: Logger;
   /** Silence window after which an input or Agent Run counts as stale. */
   readonly agentRunStaleTimeoutMs: number;
-  /** Receives metadata-only observations of agent inputs as they are sent. */
+  /**
+   * Receives observations of agent inputs as they are sent and of UI changes
+   * as they are acknowledged. They carry identifiers and timing only, never
+   * content.
+   */
   readonly diagnostics: Pick<DiagnosticChannel, 'emit'>;
   /** Reads a monotonic clock in milliseconds to time UI change acknowledgements. */
   readonly now: () => number;
