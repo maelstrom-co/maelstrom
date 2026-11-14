@@ -8,12 +8,18 @@ import type { Logger } from '../logger.js';
 import type { AgentRunToolPhaseEndedEvent } from './agent-run.js';
 import type { ToolRegistry } from './tool-registry.js';
 
-/** Most characters the JSON-serialized intent facts of one show may take. */
+/**
+ * Most characters the JSON-serialized intent facts of one show may take,
+ * counted as the `length` of the JSON string (UTF-16 code units).
+ */
 export const SHOW_FACTS_MAX_CHARS = 8_000;
 
 /** What one tool phase contributes to the show it asks for. */
 export interface ShowFacts {
-  /** Names of the tools whose calls succeeded, in call order, repeated when a tool ran more than once. */
+  /**
+   * Names of the tools whose calls succeeded, in call order, repeated when a
+   * tool ran more than once.
+   */
   readonly toolNames: readonly string[];
   /**
    * Facts the successful calls produced, each call's under the key
@@ -29,10 +35,10 @@ export interface ShowFacts {
  * successful result asks for a show. A successful call whose tool declares no
  * `intentFacts` extractor still counts and is listed. An extractor that throws
  * or returns anything other than a JSON object loses that call's facts, with a
- * warning that names only the tool. When the merged facts would serialize to
- * more than {@link SHOW_FACTS_MAX_CHARS} characters, the call that crosses the
- * cap and every later call lose their facts, with one warning naming their
- * tools.
+ * warning that names only the tool. An empty object adds no facts and is not
+ * warned about. When the merged facts would serialize to more than
+ * {@link SHOW_FACTS_MAX_CHARS} characters, the call that crosses the cap and
+ * every later call lose their facts, with one warning naming their tools.
  */
 export function collectShowFacts(
   phase: AgentRunToolPhaseEndedEvent,
@@ -42,23 +48,24 @@ export function collectShowFacts(
   const toolNames: string[] = [];
   const intentFacts: Record<string, JsonValue> = {};
   const overCap: string[] = [];
-  let hasFacts = false;
   for (const result of phase.results) {
     if (!result.ok) continue;
     toolNames.push(result.name);
     const facts = extractFacts(result.name, result.value, registry, logger);
     if (facts === undefined) continue;
     const key = `${result.name}:${result.callId}`;
+    if (overCap.length > 0) {
+      overCap.push(result.name);
+      continue;
+    }
     if (
-      overCap.length > 0 ||
       JSON.stringify({ ...intentFacts, [key]: facts }).length >
-        SHOW_FACTS_MAX_CHARS
+      SHOW_FACTS_MAX_CHARS
     ) {
       overCap.push(result.name);
       continue;
     }
     intentFacts[key] = facts;
-    hasFacts = true;
   }
   if (toolNames.length === 0) return undefined;
   if (overCap.length > 0) {
@@ -67,14 +74,16 @@ export function collectShowFacts(
       maxChars: SHOW_FACTS_MAX_CHARS,
     });
   }
-  return hasFacts ? { toolNames, intentFacts } : { toolNames };
+  return Object.keys(intentFacts).length > 0
+    ? { toolNames, intentFacts }
+    : { toolNames };
 }
 
 /**
  * Builds the Planner request for one show from a Chart snapshot. Any
  * client-sent `skipReply` and `intentFacts` are replaced: the request sets
- * `skipReply: true`, carries `intentFacts` only when given, and states
- * `intent` as its only `user_intent` update reason.
+ * `skipReply: true` and carries `intentFacts` only when given. `updateReasons`
+ * is replaced with a single `user_intent` reason carrying `intent`.
  */
 export function buildShowRequest(
   chart: ChartRequest,
@@ -91,8 +100,10 @@ export function buildShowRequest(
 
 /**
  * Copies a Chart snapshot into a request that plans for one user intent:
- * any client-sent `skipReply` is removed and `intent` becomes the only
- * `user_intent` update reason.
+ * any client-sent `skipReply` is removed and `updateReasons` is replaced with
+ * a single `user_intent` reason carrying `intent`. Client-sent `intentFacts`
+ * pass through unchanged on purpose. Callers that own the facts, such as
+ * {@link buildShowRequest}, must strip or replace them.
  */
 export function userIntentRequest(
   chart: ChartRequest,

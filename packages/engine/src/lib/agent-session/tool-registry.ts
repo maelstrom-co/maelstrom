@@ -66,11 +66,10 @@ export interface ToolRegistry {
 /**
  * Builds a registry from tool declarations.
  * @throws When a name is not a string, is duplicated or does not match
- * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` or `execute` is not a function, when `intentFacts` is
- * present and not a function,
- * when `input` or `output` is not a schema with a `safeParseAsync` function,
- * or when `locus`, `sideEffect` or `approval` (after defaults) is not an
- * allowed value.
+ * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` or `execute` is not a function,
+ * when `intentFacts` is present and not a function, when `input` or `output`
+ * is not a schema with a `safeParseAsync` function, or when `locus`,
+ * `sideEffect` or `approval` (after defaults) is not an allowed value.
  */
 export function createToolRegistry(
   tools: readonly RegistrableServerTool[],
