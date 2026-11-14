@@ -389,72 +389,23 @@ outside the repository.
 
 ### State-store bootstrap rules
 
-For the beta.83 to beta.85 upgrade, follow [the protocol-8 maintenance procedure](state-store-upgrade.md).
-The manual bootstrap commands below use the beta.83 CLI.
+For beta.83 to beta.85, follow [the protocol-8 maintenance procedure](state-store-upgrade.md).
+Copy OSS preview records into `alchemy-state-store-maelstrom-oss-preview` before
+running the preview canary. The Cloud project's default `alchemy-state-store`
+in that account stays on protocol 7. Production keeps its default Worker in a
+separate account and upgrades through a separate maintenance dispatch.
 
-Verify the shared state store before each Alchemy upgrade. Its protocol version
-is independent of the package version. In beta.83,
-[`STATE_STORE_VERSION`](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.83/packages/alchemy/src/Cloudflare/StateStore/Api.ts)
-is `7`. Both normal initialization and explicit bootstrap reuse a serving store
-when its `/version` matches. Bootstrap without `--force` does not redeploy that
-store merely because the Alchemy package changed.
+Keep callers of each backend on one compatible Alchemy version. A named store
+has its own Worker, secrets, and credentials. Sharing an account does not require
+sharing a backend. Keep `ALCHEMY_PREVIEW_STATE_STORE_WORKER` and
+`ALCHEMY_REQUIRED_VERSION` after cutover so old PR revisions fail admission.
 
-1. Review the pinned release's state-store protocol and runtime changes.
-   Keep all callers sharing an account on one exact Alchemy version. Check
-   each account's `alchemy-state-store.<account-subdomain>.workers.dev/version`
-   against the pinned `STATE_STORE_VERSION`. The endpoint is read-only and
-   requires no state-store credentials.
-2. If both stores match and no required server fix needs deployment, run the
-   pinned-version credentialed preview canary before production verification.
-   Record the protocol and CI results. No bootstrap redeployment is required.
-3. If a store is missing, mismatched, or needs a server fix, pause and drain
-   all deployment, teardown, and reconciliation jobs for both accounts.
-   Per-PR and per-application CI queues do not serialize the account-wide
-   Worker and Secrets Store resources. Bootstrap preview first, verify its
-   protocol and credentialed canary, then bootstrap and verify production.
-   Resume callers only after both accounts pass.
-
-Run a required bootstrap from a trusted operator environment with the repository's
-Bun version, frozen lockfile, pinned Alchemy package, and credentials for the
-selected account. Before each command, compare `CLOUDFLARE_ACCOUNT_ID` with the
-repository's `PREVIEW_ACCOUNT_ID` or `PRODUCTION_ACCOUNT_ID` variable. Bootstrap does not
-evaluate the application's account guard. The profile names below match CI;
-they do not replace selecting and checking the account credentials.
-From `infra/platform`, run the preview bootstrap:
-
-```sh
-bun alchemy provider cloudflare bootstrap --profile preview-ci
-```
-
-After the preview protocol check and credentialed canary pass, select and check
-the production credentials. From the same directory, run:
-
-```sh
-bun alchemy provider cloudflare bootstrap --profile production-ci
-```
-
-Use `--force` only when a reviewed server fix requires redeployment despite a
-matching protocol. No `state-store-bootstrap.sh` wrapper is supplied by this
-repository. The commands require configured account credentials; repository
-access alone does not provide them.
-
-Outside CI, only this serialized, pinned-version bootstrap may execute Alchemy
-against either account. Every other local Alchemy invocation remains prohibited.
-Read-only HTTP version probes do not initialize Alchemy.
-
-PR preview jobs must never perform implicit bootstrap or upgrades. This remains
-an operator gate: current workflows pass `--yes`, which permits Alchemy to
-bootstrap a missing store or upgrade a mismatched store during initialization.
-Even `deploy --dry-run --yes` can mutate the shared store before planning.
-Do not rely on a deployment dry-run or a per-PR queue to prevent that migration.
-
-The beta.73 to beta.81 upgrade keeps protocol `7`. The
-[beta.81 preview canary](https://github.com/maelstrom-co/maelstrom/actions/runs/38065355199)
-passed before the
-[production verification](https://github.com/maelstrom-co/maelstrom/actions/runs/38073333347).
-Production logs show credential refreshes without state-store bootstrap or
-upgrade. The preview `/version` check returns `{"version":7}`. These results
-verify compatibility with the existing stores; no manual bootstrap was performed.
+Verify the exact named endpoint's `/version` before credentialed commands.
+Even `deploy --dry-run --yes` can bootstrap or upgrade a backend during
+initialization. PR deployment queues cannot replace the controlled copy and
+maintenance window. No `state-store-bootstrap.sh` wrapper is supplied here.
+Use the manual workflows on `main`; they pin the reviewed candidate, account,
+caller pause, and receipt provenance.
 
 The preview account token also needs Secrets Store access so ephemeral CI
 runners can derive the Alchemy state-store credentials used by preview stacks.
