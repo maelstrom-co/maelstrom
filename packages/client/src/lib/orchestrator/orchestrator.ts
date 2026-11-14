@@ -349,6 +349,8 @@ export class Orchestrator {
       captureFence: (subject) => this.#captureFence(subject),
       logger: this.#logger,
       agentRunStaleTimeoutMs: this.#config.agentRunStaleTimeoutMs,
+      diagnostics: this.diagnostics,
+      now: () => performance.now(),
     });
 
     this.#setupSubscriptions();
@@ -1611,6 +1613,7 @@ export class Orchestrator {
           { ...event.metadata, serverAt: event.at },
           () => event.content,
           event.requestId,
+          event.runId,
         );
       });
       const release = (retirementEpoch = epoch) =>

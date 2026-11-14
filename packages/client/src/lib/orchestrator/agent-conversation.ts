@@ -16,6 +16,7 @@ import type {
   ConnectorEvent,
   EngineConnector,
 } from '../connection-manager/connector.types.js';
+import type { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import type { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
@@ -65,6 +66,14 @@ export type AgentConversationDependencies = {
   readonly logger: Logger;
   /** Silence window after which an input or Agent Run counts as stale. */
   readonly agentRunStaleTimeoutMs: number;
+  /**
+   * Receives observations of agent inputs as they are sent and of UI changes
+   * as they are acknowledged. They carry identifiers and timing only, never
+   * content.
+   */
+  readonly diagnostics: Pick<DiagnosticChannel, 'emit'>;
+  /** Reads a monotonic clock in milliseconds to time UI change acknowledgements. */
+  readonly now: () => number;
 };
 
 type Attachment = {
@@ -161,6 +170,18 @@ export class AgentConversation {
     // input must be watched before the await or that reply finds no watch.
     this.#staleRunWatch.inputSent(inputId);
     this.#pendingUtterances++;
+    this.#dependencies.diagnostics.emit('client.agent.input.sent', { inputId });
+    // Diagnostic observers run synchronously and may swap the connector,
+    // disconnect or dispose, which would leave this send on a stale session.
+    if (
+      this.#attachment !== attachment ||
+      sessionGeneration !== this.#sessionGeneration
+    ) {
+      if (sessionGeneration === this.#sessionGeneration)
+        this.#pendingUtterances--;
+      this.#staleRunWatch.stopInput(inputId);
+      throw new Error('Agent conversation ended before the utterance was sent');
+    }
     try {
       await attachment.connector.sendInput({
         type: 'utterance',
@@ -273,6 +294,7 @@ export class AgentConversation {
     connector: EngineConnector,
     isFenced: FenceCheck,
   ): void {
+    const receivedAt = this.#dependencies.now();
     const sessionGeneration = this.#sessionGeneration;
     let settlement: Promise<SettledAgentChange>;
     try {
@@ -286,6 +308,7 @@ export class AgentConversation {
       isFenced,
       sessionGeneration,
       settlement,
+      receivedAt,
     );
   }
 
@@ -295,6 +318,7 @@ export class AgentConversation {
     isFenced: FenceCheck,
     sessionGeneration: number,
     settlement: Promise<SettledAgentChange>,
+    receivedAt: number,
   ): Promise<void> {
     let settled: SettledAgentChange;
     try {
@@ -306,13 +330,8 @@ export class AgentConversation {
         chart: undefined,
       };
     }
-    if (isFenced(`ui_applied for ${event.changeId} not sent`)) return;
-    if (sessionGeneration !== this.#sessionGeneration) {
-      this.#dependencies.logger.warn(
-        `Agent conversation: ui_applied for ${event.changeId} not sent, its Agent Session ended`,
-      );
+    if (this.#isAcknowledgementStale(event, isFenced, sessionGeneration))
       return;
-    }
 
     const acknowledgement: AgentUiAppliedInput = {
       type: 'ui_applied',
@@ -322,6 +341,14 @@ export class AgentConversation {
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
     this.#staleRunWatch.changeAcknowledged(event.changeId);
+    this.#dependencies.diagnostics.emit('client.agent.ui.applied', {
+      changeId: event.changeId,
+      durationMs: Math.max(0, this.#dependencies.now() - receivedAt),
+    });
+    // Diagnostic observers run synchronously and may swap the connector or
+    // end the Agent Session before the acknowledgement goes out.
+    if (this.#isAcknowledgementStale(event, isFenced, sessionGeneration))
+      return;
     try {
       await connector.sendInput(acknowledgement);
     } catch (error) {
@@ -330,6 +357,19 @@ export class AgentConversation {
         error,
       );
     }
+  }
+
+  #isAcknowledgementStale(
+    event: AgentUiChangeEvent,
+    isFenced: FenceCheck,
+    sessionGeneration: number,
+  ): boolean {
+    if (isFenced(`ui_applied for ${event.changeId} not sent`)) return true;
+    if (sessionGeneration === this.#sessionGeneration) return false;
+    this.#dependencies.logger.warn(
+      `Agent conversation: ui_applied for ${event.changeId} not sent, its Agent Session ended`,
+    );
+    return true;
   }
 }
 
