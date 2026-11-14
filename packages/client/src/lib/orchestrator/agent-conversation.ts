@@ -16,6 +16,7 @@ import type {
   ConnectorEvent,
   EngineConnector,
 } from '../connection-manager/connector.types.js';
+import type { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import type { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
@@ -65,6 +66,10 @@ export type AgentConversationDependencies = {
   readonly logger: Logger;
   /** Silence window after which an input or Agent Run counts as stale. */
   readonly agentRunStaleTimeoutMs: number;
+  /** Receives metadata-only observations of agent inputs as they are sent. */
+  readonly diagnostics: Pick<DiagnosticChannel, 'emit'>;
+  /** Reads a monotonic clock in milliseconds to time UI change acknowledgements. */
+  readonly now: () => number;
 };
 
 type Attachment = {
@@ -161,6 +166,7 @@ export class AgentConversation {
     // input must be watched before the await or that reply finds no watch.
     this.#staleRunWatch.inputSent(inputId);
     this.#pendingUtterances++;
+    this.#dependencies.diagnostics.emit('client.agent.input.sent', { inputId });
     try {
       await attachment.connector.sendInput({
         type: 'utterance',
@@ -273,6 +279,7 @@ export class AgentConversation {
     connector: EngineConnector,
     isFenced: FenceCheck,
   ): void {
+    const receivedAt = this.#dependencies.now();
     const sessionGeneration = this.#sessionGeneration;
     let settlement: Promise<SettledAgentChange>;
     try {
@@ -286,6 +293,7 @@ export class AgentConversation {
       isFenced,
       sessionGeneration,
       settlement,
+      receivedAt,
     );
   }
 
@@ -295,6 +303,7 @@ export class AgentConversation {
     isFenced: FenceCheck,
     sessionGeneration: number,
     settlement: Promise<SettledAgentChange>,
+    receivedAt: number,
   ): Promise<void> {
     let settled: SettledAgentChange;
     try {
@@ -322,6 +331,10 @@ export class AgentConversation {
       actionOutcomes: toActionOutcomes(event.response, settled),
     };
     this.#staleRunWatch.changeAcknowledged(event.changeId);
+    this.#dependencies.diagnostics.emit('client.agent.ui.applied', {
+      changeId: event.changeId,
+      durationMs: Math.max(0, this.#dependencies.now() - receivedAt),
+    });
     try {
       await connector.sendInput(acknowledgement);
     } catch (error) {
