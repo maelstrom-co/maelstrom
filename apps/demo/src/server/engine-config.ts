@@ -119,9 +119,10 @@ export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
 
 /**
  * The local Jev engine (`MAELSTROM_PLANNER=jev` or `jev-composed-pairs`):
- * Jev plans, and any deferral re-plans with `llmPlanner`. The engine runs with `retry: false` because the Jev
- * pipeline validates its own candidate; both Jev planners retry the
- * fallback once themselves.
+ * Jev plans, and any deferral re-plans with `llmPlanner`, because the Jev
+ * `fallback` type cannot accept a clarification. The engine runs with
+ * `retry: false` because the Jev pipeline validates its own candidate. Both
+ * Jev planners retry the fallback once themselves.
  */
 export function createJevPlaygroundEngine(
   options: JevPlaygroundEngineOptions,
