@@ -851,15 +851,11 @@ describe('HistoryManager.getLLMContext', () => {
         if (entry.kind === 'turn' && entry.metadata?.redacted) {
           return [{ role: 'assistant', content: '[redacted]' }];
         }
-        return [
-          {
-            role: 'assistant',
-            content:
-              entry.kind === 'turn'
-                ? entry.output.response.userMessage
-                : entry.input.content,
-          },
-        ];
+        const content =
+          entry.kind === 'turn'
+            ? entry.output.response.userMessage
+            : entry.input.content;
+        return content === undefined ? [] : [{ role: 'assistant', content }];
       },
     });
     const s = SessionId('s');

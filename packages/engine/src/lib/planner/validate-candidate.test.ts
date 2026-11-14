@@ -326,7 +326,7 @@ describe('createCandidateValidator with skipReply', () => {
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
     expect(result.value.userMessage).toBe('  ');
-    expect(result.value.userMessage.trim()).toBe('');
+    expect(result.value.userMessage?.trim()).toBe('');
   });
 
   test('a needs-clarification result is accepted when skipReply is true', () => {
