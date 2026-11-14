@@ -510,6 +510,54 @@ describe('runAgent on chat()', () => {
       },
     );
 
+    test('tool_completed reports the replaced result, not the tool own result', async () => {
+      const tools = orderTools();
+      const model = scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        textTurn(['No order found.'], usage(4, 1)),
+      ]);
+      const substitution = {
+        name: 'test-malformed-replace',
+        onAfterToolCall: () => ({
+          type: 'replaceResult',
+          result: { ok: true, value: { orderId: SECRET }, summary: 'Order' },
+        }),
+      } satisfies ChatMiddleware;
+      const activity: AgentRunActivity[] = [];
+
+      await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          {
+            signal: new AbortController().signal,
+            onActivity: (next) => {
+              activity.push(next);
+            },
+          },
+          { middleware: [substitution] },
+        ),
+      );
+
+      const completed = activity.filter(
+        (entry) => entry.type === 'tool_completed' && entry.callId === 'c1',
+      );
+      expect(completed).toEqual([
+        {
+          type: 'tool_completed',
+          turnId: 'run-1:t1',
+          callId: CallId('c1'),
+          name: 'latest_order',
+          outcome: 'failed',
+          durationMs: expect.any(Number),
+          result: {
+            ok: false,
+            code: 'invalid_output',
+            summary: INVALID_RESULT_SUMMARY,
+          },
+        },
+      ]);
+    });
+
     test('a substituted success envelope whose output schema has a rejecting async refine is replaced without an unhandled rejection', async () => {
       const unhandled = recordUnhandledRejections();
       const tools = asyncOutputRefineTools(async () => {
@@ -1108,6 +1156,45 @@ describe('runAgent budgets and stops on chat()', () => {
     expectEveryCallSettledOnce(events);
   });
 
+  test('a turn the cap refuses reports no turn activity, and each admitted turn finishes once before finished', async () => {
+    const tools = orderTools();
+    const model = scriptedAdapter(
+      [1, 2, 3, 4].map((turn) =>
+        toolTurn(
+          [{ id: `c${turn}`, name: 'latest_order', args: {} }],
+          usage(10, 2),
+        ),
+      ),
+    );
+    const log: (AgentRunActivity | 'finished')[] = [];
+
+    for await (const event of runAgent(
+      runInput({
+        adapter: model.adapter,
+        registry: tools.registry,
+        budgets: { ...testBudgets, maxTurns: 3 },
+      }),
+      {
+        signal: new AbortController().signal,
+        onActivity: (activity) => {
+          log.push(activity);
+        },
+      },
+    )) {
+      if (event.type === 'finished') log.push('finished');
+    }
+
+    const activity = log.filter((entry) => entry !== 'finished');
+    const turnsOf = (type: 'turn_started' | 'turn_finished') =>
+      activity.flatMap((entry) =>
+        entry.type === type ? [entry.turnIndex] : [],
+      );
+    expect(turnsOf('turn_started')).toEqual([1, 2, 3]);
+    expect(turnsOf('turn_finished')).toEqual([1, 2, 3]);
+    expect(serializeLoosely(activity)).not.toContain('run-1:t4');
+    expect(log.at(-1)).toBe('finished');
+  });
+
   test.each([
     ['at the deadline with its timer lagging', 1, false],
     ['after the deadline with its timer lagging', 26, false],
@@ -1620,6 +1707,55 @@ describe('runAgent budgets and stops on chat()', () => {
       inputTokens: 4,
       outputTokens: 1,
     });
+  });
+
+  test('a call announced beside one that aborts the run completes as not_run without a duration and never starts', async () => {
+    const controller = new AbortController();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await Promise.resolve();
+      },
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'increment', args: { by: 1 } },
+          { id: 'c2', name: 'increment', args: { by: 2 } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const log: (AgentRunActivity | 'finished')[] = [];
+
+    for await (const event of runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (activity) => {
+          log.push(activity);
+        },
+      },
+    )) {
+      if (event.type === 'finished') log.push('finished');
+    }
+
+    const ofSecondCall = log.filter(
+      (entry) =>
+        entry !== 'finished' && 'callId' in entry && entry.callId === 'c2',
+    );
+    expect(ofSecondCall).toEqual([
+      expect.objectContaining({
+        type: 'tool_completed',
+        outcome: 'not_run',
+        result: expect.objectContaining({ ok: false }),
+      }),
+    ]);
+    expect(ofSecondCall[0]).not.toHaveProperty('durationMs');
+    expect(log.indexOf(ofSecondCall[0] ?? 'finished')).toBeLessThan(
+      log.indexOf('finished'),
+    );
   });
 
   describe('toolsSettled on the ending', () => {

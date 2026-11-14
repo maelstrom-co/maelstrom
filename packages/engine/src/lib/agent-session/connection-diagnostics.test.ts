@@ -485,6 +485,54 @@ describe('agent run diagnostics', () => {
     session.connection.close();
   });
 
+  test('a turn with two executed calls pairs each start with its completion before the turn finishes', async () => {
+    const model = scriptedTextAdapter([
+      scriptedToolTurn(
+        [
+          { id: 'provider-call-1', name: 'latest_order', args: {} },
+          { id: 'provider-call-2', name: 'latest_order', args: {} },
+        ],
+        scriptedUsage(1, 1),
+      ),
+      scriptedTextTurn(['Both were o-1.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({
+      model: model.adapter,
+      tools: [orderTool().tool],
+    });
+
+    await session.send(utterance('input-1', 'show me my last two orders'));
+
+    const firstTurn = `${runIdOf(session.received, 'input-1')}:t1`;
+    const turnOne = session.diagnostics
+      .filter(
+        (event) =>
+          (event.kind.startsWith('engine.agent.turn.') ||
+            event.kind.startsWith('engine.agent.tool.')) &&
+          event.metadata.turnId === firstTurn,
+      )
+      .map((event) => [event.kind, event.metadata.callId]);
+    expect(turnOne).toEqual([
+      ['engine.agent.turn.started', undefined],
+      ['engine.agent.tool.started', 'c1'],
+      ['engine.agent.tool.completed', 'c1'],
+      ['engine.agent.tool.started', 'c2'],
+      ['engine.agent.tool.completed', 'c2'],
+      ['engine.agent.turn.finished', undefined],
+    ]);
+    for (const [, metadata] of toolEventsOf(session.diagnostics).filter(
+      ([kind]) => kind === 'engine.agent.tool.completed',
+    ))
+      expect(metadata.outcome).toBe('succeeded');
+    const finished = session.diagnostics.find(
+      (event) =>
+        event.kind === 'engine.agent.turn.finished' &&
+        event.metadata.turnId === firstTurn,
+    );
+    expect(finished?.metadata.toolCalls).toBe(2);
+    session.connection.close();
+  });
+
   test('turn token counts are absent for a turn whose provider call reported no usage, and reported counts sum to the run totals', async () => {
     const model = scriptedTextAdapter([
       scriptedToolTurn(
@@ -621,6 +669,32 @@ describe('agent run diagnostics', () => {
     session.connection.close();
   });
 
+  test('a call whose arguments fail the input schema completes as not_run without a duration and never starts', async () => {
+    const model = scriptedTextAdapter([
+      scriptedToolTurn(
+        [{ id: 'provider-call-1', name: 'find_order', args: {} }],
+        scriptedUsage(1, 1),
+      ),
+      scriptedTextTurn(['Which order?'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({
+      model: model.adapter,
+      tools: [findOrderTool()],
+    });
+
+    await session.send(utterance('input-1', 'find my order'));
+
+    const tools = toolEventsOf(session.diagnostics);
+    expect(tools).toEqual([
+      [
+        'engine.agent.tool.completed',
+        expect.objectContaining({ callId: 'c1', outcome: 'not_run' }),
+      ],
+    ]);
+    expect(tools[0]?.[1]).not.toHaveProperty('durationMs');
+    session.connection.close();
+  });
+
   test('tool.started is published before the tool runs and tool.completed measures the tool on the run clock', async () => {
     const time = createFakeAgentRunTime();
     const model = scriptedTextAdapter([
@@ -677,7 +751,7 @@ describe('agent run diagnostics', () => {
     const session = openAgentSession({
       model: model.adapter,
       tools: [findOrderTool()],
-      planner: addEventPlanner,
+      planner: rationalePlanner,
     });
     const structural: string[] = [];
     const withContent: string[] = [];
@@ -710,9 +784,11 @@ describe('agent run diagnostics', () => {
         REPLY_SENTINEL,
         ARGS_SENTINEL,
         RESULT_SENTINEL,
+        RATIONALE_SENTINEL,
       ])
         expect(frame).not.toContain(sentinel);
     }
+    expect(JSON.stringify(change.response)).toContain(RATIONALE_SENTINEL);
     const contentOf = (kind: string, turnIndex?: number) =>
       withContent
         .map((frame) => (JSON.parse(frame) as { event: DiagnosticEvent }).event)
@@ -721,6 +797,7 @@ describe('agent run diagnostics', () => {
             event.kind === kind &&
             (turnIndex === undefined || event.metadata.turnIndex === turnIndex),
         )?.content;
+    expect(contentOf('engine.agent.turn.finished', 1)).toEqual({ text: '' });
     expect(contentOf('engine.agent.turn.finished', 2)).toEqual({
       text: REPLY_SENTINEL,
     });
@@ -737,6 +814,58 @@ describe('agent run diagnostics', () => {
     expect(contentOf('engine.agent.ui_change.emitted')).toMatchObject({
       response: change.response,
     });
+    for (const forwarder of forwarders) forwarder.dispose();
+    session.connection.close();
+  });
+
+  test('a failed tool result is forwarded as content without its server-side cause', async () => {
+    const model = scriptedTextAdapter([
+      scriptedToolTurn(
+        [{ id: 'provider-call-1', name: 'latest_order', args: {} }],
+        scriptedUsage(1, 1),
+      ),
+      scriptedTextTurn(['That did not work.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({
+      model: model.adapter,
+      tools: [
+        orderTool({
+          latestOrder: () => Promise.reject(new Error(CAUSE_SENTINEL)),
+        }).tool,
+      ],
+    });
+    const structural: string[] = [];
+    const withContent: string[] = [];
+    const forwarders = [
+      createDiagnosticConnection(session.engine, {
+        enabled: true,
+        sessionId: SessionId('agent-route'),
+        send: (frame) => structural.push(frame),
+      }),
+      createDiagnosticConnection(session.engine, {
+        enabled: true,
+        sessionId: SessionId('agent-route'),
+        send: (frame) => withContent.push(frame),
+      }),
+    ] as const;
+    await forwarders[0].handle(diagnosticsSubscription('agent-route'));
+    await forwarders[1].handle(diagnosticsSubscription('agent-route', true));
+
+    await session.send(utterance('input-1', 'show me my last order'));
+
+    const completed = withContent
+      .map((frame) => (JSON.parse(frame) as { event: DiagnosticEvent }).event)
+      .find((event) => event.kind === 'engine.agent.tool.completed');
+    expect(completed?.content).toEqual({
+      result: {
+        ok: false,
+        code: 'tool_failed',
+        summary: 'latest_order failed',
+      },
+    });
+    expect(withContent.length).toBeGreaterThan(0);
+    for (const frame of [...structural, ...withContent])
+      expect(frame).not.toContain(CAUSE_SENTINEL);
     for (const forwarder of forwarders) forwarder.dispose();
     session.connection.close();
   });
@@ -907,6 +1036,8 @@ const UTTERANCE_SENTINEL = 'utterance-sentinel-31';
 const REPLY_SENTINEL = 'reply-sentinel-47';
 const ARGS_SENTINEL = 'args-sentinel-55';
 const RESULT_SENTINEL = 'result-sentinel-82';
+const RATIONALE_SENTINEL = 'rationale-sentinel-64';
+const CAUSE_SENTINEL = 'cause-sentinel-19';
 
 const RUN_LIFECYCLE_KINDS = new Set([
   'engine.agent.input.accepted',
@@ -954,6 +1085,12 @@ function openUiOnlySession(planningMs = 0) {
   });
   return { connection, received, diagnostics };
 }
+
+const rationalePlanner: ClarifyingPlanner = async (input, ctx) => {
+  const planned = await addEventPlanner(input, ctx);
+  if (!planned.ok || planned.value.type !== 'plan') return planned;
+  return ok({ ...planned.value, rationale: RATIONALE_SENTINEL });
+};
 
 function findOrderTool({ withFacts = true }: { withFacts?: boolean } = {}) {
   return serverTool({
