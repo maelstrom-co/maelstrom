@@ -276,6 +276,19 @@ test('the Agent tab pages runs and session events and keeps a selected run visib
   expect(rows()).toHaveLength(53);
 });
 
+test('the Agent tab warns when retained run events exceed what the view shows', () => {
+  const tools = createDevtools({ initialIsOpen: true, maxRunEvents: 10_001 });
+  const deliver = attachWithDelivery(tools);
+  for (let index = 1; index <= 10_001; index++)
+    deliver(agentEvent(`run-${index}`, 'engine.agent.turn.started'));
+  expect(tools.getSnapshot().runActivity).toHaveLength(10_001);
+  const { shadow, click } = mount(tools);
+  click('Agent');
+  expect(visibleText(shadow)).toContain(
+    'This view shows the latest 10000 events; 1 earlier events are omitted from the view.',
+  );
+});
+
 test('changing the evidence source resets the selected agent run', () => {
   const tools = createDevtools({ initialIsOpen: true });
   const deliver = attachWithDelivery(tools);

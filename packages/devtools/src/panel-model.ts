@@ -465,6 +465,7 @@ export interface PanelEvidence {
   droppedRequestEvents?: number;
   droppedRunEvents?: number;
   omittedRequestEvents?: number;
+  omittedRunEvents?: number;
   apps: PanelApp[];
   dropped?: number;
   omitted: number;

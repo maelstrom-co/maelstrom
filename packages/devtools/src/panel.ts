@@ -274,6 +274,10 @@ function Panel(tools: Devtools): HTMLElement {
           0,
           state.requestActivity.length - MAX_VIEW_EVENTS,
         ),
+        omittedRunEvents: Math.max(
+          0,
+          state.runActivity.length - MAX_VIEW_EVENTS,
+        ),
         apps: state.sessions.map((session) => ({
           id: session.id,
           active: session.active,
@@ -1027,7 +1031,7 @@ function Panel(tools: Devtools): HTMLElement {
       requestEvidenceView && data.requestEvents
         ? data.omittedRequestEvents
         : agentView && data.runEvents
-          ? 0
+          ? data.omittedRunEvents
           : data.omitted;
     const currentIds = new Set([
       ...state.sessions.map((session) => session.id),
