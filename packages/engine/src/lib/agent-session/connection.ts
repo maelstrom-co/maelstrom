@@ -199,6 +199,7 @@ function createAgentRoute({
     clock,
     scheduleTimeout,
     shows,
+    showsSettleTimeoutMs: acknowledgementTimeoutMs,
     transcript,
     toolResults: createToolResultStore(),
   });
