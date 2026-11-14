@@ -16,6 +16,14 @@ export function toolCallRef(runId: RunId, callId: CallId): ToolCallRef {
 }
 
 /**
+ * Renders a show note as the line a {@link Transcript} renders it,
+ * `[show <turnId>] <text>`, for handing the same line to a run in progress.
+ */
+export function renderShowNote(turnId: string, text: string): string {
+  return `[show ${turnId}] ${text}`;
+}
+
+/**
  * The in-memory record of what an Agent Session emitted, rendered into the
  * prior messages of each later run. It keeps tool summaries only, never full
  * tool results, and accepts no identity. It keeps only the most recent runs
@@ -240,7 +248,7 @@ function renderEntry(entry: TranscriptEntry): string {
     case 'tool_result':
       return `[tool result ${entry.ref}] ${entry.ok ? 'ok' : 'failed'}: ${entry.summary}`;
     case 'show_note':
-      return `[show ${entry.turnId}] ${entry.text}`;
+      return renderShowNote(entry.turnId, entry.text);
     case 'closing_message':
       return `[closing message ${entry.runId}] ${entry.text}`;
     case 'ending':

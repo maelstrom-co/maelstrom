@@ -46,6 +46,7 @@ import {
 } from './tool-result-store.js';
 import {
   createTranscript,
+  renderShowNote,
   TRANSCRIPT_MAX_CHARS,
   type Transcript,
 } from './transcript.js';
@@ -74,7 +75,11 @@ export interface AgentRunQueueOptions {
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
   /** Plans the show a tool phase with a successful result asks for. */
   readonly planShow: ShowPlanner;
-  /** How long a loop-driven change may await its acknowledgement before the next show starts. */
+  /**
+   * How long a loop-driven change may await its acknowledgement before the
+   * next show starts. It also bounds how long a new run's first model turn
+   * waits for earlier shows to settle.
+   */
   readonly acknowledgementTimeoutMs: number;
   /**
    * Session transcript later runs build on. Defaults to a new one bounded by
@@ -92,7 +97,10 @@ export interface AgentRunQueueOptions {
  * ending is emitted at once, but the next run starts only after every tool
  * call of the previous run that is not `read_only` has settled. A tool phase
  * with a successful result queues one loop-driven show, which runs beside the
- * runs and never holds them up.
+ * runs. Only a run's first model turn waits, until every earlier show has
+ * settled or {@link AgentRunQueueOptions.acknowledgementTimeoutMs} has passed,
+ * and that wait counts toward the run's `maxElapsedMs`. A show note recorded
+ * after a run rendered its prior messages reaches that run's next model turn.
  */
 export interface AgentRunQueue {
   /** Queued runs plus the active one. */
@@ -102,7 +110,10 @@ export interface AgentRunQueue {
   /**
    * Cancels a run. The active run is aborted, drained and finished as
    * `cancelled`, dropping anything else it produces afterwards. A queued run
-   * finishes as `cancelled` without starting. Unknown runs are ignored.
+   * finishes as `cancelled` without starting. The run's queued shows are
+   * dropped and its show in planning is aborted, each with a cancelled note,
+   * while its change already sent still awaits acknowledgement. Unknown runs
+   * are ignored.
    */
   cancelRun(runId: RunId): void;
   /**
@@ -135,12 +146,15 @@ export function createAgentRunQueue({
   let active: ActiveAgentRun | undefined;
   let toolsSettling: Promise<void> | undefined;
   let closed = false;
+  const recordShowNote = (runId: RunId, turnId: string, text: string) => {
+    transcript.recordShowNote(runId, turnId, text);
+    active?.sessionNotes?.push(renderShowNote(turnId, text));
+  };
   const shows = createPlannerShowQueue({
     planShow,
     events,
     observe,
-    recordShowNote: (runId, turnId, text) =>
-      transcript.recordShowNote(runId, turnId, text),
+    recordShowNote,
     logger,
     scheduleTimeout,
     acknowledgementTimeoutMs,
@@ -250,7 +264,7 @@ export function createAgentRunQueue({
         toolResults.recordToolPhase(runId, event);
         const facts = collectShowFacts(event, agent.registry, logger);
         if (facts === undefined) return;
-        transcript.recordShowNote(
+        recordShowNote(
           runId,
           event.turnId,
           describeShowQueued(facts.toolNames),
@@ -272,6 +286,7 @@ export function createAgentRunQueue({
   const drive = async (run: ActiveAgentRun): Promise<void> => {
     const turnBegan = clock();
     const priorMessages = transcript.renderPriorMessages();
+    run.sessionNotes = [];
     transcript.recordUserInput(run.runId, run.input.text);
     const aborted = whenAborted(run.controller.signal);
     const deadline = setupDeadline(agent, scheduleTimeout);
@@ -329,7 +344,12 @@ export function createAgentRunQueue({
         clock: runClock,
         logger,
       },
-      { signal: run.controller.signal },
+      {
+        signal: run.controller.signal,
+        gate: ({ turn }) =>
+          turn === 1 ? earlierShowsSettled(run.controller.signal) : undefined,
+        takeSessionNotes: () => run.sessionNotes?.splice(0) ?? [],
+      },
     )[Symbol.asyncIterator]();
     run.iterator = iterator;
     let finished: AgentRunFinished;
@@ -361,6 +381,15 @@ export function createAgentRunQueue({
         : finished,
       finished.toolsSettled,
     );
+  };
+
+  const earlierShowsSettled = (signal: AbortSignal): Promise<void> => {
+    let cancelTimeout = () => {};
+    const timedOut = new Promise<void>((resolve) => {
+      cancelTimeout = scheduleTimeout(resolve, acknowledgementTimeoutMs);
+    });
+    signal.addEventListener('abort', () => cancelTimeout(), { once: true });
+    return Promise.race([shows.whenIdle(), timedOut]).finally(cancelTimeout);
   };
 
   const pump = async (): Promise<void> => {
@@ -400,6 +429,7 @@ export function createAgentRunQueue({
     },
     cancelRun(runId) {
       if (closed) return;
+      shows.dropRun(runId);
       if (active?.runId === runId) {
         if (active.cancelled) return;
         active.cancelled = true;
@@ -461,6 +491,7 @@ interface ActiveAgentRun extends QueuedAgentRun {
   readonly controller: AbortController;
   iterator?: AsyncIterator<AgentRunEvent>;
   cancelled: boolean;
+  sessionNotes?: string[];
 }
 
 const ZERO_METRICS: AgentRunMetrics = {

@@ -40,6 +40,7 @@ import {
   type AgentRunEvent,
   BUDGET_CLOSING_MESSAGE,
   DEFAULT_AGENT_RUN_BUDGETS,
+  runAgent,
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import type { ShowPlanInput, ShowPlanner } from './planner-show-queue.js';
@@ -1231,6 +1232,127 @@ describe('agent run queue', () => {
         false,
       );
     });
+
+    test('a show note recorded before a run renders its prior messages stays there alone, and one recorded after is taken once', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const parked: {
+        input: Parameters<AgentRunStarter>[0];
+        options: Parameters<AgentRunStarter>[1];
+      }[] = [];
+      let starts = 0;
+      const startRun: AgentRunStarter = (input, options) => {
+        starts += 1;
+        if (starts === 1) return runAgent(input, options);
+        parked.push({ input, options });
+        return untilAborted(options.signal);
+      };
+      const session = createSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        startRun,
+        planShow: (input) =>
+          Promise.resolve(
+            ok({ type: 'response', response: showResponse(input, 1) }),
+          ),
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
+      const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+      await waitUntil(() => parked.length === 1);
+      const [run] = parked;
+      if (run === undefined) throw new Error('second run never started');
+      const firstRun = runIdOf(session.received, 'input-1');
+      const queuedNote = `[show ${firstRun}:t1] Show queued: latest_order result.`;
+      expect(serializeLoosely(run.input.priorMessages)).toContain(queuedNote);
+      expect(run.options.takeSessionNotes?.()).toEqual([]);
+
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
+      session.queue.acknowledge(applied(change.changeId, 1));
+
+      expect(run.options.takeSessionNotes?.()).toEqual([
+        expect.stringMatching(
+          new RegExp(`^\\[show ${firstRun}:t1\\] Screen updated: `),
+        ),
+      ]);
+      expect(run.options.takeSessionNotes?.()).toEqual([]);
+      expect(serializeLoosely(run.input.priorMessages)).not.toContain(
+        'Screen updated:',
+      );
+      session.queue.cancelRun(runIdOf(session.received, 'input-2'));
+      await second;
+    });
+
+    test('cancelling the active run drops its queued shows with cancelled notes and keeps its sent change awaiting acknowledgement', async () => {
+      const startRun: AgentRunStarter = (input, { signal }) =>
+        (async function* (): AsyncGenerator<AgentRunEvent> {
+          for (const turn of [1, 2, 3]) {
+            yield {
+              type: 'tool_phase_ended',
+              turnId: `${input.runId}:t${turn}`,
+              results: [
+                {
+                  callId: CallId(`c${turn}`),
+                  name: 'latest_order',
+                  ok: true,
+                  summary: 'Order o-1',
+                  value: LATEST_ORDER,
+                },
+              ],
+            };
+          }
+          yield* untilAborted(signal);
+        })();
+      const session = createSession({
+        tools: [orderTool().tool],
+        startRun,
+        planShow: (input) =>
+          Promise.resolve(
+            ok({ type: 'response', response: showResponse(input, 1) }),
+          ),
+      });
+
+      const run = session.queue.enqueue(utterance('input-1', 'show it'));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
+      const runId = runIdOf(session.received, 'input-1');
+      session.queue.cancelRun(runId);
+      await run;
+
+      const transcript = renderedTranscript(session.transcript);
+      expect(transcript).toContain(
+        `[show ${runId}:t2] Show cancelled: latest_order result.`,
+      );
+      expect(transcript).toContain(
+        `[show ${runId}:t3] Show cancelled: latest_order result.`,
+      );
+      expect(session.showPlans).toHaveLength(1);
+
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
+      const before = session.received.length;
+      session.queue.acknowledge(applied(change.changeId, 1));
+
+      expect(session.received.slice(before)).toEqual([]);
+      expect(renderedTranscript(session.transcript)).toContain(
+        `[show ${runId}:t1] Screen updated: `,
+      );
+      expect(session.showPlans).toHaveLength(1);
+    });
   });
 });
 
@@ -1459,6 +1581,21 @@ async function waitUntil(condition: () => boolean): Promise<void> {
     await flushMacrotasks();
   }
   throw new Error('condition never held');
+}
+
+function untilAborted(signal: AbortSignal): AsyncIterable<AgentRunEvent> {
+  const aborted = new Promise((resolve) => {
+    if (signal.aborted) resolve(undefined);
+    signal.addEventListener('abort', resolve, { once: true });
+  });
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: async (): Promise<IteratorResult<AgentRunEvent>> => {
+        await aborted;
+        return { done: true, value: undefined };
+      },
+    }),
+  };
 }
 
 function flushMacrotasks(): Promise<void> {
