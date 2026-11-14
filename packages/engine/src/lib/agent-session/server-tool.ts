@@ -1,3 +1,4 @@
+import type { JsonValue } from '@maelstrom-co/protocol';
 import type { z } from 'zod';
 
 /** Every allowed {@link ToolLocus}. */
@@ -52,6 +53,12 @@ export interface ServerTool<Input, Output> {
   execute(input: Input, ctx: ServerToolContext): Promise<Output>;
   /** Pure, synchronous, user-safe one-line description of a result. */
   summarize(output: Output): string;
+  /**
+   * Pure and synchronous. Called with the validated output of a successful
+   * call and returns facts the Planner may use to plan the screen for that
+   * result. Never name a Vessel, Action or parameter here.
+   */
+  intentFacts?(output: Output): Readonly<Record<string, JsonValue>>;
 }
 
 /** The fields an author writes. `locus`, `sideEffect` and `approval` are optional. */
@@ -89,6 +96,7 @@ export class ToolError extends Error {
  *   sideEffect: 'read_only',
  *   execute: (_input, ctx) => orders.latestFor(ctx.user, ctx.signal),
  *   summarize: (order) => `Order ${order.orderId}`,
+ *   intentFacts: (order) => ({ orderId: order.orderId }),
  * });
  * ```
  */
