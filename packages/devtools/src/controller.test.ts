@@ -809,6 +809,22 @@ test('agent run evidence is retained apart from request history and bounded by w
   expect(tools.getSnapshot().droppedRunEvents).toBe(0);
 });
 
+test('agent run evidence passes through application redaction and keeps no content', () => {
+  const { tools, deliver } = setupWithDelivery({
+    redact: (value) =>
+      JSON.parse(
+        JSON.stringify(value).replaceAll('diagnostic-session', '[REDACTED]'),
+      ),
+  });
+  deliver(runEvent('run-1', 'engine.agent.input.accepted', 'input-1'));
+  const { runActivity } = tools.getSnapshot();
+  expect(runActivity).toHaveLength(1);
+  expect(runActivity[0]?.sessionId).toBe('[REDACTED]');
+  const retained = JSON.stringify(runActivity);
+  expect(retained).not.toContain('diagnostic-session');
+  expect(retained).not.toContain('"content"');
+});
+
 test('run retention defaults to 1000 events and rejects an invalid bound', () => {
   const { tools, deliver } = setupWithDelivery();
   for (let i = 0; i < 1001; i++)
