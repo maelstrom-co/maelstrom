@@ -441,6 +441,36 @@ describe('AgentEvent round-trip', () => {
     }
   });
 
+  test('error round-trips with a runId alongside a changeId and a code', () => {
+    const value: AgentEvent = {
+      type: 'error',
+      version: AGENT_WIRE_VERSION,
+      runId: RunId('run-1'),
+      changeId: ChangeId('change-1'),
+      error: 'show failed',
+      code: 'planning_timeout',
+    };
+    expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+  });
+
+  test('error with a runId still strips an unknown field', () => {
+    const value = {
+      ...eventFixtures.error,
+      runId: RunId('run-1'),
+    };
+    const result = AgentEventSchema.safeParse({ ...value, futureField: 'x' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(value);
+  });
+
+  test('error rejects an empty runId', () => {
+    const result = AgentEventSchema.safeParse({
+      ...eventFixtures.error,
+      runId: '',
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('tool_call and tool_result reject an empty or whitespace callId or name and an empty turnId', () => {
     for (const fixture of [
       eventFixtures.tool_call,
@@ -607,6 +637,15 @@ describe('agent wire through the Envelope codecs', () => {
       expect(decodeServerEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
     });
   }
+
+  test('engine.agent.event carrying an error with a runId', () => {
+    const frame = AgentEventMessage({
+      sessionId,
+      id: MessageId('frame-error-run'),
+      event: { ...eventFixtures.error, runId: RunId('run-1') },
+    });
+    expect(decodeServerEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+  });
 
   test('an unknown inner input type is an invalid_envelope naming the discriminator', () => {
     const decoded = decodeClientEnvelope({
