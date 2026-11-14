@@ -1,11 +1,24 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
-import type { ConnectorEvent, EngineConnector } from '@maelstrom-co/client';
-import { createTestConnector } from '@maelstrom-co/client/_testing';
+import type {
+  ConnectorEvent,
+  EngineConnector,
+  Orchestrator,
+} from '@maelstrom-co/client';
+import {
+  agentPlaceholderEvent,
+  createTestConnector,
+} from '@maelstrom-co/client/_testing';
+import { MessageId } from '@maelstrom-co/protocol';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { Activity, StrictMode } from 'react';
+import { Activity, StrictMode, useSyncExternalStore } from 'react';
 
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockAgentEngineConnector } from './__tests__/mock-connector.js';
+import type { AgentRunStore } from './agent-run-store.js';
+import { createMaelstromContext } from './context.js';
 import { createMaelstrom } from './create-maelstrom.js';
+import { createProvider } from './provider.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -243,3 +256,140 @@ describe('Provider connection lifetime', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 });
+
+describe('Provider agent run store', () => {
+  it('puts a store on the context that follows the live Orchestrator after a Strict Mode remount', async () => {
+    const { agent, contextPair, Provider, tracked } = renderableAgentProvider();
+    function Placeholder() {
+      const { agentRunStore } = contextPair.useMaelstromContext();
+      const snapshot = useSyncExternalStore(
+        agentRunStore.subscribe,
+        agentRunStore.getSnapshot,
+      );
+      return <output>{snapshot.run?.placeholder ?? 'none'}</output>;
+    }
+
+    const view = render(
+      <StrictMode>
+        <Provider connector={agent.connector}>
+          <Placeholder />
+        </Provider>
+      </StrictMode>,
+    );
+
+    expect(tracked).toHaveLength(2);
+    expect(contextPair.contextRef.current?.orchestrator).toBe(
+      tracked[1]?.orchestrator,
+    );
+    expect(view.getByRole('status').textContent).toBe('none');
+
+    act(() => {
+      agent.emit(agentPlaceholderEvent(MessageId('input-1'), 'Looking it up'));
+    });
+
+    expect(view.getByRole('status').textContent).toBe('Looking it up');
+  });
+
+  it('releases every store subscription before its Orchestrator is disposed, including the Strict Mode discard', async () => {
+    const { agent, Provider, tracked } = renderableAgentProvider();
+    const consoleError = spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const view = render(
+        <StrictMode>
+          <Provider connector={agent.connector}>
+            <div />
+          </Provider>
+        </StrictMode>,
+      );
+      expect(() => view.unmount()).not.toThrow();
+      await act(async () => {
+        await Promise.all(tracked.map(({ disposal }) => disposal));
+      });
+
+      expect(tracked).toHaveLength(2);
+      for (const instance of tracked) {
+        expect(instance.subscriptions).toBeGreaterThan(0);
+        expect(instance.activeAtDispose).toBe(0);
+      }
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('stops folding agent events into the store after unmount', async () => {
+    const { agent, contextPair, Provider } = renderableAgentProvider();
+    let captured: AgentRunStore | undefined;
+    function CaptureStore() {
+      captured = contextPair.useMaelstromContext().agentRunStore;
+      return null;
+    }
+    const view = render(
+      <StrictMode>
+        <Provider connector={agent.connector}>
+          <CaptureStore />
+        </Provider>
+      </StrictMode>,
+    );
+    assertDefined(captured);
+    const store = captured;
+    const before = store.getSnapshot();
+
+    view.unmount();
+    agent.emit(agentPlaceholderEvent(MessageId('input-1'), 'Looking it up'));
+
+    expect(store.getSnapshot()).toBe(before);
+  });
+});
+
+type TrackedOrchestrator = {
+  orchestrator: Orchestrator;
+  subscriptions: number;
+  active: number;
+  activeAtDispose: number | null;
+  disposal: Promise<void> | null;
+};
+
+function renderableAgentProvider() {
+  const agent = createMockAgentEngineConnector();
+  const contextPair = createMaelstromContext();
+  const tracked: TrackedOrchestrator[] = [];
+  contextPair.orchestratorObservers.add((orchestrator) => {
+    const entry: TrackedOrchestrator = {
+      orchestrator,
+      subscriptions: 0,
+      active: 0,
+      activeAtDispose: null,
+      disposal: null,
+    };
+    tracked.push(entry);
+    const events = orchestrator.agent;
+    const on = events.on.bind(events);
+    events.on = (type, listener) => {
+      const release = on(type, listener);
+      entry.subscriptions++;
+      entry.active++;
+      let released = false;
+      return () => {
+        if (!released) entry.active--;
+        released = true;
+        release();
+      };
+    };
+    const dispose = orchestrator.dispose.bind(orchestrator);
+    orchestrator.dispose = () => {
+      entry.activeAtDispose ??= entry.active;
+      entry.disposal ??= dispose();
+      return entry.disposal;
+    };
+    return () => {};
+  });
+  const Provider = createProvider(contextPair, [], {});
+  return {
+    agent,
+    contextPair,
+    Provider,
+    tracked,
+  };
+}

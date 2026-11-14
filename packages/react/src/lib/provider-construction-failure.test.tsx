@@ -36,6 +36,13 @@ class FakeOrchestrator {
     events: { on: () => () => {} },
   };
 
+  // The Provider follows agent events for its agent run store.
+  readonly agent = { on: () => () => {} };
+
+  sendMessage(): Promise<never> {
+    return Promise.reject(new Error('not supported by this fake'));
+  }
+
   connect(): Promise<void> {
     return Promise.resolve();
   }

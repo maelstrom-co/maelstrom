@@ -13,6 +13,7 @@ import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
+import { type AgentRunStore, createAgentRunStore } from './agent-run-store.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';
 import { resolveConfig } from './config-types.js';
@@ -269,9 +270,11 @@ export function createProvider(
 
     // Effect reactivation can leave several connector teardowns pending.
     const previousDisposal = useRef(Promise.resolve());
-    const [orchestrator, setOrchestrator] = useState<InstanceType<
-      typeof Orchestrator
-    > | null>(null);
+    const [runtime, setRuntime] = useState<{
+      orchestrator: Orchestrator;
+      agentRunStore: AgentRunStore;
+    } | null>(null);
+    const orchestrator = runtime?.orchestrator ?? null;
 
     useEffect(() => {
       // `layoutMode: 'grid'` with an `initialLayout` is unrepresentable in
@@ -305,7 +308,7 @@ export function createProvider(
         // keep pointing at a dead instance — every click a silent no-op,
         // every processIntent throwing 'disposed', with nothing in the UI
         // to signal it and no dependency left to change to trigger a retry.
-        setOrchestrator(null);
+        setRuntime(null);
         return;
       }
 
@@ -318,7 +321,8 @@ export function createProvider(
           }
         },
       );
-      setOrchestrator(instance);
+      const agentRunStore = createAgentRunStore(instance);
+      setRuntime({ orchestrator: instance, agentRunStore });
 
       // A refused command — a `set_layout` naming the same instance in two
       // tiling leaves is the only one today — is otherwise invisible to the
@@ -362,6 +366,7 @@ export function createProvider(
 
       return () => {
         active = false;
+        agentRunStore.dispose();
         previousDisposal.current = Promise.all([
           previousDisposal.current,
           instance.dispose().catch((err) => {
@@ -404,9 +409,10 @@ export function createProvider(
     // Context value — recomputes when orchestrator or config changes
     // (registry refs are static but listed to satisfy exhaustive-deps)
     const value: MaelstromContextValue | null = useMemo(() => {
-      if (!orchestrator) return null;
+      if (!runtime) return null;
       return {
-        orchestrator,
+        orchestrator: runtime.orchestrator,
+        agentRunStore: runtime.agentRunStore,
         connector,
         config,
         onErrorRef,
@@ -417,7 +423,7 @@ export function createProvider(
         chartMountedRef,
       };
     }, [
-      orchestrator,
+      runtime,
       connector,
       config,
       onErrorRef,
