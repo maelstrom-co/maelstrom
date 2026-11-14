@@ -1149,6 +1149,73 @@ describe('Orchestrator agent path', () => {
       }
     });
 
+    it('rejects the utterance and sends it on neither connector when a diagnostic observer replaces the connector during the input sent event', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const releaseObserver = orchestrator.diagnostics.subscribe(
+        (observation) => {
+          if (observation.event.kind === 'client.agent.input.sent')
+            orchestrator.setConnector(newAgent.connector);
+        },
+      );
+      try {
+        await expect(orchestrator.sendMessage('hello')).rejects.toThrow(
+          'Agent conversation ended before the utterance was sent',
+        );
+        await settleBriefly();
+
+        expect(oldAgent.inputs).toEqual([]);
+        expect(newAgent.inputs).toEqual([]);
+      } finally {
+        releaseObserver();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('sends no ui_applied on the retired connector when a diagnostic observer replaces the connector during the ui applied event', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const observed = Promise.withResolvers<void>();
+      const releaseObserver = orchestrator.diagnostics.subscribe(
+        (observation) => {
+          if (observation.event.kind !== 'client.agent.ui.applied') return;
+          orchestrator.setConnector(newAgent.connector);
+          observed.resolve();
+        },
+      );
+      const warn = spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+
+        oldAgent.emit(
+          uiChange(
+            'change-observer-swap',
+            boardLayout([{ instanceId: mainBoard, variant: 'collapsed' }]),
+            [step(mainBoard, 'record')],
+          ),
+        );
+        await observed.promise;
+        await settleBriefly();
+
+        expect(uiAppliedInputs(oldAgent)).toEqual([]);
+        expect(uiAppliedInputs(newAgent)).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+          '[Orchestrator]',
+          expect.stringContaining(
+            'ui_applied for change-observer-swap not sent',
+          ),
+        );
+      } finally {
+        releaseObserver();
+        await orchestrator.dispose();
+        warn.mockRestore();
+      }
+    });
+
     it('stops delivering agent diagnostics once every observer is released and still sends the utterance and ui_applied inputs', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
