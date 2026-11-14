@@ -150,8 +150,11 @@ export type {
 } from './lib/orchestrator/intent-scheduler.types.js';
 export type {
   AgentConversationEvents,
+  ConversationEndedEvent,
   ConversationLostEvent,
   ConversationLostReason,
+  StaleInputLostEvent,
+  StaleRunLostEvent,
   SendMessageOptions,
 } from './lib/orchestrator/conversation-event.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
