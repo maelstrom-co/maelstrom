@@ -198,6 +198,7 @@ Illustrative grid-mode response payload:
 - **Session state is optional.** With `history` configured, the Engine reads and records session history and deduplicates identical chart requests by `(sessionId, messageId)`. Without history, requests are processed without retained conversation history.
 - **Request-level flow.** A chart request passes through history loading, the configured Planner (with retries when enabled), response healing and validation, and history recording when configured.
 - **No direct UI mutation.** The Engine returns a response; the client applies its layout and executes accepted Actions. Configured history stores, loggers, instrumentation, and planner code may perform their own side effects.
+- **Planner stays the only path to the screen.** The Agent Session sends Planner changes as `ui_change` on its own after a tool phase, and the browser still applies them and acknowledges with `ui_applied`.
 - **Transport agnostic**: The protocol can travel over WebSocket, HTTP, or another compatible transport.
 - **Testable**: Engine behavior can be tested with mock inputs and planner results.
 

@@ -361,24 +361,32 @@ export interface AgentFinishedEvent {
 }
 
 /**
- * A failure outside any Agent Run that the Engine detects after the frame
- * decoded, such as a `ui_applied` echoing an unknown `changeId`. `inputId`
+ * A failure the Engine detects after the frame decoded that is not the run's
+ * own ending, such as an unknown `ui_applied` or a failed loop-driven UI
+ * change. `inputId`
  * names the offending input and `changeId` the UI change a failed
- * `ui_applied` refers to. A frame that does not decode is reported by the
- * `engine.error` frame instead, never by this event. Failures inside a run are
- * reported by `finished` with reason `error`. `error` and `code` have the same
- * meaning as on the `engine.error` frame.
+ * `ui_applied` refers to. `runId` names the run whose loop-driven UI change
+ * failed. A frame that does not decode is reported by the `engine.error` frame
+ * instead, never by this event. Failures of the run itself are reported by
+ * `finished` with reason `error`, while a failed loop-driven UI change is
+ * reported here. `error` and `code` have the same meaning as on the
+ * `engine.error` frame.
  */
 export const AgentErrorEventSchema = z.object({
   type: z.literal('error'),
   version: z.literal(AGENT_WIRE_VERSION),
   inputId: MessageIdSchema.optional(),
   changeId: ChangeIdSchema.optional(),
+  runId: RunIdSchema.optional(),
   error: z.string(),
   code: z.string().optional(),
 });
 
-/** A failure outside any Agent Run. */
+/**
+ * A failure the Engine detects after the frame decoded that is not the run's
+ * own ending, such as an unknown `ui_applied` or a failed loop-driven UI
+ * change.
+ */
 export interface AgentErrorEvent {
   /** Member discriminator. */
   type: 'error';
@@ -387,11 +395,17 @@ export interface AgentErrorEvent {
   /** The offending input, when there is one. */
   inputId?: MessageId;
   /**
-   * The UI change the failure belongs to. Set for failures of a `ui_applied`
-   * input, such as an unknown or stale `changeId`, because that input carries
-   * no `inputId`.
+   * The UI change the failure belongs to: the change a failed `ui_applied`
+   * refers to, or a loop-driven change whose planning failed or whose
+   * acknowledgement timed out.
    */
   changeId?: ChangeId;
+  /**
+   * The run whose loop-driven UI change failed. The event can arrive after that
+   * run's `finished`, and its `changeId` may name a change that no `ui_change`
+   * carried, because a change is named before it is planned.
+   */
+  runId?: RunId;
   /** Human-readable failure description. */
   error: string;
   /** Optional machine-readable failure kind with no closed taxonomy. */

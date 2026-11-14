@@ -7,6 +7,13 @@
  *
  *   bun apps/demo/scripts/agent-utterance.ts "what was my last order?"
  *
+ * `--shop` sends the pet shop Vessels and starting screen instead of an empty
+ * Chart, so a loop-driven show has Instances to target. The script also
+ * prints `ui_change` actions and `error` events. It sends no `ui_applied`
+ * acknowledgement, so a change on the wire ends as an acknowledgement
+ * timeout on the server. A shop run waits 3 seconds after `finished` to print
+ * events that arrive late.
+ *
  * `DEMO_WS_URL` overrides the socket URL (default `ws://localhost:3001/ws`)
  * and `AGENT_UTTERANCE_TIMEOUT_MS` the wait for `finished` (default 120000).
  *
@@ -19,32 +26,27 @@
 import {
   AGENT_WIRE_VERSION,
   AgentInputMessage,
-  type ChartRequest,
   decodeServerEnvelope,
   encodeEnvelope,
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import { buildUtteranceChart } from './agent-utterance-chart';
+
 const DEFAULT_WS_URL = 'ws://localhost:3001/ws';
 const DEFAULT_TIMEOUT_MS = 120_000;
+const SHOP_SETTLE_MS = 3_000;
 
-const EMPTY_CHART: ChartRequest = {
-  type: 'chart_request',
-  context: {
-    updateReasons: [],
-    chartDimensions: { columns: 12, rows: 8 },
-    layoutMode: 'tiling',
-  },
-  instances: [],
-  vessels: [],
-  layout: { type: 'tiling', tree: [], instances: [] },
-};
-
-const text = process.argv.slice(2).join(' ').trim();
+const args = process.argv.slice(2);
+const shop = args.includes('--shop');
+const text = args
+  .filter((arg) => arg !== '--shop')
+  .join(' ')
+  .trim();
 if (!text) {
   console.error(
-    'Usage: bun apps/demo/scripts/agent-utterance.ts "<utterance>"',
+    'Usage: bun apps/demo/scripts/agent-utterance.ts [--shop] "<utterance>"',
   );
   process.exit(1);
 }
@@ -75,7 +77,7 @@ socket.addEventListener('open', () => {
           version: AGENT_WIRE_VERSION,
           inputId: MessageId(),
           text,
-          chart: EMPTY_CHART,
+          chart: buildUtteranceChart({ shop }),
           source: 'text',
         },
       }),
@@ -102,6 +104,16 @@ socket.addEventListener('message', (message) => {
   }
   if (envelope.type !== 'engine.agent.event') return;
   console.log(JSON.stringify(envelope.event));
+  if (envelope.event.type === 'ui_change') {
+    console.log(
+      `ui_change runId=${envelope.event.runId} changeId=${envelope.event.changeId} actions=${JSON.stringify(envelope.event.response.executionPlan)}`,
+    );
+  }
+  if (envelope.event.type === 'error') {
+    console.error(
+      `agent error${envelope.event.code ? ` (${envelope.event.code})` : ''}: ${envelope.event.error}`,
+    );
+  }
   if (envelope.event.type === 'finished') {
     finished = true;
     clearTimeout(timeout);
@@ -112,7 +124,10 @@ socket.addEventListener('message', (message) => {
         `Agent finished without success: ${reason}${code ? ` (${code})` : ''}${error ? `: ${error}` : ''}`,
       );
     }
-    socket.close();
+    // A loop-driven show can put `ui_change` and `error` events on the wire
+    // after `finished`, so a shop run lingers briefly to print them.
+    if (shop) setTimeout(() => socket.close(), SHOP_SETTLE_MS);
+    else socket.close();
   }
 });
 

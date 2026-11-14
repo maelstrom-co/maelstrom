@@ -82,6 +82,9 @@ import {
 const USER_SENTINEL = 'user-sentinel-7f3a';
 const TOKEN_SENTINEL = 'token-sentinel-91c2';
 const PLANNER_PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
+const PLANNER_ERROR_SENTINEL = 'planner-error-sentinel-3b8f';
+const QUESTION_SENTINEL = 'question-sentinel-5d1e';
+const CLARIFICATION_OPTION_SENTINEL = 'clarification-option-sentinel-a24c';
 
 const LATEST_ORDER = {
   orderId: 'o-1',
@@ -95,6 +98,16 @@ const TEST_BUDGETS: AgentRunBudgets = {
   maxTokens: 10_000,
   maxToolCalls: 6,
 };
+
+const SINGLE_TOOL_RUN_WIRE: readonly AgentEvent['type'][] = [
+  'placeholder',
+  'accepted',
+  'started',
+  'tool_call',
+  'tool_result',
+  'message',
+  'finished',
+];
 
 const realCreateAgentRunQueue = agentRunQueueModule.createAgentRunQueue;
 const sessionInternals: SessionInternals[] = [];
@@ -717,7 +730,7 @@ describe('agent route through the Engine handle', () => {
       );
     });
 
-    test('an acknowledgement timeout starts the next queued show on the last known Chart', async () => {
+    test('an acknowledgement timeout sends ui_ack_timeout with the run id, records a not-confirmed note, starts the next queued show on the last known Chart and refuses a late acknowledgement', async () => {
       const time = createFakeAgentRunTime();
       const session = openAgentSession({
         time,
@@ -751,6 +764,325 @@ describe('agent route through the Engine handle', () => {
       expect(second?.intentFacts).toEqual({
         'latest_order:c2': orderFacts(LATEST_ORDER),
       });
+      expect(
+        session.received.filter((event) => event.type === 'error'),
+      ).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: firstChange?.changeId,
+          runId: runIdOf(session.received, 'input-1'),
+          code: 'ui_ack_timeout',
+          error: 'The UI acknowledgement did not arrive.',
+        },
+      ]);
+      const runId = runIdOf(session.received, 'input-1');
+      const timeoutError = session.received.find(
+        (event) => event.type === 'error',
+      );
+      expect(AgentEventSchema.safeParse(timeoutError).success).toBe(true);
+      const secondChange = uiChangesOf(session.received)[1];
+      if (secondChange === undefined) throw new Error('no second ui_change');
+      expect(indexOf(session.received, 'error', runId)).toBeLessThan(
+        session.received.indexOf(secondChange),
+      );
+      const transcript = serializeLoosely(
+        session.internals().transcript.renderPriorMessages(),
+      );
+      expect(transcript).toContain(
+        `[show ${runId}:t1] Show not confirmed: the screen did not acknowledge the latest_order change.`,
+      );
+      expect(transcript).not.toContain('Screen updated');
+      expect(transcript).not.toContain('Show failed');
+      const [timedOut] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_change.timed_out',
+      );
+      expect(timedOut?.runId).toBe(runId);
+      expect(timedOut?.metadata).toMatchObject({
+        changeId: firstChange?.changeId,
+        turnId: `${runId}:t1`,
+      });
+
+      if (firstChange === undefined) throw new Error('no ui_change');
+      const beforeLateAcknowledgement = session.received.length;
+      await session.connection.send(
+        acknowledgementOf(firstChange, weekCalendarChart()),
+      );
+      expect(session.received.slice(beforeLateAcknowledgement)).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: firstChange.changeId,
+          code: 'unknown_change',
+          error: 'Unknown UI change.',
+        },
+      ]);
+      expect(
+        occurrencesIn(
+          session.internals().transcript.renderPriorMessages(),
+          'Screen updated',
+        ),
+      ).toBe(0);
+    });
+
+    test.each([
+      [
+        'an Err result',
+        failingPlanner(providerError(PLANNER_ERROR_SENTINEL, undefined)),
+        'ProviderError',
+      ],
+      [
+        'a throw',
+        throwingPlanner(new Error(PLANNER_ERROR_SENTINEL)),
+        'ValidationError',
+      ],
+    ] as const)(
+      'a Planner failure by %s sends an error with the change id, run id and code, records a failed note and lets the next show run',
+      async (_case, failing: ClarifyingPlanner, code) => {
+        const model = twoShowTurns();
+        const session = openAgentSession({
+          model: model.adapter,
+          tools: [orderTool({ intentFacts: orderFacts }).tool],
+          planner: plannersInOrder([failing, addEventPlanner]),
+        });
+
+        await session.send(
+          utterance('input-1', 'show my orders twice', calendarChart()),
+        );
+        await waitUntil(() => uiChangesOf(session.received).length === 1);
+        await settle();
+
+        const runId = runIdOf(session.received, 'input-1');
+        const errors = session.received.filter(
+          (event) => event.type === 'error',
+        );
+        expect(errors).toEqual([
+          {
+            type: 'error',
+            version: AGENT_WIRE_VERSION,
+            changeId: expect.any(String),
+            runId,
+            code,
+            error: 'The screen could not be updated.',
+          },
+        ]);
+        const [failure] = errors;
+        if (failure?.type !== 'error') throw new Error('no error event');
+        expect(AgentEventSchema.safeParse(failure).success).toBe(true);
+        const [nextChange] = uiChangesOf(session.received);
+        if (nextChange === undefined) throw new Error('no ui_change');
+        expect(nextChange.changeId).not.toBe(failure.changeId);
+        expect(nextChange.runId).toBe(runId);
+        expect(session.plannerCalls()).toBe(2);
+        expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
+          'latest_order:c2': orderFacts(LATEST_ORDER),
+        });
+        expect(
+          serializeLoosely(
+            session.internals().transcript.renderPriorMessages(),
+          ),
+        ).toContain(
+          `[show ${runId}:t1] Show failed: latest_order result could not be shown.`,
+        );
+        const [failed] = diagnosticsOfKind(
+          session.diagnostics,
+          'engine.agent.show.failed',
+        );
+        expect(failed?.runId).toBe(runId);
+        expect(failed?.metadata).toMatchObject({
+          changeId: failure.changeId,
+          turnId: `${runId}:t1`,
+          code,
+        });
+
+        await session.connection.send(
+          acknowledgementOf(nextChange, calendarChart()),
+        );
+        await session.send(
+          utterance('input-2', 'did it work?', calendarChart()),
+        );
+        const surfaces = [
+          JSON.stringify(session.received),
+          serializeLoosely(
+            session.internals().transcript.renderPriorMessages(),
+          ),
+          ...model.requests.map(serializeLoosely),
+          ...session.diagnostics.map((event) =>
+            serializeLoosely(event.metadata),
+          ),
+        ];
+        for (const surface of surfaces) {
+          expect(surface).not.toContain(PLANNER_ERROR_SENTINEL);
+        }
+      },
+    );
+
+    test('a show planning past the 30,000 ms timeout on the fake clock has its signal aborted, sends planning_timeout, records a failed note and lets the next show run', async () => {
+      const time = createFakeAgentRunTime();
+      const signals: (AbortSignal | undefined)[] = [];
+      const session = openAgentSession({
+        time,
+        model: twoShowTurns().adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: plannersInOrder([
+          (input, ctx) => {
+            signals.push(ctx.signal);
+            return neverSettlingPlanner(input, ctx);
+          },
+          addEventPlanner,
+        ]),
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await settle();
+      const runId = runIdOf(session.received, 'input-1');
+      expect(lastFinished(session.received)).toMatchObject({
+        runId,
+        reason: 'completed',
+      });
+      time.advance(29_999);
+      await settle();
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(false);
+      expect(session.received.map(typeOf)).not.toContain('error');
+      expect(session.plannerCalls()).toBe(1);
+
+      time.advance(1);
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+
+      expect(signals[0]?.aborted).toBe(true);
+      const errors = session.received.filter((event) => event.type === 'error');
+      expect(errors).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: expect.any(String),
+          runId,
+          code: 'planning_timeout',
+          error: 'The screen could not be updated.',
+        },
+      ]);
+      expect(AgentEventSchema.safeParse(errors[0]).success).toBe(true);
+      expect(indexOf(session.received, 'error', runId)).toBeLessThan(
+        indexOf(session.received, 'ui_change', runId),
+      );
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(
+        `[show ${runId}:t1] Show failed: latest_order result could not be shown.`,
+      );
+      const [failed] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.show.failed',
+      );
+      expect(failed?.metadata).toMatchObject({
+        turnId: `${runId}:t1`,
+        code: 'planning_timeout',
+      });
+      expect(session.plannerCalls()).toBe(2);
+      expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
+        'latest_order:c2': orderFacts(LATEST_ORDER),
+      });
+    });
+
+    test('a show with nothing to show sends nothing on the wire and records a skipped note', async () => {
+      const session = openAgentSession({
+        model: scriptedTextAdapter([
+          scriptedToolTurn(
+            [{ id: 'c1', name: 'latest_order', args: {} }],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        ]).adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: nothingToShowPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => session.plannerCalls() === 1);
+      await settle();
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(
+        `[show ${runId}:t1] Show skipped: nothing new to show for latest_order result.`,
+      );
+      const [skipped] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.show.skipped',
+      );
+      expect(skipped?.runId).toBe(runId);
+      expect(skipped?.metadata).toMatchObject({
+        turnId: `${runId}:t1`,
+        reason: 'nothing_to_show',
+      });
+    });
+
+    test('a needs-clarification show sends nothing on the wire, drops its partial changes and records a skipped note whose question the next run prompt carries', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Which one did you mean?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: clarifyingWithPartialChangesPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => session.plannerCalls() === 1);
+      await settle();
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
+      const skippedNote = `[show ${runId}:t1] Show skipped: the Planner needs more detail to show latest_order result. Question: ${QUESTION_SENTINEL}`;
+      const transcript = serializeLoosely(
+        session.internals().transcript.renderPriorMessages(),
+      );
+      expect(transcript).toContain(skippedNote);
+      const [skipped] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.show.skipped',
+      );
+      expect(skipped?.metadata).toMatchObject({
+        turnId: `${runId}:t1`,
+        reason: 'needs_clarification',
+      });
+      for (const event of session.diagnostics) {
+        expect(serializeLoosely(event.metadata)).not.toContain(
+          QUESTION_SENTINEL,
+        );
+      }
+
+      await session.send(
+        utterance('input-2', 'and where is it?', calendarChart()),
+      );
+
+      expect(model.requests).toHaveLength(3);
+      expect(occurrencesIn(model.requests[2]?.messages, skippedNote)).toBe(1);
+      const surfaces = [
+        JSON.stringify(session.received),
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+        ...model.requests.map(serializeLoosely),
+      ];
+      for (const surface of surfaces) {
+        expect(surface).not.toContain('addEvent');
+        expect(surface).not.toContain(CLARIFICATION_OPTION_SENTINEL);
+      }
+      expect(session.received.map(typeOf)).not.toContain('ui_change');
       expect(session.received.map(typeOf)).not.toContain('error');
     });
 
@@ -811,11 +1143,13 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('closing the connection aborts a show plan in flight and sends no ui_change for it', async () => {
+    test('closing the connection aborts a show plan in flight and sends and records nothing for it', async () => {
+      const time = createFakeAgentRunTime();
       const gate = defer<PlannerCandidate>();
       const blocking = blockingPlanner(gate);
       const signals: (AbortSignal | undefined)[] = [];
       const session = openAgentSession({
+        time,
         model: scriptedTextAdapter([
           scriptedToolTurn(
             [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -835,13 +1169,27 @@ describe('agent route through the Engine handle', () => {
       );
       await blocking.entered;
       const beforeClose = session.received.length;
+      const transcriptBeforeClose = serializeLoosely(
+        session.internals().transcript.renderPriorMessages(),
+      );
+      const diagnosticsBeforeClose = session.diagnostics.length;
       session.connection.close();
+      time.advance(30_000);
+      await settle();
+      expect(signals[0]?.aborted).toBe(true);
       gate.resolve(addEventCandidate(calendarChart()));
       await settle();
 
       expect(signals).toHaveLength(1);
-      expect(signals[0]?.aborted).toBe(true);
       expect(session.received.slice(beforeClose)).toEqual([]);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toBe(transcriptBeforeClose);
+      expect(
+        session.diagnostics
+          .slice(diagnosticsBeforeClose)
+          .filter((event) => event.kind.startsWith('engine.agent.')),
+      ).toEqual([]);
     });
 
     test('handle() still refuses a needs-clarification result after a show planned one', async () => {
@@ -916,6 +1264,321 @@ describe('agent route through the Engine handle', () => {
         const result = await pending;
         expect(isErr(result) && result.error._tag).toBe('CancellationError');
       });
+    });
+  });
+
+  describe('show notes inside a run and the gate before a new run', () => {
+    test('the queued note reaches the model turn right after the tool phase and is not repeated as a new message', async () => {
+      const model = twoShowTurns();
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: neverSettlingPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+
+      const runId = runIdOf(session.received, 'input-1');
+      const firstQueued = `[show ${runId}:t1] Show queued: latest_order result.`;
+      const secondQueued = `[show ${runId}:t2] Show queued: latest_order result.`;
+      expect(model.requests).toHaveLength(3);
+      expect(occurrencesIn(model.requests[0]?.messages, firstQueued)).toBe(0);
+      expect(model.requests[1]?.messages.at(-1)).toEqual({
+        role: 'user',
+        content: firstQueued,
+      });
+      expect(occurrencesIn(model.requests[1]?.messages, firstQueued)).toBe(1);
+      expect(occurrencesIn(model.requests[2]?.messages, firstQueued)).toBe(1);
+      expect(model.requests[2]?.messages.at(-1)).toEqual({
+        role: 'user',
+        content: secondQueued,
+      });
+    });
+
+    test('a screen note recorded while a later tool runs reaches the next model turn exactly once', async () => {
+      const secondLookupStarted = defer<void>();
+      const releaseSecondLookup = defer<void>();
+      let lookups = 0;
+      const order = orderTool({
+        intentFacts: orderFacts,
+        latestOrder: async () => {
+          lookups += 1;
+          if (lookups === 2) {
+            secondLookupStarted.resolve();
+            await releaseSecondLookup.promise;
+          }
+          return LATEST_ORDER;
+        },
+      });
+      const model = twoShowTurns();
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await secondLookupStarted.promise;
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      releaseSecondLookup.resolve();
+      await sent;
+
+      const runId = runIdOf(session.received, 'input-1');
+      const screenNote = `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      expect(model.requests).toHaveLength(3);
+      expect(
+        occurrencesIn(model.requests[1]?.messages, 'Screen updated:'),
+      ).toBe(0);
+      expect(
+        occurrencesIn(model.requests[2]?.messages, 'Screen updated:'),
+      ).toBe(1);
+      expect(occurrencesIn(model.requests[2]?.messages, screenNote)).toBe(1);
+    });
+
+    test('a new run holds its first model turn until the earlier change is acknowledged, then sees the screen note once', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['It is on your calendar.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const sent = session.send(
+        utterance('input-2', 'where is it now?', calendarChart()),
+      );
+      const secondRun = runIdOf(session.received, 'input-2');
+      await waitUntil(() =>
+        eventsOf(session.received, secondRun).map(typeOf).includes('started'),
+      );
+      await settle();
+      expect(model.requests).toHaveLength(2);
+
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
+
+      const firstRun = runIdOf(session.received, 'input-1');
+      const screenNote = `[show ${firstRun}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      expect(model.requests).toHaveLength(3);
+      expect(occurrencesIn(model.requests[2]?.messages, screenNote)).toBe(1);
+      expect(model.requests[2]?.messages.at(-1)).toEqual({
+        role: 'user',
+        content: screenNote,
+      });
+      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
+        reason: 'completed',
+        reply: 'It is on your calendar.',
+      });
+    });
+
+    test('a new run starts its first model turn once the acknowledgement timeout passes, even while a later show still plans, and the wait counts toward its elapsed time', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'c2', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Here it is.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        acknowledgementTimeoutMs: 5_000,
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: plannersInOrder([addEventPlanner, neverSettlingPlanner]),
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const sent = session.send(
+        utterance('input-2', 'where is it now?', calendarChart()),
+      );
+      const secondRun = runIdOf(session.received, 'input-2');
+      await waitUntil(() =>
+        eventsOf(session.received, secondRun).map(typeOf).includes('started'),
+      );
+      time.advance(4_999);
+      await settle();
+      expect(model.requests).toHaveLength(3);
+
+      time.advance(1);
+      await sent;
+
+      const firstRun = runIdOf(session.received, 'input-1');
+      expect(session.plannerCalls()).toBe(2);
+      expect(model.requests).toHaveLength(4);
+      expect(model.requests[3]?.messages.at(-1)).toEqual({
+        role: 'user',
+        content: `[show ${firstRun}:t1] Show not confirmed: the screen did not acknowledge the latest_order change.`,
+      });
+      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
+        reason: 'completed',
+        metrics: expect.objectContaining({ elapsedMs: 5_000 }),
+      });
+    });
+
+    test('a change awaiting acknowledgement never holds a later model turn of the same run', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'c2', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Both on their way.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders twice', calendarChart()),
+      );
+
+      expect(model.requests).toHaveLength(3);
+      expect(uiChangesOf(session.received)).toHaveLength(1);
+      expect(session.plannerCalls()).toBe(1);
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+        reply: 'Both on their way.',
+        metrics: expect.objectContaining({ elapsedMs: 0 }),
+      });
+    });
+
+    test('cancelling a run drops its queued shows with cancelled notes while its emitted change still takes its acknowledgement and screen note', async () => {
+      const stalled: StalledCall = { closed: false };
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'c2', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'c3', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        stallingTurn(['Showing '], stalled),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(
+        utterance('input-1', 'show my orders three times', calendarChart()),
+      );
+      await waitUntil(
+        () =>
+          uiChangesOf(session.received).length === 1 &&
+          model.requests.length === 4,
+      );
+      const runId = runIdOf(session.received, 'input-1');
+      session.internals().queue.cancelRun(runId);
+      await sent;
+
+      const transcript = serializeLoosely(
+        session.internals().transcript.renderPriorMessages(),
+      );
+      expect(transcript).toContain(
+        `[show ${runId}:t2] Show cancelled: latest_order result.`,
+      );
+      expect(transcript).toContain(
+        `[show ${runId}:t3] Show cancelled: latest_order result.`,
+      );
+      expect(lastFinishedOf(session.received, runId)).toMatchObject({
+        reason: 'cancelled',
+      });
+
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      const beforeAcknowledgement = session.received.length;
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await settle();
+
+      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
+      expect(session.plannerCalls()).toBe(1);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(
+        `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`,
+      );
+    });
+
+    test('cancelling a run aborts its show in planning with a cancelled note and sends nothing for it', async () => {
+      const stalled: StalledCall = { closed: false };
+      const signals: (AbortSignal | undefined)[] = [];
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'c1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        stallingTurn(['Showing '], stalled),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        planner: (input, ctx) => {
+          signals.push(ctx.signal);
+          return neverSettlingPlanner(input, ctx);
+        },
+      });
+
+      const sent = session.send(
+        utterance('input-1', 'show my last order', calendarChart()),
+      );
+      await waitUntil(
+        () => signals.length === 1 && model.requests.length === 2,
+      );
+      const runId = runIdOf(session.received, 'input-1');
+      expect(signals[0]?.aborted).toBe(false);
+      session.internals().queue.cancelRun(runId);
+      await sent;
+      await settle();
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(`[show ${runId}:t1] Show cancelled: latest_order result.`);
+      expect(session.received.map(typeOf)).not.toContain('ui_change');
+      expect(session.received.map(typeOf)).not.toContain('error');
     });
   });
 
@@ -1853,6 +2516,8 @@ function openAgentSession(
   };
 }
 
+const neverSettlingPlanner: ClarifyingPlanner = () => new Promise(() => {});
+
 const nothingToShowPlanner: ClarifyingPlanner = (input) =>
   Promise.resolve(
     ok({
@@ -1965,6 +2630,21 @@ const clarifyingPlanner: ClarifyingPlanner = () =>
       type: 'needs_clarification',
       question: 'Which order do you mean?',
       options: ['The latest order', 'The order from last week'],
+    }),
+  );
+
+const clarifyingWithPartialChangesPlanner: ClarifyingPlanner = () =>
+  Promise.resolve(
+    ok({
+      type: 'needs_clarification',
+      question: QUESTION_SENTINEL,
+      options: [CLARIFICATION_OPTION_SENTINEL],
+      executionPlan: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ],
     }),
   );
 
@@ -2211,6 +2891,10 @@ function serializeLoosely(value: unknown): string {
       return item;
     }) ?? ''
   );
+}
+
+function occurrencesIn(value: unknown, needle: string): number {
+  return serializeLoosely(value).split(needle).length - 1;
 }
 
 async function settle(): Promise<void> {

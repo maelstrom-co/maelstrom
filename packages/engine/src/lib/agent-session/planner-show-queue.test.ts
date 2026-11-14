@@ -31,12 +31,15 @@ import {
   type LoopDrivenPlanOutcome,
   type LoopDrivenShow,
   type ShowPlanInput,
+  SHOW_PLANNING_TIMEOUT_MS,
 } from './planner-show-queue.js';
 import { describeScreenUpdate } from './screen-note.js';
 import { buildShowRequest } from './show-request.js';
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
 const PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
+const ERROR_SENTINEL = 'PLANNER ERROR SENTINEL';
+const QUESTION_SENTINEL = 'PLANNER QUESTION SENTINEL';
 
 const monthChart = makeGridRequest();
 const weekChart = calendarChart('week');
@@ -227,31 +230,61 @@ describe('createPlannerShowQueue', () => {
     expect(harness.time.pending()).toBe(0);
   });
 
-  test('releases the slot after the acknowledgement timeout and plans the next show on the last known Chart', async () => {
+  test('reports an acknowledgement timeout with an error event, a not-confirmed note and a diagnostic, then plans the next show on the last known Chart', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
     harness.queue.request(show(2));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
-    expect(harness.time.scheduled()).toEqual([ACKNOWLEDGEMENT_TIMEOUT_MS]);
+    expect(harness.time.scheduled()).toEqual([
+      SHOW_PLANNING_TIMEOUT_MS,
+      ACKNOWLEDGEMENT_TIMEOUT_MS,
+    ]);
 
     harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS - 1);
     expect(harness.planner.calls).toHaveLength(1);
+    expect(harness.errors()).toEqual([]);
     harness.time.advance(1);
 
+    expect(harness.errors()).toEqual([
+      {
+        type: 'error',
+        version: AGENT_WIRE_VERSION,
+        changeId: change.changeId,
+        runId: show(1).runId,
+        code: 'ui_ack_timeout',
+        error: 'The UI acknowledgement did not arrive.',
+      },
+    ]);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1).runId,
+        turnId: show(1).turnId,
+        text: 'Show not confirmed: the screen did not acknowledge the latest_order change.',
+      },
+    ]);
+    expect(
+      harness.observed.map(({ kind, metadata }) => ({ kind, metadata })),
+    ).toEqual([
+      expect.objectContaining({ kind: 'engine.agent.ui_change.emitted' }),
+      {
+        kind: 'engine.agent.ui_change.timed_out',
+        metadata: { changeId: change.changeId, turnId: show(1).turnId },
+      },
+    ]);
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).request).toEqual(
       buildShowRequest(monthChart, show(2).intent, show(2).intentFacts),
     );
-    expect(harness.notes).toEqual([]);
-    expect(harness.received.map((event) => event.type)).toEqual(['ui_change']);
 
     harness.queue.acknowledge(
       applied(change.changeId, weekChart, [{ ok: true }]),
     );
-    expect(harness.errors()).toEqual([unknownChangeError(change.changeId)]);
-    expect(harness.notes).toEqual([]);
+    expect(harness.errors().slice(1)).toEqual([
+      unknownChangeError(change.changeId),
+    ]);
+    expect(harness.notes).toHaveLength(1);
   });
 
   test('ignores a Chart noted while a change awaits acknowledgement', async () => {
@@ -362,84 +395,245 @@ describe('createPlannerShowQueue', () => {
     );
   });
 
-  test('releases the slot without a change when the Planner fails', async () => {
+  test.each([
+    {
+      failure: 'returns an error result',
+      code: 'ProviderError',
+      errorContext: {},
+      fail: (harness: Harness) =>
+        harness.planner.fail(
+          0,
+          providerError(
+            `RAW PROVIDER DETAIL ${ERROR_SENTINEL}`,
+            ERROR_SENTINEL,
+          ),
+        ),
+    },
+    {
+      failure: 'throws',
+      code: 'internal_error',
+      errorContext: { errorName: 'Error' },
+      fail: (harness: Harness) =>
+        harness.planner.throws(0, new Error(`thrown ${ERROR_SENTINEL}`)),
+    },
+    {
+      failure: 'outlasts the planning timeout',
+      code: 'planning_timeout',
+      errorContext: {},
+      fail: (harness: Harness) =>
+        harness.time.advance(SHOW_PLANNING_TIMEOUT_MS),
+    },
+  ])(
+    'reports a show whose Planner call $failure with an error event, a failed note, a diagnostic and one warning, then plans the next show',
+    async ({ code, errorContext, fail }) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.queue.request(show(1));
+      harness.queue.request(show(2));
+
+      const nextCall = harness.planner.nextCall();
+      fail(harness);
+      await nextCall;
+
+      const failed = harness.observed.find(
+        (entry) => entry.kind === 'engine.agent.show.failed',
+      );
+      const changeId = failed?.metadata.changeId;
+      expect(changeId).toEqual(expect.any(String));
+      expect(harness.received).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: ChangeId(String(changeId)),
+          runId: show(1).runId,
+          code,
+          error: 'The screen could not be updated.',
+        },
+      ]);
+      expect(harness.notes).toEqual([
+        {
+          runId: show(1).runId,
+          turnId: show(1).turnId,
+          text: 'Show failed: latest_order result could not be shown.',
+        },
+      ]);
+      expect(harness.observed).toEqual([
+        {
+          runId: show(1).runId,
+          inputId: show(1).inputId,
+          kind: 'engine.agent.show.failed',
+          metadata: { changeId, turnId: show(1).turnId, code },
+          readContent: undefined,
+        },
+      ]);
+      expect(harness.warnings()).toEqual([
+        {
+          message: 'Loop-driven show failed',
+          data: {
+            changeId,
+            messageId: harness.planner.input(0).messageId,
+            runId: show(1).runId,
+            turnId: show(1).turnId,
+            toolNames: show(1).toolNames,
+            code,
+            ...errorContext,
+          },
+        },
+      ]);
+      expect(harness.planner.calls).toHaveLength(2);
+      expect(harness.planner.input(1).runId).toBe(show(2).runId);
+      expect(
+        JSON.stringify([
+          harness.received,
+          harness.notes,
+          harness.logs,
+          harness.observed,
+        ]),
+      ).not.toContain(ERROR_SENTINEL);
+    },
+  );
+
+  test('aborts the Planner call at the planning timeout and discards its late outcome', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    const { signal } = harness.planner.input(0);
+    expect(SHOW_PLANNING_TIMEOUT_MS).toBe(30_000);
+    expect(harness.time.scheduled()).toEqual([SHOW_PLANNING_TIMEOUT_MS]);
 
-    harness.planner.fail(
-      0,
-      providerError(`RAW PROVIDER DETAIL ${PROSE_SENTINEL}`, 'cause'),
-    );
-    await harness.planner.nextCall();
-
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    expect(signal.aborted).toBe(false);
     expect(harness.received).toEqual([]);
-    expect(harness.notes).toEqual([]);
-    expect(harness.warnings()).toEqual([
-      {
-        message: 'Loop-driven show planning failed',
-        data: {
-          changeId: expect.any(String),
-          messageId: harness.planner.input(0).messageId,
-          runId: show(1).runId,
-          turnId: show(1).turnId,
-          toolNames: show(1).toolNames,
-          code: 'ProviderError',
-        },
-      },
+    harness.time.advance(1);
+    expect(signal.aborted).toBe(true);
+    expect(harness.errors().map((event) => event.code)).toEqual([
+      'planning_timeout',
     ]);
-    expect(JSON.stringify(harness.logs)).not.toContain('RAW PROVIDER DETAIL');
+
+    harness.planner.respond(0, changeResponse(monthChart));
+    await flushMicrotasks();
+
+    expect(harness.received.map((event) => event.type)).toEqual(['error']);
+    expect(harness.notes).toHaveLength(1);
+    expect(harness.time.pending()).toBe(0);
   });
 
-  test('releases the slot without a change when the Planner throws', async () => {
+  test('honours a planning timeout overridden through the factory options', () => {
+    const harness = createHarness({ planningTimeoutMs: 100 });
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+
+    harness.time.advance(100);
+
+    expect(harness.planner.input(0).signal.aborted).toBe(true);
+    expect(harness.errors().map((event) => event.code)).toEqual([
+      'planning_timeout',
+    ]);
+  });
+
+  test('cancels the planning timer once the Planner settles', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
-    harness.queue.request(show(2));
 
-    harness.planner.throws(0, new TypeError(`thrown ${PROSE_SENTINEL}`));
-    await harness.planner.nextCall();
+    harness.planner.respond(0, nothingToShow(monthChart));
+    await flushMicrotasks();
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
 
+    expect(harness.time.pending()).toBe(0);
+    expect(harness.errors()).toEqual([]);
+  });
+
+  test('a restart on a newer Chart cancels the first planning timer and arms a fresh one, with no failed note or error event', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+
+    harness.queue.noteChart(weekChart);
+
+    expect(harness.time.scheduled()).toEqual([
+      SHOW_PLANNING_TIMEOUT_MS,
+      SHOW_PLANNING_TIMEOUT_MS,
+    ]);
+    expect(harness.time.pending()).toBe(1);
+    harness.time.advance(1);
+    expect(harness.planner.input(1).signal.aborted).toBe(false);
     expect(harness.received).toEqual([]);
+    expect(harness.notes).toEqual([]);
+    expect(harness.warnings()).toEqual([]);
+
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    expect(harness.planner.input(1).signal.aborted).toBe(true);
+    expect(harness.errors().map((event) => event.code)).toEqual([
+      'planning_timeout',
+    ]);
+    expect(harness.notes).toHaveLength(1);
+  });
+
+  test('a restart on a newer Chart keeps whenIdle waiting until the replanned show settles', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.queue.noteChart(weekChart);
+    harness.planner.respond(0, nothingToShow(monthChart));
+    await flushMicrotasks();
+    expect(idle.settled).toBe(false);
+
+    harness.planner.respond(1, nothingToShow(weekChart));
+    await flushMicrotasks();
+    expect(idle.settled).toBe(true);
+  });
+
+  test('close after a restart aborts the replanned call and records or emits nothing', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.noteChart(weekChart);
+
+    harness.queue.close();
+
+    expect(harness.planner.input(0).signal.aborted).toBe(true);
+    expect(harness.planner.input(1).signal.aborted).toBe(true);
+    expect(harness.time.pending()).toBe(0);
+    harness.planner.respond(0, changeResponse(monthChart));
+    harness.planner.respond(1, changeResponse(weekChart));
+    await flushMicrotasks();
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.received).toEqual([]);
+    expect(harness.observed).toEqual([]);
+    expect(harness.notes).toEqual([]);
+  });
+
+  test('logs a thrown Planner call once with its error name but without its message', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+
+    harness.planner.throws(0, new TypeError(`thrown ${ERROR_SENTINEL}`));
+    await flushMicrotasks();
+
     expect(harness.warnings()).toEqual([
       {
-        message: 'Loop-driven show planning threw',
+        message: 'Loop-driven show failed',
         data: {
-          changeId: expect.any(String),
+          changeId: harness.errors()[0]?.changeId,
           messageId: harness.planner.input(0).messageId,
           runId: show(1).runId,
           turnId: show(1).turnId,
           toolNames: show(1).toolNames,
+          code: 'internal_error',
           errorName: 'TypeError',
         },
       },
     ]);
-    expect(JSON.stringify(harness.logs)).not.toContain(PROSE_SENTINEL);
+    expect(JSON.stringify(harness.logs)).not.toContain(ERROR_SENTINEL);
   });
 
-  test('releases the slot without a change when the Planner asks a clarifying question', async () => {
-    const harness = createHarness();
-    harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
-
-    harness.planner.outcome(0, {
-      type: 'needs_clarification',
-      question: `Which order? ${PROSE_SENTINEL}`,
-    });
-    await harness.planner.nextCall();
-
-    expect(harness.received).toEqual([]);
-    expect(harness.notes).toEqual([]);
-    expect(harness.warnings()).toHaveLength(1);
-    expect(harness.warnings()[0]?.message).toBe(
-      'Loop-driven show needs clarification',
-    );
-    expect(JSON.stringify(harness.logs)).not.toContain(PROSE_SENTINEL);
-  });
-
-  test('releases the slot without a change when there is nothing to show', async () => {
+  test('records a skipped note and a diagnostic when there is nothing to show, sends nothing and plans the next show', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
@@ -449,9 +643,67 @@ describe('createPlannerShowQueue', () => {
     await harness.planner.nextCall();
 
     expect(harness.received).toEqual([]);
-    expect(harness.notes).toEqual([]);
-    expect(harness.time.scheduled()).toEqual([]);
-    expect(harness.observed).toEqual([]);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1).runId,
+        turnId: show(1).turnId,
+        text: 'Show skipped: nothing new to show for latest_order result.',
+      },
+    ]);
+    expect(harness.observed).toEqual([
+      {
+        runId: show(1).runId,
+        inputId: show(1).inputId,
+        kind: 'engine.agent.show.skipped',
+        metadata: {
+          changeId: expect.any(String),
+          turnId: show(1).turnId,
+          reason: 'nothing_to_show',
+        },
+        readContent: undefined,
+      },
+    ]);
+    expect(harness.time.scheduled()).toEqual([
+      SHOW_PLANNING_TIMEOUT_MS,
+      SHOW_PLANNING_TIMEOUT_MS,
+    ]);
+    expect(harness.planner.calls).toHaveLength(2);
+  });
+
+  test('records the Planner question in a skipped note but never in diagnostics, logs or the wire', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+    const question = `Which order do you mean? ${QUESTION_SENTINEL}`;
+
+    harness.planner.outcome(0, { type: 'needs_clarification', question });
+    await harness.planner.nextCall();
+
+    expect(harness.received).toEqual([]);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1).runId,
+        turnId: show(1).turnId,
+        text: `Show skipped: the Planner needs more detail to show latest_order result. Question: ${question}`,
+      },
+    ]);
+    expect(
+      harness.observed.map(({ kind, metadata }) => ({ kind, metadata })),
+    ).toEqual([
+      {
+        kind: 'engine.agent.show.skipped',
+        metadata: {
+          changeId: expect.any(String),
+          turnId: show(1).turnId,
+          reason: 'needs_clarification',
+        },
+      },
+    ]);
+    expect(
+      JSON.stringify([harness.observed, harness.logs, harness.received]),
+    ).not.toContain(QUESTION_SENTINEL);
+    expect(harness.planner.calls).toHaveLength(2);
   });
 
   test('emits a change whose plan is empty but whose layout differs from the request', async () => {
@@ -561,24 +813,236 @@ describe('createPlannerShowQueue', () => {
     expect(metadataJson).not.toContain(screenNote ?? 'missing note');
   });
 
-  test('close aborts the in-flight plan and discards its late outcome and the queued shows', async () => {
+  test.each([
+    {
+      outcome: 'a change',
+      settle: (harness: Harness) =>
+        harness.planner.respond(0, changeResponse(monthChart)),
+    },
+    {
+      outcome: 'an error result',
+      settle: (harness: Harness) =>
+        harness.planner.fail(0, providerError('provider down', undefined)),
+    },
+    {
+      outcome: 'a clarifying question',
+      settle: (harness: Harness) =>
+        harness.planner.outcome(0, {
+          type: 'needs_clarification',
+          question: 'Which order?',
+        }),
+    },
+  ])(
+    'close aborts the Planner call in flight and discards its later $outcome and the queued shows',
+    async ({ settle }) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.queue.request(show(1));
+      harness.queue.request(show(2));
+      const { signal } = harness.planner.input(0);
+
+      harness.queue.close();
+      expect(signal.aborted).toBe(true);
+      expect(harness.time.pending()).toBe(0);
+      settle(harness);
+      await flushMicrotasks();
+      harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+      harness.queue.request(show(3));
+      harness.queue.noteChart(weekChart);
+
+      expect(harness.planner.calls).toHaveLength(1);
+      expect(harness.received).toEqual([]);
+      expect(harness.observed).toEqual([]);
+      expect(harness.notes).toEqual([]);
+    },
+  );
+
+  test('close resolves idle waiters and ignores a later dropRun', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     harness.queue.request(show(1));
     harness.queue.request(show(2));
-    const { signal } = harness.planner.input(0);
+    const idle = trackSettled(harness.queue.whenIdle());
 
     harness.queue.close();
-    expect(signal.aborted).toBe(true);
-    harness.planner.respond(0, changeResponse(monthChart));
+    harness.queue.dropRun(show(1).runId);
     await flushMicrotasks();
-    harness.queue.request(show(3));
-    harness.queue.noteChart(weekChart);
 
-    expect(harness.planner.calls).toHaveLength(1);
-    expect(harness.received).toEqual([]);
-    expect(harness.observed).toEqual([]);
+    expect(idle.settled).toBe(true);
+    expect(
+      await trackSettled(harness.queue.whenIdle()).promise,
+    ).toBeUndefined();
     expect(harness.notes).toEqual([]);
+    expect(harness.observed).toEqual([]);
+  });
+
+  test('whenIdle resolves at once when nothing is queued, planning or awaiting acknowledgement', async () => {
+    const harness = createHarness();
+
+    const idle = trackSettled(harness.queue.whenIdle());
+    await flushMicrotasks();
+
+    expect(idle.settled).toBe(true);
+  });
+
+  test('whenIdle waits through planning and acknowledgement of every queued show', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+    const first = trackSettled(harness.queue.whenIdle());
+    const second = trackSettled(harness.queue.whenIdle());
+
+    harness.planner.respond(0, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+    await flushMicrotasks();
+    expect(first.settled).toBe(false);
+
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+    await flushMicrotasks();
+    expect(first.settled).toBe(false);
+
+    harness.planner.respond(1, nothingToShow(weekChart));
+    await flushMicrotasks();
+    expect(first.settled).toBe(true);
+    expect(second.settled).toBe(true);
+  });
+
+  test('whenIdle resolves when the acknowledgement timeout ends the last show', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS - 1);
+    await flushMicrotasks();
+    expect(idle.settled).toBe(false);
+    harness.time.advance(1);
+    await flushMicrotasks();
+
+    expect(idle.settled).toBe(true);
+  });
+
+  test('whenIdle resolves when a failed show ends the last show', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    await flushMicrotasks();
+
+    expect(idle.settled).toBe(true);
+  });
+
+  test('dropRun aborts the run planning show and drops its queued shows with cancelled notes and diagnostics while other runs move on', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1, 1));
+    harness.queue.request(show(2, 2));
+    harness.queue.request(show(3, 1));
+    const { signal } = harness.planner.input(0);
+
+    harness.queue.dropRun(show(1, 1).runId);
+
+    expect(signal.aborted).toBe(true);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1, 1).runId,
+        turnId: show(1, 1).turnId,
+        text: 'Show cancelled: latest_order result.',
+      },
+      {
+        runId: show(3, 1).runId,
+        turnId: show(3, 1).turnId,
+        text: 'Show cancelled: latest_order result.',
+      },
+    ]);
+    expect(harness.observed).toEqual([
+      {
+        runId: show(1, 1).runId,
+        inputId: show(1, 1).inputId,
+        kind: 'engine.agent.show.cancelled',
+        metadata: { turnId: show(1, 1).turnId, changeId: expect.any(String) },
+        readContent: undefined,
+      },
+      {
+        runId: show(3, 1).runId,
+        inputId: show(3, 1).inputId,
+        kind: 'engine.agent.show.cancelled',
+        metadata: { turnId: show(3, 1).turnId },
+        readContent: undefined,
+      },
+    ]);
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2, 2).runId);
+    expect(harness.time.pending()).toBe(1);
+
+    harness.planner.respond(0, changeResponse(monthChart));
+    harness.planner.respond(1, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+
+    expect(change.runId).toBe(show(2, 2).runId);
+    expect(harness.received).toEqual([change]);
+    expect(harness.observed.map((entry) => entry.kind)).toEqual([
+      'engine.agent.show.cancelled',
+      'engine.agent.show.cancelled',
+      'engine.agent.ui_change.emitted',
+    ]);
+    expect(harness.planner.calls).toHaveLength(2);
+  });
+
+  test('dropRun keeps the run change already emitted awaiting its acknowledgement and records its screen note', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1, 1));
+    harness.queue.request(show(2, 1));
+    harness.queue.request(show(3, 3));
+    harness.planner.respond(0, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+
+    harness.queue.dropRun(show(1, 1).runId);
+
+    expect(harness.notes).toEqual([
+      {
+        runId: show(2, 1).runId,
+        turnId: show(2, 1).turnId,
+        text: 'Show cancelled: latest_order result.',
+      },
+    ]);
+    expect(harness.planner.calls).toHaveLength(1);
+    expect(harness.time.pending()).toBe(1);
+
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+
+    expect(harness.errors()).toEqual([]);
+    expect(harness.notes[1]).toEqual({
+      runId: show(1, 1).runId,
+      turnId: show(1, 1).turnId,
+      text: expect.stringMatching(/^Screen updated: /),
+    });
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(3, 3).runId);
+  });
+
+  test('dropRun of a run without shows leaves the queue untouched', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+
+    harness.queue.dropRun(RunId('another-run'));
+
+    expect(harness.planner.input(0).signal.aborted).toBe(false);
+    expect(harness.notes).toEqual([]);
+    harness.planner.respond(0, changeResponse(monthChart));
+    expect((await harness.nextUiChange()).runId).toBe(show(1).runId);
   });
 
   test('close cancels the acknowledgement timer and ignores a later acknowledgement', async () => {
@@ -600,6 +1064,159 @@ describe('createPlannerShowQueue', () => {
     expect(harness.errors()).toEqual([]);
     expect(harness.notes).toEqual([]);
   });
+
+  test('a show requested from inside the error listener of a failed show is planned and keeps whenIdle waiting', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let requested = false;
+    harness.events.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.runId === show(1).runId &&
+        !requested
+      ) {
+        requested = true;
+        harness.queue.request(show(2));
+      }
+    });
+    harness.queue.request(show(1));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.planner.fail(0, providerError('provider detail', 'provider'));
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+    expect(harness.notes).toEqual([
+      {
+        runId: show(1).runId,
+        turnId: show(1).turnId,
+        text: 'Show failed: latest_order result could not be shown.',
+      },
+    ]);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    const change = await nextChange;
+    expect(change.runId).toBe(show(2).runId);
+
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+    await flushMicrotasks();
+    expect(idle.settled).toBe(true);
+    expect(harness.notes).toHaveLength(2);
+    expect(harness.notes[1]).toEqual(
+      expect.objectContaining({
+        runId: show(2).runId,
+        turnId: show(2).turnId,
+        text: expect.stringMatching(/^Screen updated: /),
+      }),
+    );
+  });
+
+  test('a show requested from inside the error listener of an acknowledgement timeout is planned and keeps whenIdle waiting', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let requested = false;
+    harness.events.subscribe((event) => {
+      if (
+        event.type === 'error' &&
+        event.code === 'ui_ack_timeout' &&
+        event.runId === show(1).runId &&
+        !requested
+      ) {
+        requested = true;
+        harness.queue.request(show(2));
+      }
+    });
+    harness.queue.request(show(1));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    expect((await nextChange).runId).toBe(show(2).runId);
+  });
+
+  test('dropRun from inside the error listener keeps the queued show of another run', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    let dropped = false;
+    harness.events.subscribe((event) => {
+      if (event.type === 'error' && event.runId === show(1).runId && !dropped) {
+        dropped = true;
+        harness.queue.dropRun(show(1).runId);
+      }
+    });
+    harness.queue.request(show(1));
+    harness.queue.request(show(2));
+    const idle = trackSettled(harness.queue.whenIdle());
+
+    harness.planner.fail(0, providerError('provider detail', 'provider'));
+    await flushMicrotasks();
+
+    expect(harness.planner.calls).toHaveLength(2);
+    expect(harness.planner.input(1).runId).toBe(show(2).runId);
+    expect(idle.settled).toBe(false);
+
+    const nextChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    expect((await nextChange).runId).toBe(show(2).runId);
+  });
+
+  test.each([
+    {
+      failure: 'a failed Planner call',
+      code: 'ProviderError',
+      end: async (harness: Harness) => {
+        harness.planner.fail(0, providerError('provider detail', 'provider'));
+        await flushMicrotasks();
+      },
+    },
+    {
+      failure: 'an acknowledgement timeout',
+      code: 'ui_ack_timeout',
+      end: async (harness: Harness) => {
+        harness.planner.respond(0, changeResponse(monthChart));
+        await harness.nextUiChange();
+        harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+        await flushMicrotasks();
+      },
+    },
+  ])(
+    'close from inside the error listener of $failure records and observes nothing more',
+    async ({ code, end }) => {
+      const harness = createHarness();
+      harness.queue.noteChart(monthChart);
+      harness.events.subscribe((event) => {
+        if (event.type === 'error' && event.code === code)
+          harness.queue.close();
+      });
+      harness.queue.request(show(1));
+      harness.queue.request(show(2));
+
+      await end(harness);
+
+      expect(harness.errors()).toHaveLength(1);
+      expect(harness.notes).toEqual([]);
+      expect(
+        harness.observed.filter(
+          ({ kind }) => kind !== 'engine.agent.ui_change.emitted',
+        ),
+      ).toEqual([]);
+      expect(harness.planner.calls).toHaveLength(1);
+    },
+  );
 });
 
 interface Observation {
@@ -616,7 +1233,11 @@ interface LogEntry {
   readonly data?: unknown;
 }
 
-function createHarness() {
+type Harness = ReturnType<typeof createHarness>;
+
+function createHarness({
+  planningTimeoutMs,
+}: { readonly planningTimeoutMs?: number } = {}) {
   const time = createFakeAgentRunTime();
   const events = createOrderedEmitter<AgentEvent>();
   const received: AgentEvent[] = [];
@@ -646,6 +1267,7 @@ function createHarness() {
     logger,
     scheduleTimeout: time.clock.scheduleTimeout,
     acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
+    planningTimeoutMs,
   });
   return {
     queue,
@@ -703,11 +1325,11 @@ function createControlledPlanner() {
   };
 }
 
-function show(index: number): LoopDrivenShow {
+function show(index: number, run = index): LoopDrivenShow {
   return {
-    runId: RunId(`run-${index}`),
-    inputId: MessageId(`input-${index}`),
-    turnId: `run-${index}:turn-1`,
+    runId: RunId(`run-${run}`),
+    inputId: MessageId(`input-${run}`),
+    turnId: `run-${run}:turn-${index}`,
     intent: `Show my latest order number ${index}`,
     toolNames: ['latest_order'],
     intentFacts: { [`latest_order:c${index}`]: { orderId: `ORD-${index}` } },
@@ -766,4 +1388,12 @@ function calendarChart(variant: string): ChartRequest {
 
 async function flushMicrotasks(): Promise<void> {
   for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+}
+
+function trackSettled(promise: Promise<void>) {
+  const tracked = { settled: false, promise };
+  void promise.then(() => {
+    tracked.settled = true;
+  });
+  return tracked;
 }
