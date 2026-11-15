@@ -187,6 +187,39 @@ describe('m.useAgentEvent()', () => {
     expect(calls).toEqual(['v2:one']);
   });
 
+  it('moves the subscription to the new event type when the type changes', async () => {
+    const received: string[] = [];
+    let setType: ((type: 'placeholder' | 'message') => void) | null = null;
+    const harness = await renderWithAgent(({ m }) => {
+      function Listener() {
+        const [type, setState] = useState<'placeholder' | 'message'>(
+          'placeholder',
+        );
+        setType = setState;
+        m.useAgentEvent(type, (event) => {
+          received.push(event.type);
+        });
+        return null;
+      }
+      return <Listener />;
+    });
+    const messageSubscriptionsBefore = harness.subscriptions('message');
+
+    act(() => {
+      assertDefined(setType);
+      setType('message');
+    });
+    act(() => {
+      harness.agent.emit(agentPlaceholderEvent(toMessageId('input-1'), 'one'));
+      harness.agent.emit(agentMessageEvent(RUN, 'Your last order'));
+    });
+
+    expect(harness.subscriptions('message')).toBe(
+      messageSubscriptionsBefore + 1,
+    );
+    expect(received).toEqual(['message']);
+  });
+
   it('stops calling the handler after the component unmounts', async () => {
     const onPlaceholder = mock();
     let setMounted: ((mounted: boolean) => void) | null = null;
@@ -226,6 +259,7 @@ describe('m.useAgentEvent()', () => {
       });
 
       expect(() => harness.unmount()).not.toThrow();
+      expect(harness.disposalStarted()).toBe(true);
       await act(async () => {
         await harness.disposal();
       });
@@ -313,6 +347,8 @@ async function renderWithAgent(
     unmount: () => view.unmount(),
     subscriptions: (type: AgentEventType) =>
       live().subscriptions.get(type) ?? 0,
+    disposalStarted: () =>
+      tracked.length > 0 && tracked.every((record) => record.disposal !== null),
     disposal: () =>
       Promise.all(tracked.map((record) => record.disposal)).then(
         () => undefined,
