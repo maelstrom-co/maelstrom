@@ -1,8 +1,7 @@
 import type { AgentConversationEvents } from '@maelstrom-co/client';
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 import type { MaelstromContextPair } from './context.js';
-import { useLatestRef } from './use-latest-ref.js';
 
 /**
  * Creates the `m.useAgentEvent()` hook. It subscribes a handler to one raw
@@ -16,14 +15,18 @@ export function createUseAgentEvent(contextPair: MaelstromContextPair) {
     handler: (event: AgentConversationEvents[K]) => void,
   ): void {
     const { orchestrator } = useMaelstromContext();
-    const handlerRef = useLatestRef(handler);
+    const handlerRef = useRef(handler);
+
+    useLayoutEffect(() => {
+      handlerRef.current = handler;
+    });
 
     useEffect(
       () =>
         orchestrator.agent.on(type, (event) => {
           handlerRef.current(event);
         }),
-      [orchestrator, type, handlerRef],
+      [orchestrator, type],
     );
   };
 }

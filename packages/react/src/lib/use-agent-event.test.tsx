@@ -20,7 +20,13 @@ import {
   RunId,
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { type ReactNode, StrictMode, useState } from 'react';
+import {
+  type ReactNode,
+  StrictMode,
+  Suspense,
+  startTransition,
+  useState,
+} from 'react';
 
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockAgentEngineConnector } from './__tests__/mock-connector.js';
@@ -185,6 +191,49 @@ describe('m.useAgentEvent()', () => {
 
     expect(harness.subscriptions('placeholder')).toBe(subscriptionsAfterMount);
     expect(calls).toEqual(['v2:one']);
+  });
+
+  it('keeps calling the committed handler while a transition that changes the handler is suspended', async () => {
+    const calls: string[] = [];
+    const neverResolves = new Promise<never>(() => {});
+    let setVersion: ((version: number) => void) | null = null;
+    const harness = await renderWithAgent(({ m }) => {
+      function Listener({ version }: { version: number }) {
+        m.useAgentEvent('placeholder', (event) => {
+          calls.push(`v${version}:${event.text}`);
+        });
+        return null;
+      }
+      function Suspender({ version }: { version: number }) {
+        if (version === 2) {
+          throw neverResolves;
+        }
+        return null;
+      }
+      function Parent() {
+        const [version, setState] = useState(1);
+        setVersion = setState;
+        return (
+          <Suspense fallback={null}>
+            <Listener version={version} />
+            <Suspender version={version} />
+          </Suspense>
+        );
+      }
+      return <Parent />;
+    });
+
+    act(() => {
+      startTransition(() => {
+        assertDefined(setVersion);
+        setVersion(2);
+      });
+    });
+    act(() => {
+      harness.agent.emit(agentPlaceholderEvent(toMessageId('input-1'), 'one'));
+    });
+
+    expect(calls).toEqual(['v1:one']);
   });
 
   it('moves the subscription to the new event type when the type changes', async () => {
