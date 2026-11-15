@@ -115,10 +115,10 @@ describe('ShopAgentReply', () => {
   });
 
   it.each([
-    ['a', 'Done.', 'Done. The page could not be fully updated.'],
+    ['a', 'Done.', 'The page could not be fully updated. Done.'],
     ['an empty', '', 'The page could not be fully updated.'],
   ])(
-    'adds a fixed one-line notice to %s reply when a UI change fails',
+    'puts a fixed one-line notice before %s reply when a UI change fails',
     async (_label, finalReply, expected) => {
       const view = await renderReply();
       const inputId = await view.send('show my last order', 'text');

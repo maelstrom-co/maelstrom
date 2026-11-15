@@ -55,7 +55,7 @@ function describeReply({
       if (run.changeErrors.length > 0) {
         return {
           status: run.status,
-          text: [run.reply, CHANGE_ERROR_COPY].filter(Boolean).join(' '),
+          text: [CHANGE_ERROR_COPY, run.reply].filter(Boolean).join(' '),
           changeError: true,
         };
       }
