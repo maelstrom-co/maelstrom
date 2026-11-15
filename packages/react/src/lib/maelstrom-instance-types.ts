@@ -1,3 +1,4 @@
+import type { AgentConversationEvents } from '@maelstrom-co/client';
 import type { VesselDefinition } from '@maelstrom-co/protocol';
 import type { ComponentType } from 'react';
 
@@ -9,6 +10,7 @@ import type {
 import type { ExtensionOutput, MaelstromExtension } from './extension-types.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
 import type { MaelstromProviderProps } from './provider.js';
+import type { UseAgentRunResult } from './use-agent-run.js';
 import type {
   ActionRunnerLookup,
   AnyVesselEntry,
@@ -32,6 +34,8 @@ export type ReservedInstanceKeys =
   | 'useVessel'
   | 'useActions'
   | 'useInstance'
+  | 'useAgentRun'
+  | 'useAgentEvent'
   | 'registerVessel'
   | 'updateVessel'
   | 'with';
@@ -147,6 +151,41 @@ export interface MaelstromInstanceCore<
    * // props.vesselId tells you which vessel this is
    */
   useInstance: (instanceId: string) => UntypedVesselProps | null;
+
+  /**
+   * Returns the Agent Run state of the Provider's Orchestrator and a stable
+   * `sendMessage` that sends text to the agent. `run` is the run of the most
+   * recent input, `runs` keeps the recent history oldest first, and `error` is
+   * the latest failure tied to no input or run. The component re-renders when
+   * that state changes. Branch on `run.status` to render a placeholder, a
+   * streaming reply, a lost conversation or a failure.
+   *
+   * @example
+   * ```tsx
+   * const { run, sendMessage } = m.useAgentRun();
+   * const onSubmit = (text: string) => void sendMessage(text);
+   * if (run?.status === 'streaming') return <p>{run.reply}</p>;
+   * ```
+   */
+  useAgentRun: () => UseAgentRunResult;
+
+  /**
+   * Calls `handler` with every raw agent event of type `type` from the
+   * Provider's Orchestrator while the component is mounted. The newest handler
+   * is called without resubscribing, so it may be an inline function. The
+   * payload type follows `type`.
+   *
+   * @example
+   * ```ts
+   * m.useAgentEvent('ui_change', ({ runId, changeId }) => {
+   *   console.log('applied', runId, changeId);
+   * });
+   * ```
+   */
+  useAgentEvent: <K extends keyof AgentConversationEvents>(
+    type: K,
+    handler: (event: AgentConversationEvents[K]) => void,
+  ) => void;
 
   /**
    * Dynamically register a vessel at runtime. Returns a typed handle with

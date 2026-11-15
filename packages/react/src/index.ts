@@ -12,6 +12,16 @@ export type {
 export { HttpConnector, WebSocketConnector } from '@maelstrom-co/client';
 
 export { defineVessel } from '@maelstrom-co/protocol';
+// Types — Agent Run
+export type {
+  AgentRunChange,
+  AgentRunChangeError,
+  AgentRunError,
+  AgentRunOutcome,
+  AgentRunState,
+  AgentRunStatus,
+  AgentRunsSnapshot,
+} from './lib/agent-run-state.js';
 export type { ChartProps } from './lib/chart/chart.js';
 export type { ChartMotionConfig } from './lib/chart/motion/motion-config.js';
 export type { CreateMaelstromConfig } from './lib/create-maelstrom.js';
@@ -30,6 +40,7 @@ export type {
 export type { MaelstromInstance } from './lib/maelstrom-instance-types.js';
 export type { MaelstromState } from './lib/maelstrom-state-types.js';
 export type { MaelstromProviderProps } from './lib/provider.js';
+export type { UseAgentRunResult } from './lib/use-agent-run.js';
 export { useIntentSubmission } from './lib/use-intent-submission.js';
 export { vessel } from './lib/vessel.js';
 export type {

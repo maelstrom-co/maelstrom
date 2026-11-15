@@ -26,6 +26,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react`
   - `useMaelstrom` — intent submission and connection status
   - `useVessel` and `useActions` — vessel-level state
   - `useInstance` — raw access to the Maelstrom instance
+  - `useAgentRun` and `useAgentEvent` — Agent Run state and raw agent events
 - **`.with(extension)`** — builder for optional extensions
 
 ## Quick example
@@ -62,6 +63,28 @@ export function App() {
   );
 }
 ```
+
+## Rendering an Agent Run
+
+`m.useAgentRun()` returns the run of the latest input and a stable `sendMessage`. Branch on `run.status` to render each stage.
+
+```tsx
+function AgentReply() {
+  const { run, sendMessage } = m.useAgentRun();
+
+  return (
+    <section>
+      <button onClick={() => void sendMessage('show my last order')}>Ask</button>
+      {run?.status === 'working' && <p>{run.placeholder ?? 'Working...'}</p>}
+      {(run?.status === 'streaming' || run?.status === 'finished') && <p>{run.reply}</p>}
+      {run?.status === 'lost' && <p>Connection lost. Try again.</p>}
+      {run?.status === 'failed' && <p role="alert">{run.error?.message}</p>}
+    </section>
+  );
+}
+```
+
+To follow raw agent events such as `ui_change` or `finished`, call `m.useAgentEvent(type, handler)`.
 
 ## Docs
 

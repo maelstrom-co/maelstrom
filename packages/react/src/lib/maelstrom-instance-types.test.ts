@@ -8,14 +8,32 @@
  * Run `nx typecheck @maelstrom-co/react` to verify these tests.
  */
 
-import { describe, it } from 'bun:test';
+import { describe, expectTypeOf, it } from 'bun:test';
 
-import { defineVessel, ok } from '@maelstrom-co/protocol';
+import type {
+  ConversationLostEvent,
+  InputAcceptedEvent,
+  MessageId,
+  UiChangeAppliedEvent,
+} from '@maelstrom-co/client';
+import {
+  type AgentErrorEvent,
+  type AgentFinishedEvent,
+  type AgentMessageEvent,
+  type AgentPlaceholderEvent,
+  defineVessel,
+  ok,
+} from '@maelstrom-co/protocol';
 
 import {
   type TestVessel,
   testVessel,
 } from './__tests__/test-vessel.fixture.js';
+import type {
+  AgentRunError,
+  AgentRunState,
+  AgentRunStatus,
+} from './agent-run-state.js';
 import type { DynamicVesselHandle } from './dynamic-vessel-types.js';
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { vessel } from './vessel.js';
@@ -275,6 +293,103 @@ describe('DynamicVesselHandle.update inference', () => {
           detail: testVessel.variants.detail,
         },
       });
+    }
+  });
+});
+
+describe('MaelstromInstance.useAgentRun inference', () => {
+  it('returns the Agent Run snapshot fields and a typed sendMessage', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      const { run, runs, error, sendMessage } = m.useAgentRun();
+      expectTypeOf(run).toEqualTypeOf<AgentRunState | null>();
+      expectTypeOf(runs).toEqualTypeOf<readonly AgentRunState[]>();
+      expectTypeOf(error).toEqualTypeOf<AgentRunError | null>();
+      const status: AgentRunStatus | undefined = run?.status;
+      void status;
+      expectTypeOf(sendMessage('show my last order')).toEqualTypeOf<
+        Promise<MessageId>
+      >();
+      void sendMessage('show my last order', { source: 'voice' });
+      // @ts-expect-error - 'email' is not an agent input source
+      void sendMessage('show my last order', { source: 'email' });
+    }
+  });
+});
+
+describe('MaelstromInstance.useAgentEvent inference', () => {
+  it('types the handler payload by the event name', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('placeholder', (event) => {
+        expectTypeOf(event).toEqualTypeOf<AgentPlaceholderEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('accepted', (event) => {
+        expectTypeOf(event).toEqualTypeOf<InputAcceptedEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('message', (event) => {
+        expectTypeOf(event).toEqualTypeOf<AgentMessageEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('ui_change', (event) => {
+        expectTypeOf(event).toEqualTypeOf<UiChangeAppliedEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('finished', (event) => {
+        expectTypeOf(event).toEqualTypeOf<AgentFinishedEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('error', (event) => {
+        expectTypeOf(event).toEqualTypeOf<AgentErrorEvent>();
+      });
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('conversation_lost', (event) => {
+        expectTypeOf(event).toEqualTypeOf<ConversationLostEvent>();
+      });
+    }
+  });
+
+  it('rejects a payload field that belongs to another event', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('message', (event) => {
+        // @ts-expect-error - 'text' belongs to placeholder events, not message events
+        void event.text;
+      });
+    }
+  });
+
+  it('rejects a handler typed for a different event', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent(
+        'finished',
+        // @ts-expect-error - a message handler cannot receive finished events
+        (event: AgentMessageEvent) => {
+          void event;
+        },
+      );
+    }
+  });
+
+  it('rejects an agent event the Orchestrator does not surface', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // @ts-expect-error - 'started' is not a surfaced agent event
+      // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
+      m.useAgentEvent('started', () => {});
+    }
+  });
+});
+
+describe('MaelstromInstance.with reserved agent hook keys', () => {
+  it('rejects an extension that defines useAgentRun or useAgentEvent', () => {
+    if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // @ts-expect-error - useAgentRun is a reserved instance key
+      m.with(() => ({ useAgentRun: () => null }));
+      // @ts-expect-error - useAgentEvent is a reserved instance key
+      m.with(() => ({ useAgentEvent: () => null }));
     }
   });
 });
