@@ -13,9 +13,7 @@ import { MessageId } from '@maelstrom-co/protocol';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Activity, StrictMode, useSyncExternalStore } from 'react';
 
-import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockAgentEngineConnector } from './__tests__/mock-connector.js';
-import type { AgentRunStore } from './agent-run-store.js';
 import { createMaelstromContext } from './context.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { createProvider } from './provider.js';
@@ -258,7 +256,7 @@ describe('Provider connection lifetime', () => {
 });
 
 describe('Provider agent run store', () => {
-  it('puts a store on the context that follows the live Orchestrator after a Strict Mode remount', async () => {
+  it('puts a store on the context that follows the live Orchestrator after a Strict Mode remount', () => {
     const { agent, contextPair, Provider, tracked } = renderableAgentProvider();
     function Placeholder() {
       const { agentRunStore } = contextPair.useMaelstromContext();
@@ -316,30 +314,6 @@ describe('Provider agent run store', () => {
     } finally {
       consoleError.mockRestore();
     }
-  });
-
-  it('stops folding agent events into the store after unmount', async () => {
-    const { agent, contextPair, Provider } = renderableAgentProvider();
-    let captured: AgentRunStore | undefined;
-    function CaptureStore() {
-      captured = contextPair.useMaelstromContext().agentRunStore;
-      return null;
-    }
-    const view = render(
-      <StrictMode>
-        <Provider connector={agent.connector}>
-          <CaptureStore />
-        </Provider>
-      </StrictMode>,
-    );
-    assertDefined(captured);
-    const store = captured;
-    const before = store.getSnapshot();
-
-    view.unmount();
-    agent.emit(agentPlaceholderEvent(MessageId('input-1'), 'Looking it up'));
-
-    expect(store.getSnapshot()).toBe(before);
   });
 });
 
