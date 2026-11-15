@@ -147,206 +147,6 @@ export function createPlannerShowQueue({
   let chart: ChartRequest | undefined;
   let closed = false;
 
-  const resolveIdleWaiters = () => {
-    for (const resolve of idleWaiters.splice(0)) resolve();
-  };
-
-  // Callers leave their show first. A listener may already have started the next one.
-  const startNextShow = () => {
-    pump();
-    if (state.phase === 'idle') resolveIdleWaiters();
-  };
-
-  const refuseUnknownChange = (changeId: ChangeId) => {
-    diagnostics.session('engine.agent.ui_applied.rejected', {
-      changeId,
-      code: 'unknown_change',
-    });
-    events.emit(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
-  };
-
-  const abortPlanning = (job: ShowJob) => {
-    job.cancelPlanningTimeout();
-    job.controller.abort();
-  };
-
-  const noteFor = (show: LoopDrivenShow, text: string) =>
-    recordShowNote(show.runId, show.turnId, text);
-
-  const emitChange = (job: ShowJob, planned: MaelstromResponse) => {
-    const { userMessage: _reply, ...response } = planned;
-    const { show, changeId } = job;
-    const event: AgentUiChangeEvent = {
-      type: 'ui_change',
-      version: AGENT_WIRE_VERSION,
-      runId: show.runId,
-      changeId,
-      response,
-    };
-    const cancelTimeout = scheduleTimeout(() => {
-      if (state.phase === 'awaiting_ack' && state.event === event)
-        expireChange(job);
-    }, acknowledgementTimeoutMs);
-    // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
-    state = { phase: 'awaiting_ack', job, event, cancelTimeout };
-    observeUiChangeEmitted(
-      event,
-      show.inputId,
-      diagnostics,
-      { changeId, turnId: show.turnId, actions: response.executionPlan.length },
-      () => ({ intent: show.intent, intentFacts: show.intentFacts }),
-    );
-    events.emit(event);
-  };
-
-  const expireChange = (job: ShowJob) => {
-    const { show, changeId } = job;
-    // Leave awaiting acknowledgement first so a late ui_applied is refused as unknown.
-    state = { phase: 'idle' };
-    events.emit({
-      ...changeError(changeId, 'ui_ack_timeout', ACKNOWLEDGEMENT_TIMEOUT_TEXT),
-      runId: show.runId,
-    });
-    if (closed) return;
-    noteFor(show, describeShowNotConfirmed(show.toolNames));
-    diagnostics.run(
-      show.runId,
-      show.inputId,
-      'engine.agent.ui_change.timed_out',
-      {
-        changeId,
-        turnId: show.turnId,
-      },
-    );
-    startNextShow();
-  };
-
-  const failShow = (
-    job: ShowJob,
-    code: string,
-    logContext?: ShowFailureLogContext,
-  ) => {
-    const { show, changeId } = job;
-    state = { phase: 'idle' };
-    // Never the Planner error message: it may carry model text.
-    logger.warn('Loop-driven show failed', {
-      changeId,
-      messageId: job.messageId,
-      runId: show.runId,
-      turnId: show.turnId,
-      toolNames: show.toolNames,
-      code,
-      ...logContext,
-    });
-    events.emit({
-      ...changeError(changeId, code, PLANNER_FAILURE_TEXT),
-      runId: show.runId,
-    });
-    if (closed) return;
-    noteFor(show, describeShowFailed(show.toolNames));
-    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.failed', {
-      changeId,
-      turnId: show.turnId,
-      code,
-    });
-    startNextShow();
-  };
-
-  const skipShow = (job: ShowJob, skip: ShowSkipReason) => {
-    const { show, changeId } = job;
-    state = { phase: 'idle' };
-    noteFor(show, describeShowSkipped(show.toolNames, skip));
-    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.skipped', {
-      changeId,
-      turnId: show.turnId,
-      reason: skip.reason,
-    });
-    startNextShow();
-  };
-
-  const settle = (job: ShowJob, settled: PlanSettlement) => {
-    if (closed || state.phase !== 'planning' || state.job !== job) return;
-    job.cancelPlanningTimeout();
-    if (settled.type === 'threw') {
-      failShow(job, 'internal_error', { errorName: settled.errorName });
-      return;
-    }
-    const { result } = settled;
-    if (isErr(result)) {
-      failShow(job, result.error._tag);
-      return;
-    }
-    const outcome = result.value;
-    switch (outcome.type) {
-      case 'needs_clarification':
-        skipShow(job, {
-          reason: 'needs_clarification',
-          question: outcome.question,
-        });
-        return;
-      case 'response':
-        if (isNothingToShow(outcome.response, job.request))
-          skipShow(job, { reason: 'nothing_to_show' });
-        else emitChange(job, outcome.response);
-        return;
-      default:
-        assertNever(outcome, 'PlanOutcome');
-    }
-  };
-
-  const plan = async (job: ShowJob) => {
-    let settled: PlanSettlement;
-    try {
-      const result = await planner({
-        request: job.request,
-        messageId: job.messageId,
-        owner: {
-          runId: job.show.runId,
-          inputId: job.show.inputId,
-          turnId: job.show.turnId,
-        },
-        signal: job.controller.signal,
-      });
-      settled = { type: 'returned', result };
-    } catch (error) {
-      // Only the error's name: its message may carry model text.
-      settled = {
-        type: 'threw',
-        errorName: error instanceof Error ? error.name : typeof error,
-      };
-    }
-    settle(job, settled);
-  };
-
-  const pump = () => {
-    while (!closed && state.phase === 'idle') {
-      const show = queue.shift();
-      if (show === undefined) return;
-      if (chart === undefined) {
-        logger.warn('Dropped a loop-driven show with no known Chart', {
-          runId: show.runId,
-          turnId: show.turnId,
-        });
-        continue;
-      }
-      const controller = new AbortController();
-      const job: ShowJob = {
-        show,
-        changeId: ChangeId(crypto.randomUUID()),
-        messageId: MessageId(crypto.randomUUID()),
-        request: buildShowRequest(chart, show.intent, show.intentFacts),
-        controller,
-        cancelPlanningTimeout: scheduleTimeout(() => {
-          if (state.phase !== 'planning' || state.job !== job) return;
-          controller.abort();
-          failShow(job, 'planning_timeout');
-        }, planningTimeoutMs),
-      };
-      state = { phase: 'planning', job };
-      void plan(job);
-    }
-  };
-
   return {
     request(show) {
       if (closed) return;
@@ -481,6 +281,207 @@ export function createPlannerShowQueue({
       resolveIdleWaiters();
     },
   };
+
+  function resolveIdleWaiters() {
+    for (const resolve of idleWaiters.splice(0)) resolve();
+  }
+
+  // Callers leave their show first. A listener may already have started the next one.
+  function startNextShow() {
+    pump();
+    if (state.phase === 'idle') resolveIdleWaiters();
+  }
+
+  function refuseUnknownChange(changeId: ChangeId) {
+    diagnostics.session('engine.agent.ui_applied.rejected', {
+      changeId,
+      code: 'unknown_change',
+    });
+    events.emit(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
+  }
+
+  function abortPlanning(job: ShowJob) {
+    job.cancelPlanningTimeout();
+    job.controller.abort();
+  }
+
+  function noteFor(show: LoopDrivenShow, text: string) {
+    recordShowNote(show.runId, show.turnId, text);
+  }
+
+  function emitChange(job: ShowJob, planned: MaelstromResponse) {
+    const { userMessage: _reply, ...response } = planned;
+    const { show, changeId } = job;
+    const event: AgentUiChangeEvent = {
+      type: 'ui_change',
+      version: AGENT_WIRE_VERSION,
+      runId: show.runId,
+      changeId,
+      response,
+    };
+    const cancelTimeout = scheduleTimeout(() => {
+      if (state.phase === 'awaiting_ack' && state.event === event)
+        expireChange(job);
+    }, acknowledgementTimeoutMs);
+    // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
+    state = { phase: 'awaiting_ack', job, event, cancelTimeout };
+    observeUiChangeEmitted(
+      event,
+      show.inputId,
+      diagnostics,
+      { changeId, turnId: show.turnId, actions: response.executionPlan.length },
+      () => ({ intent: show.intent, intentFacts: show.intentFacts }),
+    );
+    events.emit(event);
+  }
+
+  function expireChange(job: ShowJob) {
+    const { show, changeId } = job;
+    // Leave awaiting acknowledgement first so a late ui_applied is refused as unknown.
+    state = { phase: 'idle' };
+    events.emit({
+      ...changeError(changeId, 'ui_ack_timeout', ACKNOWLEDGEMENT_TIMEOUT_TEXT),
+      runId: show.runId,
+    });
+    if (closed) return;
+    noteFor(show, describeShowNotConfirmed(show.toolNames));
+    diagnostics.run(
+      show.runId,
+      show.inputId,
+      'engine.agent.ui_change.timed_out',
+      {
+        changeId,
+        turnId: show.turnId,
+      },
+    );
+    startNextShow();
+  }
+
+  function failShow(
+    job: ShowJob,
+    code: string,
+    logContext?: ShowFailureLogContext,
+  ) {
+    const { show, changeId } = job;
+    state = { phase: 'idle' };
+    // Never the Planner error message: it may carry model text.
+    logger.warn('Loop-driven show failed', {
+      changeId,
+      messageId: job.messageId,
+      runId: show.runId,
+      turnId: show.turnId,
+      toolNames: show.toolNames,
+      code,
+      ...logContext,
+    });
+    events.emit({
+      ...changeError(changeId, code, PLANNER_FAILURE_TEXT),
+      runId: show.runId,
+    });
+    if (closed) return;
+    noteFor(show, describeShowFailed(show.toolNames));
+    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.failed', {
+      changeId,
+      turnId: show.turnId,
+      code,
+    });
+    startNextShow();
+  }
+
+  function skipShow(job: ShowJob, skip: ShowSkipReason) {
+    const { show, changeId } = job;
+    state = { phase: 'idle' };
+    noteFor(show, describeShowSkipped(show.toolNames, skip));
+    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.skipped', {
+      changeId,
+      turnId: show.turnId,
+      reason: skip.reason,
+    });
+    startNextShow();
+  }
+
+  function settle(job: ShowJob, settled: PlanSettlement) {
+    if (closed || state.phase !== 'planning' || state.job !== job) return;
+    job.cancelPlanningTimeout();
+    if (settled.type === 'threw') {
+      failShow(job, 'internal_error', { errorName: settled.errorName });
+      return;
+    }
+    const { result } = settled;
+    if (isErr(result)) {
+      failShow(job, result.error._tag);
+      return;
+    }
+    const outcome = result.value;
+    switch (outcome.type) {
+      case 'needs_clarification':
+        skipShow(job, {
+          reason: 'needs_clarification',
+          question: outcome.question,
+        });
+        return;
+      case 'response':
+        if (isNothingToShow(outcome.response, job.request))
+          skipShow(job, { reason: 'nothing_to_show' });
+        else emitChange(job, outcome.response);
+        return;
+      default:
+        assertNever(outcome, 'PlanOutcome');
+    }
+  }
+
+  async function plan(job: ShowJob) {
+    let settled: PlanSettlement;
+    try {
+      const result = await planner({
+        request: job.request,
+        messageId: job.messageId,
+        owner: {
+          runId: job.show.runId,
+          inputId: job.show.inputId,
+          turnId: job.show.turnId,
+        },
+        signal: job.controller.signal,
+      });
+      settled = { type: 'returned', result };
+    } catch (error) {
+      // Only the error's name: its message may carry model text.
+      settled = {
+        type: 'threw',
+        errorName: error instanceof Error ? error.name : typeof error,
+      };
+    }
+    settle(job, settled);
+  }
+
+  function pump() {
+    while (!closed && state.phase === 'idle') {
+      const show = queue.shift();
+      if (show === undefined) return;
+      if (chart === undefined) {
+        logger.warn('Dropped a loop-driven show with no known Chart', {
+          runId: show.runId,
+          turnId: show.turnId,
+        });
+        continue;
+      }
+      const controller = new AbortController();
+      const job: ShowJob = {
+        show,
+        changeId: ChangeId(crypto.randomUUID()),
+        messageId: MessageId(crypto.randomUUID()),
+        request: buildShowRequest(chart, show.intent, show.intentFacts),
+        controller,
+        cancelPlanningTimeout: scheduleTimeout(() => {
+          if (state.phase !== 'planning' || state.job !== job) return;
+          controller.abort();
+          failShow(job, 'planning_timeout');
+        }, planningTimeoutMs),
+      };
+      state = { phase: 'planning', job };
+      void plan(job);
+    }
+  }
 }
 
 const PLANNER_FAILURE_TEXT = 'The screen could not be updated.';

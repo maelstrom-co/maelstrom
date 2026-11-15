@@ -76,115 +76,6 @@ export function createRunScheduler({
   const queue: UiRun[] = [];
   let state: RunState = { phase: 'idle' };
   let chart: ChartRequest | undefined;
-  const complete = (run: UiRun, reply?: string, failure?: RunFailure) => {
-    if (signal.aborted) return;
-    const ending = buildRunEnding(run, clock(), reply, failure);
-    events.emit(...ending.events);
-    diagnostics.run(
-      run.runId,
-      run.input.inputId,
-      'engine.agent.run.finished',
-      ending.metadata,
-    );
-  };
-  const startNextRun = () => {
-    state = { phase: 'idle' };
-    void pump();
-  };
-  const failPlanning = (run: UiRun, failure: RunFailure) => {
-    state = { phase: 'finishing', run };
-    complete(run, undefined, failure);
-    run.ready.resolve();
-    startNextRun();
-  };
-  const expire = (run: UiRun) => {
-    state = { phase: 'finishing', run };
-    chart = undefined;
-    const abandoned = queue.splice(0);
-    complete(run, undefined, {
-      code: 'ui_ack_timeout',
-      error: 'The UI acknowledgement did not arrive.',
-    });
-    for (const queued of abandoned) {
-      complete(queued, undefined, {
-        reason: 'cancelled',
-        code: 'ui_ack_timeout',
-        error: 'The preceding UI change was not acknowledged.',
-      });
-      queued.ready.resolve();
-    }
-    startNextRun();
-  };
-  const emitUiChange = (run: UiRun, response: MaelstromResponse) => {
-    const event: AgentUiChangeEvent = {
-      type: 'ui_change',
-      version: AGENT_WIRE_VERSION,
-      runId: run.runId,
-      changeId: ChangeId(crypto.randomUUID()),
-      response,
-    };
-    const timeout = setTimeout(() => {
-      if (state.phase === 'awaiting_ack' && state.event === event) expire(run);
-    }, acknowledgementTimeoutMs);
-    state = {
-      phase: 'awaiting_ack',
-      run,
-      event,
-      cancelTimeout: () => clearTimeout(timeout),
-    };
-    events.emit(event);
-    observeUiChangeEmitted(event, run.input.inputId, diagnostics, {
-      changeId: event.changeId,
-      actions: response.executionPlan.length,
-    });
-    run.ready.resolve();
-    void pump();
-  };
-  const pump = async (): Promise<void> => {
-    if (signal.aborted || events.isDelivering() || state.phase !== 'idle')
-      return;
-    const run = queue.shift();
-    if (!run) return;
-    state = { phase: 'planning', run };
-    const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
-    const messageId = run.input.inputId;
-    let result: Result<MaelstromResponse, EngineError>;
-    try {
-      const planned = await planner({
-        messageId,
-        owner: { runId: run.runId, inputId: messageId },
-        signal,
-        request,
-      });
-      result = isErr(planned)
-        ? planned
-        : requireResponse(planned.value, messageId, logger);
-    } catch {
-      failPlanning(run, {
-        code: 'internal_error',
-        error: 'The UI request failed.',
-      });
-      return;
-    }
-    if (signal.aborted) return;
-    if (isErr(result))
-      failPlanning(run, {
-        error: 'The UI request failed.',
-        code: result.error._tag,
-      });
-    else emitUiChange(run, result.value);
-  };
-  const reject = (event: AgentErrorEvent): void => {
-    events.emit(event);
-    void pump();
-  };
-  const refuseUnknownChange = (changeId: ChangeId) => {
-    diagnostics.session('engine.agent.ui_applied.rejected', {
-      changeId,
-      code: 'unknown_change',
-    });
-    reject(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
-  };
   return {
     pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
     reject,
@@ -273,6 +164,123 @@ export function createRunScheduler({
       chart = undefined;
     },
   };
+
+  function complete(run: UiRun, reply?: string, failure?: RunFailure) {
+    if (signal.aborted) return;
+    const ending = buildRunEnding(run, clock(), reply, failure);
+    events.emit(...ending.events);
+    diagnostics.run(
+      run.runId,
+      run.input.inputId,
+      'engine.agent.run.finished',
+      ending.metadata,
+    );
+  }
+
+  function startNextRun() {
+    state = { phase: 'idle' };
+    void pump();
+  }
+
+  function failPlanning(run: UiRun, failure: RunFailure) {
+    state = { phase: 'finishing', run };
+    complete(run, undefined, failure);
+    run.ready.resolve();
+    startNextRun();
+  }
+
+  function expire(run: UiRun) {
+    state = { phase: 'finishing', run };
+    chart = undefined;
+    const abandoned = queue.splice(0);
+    complete(run, undefined, {
+      code: 'ui_ack_timeout',
+      error: 'The UI acknowledgement did not arrive.',
+    });
+    for (const queued of abandoned) {
+      complete(queued, undefined, {
+        reason: 'cancelled',
+        code: 'ui_ack_timeout',
+        error: 'The preceding UI change was not acknowledged.',
+      });
+      queued.ready.resolve();
+    }
+    startNextRun();
+  }
+
+  function emitUiChange(run: UiRun, response: MaelstromResponse) {
+    const event: AgentUiChangeEvent = {
+      type: 'ui_change',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+      changeId: ChangeId(crypto.randomUUID()),
+      response,
+    };
+    const timeout = setTimeout(() => {
+      if (state.phase === 'awaiting_ack' && state.event === event) expire(run);
+    }, acknowledgementTimeoutMs);
+    state = {
+      phase: 'awaiting_ack',
+      run,
+      event,
+      cancelTimeout: () => clearTimeout(timeout),
+    };
+    events.emit(event);
+    observeUiChangeEmitted(event, run.input.inputId, diagnostics, {
+      changeId: event.changeId,
+      actions: response.executionPlan.length,
+    });
+    run.ready.resolve();
+    void pump();
+  }
+
+  async function pump(): Promise<void> {
+    if (signal.aborted || events.isDelivering() || state.phase !== 'idle')
+      return;
+    const run = queue.shift();
+    if (!run) return;
+    state = { phase: 'planning', run };
+    const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
+    const messageId = run.input.inputId;
+    let result: Result<MaelstromResponse, EngineError>;
+    try {
+      const planned = await planner({
+        messageId,
+        owner: { runId: run.runId, inputId: messageId },
+        signal,
+        request,
+      });
+      result = isErr(planned)
+        ? planned
+        : requireResponse(planned.value, messageId, logger);
+    } catch {
+      failPlanning(run, {
+        code: 'internal_error',
+        error: 'The UI request failed.',
+      });
+      return;
+    }
+    if (signal.aborted) return;
+    if (isErr(result))
+      failPlanning(run, {
+        error: 'The UI request failed.',
+        code: result.error._tag,
+      });
+    else emitUiChange(run, result.value);
+  }
+
+  function reject(event: AgentErrorEvent): void {
+    events.emit(event);
+    void pump();
+  }
+
+  function refuseUnknownChange(changeId: ChangeId) {
+    diagnostics.session('engine.agent.ui_applied.rejected', {
+      changeId,
+      code: 'unknown_change',
+    });
+    reject(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
+  }
 }
 
 /** Builds the agent `error` event that refuses a `ui_applied` input. */

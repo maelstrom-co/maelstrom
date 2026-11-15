@@ -267,21 +267,6 @@ export function createDiagnosticConnection(
   let release: (() => void) | undefined;
   let disposed = false;
   const requests = new Map<string, symbol>();
-  const releaseSubscription = () => {
-    enabled = false;
-    content = false;
-  };
-  const dispose = () => {
-    disposed = true;
-    releaseSubscription();
-    try {
-      release?.();
-    } catch {
-      /* Optional observation cannot prevent connection cleanup. */
-    }
-    release = undefined;
-    requests.clear();
-  };
   if (options.enabled === true && process.env.NODE_ENV !== 'production') {
     try {
       release = engine.observeDiagnostics?.((event, readContent) => {
@@ -360,6 +345,23 @@ export function createDiagnosticConnection(
       }
     },
   };
+
+  function releaseSubscription() {
+    enabled = false;
+    content = false;
+  }
+
+  function dispose() {
+    disposed = true;
+    releaseSubscription();
+    try {
+      release?.();
+    } catch {
+      /* Optional observation cannot prevent connection cleanup. */
+    }
+    release = undefined;
+    requests.clear();
+  }
 }
 
 function ownedFields(

@@ -273,164 +273,6 @@ export function createEngine(config: EngineConfig): Engine {
     ? createHistoryManager(historyConfig)
     : undefined;
 
-  const runChartRequest = async <Shipped>(
-    message: ChartRequestMessage,
-    ship: ShipStep<Shipped>,
-    signal?: AbortSignal,
-    sessionHistory?: readonly LLMContextMessage[],
-    runOwner?: RunOwner,
-  ): Promise<Result<Shipped, EngineError>> => {
-    const { request } = message;
-    const diagnosticOwner = runOwner ?? message.id;
-    logger.debug('Processing chart_request', {
-      messageId: message.id,
-      sessionId: message.sessionId,
-      layoutMode: request.context.layoutMode,
-    });
-
-    // Snapshot construction rejects ambiguous or over-limit Action parameter
-    // definitions in the Vessel catalog. Surface that as an Err before the
-    // planner runs instead of breaking the Promise<Result> contract.
-    let enumSnapshot: ActionParameterEnumSnapshot;
-    try {
-      enumSnapshot = buildActionParameterEnumSnapshot(request.vessels);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger.error('Failed to build Action parameter enum snapshot', error, {
-        messageId: message.id,
-      });
-      return err(validationError(errorMessage, 'vessels', error));
-    }
-
-    // Prior conversation is what lets the planner reason across turns.
-    // Empty when history isn't configured, which planners treat the same as
-    // a fresh first turn. A throw from a remote-backed store (Redis blip,
-    // Postgres timeout, deserialization error) would otherwise reject the
-    // returned promise and break the documented `Promise<Result<…>>`
-    // contract — surface it as a HistoryError so callers see the same Err
-    // shape they see for assistant_message persistence failures.
-    const historyContext =
-      sessionHistory !== undefined
-        ? ok(sessionHistory)
-        : await loadHistoryContext(
-            history,
-            message.sessionId,
-            message.id,
-            logger,
-          );
-    if (isErr(historyContext)) {
-      return historyContext;
-    }
-
-    const input: PlanningInput = {
-      messageId: message.id,
-      sessionId: message.sessionId,
-      request,
-      history: historyContext.value,
-    };
-    const validate = createCandidateValidator({
-      request,
-      enumSnapshot,
-      messageId: message.id,
-      logger,
-      validatePlan,
-      onValidated: (report) =>
-        diagnosticsEmitter.emit(
-          message.sessionId,
-          diagnosticOwner,
-          'engine.candidate.validated',
-          { outcome: report.ok ? 'succeeded' : 'failed' },
-          () => report,
-        ),
-    });
-    const ctx: StageContext = {
-      signal,
-      logger,
-      instrument: diagnosticsEmitter.instrument(
-        instrument,
-        message.sessionId,
-        diagnosticOwner,
-      ),
-      origin: input,
-      validate,
-      enumSnapshot,
-    };
-
-    const start = performance.now();
-    diagnosticsEmitter.emit(
-      message.sessionId,
-      diagnosticOwner,
-      operationalKinds.enginePlannerStarted,
-      {},
-      () => input,
-    );
-    const planned = await runPlanner(planner, input, ctx, validate);
-    const durationMs = performance.now() - start;
-    const shippable = isErr(planned)
-      ? planned
-      : ship(planned.value, message.id, logger);
-    diagnosticsEmitter.emit(
-      message.sessionId,
-      diagnosticOwner,
-      operationalKinds.enginePlannerCompleted,
-      {
-        durationMs,
-        ...operationalOutcome(shippable),
-      },
-      () => shippable,
-    );
-    if (isErr(planned) || isErr(shippable)) {
-      return shippable;
-    }
-
-    // Ship steps strip engine-internal diagnostics before they cross the
-    // engine boundary. Anything healed silently here is the only
-    // operator-visible signal that the planner produced bad output, so emit a
-    // single summary log line. Drops and warnings would otherwise be invisible
-    // to observability. Severity drives the level so blank-UI responses
-    // (`unrecoverable`) cross default `warn`-threshold paging filters.
-    const { diagnostics } = planned.value;
-    diagnosticsEmitter.emit(
-      message.sessionId,
-      diagnosticOwner,
-      'engine.validation.completed',
-      {
-        dropped: diagnostics.droppedLayoutEntries.length,
-        skipped: diagnostics.skippedActions.length,
-        warnings: diagnostics.warnings.length,
-        retry: diagnostics.retryHint.recommend,
-        planIssues: diagnostics.planIssues?.length ?? 0,
-      },
-      () => diagnostics,
-    );
-    if (
-      diagnostics.skippedActions.length > 0 ||
-      diagnostics.droppedLayoutEntries.length > 0 ||
-      diagnostics.warnings.length > 0
-    ) {
-      logAtSeverity(logger, diagnostics.retryHint.severity, 'Response healed', {
-        messageId: message.id,
-        skippedActions: diagnostics.skippedActions.length,
-        droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
-        warnings: diagnostics.warnings.length,
-        retrySeverity: diagnostics.retryHint.severity,
-        retryRecommend: diagnostics.retryHint.recommend,
-        // Two layers: the counts above stay scalar so a log backend can
-        // aggregate and alert on them, while `detail` carries the forensic
-        // lines — model-derived, bounded, and first to be truncated by a
-        // transport that has to cut something.
-        detail: {
-          drops: formatDroppedEntries(diagnostics.droppedLayoutEntries),
-          warnings: formatLayoutWarnings(diagnostics.warnings),
-          skips: formatSkippedActions(diagnostics.skippedActions),
-        },
-      });
-    }
-
-    return shippable;
-  };
-
   const dedup = createChartRequestDedup({
     runChartRequest: async (message, signal) => {
       const shipped = await runChartRequest(
@@ -450,17 +292,6 @@ export function createEngine(config: EngineConfig): Engine {
     history,
     logger,
   });
-
-  const createSessionPlanner =
-    (sessionId: SessionId): SessionPlanner =>
-    (input) =>
-      runChartRequest(
-        agentChartRequest(sessionId, input.messageId, input.request),
-        shipPlanOutcome,
-        input.signal,
-        [],
-        input.owner,
-      );
 
   return {
     openConnection: (options) =>
@@ -647,6 +478,175 @@ export function createEngine(config: EngineConfig): Engine {
       }
     },
   };
+
+  async function runChartRequest<Shipped>(
+    message: ChartRequestMessage,
+    ship: ShipStep<Shipped>,
+    signal?: AbortSignal,
+    sessionHistory?: readonly LLMContextMessage[],
+    runOwner?: RunOwner,
+  ): Promise<Result<Shipped, EngineError>> {
+    const { request } = message;
+    const diagnosticOwner = runOwner ?? message.id;
+    logger.debug('Processing chart_request', {
+      messageId: message.id,
+      sessionId: message.sessionId,
+      layoutMode: request.context.layoutMode,
+    });
+
+    // Snapshot construction rejects ambiguous or over-limit Action parameter
+    // definitions in the Vessel catalog. Surface that as an Err before the
+    // planner runs instead of breaking the Promise<Result> contract.
+    let enumSnapshot: ActionParameterEnumSnapshot;
+    try {
+      enumSnapshot = buildActionParameterEnumSnapshot(request.vessels);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error('Failed to build Action parameter enum snapshot', error, {
+        messageId: message.id,
+      });
+      return err(validationError(errorMessage, 'vessels', error));
+    }
+
+    // Prior conversation is what lets the planner reason across turns.
+    // Empty when history isn't configured, which planners treat the same as
+    // a fresh first turn. A throw from a remote-backed store (Redis blip,
+    // Postgres timeout, deserialization error) would otherwise reject the
+    // returned promise and break the documented `Promise<Result<…>>`
+    // contract — surface it as a HistoryError so callers see the same Err
+    // shape they see for assistant_message persistence failures.
+    const historyContext =
+      sessionHistory !== undefined
+        ? ok(sessionHistory)
+        : await loadHistoryContext(
+            history,
+            message.sessionId,
+            message.id,
+            logger,
+          );
+    if (isErr(historyContext)) {
+      return historyContext;
+    }
+
+    const input: PlanningInput = {
+      messageId: message.id,
+      sessionId: message.sessionId,
+      request,
+      history: historyContext.value,
+    };
+    const validate = createCandidateValidator({
+      request,
+      enumSnapshot,
+      messageId: message.id,
+      logger,
+      validatePlan,
+      onValidated: (report) =>
+        diagnosticsEmitter.emit(
+          message.sessionId,
+          diagnosticOwner,
+          'engine.candidate.validated',
+          { outcome: report.ok ? 'succeeded' : 'failed' },
+          () => report,
+        ),
+    });
+    const ctx: StageContext = {
+      signal,
+      logger,
+      instrument: diagnosticsEmitter.instrument(
+        instrument,
+        message.sessionId,
+        diagnosticOwner,
+      ),
+      origin: input,
+      validate,
+      enumSnapshot,
+    };
+
+    const start = performance.now();
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      diagnosticOwner,
+      operationalKinds.enginePlannerStarted,
+      {},
+      () => input,
+    );
+    const planned = await runPlanner(planner, input, ctx, validate);
+    const durationMs = performance.now() - start;
+    const shippable = isErr(planned)
+      ? planned
+      : ship(planned.value, message.id, logger);
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      diagnosticOwner,
+      operationalKinds.enginePlannerCompleted,
+      {
+        durationMs,
+        ...operationalOutcome(shippable),
+      },
+      () => shippable,
+    );
+    if (isErr(planned) || isErr(shippable)) {
+      return shippable;
+    }
+
+    // Ship steps strip engine-internal diagnostics before they cross the
+    // engine boundary. Anything healed silently here is the only
+    // operator-visible signal that the planner produced bad output, so emit a
+    // single summary log line. Drops and warnings would otherwise be invisible
+    // to observability. Severity drives the level so blank-UI responses
+    // (`unrecoverable`) cross default `warn`-threshold paging filters.
+    const { diagnostics } = planned.value;
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      diagnosticOwner,
+      'engine.validation.completed',
+      {
+        dropped: diagnostics.droppedLayoutEntries.length,
+        skipped: diagnostics.skippedActions.length,
+        warnings: diagnostics.warnings.length,
+        retry: diagnostics.retryHint.recommend,
+        planIssues: diagnostics.planIssues?.length ?? 0,
+      },
+      () => diagnostics,
+    );
+    if (
+      diagnostics.skippedActions.length > 0 ||
+      diagnostics.droppedLayoutEntries.length > 0 ||
+      diagnostics.warnings.length > 0
+    ) {
+      logAtSeverity(logger, diagnostics.retryHint.severity, 'Response healed', {
+        messageId: message.id,
+        skippedActions: diagnostics.skippedActions.length,
+        droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
+        warnings: diagnostics.warnings.length,
+        retrySeverity: diagnostics.retryHint.severity,
+        retryRecommend: diagnostics.retryHint.recommend,
+        // Two layers: the counts above stay scalar so a log backend can
+        // aggregate and alert on them, while `detail` carries the forensic
+        // lines — model-derived, bounded, and first to be truncated by a
+        // transport that has to cut something.
+        detail: {
+          drops: formatDroppedEntries(diagnostics.droppedLayoutEntries),
+          warnings: formatLayoutWarnings(diagnostics.warnings),
+          skips: formatSkippedActions(diagnostics.skippedActions),
+        },
+      });
+    }
+
+    return shippable;
+  }
+
+  function createSessionPlanner(sessionId: SessionId): SessionPlanner {
+    return (input) =>
+      runChartRequest(
+        agentChartRequest(sessionId, input.messageId, input.request),
+        shipPlanOutcome,
+        input.signal,
+        [],
+        input.owner,
+      );
+  }
 }
 
 /**
