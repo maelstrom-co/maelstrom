@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { Orchestrator } from '@maelstrom-co/client';
+import {
+  type AgentConversationEvents,
+  type EngineConnector,
+  Orchestrator,
+  TypedEmitter,
+} from '@maelstrom-co/client';
 import {
   agentAcceptedEvent,
   agentFinishedEvent,
@@ -23,6 +28,7 @@ import { type AgentRunStore, createAgentRunStore } from './agent-run-store.js';
 
 const RUN = RunId('run-1');
 const CHANGE = ChangeId('change-1');
+const INPUT = MessageId('input-1');
 
 let cleanups: Array<() => Promise<void> | void> = [];
 
@@ -67,6 +73,7 @@ describe('createAgentRunStore', () => {
       reply: 'Here is your order.',
       turnId: 'turn-1',
       changes: [{ changeId: CHANGE }],
+      changeErrors: [],
       error: null,
       lostReason: null,
       finished: {
@@ -120,6 +127,89 @@ describe('createAgentRunStore', () => {
 
     expect(store.getSnapshot()).toBe(EMPTY_AGENT_RUNS);
     expect(notifications).toBe(0);
+  });
+
+  it('registers an input already lost when the Orchestrator disconnects while its send is in flight', async () => {
+    const held = Promise.withResolvers<void>();
+    const { agent, orchestrator, store } = await setup({
+      sendInput: () => held.promise,
+    });
+
+    const utterance = agent.nextInput('utterance');
+    const sending = store.sendMessage('hello');
+    await utterance;
+    await orchestrator.disconnect();
+    held.resolve();
+    const inputId = await sending;
+
+    const run = store.getSnapshot().run;
+    assertDefined(run);
+    expect(run.inputId).toBe(inputId);
+    expect(run.status).toBe('lost');
+    expect(run.lostReason).toBe('disconnected');
+  });
+
+  it('registers an input already lost when the connector is replaced while its send is in flight', async () => {
+    const held = Promise.withResolvers<void>();
+    const { agent, orchestrator, store } = await setup({
+      sendInput: () => held.promise,
+    });
+
+    const utterance = agent.nextInput('utterance');
+    const sending = store.sendMessage('hello');
+    await utterance;
+    orchestrator.setConnector(createMockAgentEngineConnector().connector);
+    held.resolve();
+    const inputId = await sending;
+
+    const run = store.getSnapshot().run;
+    assertDefined(run);
+    expect(run.inputId).toBe(inputId);
+    expect(run.status).toBe('lost');
+    expect(run.lostReason).toBe('connector_replaced');
+  });
+
+  it('registers an input stale-lost when a stale loss for another subject lands during its send, and late events move it on', async () => {
+    const fake = createFakeOrchestrator();
+    const store = createAgentRunStore(fake.orchestrator);
+    cleanups.push(() => store.dispose());
+
+    const sending = store.sendMessage('hello');
+    fake.agent.emit('conversation_lost', {
+      type: 'conversation_lost',
+      reason: 'stale_run',
+      runId: RunId('run-other'),
+    });
+    fake.resolveSend(INPUT);
+    expect(await sending).toBe(INPUT);
+
+    expect(store.getSnapshot().run?.status).toBe('lost');
+    expect(store.getSnapshot().run?.lostReason).toBe('stale_run');
+
+    fake.agent.emit('placeholder', agentPlaceholderEvent(INPUT, 'Back'));
+
+    expect(store.getSnapshot().run?.status).toBe('working');
+    expect(store.getSnapshot().run?.lostReason).toBeNull();
+  });
+
+  it('keeps a run created by an event that arrived after the loss and before the send resolved', async () => {
+    const fake = createFakeOrchestrator();
+    const store = createAgentRunStore(fake.orchestrator);
+    cleanups.push(() => store.dispose());
+
+    const sending = store.sendMessage('hello');
+    fake.agent.emit('conversation_lost', {
+      type: 'conversation_lost',
+      reason: 'stale_run',
+      runId: RunId('run-other'),
+    });
+    fake.agent.emit('placeholder', agentPlaceholderEvent(INPUT, 'Looking'));
+    fake.resolveSend(INPUT);
+    await sending;
+
+    expect(store.getSnapshot().runs).toHaveLength(1);
+    expect(store.getSnapshot().run?.status).toBe('working');
+    expect(store.getSnapshot().run?.lostReason).toBeNull();
   });
 
   it('keeps snapshot identity between unchanged reads', async () => {
@@ -193,13 +283,19 @@ describe('createAgentRunStore', () => {
 });
 
 async function setup(
-  options: { connect?: boolean; disposeOrchestrator?: boolean } = {},
+  options: {
+    connect?: boolean;
+    disposeOrchestrator?: boolean;
+    sendInput?: EngineConnector['sendInput'];
+  } = {},
 ): Promise<{
   agent: MockAgentConnector;
   orchestrator: Orchestrator;
   store: AgentRunStore;
 }> {
-  const agent = createMockAgentEngineConnector();
+  const agent = createMockAgentEngineConnector(
+    options.sendInput === undefined ? {} : { sendInput: options.sendInput },
+  );
   const orchestrator = new Orchestrator(agent.connector, {
     agentRunStaleTimeoutMs: Infinity,
   });
@@ -211,6 +307,20 @@ async function setup(
   const store = createAgentRunStore(orchestrator);
   cleanups.push(() => store.dispose());
   return { agent, orchestrator, store };
+}
+
+function createFakeOrchestrator(): {
+  orchestrator: Pick<Orchestrator, 'agent' | 'sendMessage'>;
+  agent: TypedEmitter<AgentConversationEvents>;
+  resolveSend(inputId: MessageId): void;
+} {
+  const agent = new TypedEmitter<AgentConversationEvents>();
+  const send = Promise.withResolvers<MessageId>();
+  return {
+    orchestrator: { agent, sendMessage: () => send.promise },
+    agent,
+    resolveSend: (inputId) => send.resolve(inputId),
+  };
 }
 
 function emptyResponse(): MaelstromResponse {

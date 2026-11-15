@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import type {
   ConversationLostEvent,
+  ConversationLostReason,
   InputAcceptedEvent,
   UiChangeAppliedEvent,
 } from '@maelstrom-co/client';
@@ -38,10 +39,36 @@ describe('reduceAgentRuns', () => {
       reply: '',
       turnId: null,
       changes: [],
+      changeErrors: [],
       error: null,
       lostReason: null,
       finished: null,
     });
+  });
+
+  it('registers an input already lost when its send resolved after a loss', () => {
+    const permanent = reduce(sent(INPUT, 'disconnected'));
+    const stale = reduce(sent(INPUT, 'stale_run'));
+
+    expect(permanent.run?.status).toBe('lost');
+    expect(permanent.run?.lostReason).toBe('disconnected');
+    expect(stale.run?.status).toBe('lost');
+    expect(stale.run?.lostReason).toBe('stale_run');
+    expect(
+      reduceAgentRuns(stale, agentPlaceholderEvent(INPUT, 'Back')).run?.status,
+    ).toBe('working');
+  });
+
+  it('ignores the loss of a resolved send when the input is already known', () => {
+    const before = reduce(
+      agentErrorEvent({ error: 'Session error' }),
+      agentPlaceholderEvent(INPUT, 'Looking'),
+    );
+    const snapshot = reduceAgentRuns(before, sent(INPUT, 'disconnected'));
+
+    expect(snapshot.runs).toBe(before.runs);
+    expect(snapshot.run?.status).toBe('working');
+    expect(snapshot.error).toBeNull();
   });
 
   it('keeps one run whether the placeholder arrives before or after registration', () => {
@@ -207,16 +234,91 @@ describe('reduceAgentRuns', () => {
     expect(snapshot.run?.finished?.ok).toBe(false);
   });
 
-  it('fails the run named by the runId of an error', () => {
+  it('records an error naming a runId as a failed UI change without failing the run', () => {
     const snapshot = reduce(
       sent(INPUT),
       accepted(INPUT, RUN),
+      agentErrorEvent({
+        runId: RUN,
+        changeId: ChangeId('change-1'),
+        error: 'UI change failed',
+        code: 'plan_failed',
+      }),
+      agentErrorEvent({ runId: RUN, error: 'Ack timed out' }),
+    );
+
+    expect(snapshot.run?.status).toBe('working');
+    expect(snapshot.run?.error).toBeNull();
+    expect(snapshot.run?.changeErrors).toEqual([
+      {
+        changeId: ChangeId('change-1'),
+        message: 'UI change failed',
+        code: 'plan_failed',
+      },
+      { changeId: null, message: 'Ack timed out' },
+    ]);
+    expect(snapshot.error).toBeNull();
+  });
+
+  it('keeps a run finished when a failed UI change arrives after its finish', () => {
+    const snapshot = reduce(
+      sent(INPUT),
+      accepted(INPUT, RUN),
+      agentMessageEvent(RUN, 'Done'),
+      agentFinishedEvent(RUN, { reply: 'Done.' }),
       agentErrorEvent({ runId: RUN, error: 'UI change failed' }),
     );
 
-    expect(snapshot.run?.status).toBe('failed');
-    expect(snapshot.run?.error).toEqual({ message: 'UI change failed' });
-    expect(snapshot.error).toBeNull();
+    expect(snapshot.run?.status).toBe('finished');
+    expect(snapshot.run?.error).toBeNull();
+    expect(snapshot.run?.reply).toBe('Done.');
+    expect(snapshot.run?.finished?.ok).toBe(true);
+    expect(snapshot.run?.changeErrors).toEqual([
+      { changeId: null, message: 'UI change failed' },
+    ]);
+  });
+
+  it('keeps streaming after a failed UI change and finishes with the full reply', () => {
+    const snapshot = reduce(
+      sent(INPUT),
+      accepted(INPUT, RUN),
+      agentMessageEvent(RUN, 'Half'),
+      agentErrorEvent({ runId: RUN, error: 'UI change failed' }),
+      agentMessageEvent(RUN, ' more'),
+      agentFinishedEvent(RUN, { reply: undefined }),
+    );
+
+    expect(snapshot.run?.status).toBe('finished');
+    expect(snapshot.run?.reply).toBe('Half more');
+    expect(snapshot.run?.error).toBeNull();
+    expect(snapshot.run?.changeErrors).toHaveLength(1);
+  });
+
+  it('ignores an error naming an unknown runId even when its inputId is known', () => {
+    const before = reduce(sent(INPUT), accepted(INPUT, RUN));
+
+    const after = reduceAgentRuns(
+      before,
+      agentErrorEvent({
+        runId: RunId('run-unknown'),
+        inputId: INPUT,
+        error: 'nope',
+      }),
+    );
+
+    expect(after).toBe(before);
+  });
+
+  it('clears the error of an input failure when the run later finishes ok', () => {
+    const snapshot = reduce(
+      sent(INPUT),
+      accepted(INPUT, RUN),
+      agentErrorEvent({ inputId: INPUT, error: 'Rejected' }),
+      agentFinishedEvent(RUN),
+    );
+
+    expect(snapshot.run?.status).toBe('finished');
+    expect(snapshot.run?.error).toBeNull();
   });
 
   it('sets the snapshot error for an error naming neither input nor run', () => {
@@ -246,27 +348,56 @@ describe('reduceAgentRuns', () => {
     expect(snapshot.error).toBeNull();
   });
 
-  it('marks only the stale run lost and lets a late finish win', () => {
+  it('marks every open run stale-lost on any stale loss and lets a late finish win per run', () => {
+    const done = MessageId('input-done');
+    const doneRun = RunId('run-done');
     const other = MessageId('input-2');
+    const otherRun = RunId('run-2');
     const lost = reduce(
+      sent(done),
+      accepted(done, doneRun),
+      agentFinishedEvent(doneRun),
       sent(INPUT),
       accepted(INPUT, RUN),
       sent(other),
+      accepted(other, otherRun),
+      agentMessageEvent(otherRun, 'Half'),
       staleRun(RUN),
     );
 
-    expect(lost.runs[0]?.status).toBe('lost');
-    expect(lost.runs[0]?.lostReason).toBe('stale_run');
-    expect(lost.runs[1]?.status).toBe('pending');
+    expect(lost.runs.map((run) => run.status)).toEqual([
+      'finished',
+      'lost',
+      'lost',
+    ]);
+    expect(lost.runs[1]?.lostReason).toBe('stale_run');
+    expect(lost.runs[2]?.lostReason).toBe('stale_run');
 
     const finished = reduceAgentRuns(
       lost,
-      agentFinishedEvent(RUN, { reply: 'Late reply' }),
+      agentFinishedEvent(otherRun, { reply: 'Late reply' }),
     );
 
-    expect(finished.runs[0]?.status).toBe('finished');
-    expect(finished.runs[0]?.lostReason).toBeNull();
-    expect(finished.runs[0]?.reply).toBe('Late reply');
+    expect(finished.runs[1]?.status).toBe('lost');
+    expect(finished.runs[1]?.lostReason).toBe('stale_run');
+    expect(finished.runs[2]?.status).toBe('finished');
+    expect(finished.runs[2]?.lostReason).toBeNull();
+    expect(finished.runs[2]?.reply).toBe('Late reply');
+  });
+
+  it('registers an unknown stale input as stale-lost and lets a late placeholder move it on', () => {
+    const lost = reduce(staleInput(INPUT));
+
+    expect(lost.runs).toHaveLength(1);
+    expect(lost.run?.inputId).toBe(INPUT);
+    expect(lost.run?.status).toBe('lost');
+    expect(lost.run?.lostReason).toBe('stale_run');
+    expect(reduceAgentRuns(lost, sent(INPUT)).runs).toBe(lost.runs);
+
+    const resumed = reduceAgentRuns(lost, agentPlaceholderEvent(INPUT, 'Back'));
+
+    expect(resumed.run?.status).toBe('working');
+    expect(resumed.run?.lostReason).toBeNull();
   });
 
   it('marks a stale input lost and lets a late placeholder move it on', () => {
@@ -343,10 +474,19 @@ describe('reduceAgentRuns', () => {
       uiChange(stranger, 'change-1'),
       agentFinishedEvent(stranger),
       agentErrorEvent({ runId: stranger, error: 'nope' }),
-      staleRun(stranger),
     );
 
     expect(after).toBe(before);
+  });
+
+  it('creates no run for a stale loss naming an unknown runId but still marks open runs lost', () => {
+    const before = reduce(sent(INPUT), accepted(INPUT, RUN));
+
+    const after = reduceAgentRuns(before, staleRun(RunId('run-unknown')));
+
+    expect(after.runs).toHaveLength(1);
+    expect(after.run?.status).toBe('lost');
+    expect(after.run?.lostReason).toBe('stale_run');
   });
 
   it('keeps at most the cap of runs and evicts the oldest', () => {
@@ -422,8 +562,13 @@ function reduce(
   return rest.reduce(reduceAgentRuns, start);
 }
 
-function sent(inputId: MessageId): AgentRunEvent {
-  return { type: 'input_sent', inputId };
+function sent(
+  inputId: MessageId,
+  lostReason?: ConversationLostReason,
+): AgentRunEvent {
+  return lostReason === undefined
+    ? { type: 'input_sent', inputId }
+    : { type: 'input_sent', inputId, lostReason };
 }
 
 function accepted(inputId: MessageId, runId: RunId | null): InputAcceptedEvent {

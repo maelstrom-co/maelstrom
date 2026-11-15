@@ -44,6 +44,22 @@ export type AgentRunChange = {
   readonly changeId: ChangeId;
 };
 
+/**
+ * A loop-driven UI change of an Agent Run that failed to plan or apply. It does
+ * not end the run and can arrive after the run finished.
+ */
+export type AgentRunChangeError = {
+  /**
+   * The failed change, when the agent named one. It may name a change that no
+   * applied UI change carried.
+   */
+  readonly changeId: ChangeId | null;
+  /** Human-readable failure description. */
+  readonly message: string;
+  /** Machine-readable failure kind, when the agent sent one. */
+  readonly code?: string;
+};
+
 /** Everything known about one input and the Agent Run that handles it. */
 export type AgentRunState = {
   /** The input that started the run, as resolved by `sendMessage`. */
@@ -63,7 +79,15 @@ export type AgentRunState = {
   readonly turnId: string | null;
   /** Applied UI changes in arrival order. */
   readonly changes: readonly AgentRunChange[];
-  /** The failure that ended or interrupted the run. */
+  /**
+   * Failed UI changes of the run in arrival order, kept apart from `changes`
+   * because their change may never have been applied.
+   */
+  readonly changeErrors: readonly AgentRunChangeError[];
+  /**
+   * The failure that ended the run, from a failed finish or a rejected input.
+   * Failed UI changes are in `changeErrors` instead.
+   */
   readonly error: AgentRunError | null;
   /** Why the run was lost, set only while the status is `lost`. */
   readonly lostReason: ConversationLostReason | null;
@@ -87,6 +111,11 @@ export type AgentInputSentAction = {
   readonly type: 'input_sent';
   /** The input `sendMessage` resolved to. */
   readonly inputId: MessageId;
+  /**
+   * The loss reported while the send was in flight. An input not known yet is
+   * registered already lost with this reason. A known input ignores it.
+   */
+  readonly lostReason?: ConversationLostReason;
 };
 
 /** Anything that can change Agent Run state. */
@@ -115,7 +144,11 @@ export function reduceAgentRuns(
 ): AgentRunsSnapshot {
   switch (event.type) {
     case 'input_sent': {
-      const registered = upsertByInput(snapshot, event.inputId);
+      const registered = upsertByInput(
+        snapshot,
+        event.inputId,
+        event.lostReason ?? null,
+      );
       return registered.error === null
         ? registered
         : { ...registered, error: null };
@@ -159,7 +192,7 @@ export function reduceAgentRuns(
           reply: event.reply ?? run.reply,
           lostReason: null,
           error: event.ok
-            ? run.error
+            ? null
             : toError(event.error ?? event.reason, event.code),
           finished: {
             ok: event.ok,
@@ -169,19 +202,25 @@ export function reduceAgentRuns(
         });
       });
     case 'error': {
-      const fail = (run: AgentRunState): AgentRunState =>
-        patch(run, {
-          status: 'failed',
-          error: toError(event.error, event.code),
-          lostReason: null,
-        });
-      if (event.runId !== undefined && indexOfRun(snapshot, event.runId) >= 0) {
-        return updateByRun(snapshot, event.runId, fail);
+      if (event.runId !== undefined) {
+        const changeError: AgentRunChangeError = {
+          changeId: event.changeId ?? null,
+          ...toError(event.error, event.code),
+        };
+        return updateByRun(snapshot, event.runId, (run) => ({
+          ...run,
+          changeErrors: [...run.changeErrors, changeError],
+        }));
       }
       if (event.inputId !== undefined) {
-        return updateByInput(snapshot, event.inputId, fail);
+        return updateByInput(snapshot, event.inputId, (run) =>
+          patch(run, {
+            status: 'failed',
+            error: toError(event.error, event.code),
+            lostReason: null,
+          }),
+        );
       }
-      if (event.runId !== undefined) return snapshot;
       return { ...snapshot, error: toError(event.error, event.code) };
     }
     case 'conversation_lost':
@@ -196,30 +235,39 @@ function applyConversationLost(
   event: ConversationLostEvent,
 ): AgentRunsSnapshot {
   if (event.reason !== 'stale_run') {
-    const reason = event.reason;
-    let changed = false;
-    const runs = snapshot.runs.map((run) => {
-      if (!isOpen(run) && !isStaleLost(run)) return run;
-      changed = true;
-      return { ...run, status: 'lost' as const, lostReason: reason };
-    });
-    return changed ? withRuns(snapshot, runs) : snapshot;
+    return markRunsLost(
+      snapshot,
+      event.reason,
+      (run) => isOpen(run) || isStaleLost(run),
+    );
   }
-  const markStale = (run: AgentRunState): AgentRunState =>
-    isOpen(run) ? patch(run, { status: 'lost', lostReason: 'stale_run' }) : run;
-  if (event.runId !== undefined) {
-    return updateByRun(snapshot, event.runId, markStale);
-  }
-  const index = indexOfInput(snapshot, event.inputId);
-  return index < 0 ? snapshot : replaceAt(snapshot, index, markStale);
+  const marked = markRunsLost(snapshot, 'stale_run', isOpen);
+  return event.inputId === undefined
+    ? marked
+    : upsertByInput(marked, event.inputId, 'stale_run');
+}
+
+function markRunsLost(
+  snapshot: AgentRunsSnapshot,
+  reason: ConversationLostReason,
+  shouldMark: (run: AgentRunState) => boolean,
+): AgentRunsSnapshot {
+  let changed = false;
+  const runs = snapshot.runs.map((run) => {
+    if (!shouldMark(run)) return run;
+    changed = true;
+    return { ...run, status: 'lost' as const, lostReason: reason };
+  });
+  return changed ? withRuns(snapshot, runs) : snapshot;
 }
 
 function upsertByInput(
   snapshot: AgentRunsSnapshot,
   inputId: MessageId,
+  lostReason: ConversationLostReason | null = null,
 ): AgentRunsSnapshot {
   if (indexOfInput(snapshot, inputId) >= 0) return snapshot;
-  const runs = [...snapshot.runs, createRun(inputId)];
+  const runs = [...snapshot.runs, createRun(inputId, lostReason)];
   return withRuns(
     snapshot,
     runs.length > AGENT_RUNS_CAP ? runs.slice(-AGENT_RUNS_CAP) : runs,
@@ -281,17 +329,21 @@ function resume(run: AgentRunState): Partial<AgentRunState> {
     : {};
 }
 
-function createRun(inputId: MessageId): AgentRunState {
+function createRun(
+  inputId: MessageId,
+  lostReason: ConversationLostReason | null,
+): AgentRunState {
   return {
     inputId,
     runId: null,
-    status: 'pending',
+    status: lostReason === null ? 'pending' : 'lost',
     placeholder: null,
     reply: '',
     turnId: null,
     changes: [],
+    changeErrors: [],
     error: null,
-    lostReason: null,
+    lostReason,
     finished: null,
   };
 }

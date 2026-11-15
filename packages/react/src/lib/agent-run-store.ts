@@ -1,5 +1,6 @@
 import type {
   AgentConversationEvents,
+  ConversationLostReason,
   MessageId,
   Orchestrator,
   SendMessageOptions,
@@ -26,7 +27,12 @@ export type AgentRunStore = {
   getSnapshot(): AgentRunsSnapshot;
   /**
    * Sends text to the agent through the Orchestrator and registers the input
-   * once it resolves. Rejections are rethrown and register nothing.
+   * once it resolves. Rejections are rethrown and register nothing. A loss
+   * never rejects it, because the input may have reached the agent. When the
+   * conversation was lost while the send was in flight and the input is still
+   * unknown when it resolves, the input is registered already lost: for good
+   * after a disconnect or connector replacement, otherwise as a recoverable
+   * `stale_run` loss that later events move on.
    */
   sendMessage(text: string, options?: SendMessageOptions): Promise<MessageId>;
   /**
@@ -47,9 +53,17 @@ export function createAgentRunStore(
   let snapshot = EMPTY_AGENT_RUNS;
   let disposed = false;
   const listeners = new Set<() => void>();
+  const inFlightSends = new Set<InFlightSend>();
 
   const dispatch = (event: AgentRunEvent): void => {
     if (disposed) return;
+    if (event.type === 'conversation_lost') {
+      for (const send of inFlightSends) {
+        if (event.reason !== 'stale_run' || send.lostReason === null) {
+          send.lostReason = event.reason;
+        }
+      }
+    }
     const next = reduceAgentRuns(snapshot, event);
     if (next === snapshot) return;
     snapshot = next;
@@ -69,9 +83,19 @@ export function createAgentRunStore(
     },
     getSnapshot: () => snapshot,
     async sendMessage(text, options) {
-      const inputId = await orchestrator.sendMessage(text, options);
-      dispatch({ type: 'input_sent', inputId });
-      return inputId;
+      const send: InFlightSend = { lostReason: null };
+      inFlightSends.add(send);
+      try {
+        const inputId = await orchestrator.sendMessage(text, options);
+        dispatch(
+          send.lostReason === null
+            ? { type: 'input_sent', inputId }
+            : { type: 'input_sent', inputId, lostReason: send.lostReason },
+        );
+        return inputId;
+      } finally {
+        inFlightSends.delete(send);
+      }
     },
     dispose() {
       if (disposed) return;
@@ -81,6 +105,8 @@ export function createAgentRunStore(
     },
   };
 }
+
+type InFlightSend = { lostReason: ConversationLostReason | null };
 
 const AGENT_EVENT_PRESENCE: Record<keyof AgentConversationEvents, true> = {
   accepted: true,
