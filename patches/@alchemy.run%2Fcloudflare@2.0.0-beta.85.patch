@@ -1,0 +1,137 @@
+diff --git a/src/Workers/WorkerProvider.ts b/src/Workers/WorkerProvider.ts
+--- a/src/Workers/WorkerProvider.ts
++++ b/src/Workers/WorkerProvider.ts
+@@ -3,7 +3,7 @@
+ import * as rulesets from "@distilled.cloud/cloudflare/rulesets";
+ import * as workers from "@distilled.cloud/cloudflare/workers";
+ import * as wfp from "@distilled.cloud/cloudflare/workers-for-platforms";
+-import { Unowned, Unresolved } from "alchemy/AdoptPolicy";
++import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
+ import { dotAlchemyDirectory } from "alchemy/AlchemyContext";
+ import { havePropsChanged, isResolved, stripEffects } from "alchemy/Diff";
+ import * as ProviderLayer from "alchemy/Local/ProviderLayer";
+@@ -4826,7 +4826,6 @@
+           const settings = yield* getScriptSettings(accountId, name, namespace).pipe(
+             Effect.catchTags({
+               WorkerNotFound: () => Effect.undefined,
+-              WorkerHasNoVersions: () => Effect.undefined,
+               DispatchNamespaceScriptNotFound: () => Effect.undefined,
+               DispatchNamespaceNotFound: () => Effect.undefined,
+             }),
+@@ -4836,6 +4835,9 @@
+           return hasAlchemyWorkerTags(id, settings.tags ?? []) ? observed : Unowned(observed);
+         }),
+         precreate: Effect.fn(function* ({ id, news, session, bindings }) {
++          if (news.version?.parent == null && news.preview?.of == null && !isResolved(news.name)) {
++            return yield* new UnresolvedIdentity({ message: `Worker ${id} needs a resolved name before precreation.`, resourceType: "Cloudflare.Worker", logicalId: id });
++          }
+           const { accountId } = yield* yield* CloudflareEnvironment;
+           yield* assertCloudflareTelemetryCompatibility(news as WorkerProps, bindings);
+           const name = yield* createWorkerName(id, news.name);
+@@ -5318,7 +5320,7 @@
+             // raises `OwnedBySomeoneElse`).
+             return hasAlchemyWorkerTags(id, settings.tags ?? []) ? attrs : Unowned(attrs);
+           },
+-          (effect) =>
++          (effect, { output }) =>
+             effect.pipe(
+               // A worker that exists but hasn't registered a version yet reads
+               // as "not deployed" — fall through to (re)create like NotFound.
+@@ -5326,7 +5328,7 @@
+               // `DispatchNamespaceScriptNotFound` / `DispatchNamespaceNotFound`.
+               Effect.catchTags({
+                 WorkerNotFound: () => Effect.undefined,
+-                WorkerHasNoVersions: () => Effect.undefined,
++                WorkerHasNoVersions: (error) => output === undefined ? Effect.fail(error) : Effect.undefined,
+                 DispatchNamespaceScriptNotFound: () => Effect.undefined,
+                 DispatchNamespaceNotFound: () => Effect.undefined,
+               }),
+diff --git a/lib/Workers/WorkerProvider.js b/lib/Workers/WorkerProvider.js
+--- a/lib/Workers/WorkerProvider.js
++++ b/lib/Workers/WorkerProvider.js
+@@ -3,7 +3,7 @@
+ import * as rulesets from "@distilled.cloud/cloudflare/rulesets";
+ import * as workers from "@distilled.cloud/cloudflare/workers";
+ import * as wfp from "@distilled.cloud/cloudflare/workers-for-platforms";
+-import { Unowned, Unresolved } from "alchemy/AdoptPolicy";
++import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
+ import { dotAlchemyDirectory } from "alchemy/AlchemyContext";
+ import { havePropsChanged, isResolved, stripEffects } from "alchemy/Diff";
+ import * as ProviderLayer from "alchemy/Local/ProviderLayer";
+@@ -3778,7 +3778,6 @@
+             }
+             const settings = yield* getScriptSettings(accountId, name, namespace).pipe(Effect.catchTags({
+                 WorkerNotFound: () => Effect.undefined,
+-                WorkerHasNoVersions: () => Effect.undefined,
+                 DispatchNamespaceScriptNotFound: () => Effect.undefined,
+                 DispatchNamespaceNotFound: () => Effect.undefined,
+             }));
+@@ -3788,6 +3787,9 @@
+             return hasAlchemyWorkerTags(id, settings.tags ?? []) ? observed : Unowned(observed);
+         }),
+         precreate: Effect.fn(function* ({ id, news, session, bindings }) {
++            if (news.version?.parent == null && news.preview?.of == null && !isResolved(news.name)) {
++                return yield* new UnresolvedIdentity({ message: `Worker ${id} needs a resolved name before precreation.`, resourceType: "Cloudflare.Worker", logicalId: id });
++            }
+             const { accountId } = yield* yield* CloudflareEnvironment;
+             yield* assertCloudflareTelemetryCompatibility(news, bindings);
+             const name = yield* createWorkerName(id, news.name);
+@@ -4208,14 +4210,14 @@
+             // `Unowned` (caller must opt in via `--adopt` or the engine
+             // raises `OwnedBySomeoneElse`).
+             return hasAlchemyWorkerTags(id, settings.tags ?? []) ? attrs : Unowned(attrs);
+-        }, (effect) => effect.pipe(
++        }, (effect, { output }) => effect.pipe(
+         // A worker that exists but hasn't registered a version yet reads
+         // as "not deployed" — fall through to (re)create like NotFound.
+         // The dispatch-namespace endpoints report the same conditions as
+         // `DispatchNamespaceScriptNotFound` / `DispatchNamespaceNotFound`.
+         Effect.catchTags({
+             WorkerNotFound: () => Effect.undefined,
+-            WorkerHasNoVersions: () => Effect.undefined,
++            WorkerHasNoVersions: (error) => output === undefined ? Effect.fail(error) : Effect.undefined,
+             DispatchNamespaceScriptNotFound: () => Effect.undefined,
+             DispatchNamespaceNotFound: () => Effect.undefined,
+         }))),
+@@ -4885,4 +4887,3 @@
+         }
+     }
+ });
+-//# sourceMappingURL=WorkerProvider.js.map
+\ No newline at end of file
+diff --git a/lib/Ruleset/Ruleset.js b/lib/Ruleset/Ruleset.js
+index 7a1d7fcd59935ea4c02424b4af315d62e4c3b561..2373848f763753defada209394490ca37c259f37 100644
+--- a/lib/Ruleset/Ruleset.js
++++ b/lib/Ruleset/Ruleset.js
+@@ -72,6 +72,12 @@ export const RulesetProvider = () => Provider.succeed(Ruleset, {
+             !deepEqual(olds.rules, news.rules)) {
+             return { action: "update" };
+         }
++        if (desiredZoneId !== undefined &&
++            desiredZoneId.length > 0 &&
++            output?.zoneId === desiredZoneId &&
++            output.phase === news.phase) {
++            return { action: "noop" };
++        }
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+         const zoneId = output?.zoneId ?? zoneIdOf(news.zone);
+diff --git a/src/Ruleset/Ruleset.ts b/src/Ruleset/Ruleset.ts
+index 33ec499b05fa2720c8d27070f0ca331397df1ea0..369f3f22a873d7e51df66e352123235f369bb583 100644
+--- a/src/Ruleset/Ruleset.ts
++++ b/src/Ruleset/Ruleset.ts
+@@ -146,6 +146,14 @@ export const RulesetProvider = () =>
+       ) {
+         return { action: "update" } as const;
+       }
++      if (
++        desiredZoneId !== undefined &&
++        desiredZoneId.length > 0 &&
++        output?.zoneId === desiredZoneId &&
++        output.phase === news.phase
++      ) {
++        return { action: "noop" } as const;
++      }
+     }),
+     reconcile: Effect.fn(function* ({ id, news, output }) {
+       const zoneId = output?.zoneId ?? zoneIdOf(news.zone);

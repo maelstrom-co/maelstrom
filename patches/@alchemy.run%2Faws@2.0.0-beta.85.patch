@@ -1,0 +1,216 @@
+diff --git a/src/ApiGateway/RestApi.ts b/src/ApiGateway/RestApi.ts
+--- a/src/ApiGateway/RestApi.ts
++++ b/src/ApiGateway/RestApi.ts
+@@ -300,16 +300,37 @@
+   Provider.effect(
+     RestApi,
+     Effect.gen(function* () {
+-      // Ensure — create the REST API in full and return its snapshot. Used by
+-      // `precreate` (cycle members) and by `reconcile` when the API is
+-      // missing (greenfield outside a cycle, or deleted out of band).
++      const recoverApi = Effect.fn(function* (id: string, news: RestApiProps, instanceId: string) {
++        const name = yield* generatedName(id, news);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
++        const owns = (api: ag.RestApi) => api.name === name &&
++          Object.entries(internalTags).every(([key, value]) => api.tags?.[key] === value);
++        const pages = yield* ag.getRestApis.pages({ limit: 500 }).pipe(Stream.runCollect);
++        const candidates = Array.from(pages).flatMap((page) => page.items ?? []).filter((api) => api.id && owns(api));
++        if (candidates.length > 1) {
++          return yield* Effect.fail(new Error(`AmbiguousRestApiRecovery: multiple REST APIs match ${id}'s ownership and name.`));
++        }
++        const candidate = candidates[0];
++        if (!candidate?.id) return undefined;
++        const observed = yield* ag.getRestApi({ restApiId: candidate.id }).pipe(
++          Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)),
++        );
++        if (!observed?.id) return undefined;
++        if (!owns(observed)) {
++          return yield* Effect.fail(new Error(`RestApiRecoveryOwnershipChanged: API ${candidate.id} changed identity during recovery.`));
++        }
++        return snapshotFromApi(observed);
++      });
+       const createApi = Effect.fn(function* (
+         id: string,
+         news: RestApiProps,
+         session: { note: (message: string) => Effect.Effect<void> },
++        instanceId: string,
+       ) {
++        const recovered = yield* recoverApi(id, news, instanceId);
++        if (recovered) return recovered;
+         const name = yield* generatedName(id, news);
+-        const internalTags = yield* createInternalTags(id);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
+         const allTags = { ...news.tags, ...internalTags };
+         const created = yield* retryOnApiStatusUpdating(
+           ag.createRestApi({
+@@ -335,7 +356,6 @@
+         const full = yield* ag.getRestApi({ restApiId: created.id });
+         return snapshotFromApi(full);
+       });
+-
+       return {
+         stables: ["restApiId", "rootResourceId"] as const,
+         diff: Effect.fn(function* ({ news: newsIn, olds }) {
+@@ -373,8 +393,8 @@
+               ),
+             ),
+           ),
+-        read: Effect.fn(function* ({ output }) {
+-          if (!output?.restApiId) return undefined;
++        read: Effect.fn(function* ({ id, olds, output, instanceId }) {
++          if (!output?.restApiId) return yield* recoverApi(id, olds, instanceId);
+           const api = yield* ag
+             .getRestApi({ restApiId: output.restApiId })
+             .pipe(Effect.catchTag("NotFoundException", () => Effect.undefined));
+@@ -391,14 +411,14 @@
+         // `Deployment` referencing `api.*` outputs will see a value produced
+         // only after every bound child has settled, because the bindings on
+         // the API force `create` to wait for them before returning.
+-        precreate: Effect.fn(function* ({ id, news: newsIn, session }) {
++        precreate: Effect.fn(function* ({ id, news: newsIn, session, instanceId }) {
+           if (!isResolved(newsIn)) {
+             return yield* Effect.die("RestApi props were not resolved");
+           }
+           const news = newsIn as RestApiProps;
+-          return yield* createApi(id, news, session);
++          return yield* createApi(id, news, session, instanceId);
+         }),
+-        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session }) {
++        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session, instanceId }) {
+           const { region } = yield* AWSEnvironment.current;
+           if (!isResolved(newsIn)) {
+             return yield* Effect.die("RestApi props were not resolved");
+@@ -414,9 +434,12 @@
+                 .pipe(Effect.catchTag("NotFoundException", () => Effect.undefined))
+             : undefined;
+           // Ensure — create the API when it is missing.
++          if (output?.restApiId && !observed?.id) {
++            return yield* Effect.die(`RestApi ${output.restApiId} disappeared between precreate and reconcile`);
++          }
+           const observedSnapshot = observed?.id
+             ? snapshotFromApi(observed)
+-            : yield* createApi(id, news, session);
++            : yield* createApi(id, news, session, instanceId);
+           const restApiId = observedSnapshot.restApiId;
+ 
+           // Sync mutable scalar fields — diff observed cloud state against
+@@ -434,7 +457,12 @@
+           // Sync tags — observed ↔ desired so adoption converges without
+           // fighting the existing tag set.
+           const internalTags = yield* createInternalTags(id);
+-          const desiredTags = { ...news.tags, ...internalTags };
++          const recoveryInstance = observedSnapshot.tags?.["alchemy::instance"];
++          const desiredTags = {
++            ...news.tags,
++            ...internalTags,
++            ...(recoveryInstance !== undefined ? { "alchemy::instance": recoveryInstance } : {}),
++          };
+           if (!deepEqual(observedSnapshot.tags, desiredTags)) {
+             const arn = restApiArn(region, restApiId);
+             yield* syncTags({
+diff --git a/lib/ApiGateway/RestApi.js b/lib/ApiGateway/RestApi.js
+--- a/lib/ApiGateway/RestApi.js
++++ b/lib/ApiGateway/RestApi.js
+@@ -180,12 +180,33 @@
+     return patches;
+ };
+ export const RestApiProvider = () => Provider.effect(RestApi, Effect.gen(function* () {
+-    // Ensure — create the REST API in full and return its snapshot. Used by
+-    // `precreate` (cycle members) and by `reconcile` when the API is
+-    // missing (greenfield outside a cycle, or deleted out of band).
+-    const createApi = Effect.fn(function* (id, news, session) {
++    const recoverApi = Effect.fn(function* (id, news, instanceId) {
+         const name = yield* generatedName(id, news);
+-        const internalTags = yield* createInternalTags(id);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
++        const owns = (api) => api.name === name &&
++            Object.entries(internalTags).every(([key, value]) => api.tags?.[key] === value);
++        const pages = yield* ag.getRestApis.pages({ limit: 500 }).pipe(Stream.runCollect);
++        const candidates = Array.from(pages).flatMap((page) => page.items ?? []).filter((api) => api.id && owns(api));
++        if (candidates.length > 1) {
++            return yield* Effect.fail(new Error(`AmbiguousRestApiRecovery: multiple REST APIs match ${id}'s ownership and name.`));
++        }
++        const candidate = candidates[0];
++        if (!candidate?.id)
++            return undefined;
++        const observed = yield* ag.getRestApi({ restApiId: candidate.id }).pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)));
++        if (!observed?.id)
++            return undefined;
++        if (!owns(observed)) {
++            return yield* Effect.fail(new Error(`RestApiRecoveryOwnershipChanged: API ${candidate.id} changed identity during recovery.`));
++        }
++        return snapshotFromApi(observed);
++    });
++    const createApi = Effect.fn(function* (id, news, session, instanceId) {
++        const recovered = yield* recoverApi(id, news, instanceId);
++        if (recovered)
++            return recovered;
++        const name = yield* generatedName(id, news);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
+         const allTags = { ...news.tags, ...internalTags };
+         const created = yield* retryOnApiStatusUpdating(ag.createRestApi({
+             name,
+@@ -232,9 +253,9 @@
+         list: () => ag.getRestApis.pages({}).pipe(Stream.runCollect, Effect.map((chunk) => Array.from(chunk).flatMap((page) => (page.items ?? [])
+             .filter((api) => api.id != null)
+             .map((api) => snapshotFromApi(api))))),
+-        read: Effect.fn(function* ({ output }) {
++        read: Effect.fn(function* ({ id, olds, output, instanceId }) {
+             if (!output?.restApiId)
+-                return undefined;
++                return yield* recoverApi(id, olds, instanceId);
+             const api = yield* ag
+                 .getRestApi({ restApiId: output.restApiId })
+                 .pipe(Effect.catchTag("NotFoundException", () => Effect.undefined));
+@@ -252,14 +273,14 @@
+         // `Deployment` referencing `api.*` outputs will see a value produced
+         // only after every bound child has settled, because the bindings on
+         // the API force `create` to wait for them before returning.
+-        precreate: Effect.fn(function* ({ id, news: newsIn, session }) {
++        precreate: Effect.fn(function* ({ id, news: newsIn, session, instanceId }) {
+             if (!isResolved(newsIn)) {
+                 return yield* Effect.die("RestApi props were not resolved");
+             }
+             const news = newsIn;
+-            return yield* createApi(id, news, session);
++            return yield* createApi(id, news, session, instanceId);
+         }),
+-        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session }) {
++        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session, instanceId }) {
+             const { region } = yield* AWSEnvironment.current;
+             if (!isResolved(newsIn)) {
+                 return yield* Effect.die("RestApi props were not resolved");
+@@ -274,9 +295,12 @@
+                     .pipe(Effect.catchTag("NotFoundException", () => Effect.undefined))
+                 : undefined;
+             // Ensure — create the API when it is missing.
++            if (output?.restApiId && !observed?.id) {
++                return yield* Effect.die(`RestApi ${output.restApiId} disappeared between precreate and reconcile`);
++            }
+             const observedSnapshot = observed?.id
+                 ? snapshotFromApi(observed)
+-                : yield* createApi(id, news, session);
++                : yield* createApi(id, news, session, instanceId);
+             const restApiId = observedSnapshot.restApiId;
+             // Sync mutable scalar fields — diff observed cloud state against
+             // desired and emit only the delta as PATCH operations.
+@@ -290,7 +314,12 @@
+             // Sync tags — observed ↔ desired so adoption converges without
+             // fighting the existing tag set.
+             const internalTags = yield* createInternalTags(id);
+-            const desiredTags = { ...news.tags, ...internalTags };
++            const recoveryInstance = observedSnapshot.tags?.["alchemy::instance"];
++            const desiredTags = {
++                ...news.tags,
++                ...internalTags,
++                ...(recoveryInstance !== undefined ? { "alchemy::instance": recoveryInstance } : {}),
++            };
+             if (!deepEqual(observedSnapshot.tags, desiredTags)) {
+                 const arn = restApiArn(region, restApiId);
+                 yield* syncTags({
+@@ -314,4 +343,3 @@
+         }),
+     };
+ }));
+-//# sourceMappingURL=RestApi.js.map
+\ No newline at end of file
