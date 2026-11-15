@@ -137,6 +137,10 @@ function sendThroughAgentRun(
 
     const handle = (event: TrackedAgentEvent) => {
       if (settled) return;
+      if (event.type === 'conversation_lost') {
+        settle({ status: 'lost', reason: event.reason });
+        return;
+      }
       if (inputId === undefined) {
         buffered.push(event);
         return;

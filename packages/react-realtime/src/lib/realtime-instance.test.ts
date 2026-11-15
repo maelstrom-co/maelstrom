@@ -450,6 +450,41 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     });
   });
 
+  test('resolves lost on a conversation loss that arrives before the option resolves', async () => {
+    await withAgentOrchestrator(async ({ orchestrator }) => {
+      const pending = deferred<MessageId>();
+      const sentInputIds: MessageId[] = [];
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: async (orchestrator, text) => {
+          sentInputIds.push(
+            await orchestrator.sendMessage(text, { source: 'voice' }),
+          );
+          return pending.promise;
+        },
+      });
+
+      const outcome = track(
+        requireSendAgentMessage(instance)('show the board'),
+      );
+      await flush();
+      orchestrator.setConnector(createMockAgentConnector().connector);
+      await flush();
+
+      expect(outcome.settled).toBe(true);
+      expect(await outcome.promise).toEqual({
+        status: 'lost',
+        reason: 'connector_replaced',
+      });
+
+      pending.resolve(sentInputIds[0] ?? MessageId('input-late'));
+      await flush();
+      expect(await outcome.promise).toEqual({
+        status: 'lost',
+        reason: 'connector_replaced',
+      });
+    });
+  });
+
   test('resolves lost when the orchestrator is disposed while the run is open', async () => {
     await withAgentOrchestrator(async ({ orchestrator, agent }) => {
       const send = sendThroughOrchestrator();
