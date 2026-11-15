@@ -107,6 +107,11 @@ takes the same path as typed text sent with `sendMessage`. It must resolve with
 the input's `MessageId`:
 
 ```ts
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
+
+declare const adapter: RealtimeProviderAdapter;
+
 maelstromRealtime({
   createAdapter: () => adapter,
   sendAgentMessage: (orchestrator, text) =>
