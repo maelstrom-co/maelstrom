@@ -23,7 +23,7 @@ import {
 
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockAgentEngineConnector } from './__tests__/mock-connector.js';
-import { EMPTY_AGENT_RUNS } from './agent-run-state.js';
+import { AGENT_RUNS_CAP, EMPTY_AGENT_RUNS } from './agent-run-state.js';
 import { type AgentRunStore, createAgentRunStore } from './agent-run-store.js';
 
 const RUN = RunId('run-1');
@@ -210,6 +210,67 @@ describe('createAgentRunStore', () => {
     expect(store.getSnapshot().runs).toHaveLength(1);
     expect(store.getSnapshot().run?.status).toBe('working');
     expect(store.getSnapshot().run?.lostReason).toBeNull();
+  });
+
+  it('does not register an input again when its run was evicted before its send resolved', async () => {
+    const held = Promise.withResolvers<void>();
+    let utterances = 0;
+    const { agent, store } = await setup({
+      sendInput: (input) =>
+        input.type === 'utterance' && utterances++ === 0
+          ? held.promise
+          : Promise.resolve(),
+    });
+
+    const utterance = agent.nextInput('utterance');
+    const sending = store.sendMessage('a');
+    const sentInput = await utterance;
+    const evictedInputId = sentInput.inputId;
+    agent.emit(agentAcceptedEvent(evictedInputId, RUN));
+    agent.emit(agentFinishedEvent(RUN));
+    const newerInputIds = Array.from({ length: AGENT_RUNS_CAP }, (_, index) =>
+      MessageId(`newer-${index}`),
+    );
+    for (const inputId of newerInputIds) {
+      agent.emit(agentPlaceholderEvent(inputId, 'working'));
+    }
+    const beforeResolve = store.getSnapshot();
+    held.resolve();
+
+    expect(await sending).toBe(evictedInputId);
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toBe(beforeResolve);
+    expect(snapshot.runs).toHaveLength(AGENT_RUNS_CAP);
+    expect(
+      snapshot.runs.some((run) => run.inputId === evictedInputId),
+    ).toBeFalse();
+    expect(snapshot.runs[0]?.inputId).toBe(newerInputIds[0]);
+  });
+
+  it('still registers a new input whose send resolves while another send is in flight', async () => {
+    const held = Promise.withResolvers<void>();
+    let utterances = 0;
+    const { agent, store } = await setup({
+      sendInput: (input) =>
+        input.type === 'utterance' && utterances++ === 0
+          ? held.promise
+          : Promise.resolve(),
+    });
+
+    const firstUtterance = agent.nextInput('utterance');
+    const firstSending = store.sendMessage('first');
+    await firstUtterance;
+    const secondInputId = await store.sendMessage('second');
+
+    expect(store.getSnapshot().run?.inputId).toBe(secondInputId);
+    expect(store.getSnapshot().run?.status).toBe('pending');
+
+    held.resolve();
+    const firstInputId = await firstSending;
+    expect(store.getSnapshot().runs.map((run) => run.inputId)).toEqual([
+      secondInputId,
+      firstInputId,
+    ]);
   });
 
   it('keeps snapshot identity between unchanged reads', async () => {

@@ -34,7 +34,8 @@ export type AgentRunStore = {
    * after a disconnect or connector replacement, otherwise as a recoverable
    * `stale_run` loss that later events move on. After `dispose` the text is
    * still sent and the promise still resolves, but the input is no longer
-   * registered in the snapshot.
+   * registered in the snapshot. An input whose run was already evicted from
+   * the snapshot when the send resolves is not registered again.
    */
   sendMessage(text: string, options?: SendMessageOptions): Promise<MessageId>;
   /**
@@ -56,6 +57,7 @@ export function createAgentRunStore(
   let disposed = false;
   const listeners = new Set<() => void>();
   const inFlightSends = new Set<InFlightSend>();
+  const evictedDuringSends = new Set<MessageId>();
 
   const dispatch = (event: AgentRunEvent): void => {
     if (disposed) return;
@@ -68,6 +70,14 @@ export function createAgentRunStore(
     }
     const next = reduceAgentRuns(snapshot, event);
     if (next === snapshot) return;
+    const oldest = snapshot.runs[0];
+    if (
+      inFlightSends.size > 0 &&
+      oldest !== undefined &&
+      next.runs[0]?.inputId !== oldest.inputId
+    ) {
+      evictedDuringSends.add(oldest.inputId);
+    }
     snapshot = next;
     for (const listener of [...listeners]) listener();
   };
@@ -89,6 +99,7 @@ export function createAgentRunStore(
       inFlightSends.add(send);
       try {
         const inputId = await orchestrator.sendMessage(text, options);
+        if (evictedDuringSends.has(inputId)) return inputId;
         dispatch(
           send.lostReason === null
             ? { type: 'input_sent', inputId }
@@ -97,6 +108,7 @@ export function createAgentRunStore(
         return inputId;
       } finally {
         inFlightSends.delete(send);
+        if (inFlightSends.size === 0) evictedDuringSends.clear();
       }
     },
     dispose() {
