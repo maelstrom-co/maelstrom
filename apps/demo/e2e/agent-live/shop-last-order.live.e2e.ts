@@ -97,18 +97,19 @@ test('typed "show my last order" runs the demo agent and opens the order', async
   const uiApplied = found(uiAppliedFor(frames, changeId), 'ui_applied input');
   expect(uiApplied.actionOutcomes.every((outcome) => outcome.ok)).toBe(true);
 
-  const runEvents = receivedAgentEvents(frames);
-  const runErrors = runEvents.filter(
+  await expect
+    .poll(() => finishedFor(frames, runId), {
+      message: 'the agent run finishes',
+    })
+    .toBeDefined();
+  const finished = found(finishedFor(frames, runId), 'finished event');
+  const runErrors = receivedAgentEvents(frames).filter(
     (event) =>
       event.type === 'error' &&
       (event.runId === runId || event.changeId === changeId),
   );
   expect(runErrors).toEqual([]);
-  const finished = runEvents.find(
-    (event): event is AgentFinishedEvent =>
-      event.type === 'finished' && event.runId === runId,
-  );
-  expect(finished?.reason).not.toBe('error');
+  expect(finished).toMatchObject({ ok: true });
 });
 
 function sentUtterance(
@@ -147,6 +148,16 @@ function uiAppliedFor(
   return sentAgentInputs(frames).find(
     (input): input is AgentUiAppliedInput =>
       input.type === 'ui_applied' && input.changeId === changeId,
+  );
+}
+
+function finishedFor(
+  frames: readonly CollectedFrame[],
+  runId: RunId | null,
+): AgentFinishedEvent | undefined {
+  return receivedAgentEvents(frames).find(
+    (event): event is AgentFinishedEvent =>
+      event.type === 'finished' && event.runId === runId,
   );
 }
 
