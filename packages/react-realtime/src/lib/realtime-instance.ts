@@ -14,13 +14,26 @@ import type {
   RealtimeInstance,
 } from '@maelstrom-co/realtime';
 
+/** Options for {@link createRealtimeInstance}. */
 export interface RealtimeInstanceOptions {
+  /**
+   * Sends one voice intent to the agent and resolves with the input's
+   * `MessageId`. When set, the instance answers voice intents from the
+   * outcome of the Agent Run that handles the input instead of the intent
+   * scheduler. A rejection is reported as unconfirmed unless it is an
+   * `AgentWireUnsupportedError`, and the option is not called while the
+   * engine connection is down.
+   */
   readonly sendAgentMessage?: (
     orchestrator: Orchestrator,
     text: string,
   ) => Promise<MessageId>;
 }
 
+/**
+ * Wraps an `Orchestrator` as the {@link RealtimeInstance} bridge that
+ * `RealtimeSession` drives.
+ */
 export function createRealtimeInstance(
   orchestrator: Orchestrator,
   options: RealtimeInstanceOptions = {},
@@ -84,6 +97,12 @@ export function createRealtimeInstance(
   };
 }
 
+const IGNORED_INPUT_ERROR = 'The agent ignored the request.';
+
+type SendAgentMessage = NonNullable<
+  RealtimeInstanceOptions['sendAgentMessage']
+>;
+
 type TrackedAgentEvent =
   | InputAcceptedEvent
   | AgentFinishedEvent
@@ -93,8 +112,15 @@ type TrackedAgentEvent =
 function sendThroughAgentRun(
   orchestrator: Orchestrator,
   text: string,
-  send: (orchestrator: Orchestrator, text: string) => Promise<MessageId>,
+  send: SendAgentMessage,
 ): Promise<AgentMessageOutcome> {
+  const connection = orchestrator.connectionManager.store;
+  if (connection.state.connectionStatus !== 'connected') {
+    return Promise.resolve({
+      status: 'not_submitted',
+      error: 'the engine is not connected',
+    });
+  }
   return new Promise((resolve) => {
     const unsubscribes: Array<() => void> = [];
     const buffered: TrackedAgentEvent[] = [];
@@ -134,16 +160,31 @@ function sendThroughAgentRun(
       unsubscribes.push(events.on('finished', handle));
       unsubscribes.push(events.on('error', handle));
       unsubscribes.push(events.on('conversation_lost', handle));
-      send(orchestrator, text).then(
-        (resolvedInputId) => {
-          inputId = resolvedInputId;
-          for (const event of buffered.splice(0)) handle(event);
-        },
-        (error: unknown) =>
-          settle({ status: 'not_submitted', error: errorMessage(error) }),
-      );
+      // Orchestrator.dispose closes the connection without reporting a
+      // conversation loss, so the connection status must also end this wait.
+      const subscription = connection.subscribe(() => {
+        if (connection.state.connectionStatus === 'disconnected')
+          settle({ status: 'lost', reason: 'disconnected' });
+      });
+      unsubscribes.push(() => subscription.unsubscribe());
     } catch (error) {
       settle({ status: 'not_submitted', error: errorMessage(error) });
+      return;
+    }
+
+    const sendFailed = (error: unknown) =>
+      settle(
+        isAgentWireUnsupported(error)
+          ? { status: 'not_submitted', error: error.message }
+          : { status: 'lost', reason: 'send_failed' },
+      );
+    try {
+      send(orchestrator, text).then((resolvedInputId) => {
+        inputId = resolvedInputId;
+        for (const event of buffered.splice(0)) handle(event);
+      }, sendFailed);
+    } catch (error) {
+      sendFailed(error);
     }
   });
 }
@@ -158,7 +199,7 @@ function settlementFor(
       return event.inputId === inputId &&
         event.runId === null &&
         runId === undefined
-        ? { status: 'finished', ok: true }
+        ? { status: 'finished', ok: false, error: IGNORED_INPUT_ERROR }
         : undefined;
     case 'finished':
       if (runId === undefined || event.runId !== runId) return undefined;
@@ -168,7 +209,7 @@ function settlementFor(
         return undefined;
       return { status: 'finished', ok: false, error: event.error };
     case 'conversation_lost':
-      return lostOutcome(event, inputId, runId);
+      return { status: 'lost', reason: event.reason };
     default:
       return assertNever(event, 'agent event');
   }
@@ -183,30 +224,12 @@ function finishedOutcome(event: AgentFinishedEvent): AgentMessageOutcome {
   return {
     status: 'finished',
     ok: false,
-    ...(event.reply === undefined ? {} : { reply: event.reply }),
-    error: event.error ?? event.reason,
+    error: event.error ?? event.reply ?? event.reason,
   };
 }
 
-function lostOutcome(
-  event: ConversationLostEvent,
-  inputId: MessageId,
-  runId: RunId | undefined,
-): AgentMessageOutcome | undefined {
-  switch (event.reason) {
-    case 'disconnected':
-    case 'connector_replaced':
-      return { status: 'lost', reason: event.reason };
-    case 'stale_run': {
-      const ownRun = runId !== undefined && event.runId === runId;
-      const ownInput = event.inputId === inputId;
-      return ownRun || ownInput
-        ? { status: 'lost', reason: 'stale_run' }
-        : undefined;
-    }
-    default:
-      return assertNever(event, 'conversation lost reason');
-  }
+function isAgentWireUnsupported(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'AgentWireUnsupportedError';
 }
 
 function errorMessage(error: unknown): string {

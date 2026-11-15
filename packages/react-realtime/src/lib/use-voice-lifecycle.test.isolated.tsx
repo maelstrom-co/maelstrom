@@ -13,6 +13,7 @@ import {
   defineVessel,
   InstanceId,
   type MaelstromResponse,
+  MessageId,
   ok,
   ToolCallId,
   VariantName,
@@ -816,6 +817,68 @@ test('submitted tool results retain their original provider and generation after
     expect(JSON.stringify(events)).not.toContain('apply after replacement');
   } finally {
     pending.resolve();
+    cleanup();
+    await client.dispose();
+  }
+});
+
+test('sendAgentMessage routes provider update_ui intents to the agent instead of the intent scheduler', async () => {
+  const processed: ChartRequestMessage[] = [];
+  const client = new Orchestrator(
+    createMockConnector({
+      process: async (message) => {
+        processed.push(message);
+        return {
+          type: 'maelstrom_response',
+          requestId: message.id,
+          rationale: 'fixture',
+          userMessage: 'scheduled',
+          executionPlan: [],
+          layout: { type: 'tiling', tree: [], instances: [] },
+        };
+      },
+    }),
+  );
+  const listeners = new Set<(event: RealtimeAdapterEvent) => void>();
+  const adapter = Object.assign(makeAdapter(), {
+    on: (listener: (event: RealtimeAdapterEvent) => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  });
+  const sent: Array<{ orchestrator: Orchestrator; text: string }> = [];
+  const extension = maelstromRealtime({
+    createAdapter: () => adapter,
+    sendAgentMessage: async (orchestrator, text) => {
+      sent.push({ orchestrator, text });
+      return MessageId('voice-input');
+    },
+  })(diagnosticContext(client));
+  let voice!: UseVoiceResult<undefined>;
+  function Controls() {
+    voice = extension.useVoice();
+    return null;
+  }
+  try {
+    await client.connect();
+    render(<Controls />);
+    await act(async () => voice.connect());
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          type: 'tool_call',
+          callId: ToolCallId('agent-call'),
+          name: 'update_ui',
+          argumentsJson: '{"intent":"show the board"}',
+        });
+      await waitFor(() => expect(sent).toHaveLength(1), { timeout: 1000 });
+    });
+    expect(sent[0]?.orchestrator).toBe(client);
+    expect(sent[0]?.text).toBe('show the board');
+    expect(processed).toEqual([]);
+  } finally {
     cleanup();
     await client.dispose();
   }

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { Orchestrator, type OrchestratorOptions } from '@maelstrom-co/client';
+import {
+  AgentWireUnsupportedError,
+  Orchestrator,
+  type OrchestratorOptions,
+} from '@maelstrom-co/client';
 import {
   agentAcceptedEvent,
   agentErrorEvent,
@@ -249,7 +253,64 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     });
   });
 
-  test('resolves a noise input as finished without waiting for a finished event', async () => {
+  test('resolves a failed run with its error and drops its reply', async () => {
+    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
+      const send = sendThroughOrchestrator();
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: send.option,
+      });
+
+      const outcome = requireSendAgentMessage(instance)('show the board');
+      await flush();
+      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
+      agent.emit(
+        agentFinishedEvent(runA, {
+          ok: false,
+          reason: 'error',
+          reply: 'Partial answer',
+          error: 'planner crashed',
+        }),
+      );
+
+      const settled = await outcome;
+      expect(settled).toEqual({
+        status: 'finished',
+        ok: false,
+        error: 'planner crashed',
+      });
+      expect(settled).not.toHaveProperty('reply');
+    });
+  });
+
+  test('speaks the closing reply of a run that ran out of budget', async () => {
+    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
+      const send = sendThroughOrchestrator();
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: send.option,
+      });
+
+      const outcome = requireSendAgentMessage(instance)('show the board');
+      await flush();
+      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
+      agent.emit(
+        agentFinishedEvent(runA, {
+          ok: false,
+          reason: 'budget',
+          reply: 'I ran out of steps before finishing the board.',
+        }),
+      );
+
+      const settled = await outcome;
+      expect(settled).toEqual({
+        status: 'finished',
+        ok: false,
+        error: 'I ran out of steps before finishing the board.',
+      });
+      expect(settled).not.toHaveProperty('reply');
+    });
+  });
+
+  test('resolves a noise input as not applied without waiting for a finished event', async () => {
     await withAgentOrchestrator(async ({ orchestrator, agent }) => {
       const send = sendThroughOrchestrator();
       const instance = createRealtimeInstance(orchestrator, {
@@ -260,9 +321,11 @@ describe('createRealtimeInstance sendAgentMessage', () => {
       await flush();
       agent.emit(agentAcceptedEvent(send.inputIds[0], null));
 
-      const settled = await outcome;
-      expect(settled).toEqual({ status: 'finished', ok: true });
-      expect(settled).not.toHaveProperty('reply');
+      expect(await outcome).toEqual({
+        status: 'finished',
+        ok: false,
+        error: 'The agent ignored the request.',
+      });
     });
   });
 
@@ -317,7 +380,7 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     });
   });
 
-  test('ignores a stale run that is not its own', async () => {
+  test('resolves lost when another run goes stale, because a stale run clears every watch', async () => {
     await withFakeClock(async (clock) => {
       await withAgentOrchestrator(
         async ({ orchestrator, agent }) => {
@@ -339,15 +402,13 @@ describe('createRealtimeInstance sendAgentMessage', () => {
 
           await clock.tickAsync(staleWindowMs - 1);
           agent.emit(agentMessageEvent(runA, 'still working'));
-          await clock.tickAsync(1);
           await flush();
           expect(outcome.settled).toBe(false);
 
-          agent.emit(agentFinishedEvent(runA, { reply: 'Mine' }));
+          await clock.tickAsync(1);
           expect(await outcome.promise).toEqual({
-            status: 'finished',
-            ok: true,
-            reply: 'Mine',
+            status: 'lost',
+            reason: 'stale_run',
           });
         },
         { agentRunStaleTimeoutMs: staleWindowMs },
@@ -386,6 +447,22 @@ describe('createRealtimeInstance sendAgentMessage', () => {
         status: 'lost',
         reason: 'connector_replaced',
       });
+    });
+  });
+
+  test('resolves lost when the orchestrator is disposed while the run is open', async () => {
+    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
+      const send = sendThroughOrchestrator();
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: send.option,
+      });
+
+      const outcome = requireSendAgentMessage(instance)('show the board');
+      await flush();
+      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
+      await orchestrator.dispose();
+
+      expect(await outcome).toEqual({ status: 'lost', reason: 'disconnected' });
     });
   });
 
@@ -444,21 +521,21 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     });
   });
 
-  test('resolves not_submitted when the option rejects', async () => {
+  test('resolves lost when the option rejects, because the input may have been sent', async () => {
     await withAgentOrchestrator(async ({ orchestrator }) => {
       const subscriptions = trackAgentSubscriptions(orchestrator);
       const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: () => Promise.reject(new Error('engine offline')),
+        sendAgentMessage: () => Promise.reject(new Error('socket closed')),
       });
 
       expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'not_submitted', error: 'engine offline' },
+        { status: 'lost', reason: 'send_failed' },
       );
       expect(subscriptions.active()).toBe(0);
     });
   });
 
-  test('resolves not_submitted when the option throws synchronously', async () => {
+  test('resolves lost when the option throws synchronously', async () => {
     await withAgentOrchestrator(async ({ orchestrator }) => {
       const subscriptions = trackAgentSubscriptions(orchestrator);
       const instance = createRealtimeInstance(orchestrator, {
@@ -468,15 +545,70 @@ describe('createRealtimeInstance sendAgentMessage', () => {
       });
 
       expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'not_submitted', error: 'no session' },
+        { status: 'lost', reason: 'send_failed' },
       );
       expect(subscriptions.active()).toBe(0);
+    });
+  });
+
+  test('resolves not_submitted when the transport cannot carry agent inputs', async () => {
+    await withAgentOrchestrator(async ({ orchestrator }) => {
+      const subscriptions = trackAgentSubscriptions(orchestrator);
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: () =>
+          Promise.reject(
+            new AgentWireUnsupportedError('Agent inputs are not supported'),
+          ),
+      });
+
+      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
+        { status: 'not_submitted', error: 'Agent inputs are not supported' },
+      );
+      expect(subscriptions.active()).toBe(0);
+    });
+  });
+
+  test('resolves not_submitted without calling the option while the engine is not connected', async () => {
+    const agent = createMockAgentConnector();
+    const orchestrator = new Orchestrator(agent.connector);
+    try {
+      const subscriptions = trackAgentSubscriptions(orchestrator);
+      const send = sendThroughOrchestrator();
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: send.option,
+      });
+
+      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
+        { status: 'not_submitted', error: 'the engine is not connected' },
+      );
+      expect(send.calls).toEqual([]);
+      expect(subscriptions.active()).toBe(0);
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
+  test('resolves not_submitted without calling the option when subscribing to agent events throws', async () => {
+    await withAgentOrchestrator(async ({ orchestrator }) => {
+      const send = sendThroughOrchestrator();
+      orchestrator.agent.on = (() => {
+        throw new Error('emitter disposed');
+      }) as typeof orchestrator.agent.on;
+      const instance = createRealtimeInstance(orchestrator, {
+        sendAgentMessage: send.option,
+      });
+
+      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
+        { status: 'not_submitted', error: 'emitter disposed' },
+      );
+      expect(send.calls).toEqual([]);
     });
   });
 
   test('subscribes before calling the option and removes its listeners once settled', async () => {
     await withAgentOrchestrator(async ({ orchestrator, agent }) => {
       const subscriptions = trackAgentSubscriptions(orchestrator);
+      const connection = trackConnectionSubscriptions(orchestrator);
       const send = sendThroughOrchestrator();
       let activeWhenCalled = 0;
       const instance = createRealtimeInstance(orchestrator, {
@@ -490,6 +622,7 @@ describe('createRealtimeInstance sendAgentMessage', () => {
       await flush();
       expect(activeWhenCalled).toBeGreaterThan(0);
       expect(subscriptions.active()).toBeGreaterThan(0);
+      expect(connection.active()).toBe(1);
 
       agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
       agent.emit(agentFinishedEvent(runA, { reply: 'Board is up' }));
@@ -499,6 +632,7 @@ describe('createRealtimeInstance sendAgentMessage', () => {
         reply: 'Board is up',
       });
       expect(subscriptions.active()).toBe(0);
+      expect(connection.active()).toBe(0);
 
       agent.emit(agentFinishedEvent(runA, { ok: false, reason: 'error' }));
       agent.close({ clean: false });
@@ -626,4 +760,28 @@ function trackAgentSubscriptions(orchestrator: Orchestrator): {
     off(event as never, callback);
   }) as typeof events.off;
   return { active: () => active.size };
+}
+
+function trackConnectionSubscriptions(orchestrator: Orchestrator): {
+  active: () => number;
+} {
+  const store = orchestrator.connectionManager.store;
+  const subscribe = store.subscribe.bind(store);
+  let active = 0;
+  store.subscribe = ((listener: never) => {
+    active++;
+    const subscription = subscribe(listener);
+    let released = false;
+    return {
+      ...subscription,
+      unsubscribe: () => {
+        if (!released) {
+          released = true;
+          active--;
+        }
+        subscription.unsubscribe();
+      },
+    };
+  }) as typeof store.subscribe;
+  return { active: () => active };
 }

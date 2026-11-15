@@ -168,9 +168,13 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   /**
    * Sends each voice `update_ui` intent to the agent instead of the intent
    * scheduler, for example through `orchestrator.sendMessage`. It must
-   * resolve with the input's `MessageId`. The tool result then waits for the
-   * outcome of the Agent Run that handles the input, and speaks its reply
-   * when there is one. A rejection answers the tool call as not submitted.
+   * resolve with the input's `MessageId`. The tool call is answered when the
+   * Agent Run that handles the input ends, speaking its reply when there is
+   * one. The run can end before its UI changes are applied, so the answer
+   * does not confirm them. A rejection may follow a send that reached the
+   * agent, so it is reported as unconfirmed and never resent, unless it is an
+   * `AgentWireUnsupportedError`. The option is not called while the engine
+   * connection is down, and the tool call is then answered as not submitted.
    * It is opt-in because `HttpConnector` and hosts that answer agent inputs
    * with plain `handleEnvelope` cannot serve agent inputs.
    */

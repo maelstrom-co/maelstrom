@@ -77,7 +77,10 @@ export type AgentMessageOutcome =
        */
       readonly reason: string;
     }
-  /** The message never reached the agent, so it had no side effect. */
+  /**
+   * The message never reached the agent, so it had no side effect. Producers
+   * resolve this only when they know no input was sent.
+   */
   | {
       readonly status: 'not_submitted';
       /** Why the message was not submitted. */
@@ -116,8 +119,9 @@ export interface RealtimeInstance {
    * Sends one `update_ui` intent as an agent message and resolves once its
    * agent run ends, which can be before the run's UI changes are applied.
    * Preferred over `createIntentScope` and `submitIntent` when present. Must
-   * never reject: a send that fails resolves `not_submitted`. A `lost` outcome
-   * is unknown and is never replayed.
+   * never reject: a send known not to have left resolves `not_submitted`, any
+   * other failure resolves `lost`. A `lost` outcome is unknown and is never
+   * replayed.
    */
   sendAgentMessage?(text: string): Promise<AgentMessageOutcome>;
   /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */
