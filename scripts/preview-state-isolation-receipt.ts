@@ -4,6 +4,7 @@ import {
   OSS_PREVIEW_STAGE_PATTERN,
   PREVIEW_ISOLATION_WORKFLOW,
 } from '../infra/platform/src/PreviewStateStoreContract.ts';
+import type { PreviewCopyProof } from './preview-state-copy.ts';
 import type { IsolationGithubRequest } from './preview-state-isolation.ts';
 
 const repository = 'maelstrom-co/maelstrom';
@@ -13,7 +14,18 @@ export async function assertIsolationRun(
   request: IsolationGithubRequest,
   expected: { readonly runId: string; readonly controlSha: string },
 ) {
-  if (!/^[1-9]\d{0,15}$/.test(expected.runId))
+  const run = await assertCopyOriginRun(request, expected.runId);
+  if (run.head_sha !== expected.controlSha)
+    throw new Error('ISOLATION_SUCCESSFUL_RUN_REQUIRED');
+  return run;
+}
+
+/** Authenticates an immutable successful fresh-copy origin without rebinding its revisions. */
+export async function assertCopyOriginRun(
+  request: IsolationGithubRequest,
+  runId: string,
+) {
+  if (!/^[1-9]\d{0,15}$/.test(runId))
     throw new Error('ISOLATION_RECEIPT_REQUIRED');
   const run = await request<{
     id: number;
@@ -21,18 +33,20 @@ export async function assertIsolationRun(
     conclusion: string;
     path: string;
     head_sha: string;
+    display_title: string;
     head_branch: string;
     event: string;
     run_attempt: number;
     updated_at: string;
     head_repository: { full_name: string };
-  }>(`/actions/runs/${expected.runId}`);
+  }>(`/actions/runs/${runId}`);
   if (
-    String(run.id) !== expected.runId ||
+    String(run.id) !== runId ||
     run.status !== 'completed' ||
     run.conclusion !== 'success' ||
     run.path !== PREVIEW_ISOLATION_WORKFLOW ||
-    run.head_sha !== expected.controlSha ||
+    !/^[0-9a-f]{40}$/.test(run.head_sha) ||
+    !/^OSS preview state copy at [0-9a-f]{40}$/.test(run.display_title) ||
     run.head_branch !== 'main' ||
     run.event !== 'workflow_dispatch' ||
     run.head_repository?.full_name !== repository ||
@@ -51,6 +65,20 @@ const record = (value: unknown): value is Record<string, unknown> =>
 const count = (value: unknown) =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
+/** Original fresh-copy evidence; revision identities are never replaced during recovery. */
+export interface IsolationCopyReceipt extends PreviewCopyProof {
+  /** Original successful run. */
+  readonly runId: string;
+  /** Original workflow attempt. */
+  readonly attempt: string;
+  /** Trusted control revision that performed the copy. */
+  readonly controlSha: string;
+  /** Reviewed candidate that performed the copy. */
+  readonly sourceSha: string;
+  /** Account whose named store received the copy. */
+  readonly accountId: string;
+}
+
 /** A copy receipt is evidence only for its pinned candidate, account and attempt. */
 export function assertIsolationReceipt(
   value: unknown,
@@ -61,7 +89,7 @@ export function assertIsolationReceipt(
     readonly sourceSha: string;
     readonly accountId: string;
   },
-) {
+): asserts value is IsolationCopyReceipt {
   if (
     !record(value) ||
     value.mode !== 'copy' ||
@@ -110,4 +138,30 @@ export function assertIsolationReceipt(
     resources + outputs > 1000
   )
     throw new Error('ISOLATION_RECEIPT_MISMATCH');
+}
+
+/** Preserves the authenticated origin while a separate current run revalidates its selected state. */
+export async function readCopyOrigin(
+  request: IsolationGithubRequest,
+  runId: string,
+  value: unknown,
+  accountId: string,
+) {
+  const run = await assertCopyOriginRun(request, runId);
+  if (
+    !record(value) ||
+    typeof value.sourceSha !== 'string' ||
+    !/^[0-9a-f]{40}$/.test(value.sourceSha)
+  )
+    throw new Error('ISOLATION_RECEIPT_MISMATCH');
+  if (run.display_title !== `OSS preview state copy at ${value.sourceSha}`)
+    throw new Error('ISOLATION_RECEIPT_MISMATCH');
+  assertIsolationReceipt(value, {
+    runId,
+    attempt: String(run.run_attempt),
+    controlSha: run.head_sha,
+    sourceSha: value.sourceSha,
+    accountId,
+  });
+  return value;
 }

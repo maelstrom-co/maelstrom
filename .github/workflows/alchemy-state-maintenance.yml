@@ -39,6 +39,14 @@ on:
         description: Explicitly authorize production state bootstrap and candidate dry-run
         type: boolean
         default: false
+      revalidate_copy:
+        description: Revalidate a prior successful copy before preview after a reviewed revision change
+        type: boolean
+        default: false
+      continuous_caller_pause:
+        description: All OSS callers have remained stopped since the original copy; no intervening store writes
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -62,6 +70,8 @@ jobs:
       CALLERS_PAUSED: ${{ inputs.callers_paused }}
       SOURCE_REVIEWED: ${{ inputs.source_reviewed }}
       CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
+      REVALIDATE_COPY: ${{ inputs.revalidate_copy }}
+      CONTINUOUS_CALLER_PAUSE: ${{ inputs.continuous_caller_pause }}
       ISOLATION_RUN_ID: ${{ inputs.isolation_run_id }}
       ALCHEMY_PREVIEW_STATE_STORE_WORKER: ${{ vars.ALCHEMY_PREVIEW_STATE_STORE_WORKER }}
       ISOLATION_RECEIPT: ${{ github.workspace }}/isolation/copy.json

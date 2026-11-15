@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   copyPreviewState,
+  comparePreviewCopy,
   type PreviewCopyManifest,
   type PreviewScope,
   type PreviewStateDestination,
@@ -112,6 +113,136 @@ function fixture() {
     },
   };
 }
+
+test('existing copy verification preserves the copied values without initializing or writing either store', async () => {
+  const f = fixture();
+  const origin = await copyPreviewState(
+    f.source,
+    f.destination,
+    manifest,
+    async () => {},
+  );
+  const writes = f.writes.length;
+  f.destination.initialize = async () => {
+    throw new Error('No bootstrap during verification');
+  };
+  const proof = await comparePreviewCopy(
+    f.source,
+    f.destination,
+    manifest,
+    origin,
+    async () => {},
+  );
+  expect(proof).toMatchObject({
+    resources: 1,
+    outputs: 1,
+    manifestVerified: true,
+    sourceUnchanged: true,
+    destinationUnchanged: true,
+  });
+  expect(proof).not.toHaveProperty('destinationWasAbsent');
+  expect(f.writes).toHaveLength(writes);
+});
+
+test.each([
+  'value',
+  'output',
+  'missing-output',
+  'extra-stage',
+  'foreign-stack',
+  'origin-summary',
+])(
+  'existing copy verification rejects %s before admitting a canary',
+  async (change) => {
+    const f = fixture();
+    const origin = await copyPreviewState(
+      f.source,
+      f.destination,
+      manifest,
+      async () => {},
+    );
+    if (change === 'value')
+      f.copied.set(key({ ...scope, fqn: 'Website' }), {
+        ...(row() as object),
+        altered: true,
+      });
+    if (change === 'output')
+      f.copiedOutputs.set(outputKey(scope), { url: 'changed' });
+    if (change === 'missing-output') f.copiedOutputs.delete(outputKey(scope));
+    if (change === 'extra-stage')
+      f.copied.set(key({ ...scope, stage: 'pr-99', fqn: 'Extra' }), row());
+    if (change === 'foreign-stack')
+      f.copied.set(
+        key({ ...scope, stack: 'MaelstromStateStoreCanary', fqn: 'Canary' }),
+        row(),
+      );
+    const expected =
+      change === 'origin-summary' ? { ...origin, resources: 2 } : origin;
+    const writes = f.writes.length;
+    await expect(
+      comparePreviewCopy(
+        f.source,
+        f.destination,
+        manifest,
+        expected,
+        async () => {},
+      ),
+    ).rejects.toThrow();
+    expect(f.writes).toHaveLength(writes);
+  },
+);
+
+test.each(['source', 'destination'])(
+  'existing copy verification detects %s changing during comparison',
+  async (side) => {
+    const f = fixture();
+    const origin = await copyPreviewState(
+      f.source,
+      f.destination,
+      manifest,
+      async () => {},
+    );
+    let checks = 0;
+    await expect(
+      comparePreviewCopy(
+        f.source,
+        f.destination,
+        manifest,
+        origin,
+        async () => {
+          if (++checks === 2)
+            (side === 'source' ? f.originalOutputs : f.copiedOutputs).set(
+              outputKey(scope),
+              'changed',
+            );
+        },
+      ),
+    ).rejects.toThrow('PREVIEW_COPY_CHANGED_DURING_VERIFICATION');
+  },
+);
+
+test('existing copy verification retains an original outputs-only manual stage', async () => {
+  const f = fixture();
+  const manual = { stack, stage: 'pr-987' };
+  f.originalOutputs.set(outputKey(manual), null);
+  const origin = await copyPreviewState(
+    f.source,
+    f.destination,
+    { ...manifest, additionalStages: [manual.stage] },
+    async () => {},
+  );
+  expect(
+    (
+      await comparePreviewCopy(
+        f.source,
+        f.destination,
+        manifest,
+        origin,
+        async () => {},
+      )
+    ).outputs,
+  ).toBe(2);
+});
 
 test('a move preserves recorded identities and outputs while leaving Cloud state unread and unchanged', async () => {
   const f = fixture();

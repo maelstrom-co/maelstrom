@@ -7,6 +7,7 @@ import {
 import {
   assertIsolationReceipt,
   assertIsolationRun,
+  readCopyOrigin,
 } from './preview-state-isolation-receipt.ts';
 import {
   assertIsolationAuthority,
@@ -42,6 +43,7 @@ const sourceRun = {
   conclusion: 'success',
   path: PREVIEW_ISOLATION_WORKFLOW,
   head_sha: controlSha,
+  display_title: `OSS preview state copy at ${sourceSha}`,
   head_branch: 'main',
   event: 'workflow_dispatch',
   run_attempt: 1,
@@ -151,7 +153,7 @@ test('a fresh successful copy run is required, not an inventory or stale attempt
   ).rejects.toThrow();
 });
 
-test('receipts bind whole-scope verification to the exact candidate and named worker', () => {
+test('receipts bind whole-scope verification to the exact candidate and named worker', async () => {
   const expected = {
     runId: '600',
     attempt: '1',
@@ -182,8 +184,38 @@ test('receipts bind whole-scope verification to the exact candidate and named wo
         output: true,
       },
     ],
-  };
+  } as const;
   expect(() => assertIsolationReceipt(receipt, expected)).not.toThrow();
+  await expect(
+    readCopyOrigin(async <T>() => sourceRun as T, '600', receipt, accountId),
+  ).resolves.toEqual(receipt);
+  for (const change of [
+    { sourceSha: 'd'.repeat(40) },
+    { controlSha: 'd'.repeat(40) },
+    { accountId: 'd'.repeat(32) },
+    { attempt: '2' },
+  ])
+    await expect(
+      readCopyOrigin(
+        async <T>() => sourceRun as T,
+        '600',
+        { ...receipt, ...change },
+        accountId,
+      ),
+    ).rejects.toThrow('ISOLATION_RECEIPT_MISMATCH');
+  for (const change of [
+    { run_attempt: 2 },
+    { display_title: `OSS preview state inventory at ${sourceSha}` },
+    { updated_at: '2000-01-01T00:00:00Z' },
+  ])
+    await expect(
+      readCopyOrigin(
+        async <T>() => ({ ...sourceRun, ...change }) as T,
+        '600',
+        receipt,
+        accountId,
+      ),
+    ).rejects.toThrow();
   for (const change of [
     { mode: 'inventory' },
     { sourceSha: controlSha },

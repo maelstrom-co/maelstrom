@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 
 import {
   OSS_PREVIEW_STATE_STORE_WORKER,
@@ -15,6 +22,7 @@ import {
   executeMaintenance,
   maintenanceContext,
   stateDigest,
+  maintenanceCliCommand,
 } from './alchemy-state-maintenance.ts';
 import { alchemyProjects } from './alchemy-version.ts';
 
@@ -173,11 +181,19 @@ async function fixture(
     delayedCanary?: boolean;
     invalidIsolation?: boolean;
     previewProtocol?: number;
+    probeLaunch?: boolean;
+    revalidateCopy?: boolean;
+    failRevalidation?: boolean;
+    moveControl?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp('/tmp/alchemy-maintenance-');
   const control = join(directory, 'control');
   const source = join(directory, 'source');
+  await mkdir(join(control, 'scripts'), { recursive: true });
+  await writeFile(join(control, 'scripts/preview-lifecycle.bunfig.toml'), '');
+  const probe = join(directory, 'launch-probe.ts');
+  await writeFile(probe, 'console.log("maintenance-cli-ran");\n');
   for (const [root, version] of [
     [control, '2.0.0-beta.83'],
     [source, '2.0.0-beta.85'],
@@ -228,6 +244,9 @@ async function fixture(
     CLOUDFLARE_ACCOUNT_ID: options.wrongAccount ? 'f'.repeat(32) : account,
     CLOUDFLARE_API_TOKEN: 'offline-token',
     PREVIEW_WORKERS_DEV_SUFFIX: 'fixture.workers.dev',
+    RUNNER_TEMP: directory,
+    REVALIDATE_COPY: String(options.revalidateCopy ?? false),
+    CONTINUOUS_CALLER_PAUSE: String(options.revalidateCopy ?? false),
   };
   const calls: Array<{ phase: string; root: string; argv: string[] }> = [];
   await writeFile(
@@ -237,8 +256,12 @@ async function fixture(
       version: '2.0.0-beta.85',
       runId: '400',
       attempt: '1',
-      controlSha,
-      sourceSha: options.invalidIsolation ? controlSha : sourceSha,
+      controlSha: options.revalidateCopy ? 'e'.repeat(40) : controlSha,
+      sourceSha: options.invalidIsolation
+        ? controlSha
+        : options.revalidateCopy
+          ? 'f'.repeat(40)
+          : sourceSha,
       accountId: 'c'.repeat(32),
       sourceWorker: 'alchemy-state-store',
       destinationWorker: OSS_PREVIEW_STATE_STORE_WORKER,
@@ -256,13 +279,21 @@ async function fixture(
   );
   let protocol = target === 'preview' ? (options.previewProtocol ?? 8) : 7;
   let moved = false;
+  let controlMoved = false;
   let baselineReads = 0;
   let canaryReads = 0;
   const request = async <T>(path: string) => {
+    if (path === '/commits/main')
+      return { sha: controlMoved ? 'f'.repeat(40) : controlSha } as T;
+    if (path.startsWith('/collaborators/'))
+      return { permission: 'admin', role_name: 'admin' } as T;
+    if (path.startsWith('/pulls?')) return [] as T;
     if (path === '/actions/runs/400')
       return {
         ...run,
         id: 400,
+        display_title: `OSS preview state copy at ${options.revalidateCopy ? 'f'.repeat(40) : sourceSha}`,
+        head_sha: options.revalidateCopy ? 'e'.repeat(40) : controlSha,
         path: PREVIEW_ISOLATION_WORKFLOW,
         updated_at: new Date().toISOString(),
       } as T;
@@ -332,11 +363,37 @@ async function fixture(
           operation.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
         ).toBeUndefined();
       expect(operation.argv).toContain('--no-env-file');
+      if (options.probeLaunch) {
+        const child = Bun.spawn(
+          operation.argv.map((arg) =>
+            arg.endsWith('/node_modules/alchemy/bin/cli.js') ? probe : arg,
+          ),
+          {
+            cwd: operation.cwd,
+            env: operation.env,
+            stdout: 'pipe',
+            stderr: 'pipe',
+          },
+        );
+        const [stdout, code] = await Promise.all([
+          new Response(child.stdout).text(),
+          child.exited,
+        ]);
+        expect({ code, stdout }).toEqual({
+          code: 0,
+          stdout: 'maintenance-cli-ran\n',
+        });
+      }
       calls.push({
         phase: operation.phase,
         root: operation.cwd,
         argv: operation.argv,
       });
+      if (operation.phase === 'revalidate-existing-preview-copy') {
+        if (options.failRevalidation) throw new Error('copy mismatch');
+        if (options.moveControl) controlMoved = true;
+        return JSON.stringify({ verified: true });
+      }
       if (operation.phase === 'bootstrap-state-store') {
         protocol = options.failBootstrap ?? 8;
         if (options.failBootstrap)
@@ -389,6 +446,96 @@ test('preview verifies the original encrypted record before updating and cleanin
     canaryPassed: true,
     cleanupPassed: true,
   });
+});
+
+test('maintenance launches its program instead of silently executing the Bun config file', async () => {
+  const result = await fixture({ probeLaunch: true });
+  expect(result.failure).toBeUndefined();
+  expect(result.receipt?.canaryPassed).toBe(true);
+});
+
+test('the pinned CLI cannot load ambient preloads or env files through a runtime handoff', async () => {
+  const root = resolve(import.meta.dir, '..');
+  const temporary = join(root, 'infra/platform/.alchemy');
+  await mkdir(temporary, { recursive: true });
+  const cwd = await mkdtemp(join(temporary, 'launch-test-'));
+  const home = await mkdtemp('/tmp/maintenance-cli-auth-');
+  try {
+    await writeFile(
+      join(cwd, 'preload.ts'),
+      'console.log("ambient-preload-ran");\n',
+    );
+    await writeFile(join(cwd, 'bunfig.toml'), 'preload = ["./preload.ts"]\n');
+    await writeFile(join(cwd, '.env'), 'ALCHEMY_PROFILE=ambient-profile\n');
+    const child = Bun.spawn(maintenanceCliCommand(root, root, ['--help']), {
+      cwd,
+      env: {
+        PATH: process.env.PATH ?? '',
+        ALCHEMY_HOME: home,
+        CI: 'true',
+        NO_TRACK: 'true',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout).toContain('USAGE');
+    expect(stdout + stderr).not.toContain('ambient-preload-ran');
+    expect(await readdir(join(home, 'profiles')).catch(() => [])).not.toContain(
+      'ambient-profile',
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('recovery preserves the original copy identities and compares state before creating a canary', async () => {
+  const result = await fixture({ revalidateCopy: true });
+  expect(result.failure).toBeUndefined();
+  expect(result.calls[0]?.phase).toBe('revalidate-existing-preview-copy');
+  expect(result.receipt).toMatchObject({
+    sourceSha,
+    controlSha,
+    copyRevalidated: true,
+    continuousCallerPause: true,
+    copyOrigin: {
+      runId: '400',
+      attempt: '1',
+      controlSha: 'e'.repeat(40),
+      sourceSha: 'f'.repeat(40),
+    },
+  });
+});
+
+test.each([{ failRevalidation: true }, { moveControl: true }])(
+  'failed recovery admission performs no canary mutation: %j',
+  async (options) => {
+    const result = await fixture({ revalidateCopy: true, ...options });
+    expect(result.failure).toBeDefined();
+    expect(result.calls.map((call) => call.phase)).toEqual([
+      'revalidate-existing-preview-copy',
+    ]);
+    expect(result.receipt).toBeUndefined();
+  },
+);
+
+test('recovery cannot replace the continuous pause acknowledgement or apply to production', () => {
+  expect(() =>
+    maintenanceContext({ ...environment(), REVALIDATE_COPY: 'true' }),
+  ).toThrow('continuous caller pause');
+  expect(() =>
+    maintenanceContext({
+      ...environment('production'),
+      REVALIDATE_COPY: 'true',
+      CONTINUOUS_CALLER_PAUSE: 'true',
+    }),
+  ).toThrow('requires preview');
 });
 
 test('a preview baseline failure cleans up with beta.85 in the isolated store', async () => {
