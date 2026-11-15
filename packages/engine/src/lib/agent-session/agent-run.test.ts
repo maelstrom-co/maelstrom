@@ -1204,6 +1204,41 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(log.at(-1)).toBe('finished');
   });
 
+  test('a tool turn cut off at the output limit finishes when the next turn starts', async () => {
+    const tools = orderTools();
+    const model = scriptedAdapter([
+      withFinishReason(
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        { finishReason: 'length' },
+      ),
+      textTurn(['Done'], usage(5, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      }),
+    );
+
+    expect(activity.map((entry) => entry.type)).toEqual([
+      'turn_started',
+      'tool_completed',
+      'turn_finished',
+      'turn_started',
+      'turn_finished',
+    ]);
+    expect(activity[2]).toMatchObject({
+      turnIndex: 1,
+      toolCalls: { requested: 1, admitted: 0 },
+      inputTokens: 10,
+      outputTokens: 2,
+    });
+  });
+
   test.each([
     ['at the deadline with its timer lagging', 1, false],
     ['after the deadline with its timer lagging', 26, false],
@@ -2815,7 +2850,7 @@ function runFinished(
 
 function withFinishReason(
   call: ModelCall,
-  replacement: { readonly finishReason?: null },
+  replacement: { readonly finishReason?: null | 'length' },
 ): ModelCall {
   return async function* (request) {
     for await (const chunk of call(request)) {

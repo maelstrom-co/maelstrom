@@ -603,7 +603,8 @@ function createToolCallTracker(
   return {
     drainQueued,
     startTurn(next: number, admitted: boolean) {
-      // Fallback for a turn whose tool phase hook did not run.
+      // A tool turn cut off at the output limit runs its tool phase without
+      // onToolPhaseComplete, so the next turn start finishes it.
       finishTurn();
       turn = next;
       if (!admitted) return;
