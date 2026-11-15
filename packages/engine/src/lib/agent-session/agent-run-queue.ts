@@ -320,6 +320,7 @@ export function createAgentRunQueue({
       version: AGENT_WIRE_VERSION,
       runId: run.runId,
     });
+    if (!isCurrent(run)) return;
     observe(run.runId, run.input.inputId, 'engine.agent.run.started', {
       disposition: 'agent',
     });

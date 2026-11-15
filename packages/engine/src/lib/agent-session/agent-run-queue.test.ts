@@ -622,6 +622,24 @@ describe('agent run queue', () => {
     ]);
   });
 
+  test('closing from a started listener neither observes run.started nor starts the run', async () => {
+    let startRunCalls = 0;
+    const startRun: AgentRunStarter = () => {
+      startRunCalls += 1;
+      return (async function* (): AsyncGenerator<AgentRunEvent> {})();
+    };
+    const session = createSession({ startRun });
+    session.events.subscribe((event) => {
+      if (event.type === 'started') session.queue.close();
+    });
+
+    await session.queue.enqueue(utterance('input-1', 'hi'));
+    await flushMacrotasks();
+
+    expect(startRunCalls).toBe(0);
+    expect(session.observedKinds()).not.toContain('engine.agent.run.started');
+  });
+
   test.each([
     ['model factory', 'model'],
     ['budget resolver', 'budgets'],
@@ -1500,11 +1518,13 @@ function createSession(overrides: SessionOverrides = {}) {
   });
   return {
     queue,
+    events,
     received,
     transcript,
     toolResults,
     user,
     showPlans,
+    observedKinds: () => observed.map((entry) => entry.kind),
     finishedMetadata: () =>
       observed
         .filter((entry) => entry.kind === 'engine.agent.run.finished')
