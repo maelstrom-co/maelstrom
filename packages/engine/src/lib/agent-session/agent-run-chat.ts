@@ -108,7 +108,7 @@ async function* streamAgentRun(
     signal: options.signal,
     gate: options.gate,
   });
-  const calls = createToolCallTracker(
+  const calls = createRunActivityTracker(
     input.runId,
     input.clock,
     input.logger,
@@ -234,7 +234,7 @@ function startChat(
   input: AgentRunInput,
   options: AgentRunOptions,
   policy: AgentRunPolicy,
-  calls: ToolCallTracker,
+  calls: RunActivityTracker,
   executions: ToolExecutionFence,
   instrumentation: AgentRunChatInstrumentation,
 ): AsyncIterable<StreamChunk> {
@@ -394,7 +394,7 @@ function toChatTool(
   entry: ToolRegistryEntry,
   input: AgentRunInput,
   policy: AgentRunPolicy,
-  calls: ToolCallTracker,
+  calls: RunActivityTracker,
   executions: ToolExecutionFence,
   rawArgsOf: (callId: string) => unknown,
 ): Tool {
@@ -449,7 +449,7 @@ interface OpenTurn {
   outputTokens?: number;
 }
 
-type ToolCallTracker = ReturnType<typeof createToolCallTracker>;
+type RunActivityTracker = ReturnType<typeof createRunActivityTracker>;
 
 type ToolExecutionFence = ReturnType<typeof createToolExecutionFence>;
 
@@ -473,7 +473,7 @@ function createToolExecutionFence() {
   };
 }
 
-function createToolCallTracker(
+function createRunActivityTracker(
   runId: RunId,
   clock: AgentRunClock,
   logger: Logger,
@@ -602,7 +602,6 @@ function createToolCallTracker(
   }
 
   return {
-    drainQueued,
     beginTurn(index: number) {
       // A tool turn cut off at the output limit is still open here.
       endTurn();
@@ -615,13 +614,6 @@ function createToolCallTracker(
       turn = index;
     },
     endTurn,
-    closeActivity() {
-      endTurn();
-      activityClosed = true;
-    },
-    stopActivity() {
-      activityClosed = true;
-    },
     recordProviderCall(call: ProviderCallRecord) {
       if (openTurn === undefined) return;
       const { inputTokens, outputTokens } = call.usage ?? {};
@@ -630,61 +622,8 @@ function createToolCallTracker(
       if (outputTokens !== undefined)
         openTurn.outputTokens = (openTurn.outputTokens ?? 0) + outputTokens;
     },
-    settle(providerCallId: string, result: ToolCallResult) {
-      const callId = callIdByProviderId.get(providerCallId);
-      if (callId === undefined) return;
-      settled.set(callId, result);
-      const call = announced.get(callId);
-      if (call !== undefined) call.settledAt = clock.now();
-    },
-    completeCall(providerCallId: string) {
-      const callId = callIdByProviderId.get(providerCallId);
-      const call = callId === undefined ? undefined : announced.get(callId);
-      if (call !== undefined) {
-        reportCompletion(
-          call,
-          settled.get(call.callId) ?? unsettledResult(call),
-        );
-      }
-    },
-    settledResult(providerCallId: string): ToolCallResult | undefined {
-      const callId = callIdByProviderId.get(providerCallId);
-      return callId === undefined ? undefined : settled.get(callId);
-    },
-    markStarted(providerCallId: string, args: unknown) {
-      const callId = callIdByProviderId.get(providerCallId);
-      const call = callId === undefined ? undefined : announced.get(callId);
-      if (call === undefined) return;
-      call.startedAt = clock.now();
-      report({
-        type: 'tool_started',
-        turnId: call.turnId,
-        callId: call.callId,
-        name: call.name,
-        args,
-      });
-    },
-    endToolPhase(providerCallIds: readonly string[]) {
-      if (!accepting) return;
-      const results: AgentRunToolPhaseResult[] = [];
-      for (const providerCallId of providerCallIds) {
-        const callId = callIdByProviderId.get(providerCallId);
-        const call = callId === undefined ? undefined : announced.get(callId);
-        if (call === undefined) continue;
-        const { event, phaseResult } = settleAnnounced(call);
-        queued.push(event);
-        results.push(phaseResult);
-      }
-      if (results.length > 0) {
-        queued.push({ type: 'tool_phase_ended', turnId: turnId(), results });
-      }
-    },
-    *closeQueue(): Generator<AgentRunEvent> {
-      accepting = false;
-      yield* drainQueued();
-      for (const call of [...announced.values()]) {
-        yield settleAnnounced(call).event;
-      }
+    lastTurnText(): string {
+      return textTurn === turn ? text : '';
     },
     *mapChunk(chunk: StreamChunk): Generator<AgentRunEvent> {
       switch (chunk.type) {
@@ -740,8 +679,69 @@ function createToolCallTracker(
           return;
       }
     },
-    lastTurnText(): string {
-      return textTurn === turn ? text : '';
+    drainQueued,
+    markStarted(providerCallId: string, args: unknown) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
+      if (call === undefined) return;
+      call.startedAt = clock.now();
+      report({
+        type: 'tool_started',
+        turnId: call.turnId,
+        callId: call.callId,
+        name: call.name,
+        args,
+      });
+    },
+    settle(providerCallId: string, result: ToolCallResult) {
+      const callId = callIdByProviderId.get(providerCallId);
+      if (callId === undefined) return;
+      settled.set(callId, result);
+      const call = announced.get(callId);
+      if (call !== undefined) call.settledAt = clock.now();
+    },
+    settledResult(providerCallId: string): ToolCallResult | undefined {
+      const callId = callIdByProviderId.get(providerCallId);
+      return callId === undefined ? undefined : settled.get(callId);
+    },
+    completeCall(providerCallId: string) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
+      if (call !== undefined) {
+        reportCompletion(
+          call,
+          settled.get(call.callId) ?? unsettledResult(call),
+        );
+      }
+    },
+    endToolPhase(providerCallIds: readonly string[]) {
+      if (!accepting) return;
+      const results: AgentRunToolPhaseResult[] = [];
+      for (const providerCallId of providerCallIds) {
+        const callId = callIdByProviderId.get(providerCallId);
+        const call = callId === undefined ? undefined : announced.get(callId);
+        if (call === undefined) continue;
+        const { event, phaseResult } = settleAnnounced(call);
+        queued.push(event);
+        results.push(phaseResult);
+      }
+      if (results.length > 0) {
+        queued.push({ type: 'tool_phase_ended', turnId: turnId(), results });
+      }
+    },
+    *closeQueue(): Generator<AgentRunEvent> {
+      accepting = false;
+      yield* drainQueued();
+      for (const call of [...announced.values()]) {
+        yield settleAnnounced(call).event;
+      }
+    },
+    closeActivity() {
+      endTurn();
+      activityClosed = true;
+    },
+    stopActivity() {
+      activityClosed = true;
     },
   };
 }
