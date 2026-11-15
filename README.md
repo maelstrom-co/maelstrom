@@ -267,6 +267,20 @@ for why a voice model never plans your UI.
   [Code of Conduct](./CODE_OF_CONDUCT.md).
 - Follow [@maelstrom_co](https://x.com/maelstrom_co) for what we're building.
 
+<div align="center">
+  <h2>Sponsors</h2>
+  <a href="https://coderabbit.link/maelstrom">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="media/sponsors/coderabbit-dark.png" />
+      <source media="(prefers-color-scheme: light)" srcset="media/sponsors/coderabbit-light.png" />
+      <img src="media/sponsors/coderabbit-light.png" alt="CodeRabbit" width="400" />
+    </picture>
+  </a>
+  <p>Code reviews powered by CodeRabbit</p>
+</div>
+
+## License
+
 MIT licensed — see [LICENSE](./LICENSE).
 
 ## Star History
