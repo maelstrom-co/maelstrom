@@ -1,3 +1,4 @@
+import type { AgentEvent, AgentInput } from '@maelstrom-co/protocol';
 import type { Page } from '@playwright/test';
 
 /** One JSON text frame seen on a page WebSocket, tagged with its direction. */
@@ -6,16 +7,9 @@ export interface CollectedFrame {
   readonly payload: Record<string, unknown>;
 }
 
-/** The inner input or event an agent frame carries, keyed by its `type`. */
-export interface AgentWirePayload {
-  readonly type: string;
-  readonly [field: string]: unknown;
-}
-
 /**
- * Collects every JSON text frame on the page's WebSockets from now on. Call
- * it before navigating so the first frames are not missed. Non-JSON and
- * binary frames are ignored.
+ * Collects every JSON-object text frame on the page's WebSockets from now on.
+ * Call it before navigating so the first frames are not missed.
  */
 export function collectWebSocketFrames(page: Page): CollectedFrame[] {
   const frames: CollectedFrame[] = [];
@@ -32,18 +26,20 @@ export function collectWebSocketFrames(page: Page): CollectedFrame[] {
   return frames;
 }
 
-/** Inputs of the `client.agent.input` frames the page has sent so far. */
 export function sentAgentInputs(
   frames: readonly CollectedFrame[],
-): AgentWirePayload[] {
-  return innerObjects(frames, 'sent', 'client.agent.input', 'input');
+): AgentInput[] {
+  return innerObjects(frames, 'sent', 'client.agent.input', 'input').map(
+    (inner) => inner as unknown as AgentInput,
+  );
 }
 
-/** Events of the `engine.agent.event` frames the page has received so far. */
 export function receivedAgentEvents(
   frames: readonly CollectedFrame[],
-): AgentWirePayload[] {
-  return innerObjects(frames, 'received', 'engine.agent.event', 'event');
+): AgentEvent[] {
+  return innerObjects(frames, 'received', 'engine.agent.event', 'event').map(
+    (inner) => inner as unknown as AgentEvent,
+  );
 }
 
 function innerObjects(
@@ -51,13 +47,13 @@ function innerObjects(
   direction: CollectedFrame['direction'],
   envelopeType: string,
   field: string,
-): AgentWirePayload[] {
+): Record<string, unknown>[] {
   return frames.flatMap((frame) => {
     if (frame.direction !== direction) return [];
     if (frame.payload.type !== envelopeType) return [];
     const inner = frame.payload[field];
     if (!isRecord(inner) || typeof inner.type !== 'string') return [];
-    return [inner as AgentWirePayload];
+    return [inner];
   });
 }
 

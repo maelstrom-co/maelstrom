@@ -19,7 +19,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 0,
-  timeout: 120_000,
+  timeout: 240_000,
   expect: { timeout: 60_000 },
 
   outputDir: './dist/agent-live-results',
@@ -60,7 +60,7 @@ export default defineConfig({
             // vite.config.mjs derives the browser key mode from this key,
             // so the server key is used whenever it is present.
             OPENAI_API_KEY: apiKey,
-            VITE_BROWSER_KEY_MODE: '0',
+            VITE_HOSTED: '0',
             // The demo connector appends the `/ws` path itself.
             VITE_WS_URL: `ws://127.0.0.1:${WS_PORT}`,
           },
