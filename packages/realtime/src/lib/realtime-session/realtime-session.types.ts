@@ -34,6 +34,42 @@ export interface SubmitIntentResult {
 }
 
 /**
+ * Settled outcome of one voice intent sent as an agent message through
+ * {@link RealtimeInstance.sendAgentMessage}. `RealtimeSession` answers the
+ * `update_ui` tool call from it.
+ *
+ * A `lost` outcome is unknown: the agent run may already have changed the
+ * UI, so the session reports it as unconfirmed and never sends the message
+ * again.
+ */
+export type AgentMessageOutcome =
+  /** The agent run finished. */
+  | {
+      readonly status: 'finished';
+      /** Whether the run reports success. */
+      readonly ok: boolean;
+      /** The agent's reply, spoken in place of the snapshot summary when non-empty. */
+      readonly reply?: string;
+      /** Why a failed run failed, spoken as the failure summary. */
+      readonly error?: string;
+    }
+  /** The run's outcome is unknown, and its side effects may have happened. */
+  | {
+      readonly status: 'lost';
+      /**
+       * Why the run was lost, such as `stale_run`, `disconnected` or
+       * `connector_replaced`. Open-ended so new reasons need no type change.
+       */
+      readonly reason: string;
+    }
+  /** The message never reached the agent, so it had no side effect. */
+  | {
+      readonly status: 'not_submitted';
+      /** Why the message was not submitted. */
+      readonly error: string;
+    };
+
+/**
  * The minimal bridge `RealtimeSession` needs from a Maelstrom instance.
  * `Orchestrator` maps onto this via a small wrapper (`submitIntent` ->
  * `processIntent`, `createIntentScope` -> the shared scheduler scope, and idle
@@ -61,6 +97,13 @@ export interface RealtimeInstance {
    * Queue capacity, wait and connection-loss bounds belong to the client policy.
    */
   createIntentScope?(): IntentScope;
+  /**
+   * Sends one `update_ui` intent as an agent message and resolves once its
+   * agent run settles. Preferred over `createIntentScope` and `submitIntent`
+   * when present. Must never reject: a send that fails resolves
+   * `not_submitted`. A `lost` outcome is unknown and is never replayed.
+   */
+  sendAgentMessage?(text: string): Promise<AgentMessageOutcome>;
   /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */
   submitIntent(intent: string): Promise<SubmitIntentResult>;
   /** Legacy global settle wait, unused for scoped ticket results. */
