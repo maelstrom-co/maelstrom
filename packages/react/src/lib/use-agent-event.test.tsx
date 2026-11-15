@@ -165,6 +165,37 @@ describe('m.useAgentEvent()', () => {
     });
   });
 
+  it('routes a rejected async handler to the emitter error log', async () => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const boom = new Error('boom');
+      const rejection = Promise.reject(boom);
+      rejection.catch(() => {});
+      const harness = await renderWithAgent(({ m }) => {
+        function Listener() {
+          m.useAgentEvent('placeholder', () => rejection);
+          return null;
+        }
+        return <Listener />;
+      });
+
+      act(() => {
+        harness.agent.emit(
+          agentPlaceholderEvent(toMessageId('input-1'), 'one'),
+        );
+      });
+
+      await waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith(
+          'Error in async placeholder listener:',
+          boom,
+        );
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('calls the newest handler without resubscribing when the handler changes', async () => {
     const calls: string[] = [];
     let setVersion: ((version: number) => void) | null = null;

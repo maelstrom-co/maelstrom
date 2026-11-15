@@ -22,10 +22,7 @@ export function createUseAgentEvent(contextPair: MaelstromContextPair) {
     });
 
     useEffect(
-      () =>
-        orchestrator.agent.on(type, (event) => {
-          handlerRef.current(event);
-        }),
+      () => orchestrator.agent.on(type, (event) => handlerRef.current(event)),
       [orchestrator, type],
     );
   };
