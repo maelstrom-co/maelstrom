@@ -281,7 +281,8 @@ function startChat(
     // After the policy middleware, whose gate wait can record more notes.
     onConfig: (ctx, config) => {
       if (ctx.phase !== 'beforeModel') return undefined;
-      calls.startTurn(ctx.iteration + 1, policy.ending === undefined);
+      if (policy.ending === undefined) calls.beginTurn(ctx.iteration + 1);
+      else calls.skipTurn(ctx.iteration + 1);
       const notes = options.takeSessionNotes?.() ?? [];
       if (notes.length === 0) return undefined;
       return {
@@ -294,7 +295,7 @@ function startChat(
     onBeforeToolCall: (ctx, hookCtx) => admitArgs(ctx, hookCtx, hookCtx.args),
     onToolPhaseComplete: (_ctx, info) => {
       calls.endToolPhase(info.toolCalls.map((call) => call.id));
-      calls.finishTurn();
+      calls.endTurn();
     },
   };
   const guardResult = async (
@@ -538,7 +539,7 @@ function createToolCallTracker(
     });
   };
 
-  const finishTurn = () => {
+  const endTurn = () => {
     const finishing = openTurn;
     if (finishing === undefined) return;
     openTurn = undefined;
@@ -602,18 +603,20 @@ function createToolCallTracker(
 
   return {
     drainQueued,
-    startTurn(next: number, admitted: boolean) {
-      // A tool turn cut off at the output limit runs its tool phase without
-      // onToolPhaseComplete, so the next turn start finishes it.
-      finishTurn();
-      turn = next;
-      if (!admitted) return;
-      openTurn = { index: next, toolCallsAtStart: runToolCalls() };
-      report({ type: 'turn_started', turnId: turnId(), turnIndex: next });
+    beginTurn(index: number) {
+      // A tool turn cut off at the output limit is still open here.
+      endTurn();
+      turn = index;
+      openTurn = { index, toolCallsAtStart: runToolCalls() };
+      report({ type: 'turn_started', turnId: turnId(), turnIndex: index });
     },
-    finishTurn,
+    skipTurn(index: number) {
+      endTurn();
+      turn = index;
+    },
+    endTurn,
     closeActivity() {
-      finishTurn();
+      endTurn();
       activityClosed = true;
     },
     stopActivity() {
