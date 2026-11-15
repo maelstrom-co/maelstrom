@@ -7,6 +7,7 @@ import {
   type AgentUiChangeEvent,
   ChangeId,
   type DiagnosticEvent,
+  type DiagnosticMetadata,
   MessageId,
   ok,
   type RunId,
@@ -343,7 +344,7 @@ describe('run.finished durationMs', () => {
 
     expect(finishedOf(received).metrics).toEqual({
       turns: 1,
-      toolCalls: 0,
+      toolCalls: { requested: 0, admitted: 0 },
       elapsedMs: 250,
       inputTokens: 2,
       outputTokens: 1,
@@ -422,7 +423,8 @@ describe('agent run diagnostics', () => {
           inputId: 'input-1',
           turnId: firstTurn,
           turnIndex: 1,
-          toolCalls: 1,
+          toolCallsRequested: 1,
+          toolCallsAdmitted: 1,
           inputTokens: 3,
           outputTokens: 2,
         },
@@ -437,7 +439,8 @@ describe('agent run diagnostics', () => {
           inputId: 'input-1',
           turnId: secondTurn,
           turnIndex: 2,
-          toolCalls: 0,
+          toolCallsRequested: 0,
+          toolCallsAdmitted: 0,
           inputTokens: 5,
           outputTokens: 4,
         },
@@ -447,7 +450,8 @@ describe('agent run diagnostics', () => {
         expect.objectContaining({
           reason: 'completed',
           turns: 2,
-          toolCalls: 1,
+          toolCallsRequested: 1,
+          toolCallsAdmitted: 1,
           inputTokens: 8,
           outputTokens: 6,
         }),
@@ -529,7 +533,11 @@ describe('agent run diagnostics', () => {
         event.kind === 'engine.agent.turn.finished' &&
         event.metadata.turnId === firstTurn,
     );
-    expect(finished?.metadata.toolCalls).toBe(2);
+    expect(finished?.metadata).toMatchObject({
+      toolCallsRequested: 2,
+      toolCallsAdmitted: 2,
+    });
+    expect(finished?.metadata).not.toHaveProperty('toolCalls');
     session.connection.close();
   });
 
@@ -569,7 +577,7 @@ describe('agent run diagnostics', () => {
     ['error', 'throwing adapter'],
     ['cancelled', 'cancelled run'],
   ] as const)(
-    'a %s ending (%s) reports run.finished counters equal to the wire metrics and durationMs equal to elapsedMs',
+    'a %s ending (%s) reports run.finished counters equal to the wire metrics, turn tool call counts that sum to them and durationMs equal to elapsedMs',
     async (reason) => {
       const time = createFakeAgentRunTime();
       const session = openAgentSession({
@@ -594,8 +602,22 @@ describe('agent run diagnostics', () => {
       const finished = finishedOf(session.received);
       expect(finished.reason).toBe(reason);
       const metadata = runFinishedOf(session.diagnostics, finished.runId);
-      expect(metadata).toMatchObject({ ...finished.metrics });
+      const { toolCalls, ...scalarCounters } = finished.metrics;
+      expect(metadata).toMatchObject({
+        ...scalarCounters,
+        toolCallsRequested: toolCalls.requested,
+        toolCallsAdmitted: toolCalls.admitted,
+      });
       expect(metadata.durationMs).toBe(finished.metrics.elapsedMs);
+      const turnsFinished = session.diagnostics
+        .filter((event) => event.kind === 'engine.agent.turn.finished')
+        .map((event) => event.metadata);
+      expect(sumOf(turnsFinished, 'toolCallsRequested')).toBe(
+        toolCalls.requested,
+      );
+      expect(sumOf(turnsFinished, 'toolCallsAdmitted')).toBe(
+        toolCalls.admitted,
+      );
       expect(
         session.diagnostics.filter(
           (event) => event.kind === 'engine.agent.turn.started',
@@ -921,7 +943,7 @@ describe('agent run diagnostics', () => {
     ]);
     expect(finishedOf(received).metrics).toMatchObject({
       turns: 2,
-      toolCalls: 1,
+      toolCalls: { requested: 1, admitted: 1 },
       inputTokens: 3,
       outputTokens: 4,
     });
@@ -1249,4 +1271,15 @@ function strayRefusal(): AgentEvent {
     code: 'unknown_change',
     error: 'Unknown UI change.',
   };
+}
+
+function sumOf(
+  metadata: readonly DiagnosticMetadata[],
+  counter: string,
+): number {
+  return metadata.reduce((sum, entry) => {
+    const value = entry[counter];
+    if (typeof value !== 'number') throw new Error(`no ${counter}`);
+    return sum + value;
+  }, 0);
 }

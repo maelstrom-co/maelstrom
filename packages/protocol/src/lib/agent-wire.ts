@@ -86,12 +86,31 @@ export interface AgentActionOutcome {
 }
 
 /**
+ * Tool call counts of one Agent Run. Both values are non-negative integers.
+ */
+export const AgentRunToolCallCountsSchema = z.object({
+  requested: z.number().int().nonnegative(),
+  admitted: z.number().int().nonnegative(),
+});
+
+/** Tool call counts of one Agent Run. */
+export interface AgentRunToolCallCounts {
+  /** Tool calls the model requested, including the ones the run refused. */
+  requested: number;
+  /**
+   * Tool calls the run's policy let through. A call admitted by the policy
+   * still counts when its arguments are rejected afterwards.
+   */
+  admitted: number;
+}
+
+/**
  * Counters describing the cost of one Agent Run. All values are non-negative
  * integers.
  */
 export const AgentRunMetricsSchema = z.object({
   turns: z.number().int().nonnegative(),
-  toolCalls: z.number().int().nonnegative(),
+  toolCalls: AgentRunToolCallCountsSchema,
   elapsedMs: z.number().int().nonnegative(),
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -101,8 +120,8 @@ export const AgentRunMetricsSchema = z.object({
 export interface AgentRunMetrics {
   /** Loop model turns taken. */
   turns: number;
-  /** Tool calls made across all turns. */
-  toolCalls: number;
+  /** Tool calls requested and admitted across all turns. */
+  toolCalls: AgentRunToolCallCounts;
   /** Wall-clock duration of the run in milliseconds. */
   elapsedMs: number;
   /** Model input tokens consumed. */

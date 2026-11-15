@@ -19,7 +19,16 @@ import {
 const run = { runId: RunId('run-1'), started: 10.2 };
 const metrics = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
+  elapsedMs: 20,
+  inputTokens: 0,
+  outputTokens: 0,
+};
+
+const metricsMetadata = {
+  turns: 0,
+  toolCallsRequested: 0,
+  toolCallsAdmitted: 0,
   elapsedMs: 20,
   inputTokens: 0,
   outputTokens: 0,
@@ -71,7 +80,7 @@ test('a completed run streams its reply before finishing with rounded elapsed ti
   expect(ending.metadata).toEqual({
     reason: 'completed',
     outcome: 'succeeded',
-    ...metrics,
+    ...metricsMetadata,
     durationMs: 20,
   });
   expect(
@@ -100,7 +109,7 @@ test('a failed run finishes without its reply and reports the failure code', () 
   expect(ending.metadata).toEqual({
     reason: 'error',
     outcome: 'failed',
-    ...metrics,
+    ...metricsMetadata,
     durationMs: 20,
     code: 'ui_apply_failed',
   });
@@ -169,7 +178,7 @@ test('an agent acceptance carries the agent disposition', () => {
 
 const counters = {
   turns: 2,
-  toolCalls: 1,
+  toolCalls: { requested: 3, admitted: 1 },
   elapsedMs: 15,
   inputTokens: 14,
   outputTokens: 3,
@@ -188,7 +197,7 @@ test('a completed agent run finishes with its counters, including its own elapse
       reply: 'Done.',
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 3, admitted: 1 },
         elapsedMs: 15,
         inputTokens: 14,
         outputTokens: 3,
@@ -199,7 +208,8 @@ test('a completed agent run finishes with its counters, including its own elapse
     reason: 'completed',
     outcome: 'succeeded',
     turns: 2,
-    toolCalls: 1,
+    toolCallsRequested: 3,
+    toolCallsAdmitted: 1,
     elapsedMs: 15,
     inputTokens: 14,
     outputTokens: 3,
@@ -241,7 +251,7 @@ test('a budget ending sends the closing message under the close turn and makes i
       reply: 'Out of room.',
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 3, admitted: 1 },
         elapsedMs: 15,
         inputTokens: 14,
         outputTokens: 3,
@@ -281,15 +291,25 @@ describe.each([
   ['a UI-only run', undefined],
 ] as const)('%s', (_route, runCounters: AgentRunCounters | undefined) => {
   test.each(endings)(
-    'an ending with reason %s reports durationMs equal to elapsedMs and the counters of finished.metrics',
+    'an ending with reason %s reports durationMs equal to elapsedMs and the counters of finished.metrics, with tool calls split into requested and admitted',
     (reason, outcome) => {
       const ending = buildRunEnding(run, 30.4, 'Done.', outcome, runCounters);
       const finished = ending.events.at(-1);
       if (finished?.type !== 'finished') throw new Error('no finished event');
       expect(finished.reason).toBe(reason);
       expect(ending.metadata.durationMs).toBe(finished.metrics.elapsedMs);
-      for (const [counter, value] of Object.entries(finished.metrics))
-        expect(ending.metadata[counter]).toBe(value);
+      const { toolCalls, ...scalarCounters } = finished.metrics;
+      expect(ending.metadata).toMatchObject({
+        ...scalarCounters,
+        toolCallsRequested: toolCalls.requested,
+        toolCallsAdmitted: toolCalls.admitted,
+      });
+      expect(ending.metadata).not.toHaveProperty('toolCalls');
+      expect(
+        Object.values(ending.metadata).every(
+          (value) => typeof value !== 'object' || value === null,
+        ),
+      ).toBe(true);
     },
   );
 });

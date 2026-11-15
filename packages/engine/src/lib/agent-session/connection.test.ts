@@ -107,7 +107,7 @@ test('a UI-only reply waits for its own applied acknowledgement before claiming 
       reply: 'Your calendar is visible.',
       metrics: {
         turns: 0,
-        toolCalls: 0,
+        toolCalls: { requested: 0, admitted: 0 },
         elapsedMs: 20,
         inputTokens: 0,
         outputTokens: 0,

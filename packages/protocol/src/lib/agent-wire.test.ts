@@ -123,7 +123,7 @@ const eventFixtures: {
     reply: 'Here is your calendar.',
     metrics: {
       turns: 2,
-      toolCalls: 1,
+      toolCalls: { requested: 2, admitted: 1 },
       elapsedMs: 1250,
       inputTokens: 900,
       outputTokens: 120,
@@ -541,6 +541,30 @@ describe('AgentEvent round-trip', () => {
       const value = {
         ...eventFixtures.finished,
         metrics: { ...eventFixtures.finished.metrics, turns },
+      };
+      expect(AgentEventSchema.safeParse(value).success).toBe(false);
+    }
+  });
+
+  test('finished metrics carry tool calls as requested and admitted counts', () => {
+    const decoded = AgentEventSchema.parse(eventFixtures.finished);
+    expect(decoded.type === 'finished' && decoded.metrics.toolCalls).toEqual({
+      requested: 2,
+      admitted: 1,
+    });
+  });
+
+  test('finished metrics reject a plain tool call number and a negative, fractional or missing count', () => {
+    for (const toolCalls of [
+      1,
+      { requested: -1, admitted: 0 },
+      { requested: 1.5, admitted: 1 },
+      { requested: 1 },
+      { admitted: 1 },
+    ]) {
+      const value = {
+        ...eventFixtures.finished,
+        metrics: { ...eventFixtures.finished.metrics, toolCalls },
       };
       expect(AgentEventSchema.safeParse(value).success).toBe(false);
     }

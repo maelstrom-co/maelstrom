@@ -126,6 +126,12 @@ export interface AgentRunPolicy {
   /** Records that the current model turn requested `callId`, so the whole batch is reserved at once. */
   noteToolCallRequested(callId: string): void;
   /**
+   * Counts one tool call the model finished requesting, whether the run
+   * admits it, refuses it or cannot run it. It feeds the `requested` count
+   * of {@link metrics}, while {@link beforeToolCall} feeds `admitted`.
+   */
+  countRequestedToolCall(): void;
+  /**
    * Runs before each tool call. Refuses when an ending is latched, the
    * deadline passed, the token budget is spent or unknown, or the call was
    * requested on the final allowed turn. On a turn's first call, reserves
@@ -185,6 +191,7 @@ export function createAgentRunPolicy(
   let turnsStarted = 0;
   let turnCallPending = false;
   let activeProviderCalls = 0;
+  let toolCallsRequested = 0;
   let toolCallsAdmitted = 0;
   let toolCallsReserved = 0;
   let reservedTurn = 0;
@@ -327,6 +334,9 @@ export function createAgentRunPolicy(
     noteToolCallRequested(callId) {
       requestedThisTurn.add(callId);
     },
+    countRequestedToolCall() {
+      toolCallsRequested += 1;
+    },
     beforeToolCall(callId) {
       if (ending !== undefined) return { admitted: false, ending };
       const refusal =
@@ -368,7 +378,10 @@ export function createAgentRunPolicy(
       return {
         metrics: {
           turns: turnsStarted,
-          toolCalls: toolCallsAdmitted,
+          toolCalls: {
+            requested: toolCallsRequested,
+            admitted: toolCallsAdmitted,
+          },
           elapsedMs:
             startedAt === undefined
               ? 0

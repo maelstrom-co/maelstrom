@@ -395,13 +395,13 @@ request cap, which stay request-only. Forwarding stays disabled in production.
 | `engine.agent.input.accepted` | Run | An utterance was accepted into a run, `agent` or `ui_only`. |
 | `engine.agent.run.started` | Run | The run left the queue and began work. A run cancelled while queued or failing setup has none. |
 | `engine.agent.turn.started` | Run | The agent loop began a model turn, with `turnId` and a 1-based `turnIndex`. |
-| `engine.agent.turn.finished` | Run | The turn ended, with its tool call count and the tokens its provider calls reported. |
+| `engine.agent.turn.finished` | Run | The turn ended, with `toolCallsRequested`, `toolCallsAdmitted` and the tokens its provider calls reported. The admitted counts of a run's turns sum to its `toolCallsAdmitted`. |
 | `engine.agent.tool.started` | Run | A Server Tool began executing. |
 | `engine.agent.tool.completed` | Run | A tool call settled as `succeeded`, `failed` or `not_run`, with `durationMs` only when it started. |
 | `engine.agent.ui_change.emitted` | Run, or Session without a run | A UI change was sent to the client. |
 | `engine.agent.ui_change.applied` | Run | The client acknowledged the change. |
 | `engine.agent.show.failed`, `.show.skipped`, `.show.cancelled`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
-| `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. |
+| `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. Metadata holds scalars only, so `metrics.toolCalls.requested` and `.admitted` appear as `toolCallsRequested` and `toolCallsAdmitted`. |
 | `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
 | `engine.agent.ui_applied.rejected` | Run for a known change, Session for an unknown one | An acknowledgement named an unknown change or the wrong outcome count. |
 | `engine.planner.*`, `engine.stage.*` in a run | Run | Planner work for the run, with `turnId` when a loop turn asked for it. |

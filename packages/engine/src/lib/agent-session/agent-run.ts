@@ -1,4 +1,9 @@
-import type { AgentRunMetrics, CallId, RunId } from '@maelstrom-co/protocol';
+import type {
+  AgentRunMetrics,
+  AgentRunToolCallCounts,
+  CallId,
+  RunId,
+} from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ModelMessage, TextOptions } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
@@ -159,8 +164,15 @@ export interface AgentRunTurnFinishedActivity {
   readonly turnId: string;
   /** The turn number, 1-based. */
   readonly turnIndex: number;
-  /** Tool calls the model requested in this turn, including refused ones. */
-  readonly toolCalls: number;
+  /**
+   * Tool calls of this turn. `requested` counts every call the model
+   * requested, including refused ones and calls to unknown tools.
+   * `admitted` counts the calls the run's policy let through, so the
+   * admitted counts of a run's turns sum to its `finished.metrics`. A call
+   * with invalid arguments passes the policy before its arguments are
+   * rejected, so it counts as admitted although it never runs.
+   */
+  readonly toolCalls: AgentRunToolCallCounts;
   /** Input tokens the turn's provider calls reported. Absent when none reported them, never zero-filled. */
   readonly inputTokens?: number;
   /** Output tokens the turn's provider calls reported. Absent when none reported them, never zero-filled. */

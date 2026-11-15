@@ -1408,7 +1408,7 @@ function finishedEvent(): AgentFinishedEvent {
     reply: 'Looking at it',
     metrics: {
       turns: 1,
-      toolCalls: 1,
+      toolCalls: { requested: 1, admitted: 1 },
       elapsedMs: 5,
       inputTokens: 10,
       outputTokens: 4,

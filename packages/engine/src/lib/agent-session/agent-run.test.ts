@@ -109,7 +109,7 @@ describe('runAgent on chat()', () => {
         reply: 'Your order is o-1.',
         metrics: {
           turns: 2,
-          toolCalls: 1,
+          toolCalls: { requested: 1, admitted: 1 },
           elapsedMs: 0,
           inputTokens: 14,
           outputTokens: 3,
@@ -1155,7 +1155,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: BUDGET_CLOSING_MESSAGE,
       metrics: {
         turns: 3,
-        toolCalls: 2,
+        toolCalls: { requested: 3, admitted: 2 },
         elapsedMs: 0,
         inputTokens: 30,
         outputTokens: 6,
@@ -1249,7 +1249,11 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'budget',
         limit: 'elapsed',
-        metrics: { turns: 2, toolCalls: 1, elapsedMs: 99 + lateBy },
+        metrics: {
+          turns: 2,
+          toolCalls: { requested: 2, admitted: 1 },
+          elapsedMs: 99 + lateBy,
+        },
       });
       expectEveryCallSettledOnce(events);
     },
@@ -1295,7 +1299,10 @@ describe('runAgent budgets and stops on chat()', () => {
         type: 'finished',
         reason: 'budget',
         limit: 'elapsed',
-        metrics: expect.objectContaining({ turns: 1, toolCalls: 0 }),
+        metrics: expect.objectContaining({
+          turns: 1,
+          toolCalls: { requested: 0, admitted: 0 },
+        }),
       }),
     ]);
     expect(stalled.signal?.aborted).toBe(true);
@@ -1396,7 +1403,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: BUDGET_CLOSING_MESSAGE,
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 2, admitted: 1 },
         elapsedMs: 0,
         inputTokens: 8,
         outputTokens: 4,
@@ -1433,7 +1440,11 @@ describe('runAgent budgets and stops on chat()', () => {
       limit: 'tokens',
       usageUnknown: true,
       reply: BUDGET_CLOSING_MESSAGE,
-      metrics: { ...ZERO_METRICS, turns: 1 },
+      metrics: {
+        ...ZERO_METRICS,
+        turns: 1,
+        toolCalls: { requested: 1, admitted: 0 },
+      },
       unreportedUsageCalls: 1,
     });
     expectEveryCallSettledOnce(events);
@@ -1464,7 +1475,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: 'Added.',
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 1, admitted: 1 },
         elapsedMs: 0,
         inputTokens: 4,
         outputTokens: 1,
@@ -1506,7 +1517,7 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(lastEvent(events)).toMatchObject({
       reason: 'budget',
       limit: 'toolCalls',
-      metrics: { turns: 1, toolCalls: 0 },
+      metrics: { turns: 1, toolCalls: { requested: 3, admitted: 0 } },
     });
     expectEveryCallSettledOnce(events);
   });
@@ -1547,7 +1558,101 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(lastEvent(events)).toMatchObject({
       reason: 'completed',
       reply: 'Balance is 1.',
-      metrics: { turns: 2, toolCalls: 1 },
+      metrics: { turns: 2, toolCalls: { requested: 2, admitted: 1 } },
+    });
+  });
+
+  test('each turn_finished counts the calls its turn requested and admitted, and the admitted counts of the turns sum to the run total', async () => {
+    const counter = counterTools();
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'increment', args: { by: 1 } },
+          { id: 'c2', name: 'made_up_tool', args: {} },
+        ],
+        usage(4, 1),
+      ),
+      toolTurn(
+        [
+          { id: 'c3', name: 'increment', args: { by: 1 } },
+          { id: 'c4', name: 'increment', args: { by: 1 } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: counter.registry,
+          budgets: { ...testBudgets, maxToolCalls: 2 },
+        }),
+        {
+          signal: new AbortController().signal,
+          onActivity: (next) => {
+            activity.push(next);
+          },
+        },
+      ),
+    );
+
+    const turns = activity.filter((entry) => entry.type === 'turn_finished');
+    expect(turns.map((turn) => [turn.turnIndex, turn.toolCalls])).toEqual([
+      [1, { requested: 2, admitted: 1 }],
+      [2, { requested: 2, admitted: 0 }],
+    ]);
+    const finished = lastEvent(events);
+    expect(finished).toMatchObject({
+      reason: 'budget',
+      limit: 'toolCalls',
+      metrics: { toolCalls: { requested: 4, admitted: 1 } },
+    });
+    if (finished.type !== 'finished') throw new Error('no finished event');
+    expect(turns.reduce((sum, turn) => sum + turn.toolCalls.admitted, 0)).toBe(
+      finished.metrics.toolCalls.admitted,
+    );
+    expect(turns.reduce((sum, turn) => sum + turn.toolCalls.requested, 0)).toBe(
+      finished.metrics.toolCalls.requested,
+    );
+  });
+
+  test('a call with invalid arguments passes the policy before its arguments are rejected, so it counts as admitted', async () => {
+    const counter = counterTools();
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'increment', args: { by: 'one' } }],
+        usage(4, 1),
+      ),
+      textTurn(['Sorry.'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    const events = await collect(
+      runAgent(
+        runInput({ adapter: model.adapter, registry: counter.registry }),
+        {
+          signal: new AbortController().signal,
+          onActivity: (next) => {
+            activity.push(next);
+          },
+        },
+      ),
+    );
+
+    expect(counter.balances).toEqual([]);
+    expect(activity).toContainEqual(
+      expect.objectContaining({
+        type: 'turn_finished',
+        turnIndex: 1,
+        toolCalls: { requested: 1, admitted: 1 },
+      }),
+    );
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      metrics: { toolCalls: { requested: 1, admitted: 1 } },
     });
   });
 
@@ -1579,7 +1684,7 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(counter.log).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
     expect(lastEvent(events)).toMatchObject({
       reason: 'completed',
-      metrics: { turns: 2, toolCalls: 2 },
+      metrics: { turns: 2, toolCalls: { requested: 2, admitted: 2 } },
     });
   });
 
@@ -1712,7 +1817,7 @@ describe('runAgent budgets and stops on chat()', () => {
       type: 'turn_finished',
       turnId: 'run-1:t1',
       turnIndex: 1,
-      toolCalls: 1,
+      toolCalls: { requested: 1, admitted: 1 },
       inputTokens: 4,
       outputTokens: 1,
     });
@@ -2299,7 +2404,10 @@ describe('runAgent budgets and stops on chat()', () => {
         expect.objectContaining({
           reason: 'budget',
           limit: 'turns',
-          metrics: expect.objectContaining({ turns: 3, toolCalls: 2 }),
+          metrics: expect.objectContaining({
+            turns: 3,
+            toolCalls: { requested: 4, admitted: 2 },
+          }),
         }),
       ]);
       expect(substituted).toEqual([
@@ -2342,7 +2450,7 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'completed',
         reply: 'All done.',
-        metrics: { turns: 3, toolCalls: 2 },
+        metrics: { turns: 3, toolCalls: { requested: 2, admitted: 2 } },
       });
     });
 
@@ -2374,7 +2482,7 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'budget',
         limit: 'turns',
-        metrics: { turns: 12, toolCalls: 11 },
+        metrics: { turns: 12, toolCalls: { requested: 12, admitted: 11 } },
       });
       expectEveryCallSettledOnce(events);
     });
@@ -2526,7 +2634,7 @@ const testBudgets: AgentRunBudgets = {
 
 const ZERO_METRICS = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,

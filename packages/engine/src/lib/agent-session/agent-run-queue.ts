@@ -493,7 +493,7 @@ interface ActiveAgentRun extends QueuedAgentRun {
 
 const ZERO_METRICS: AgentRunMetrics = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,
@@ -649,7 +649,8 @@ function activityObservation(activity: AgentRunActivity): {
         metadata: {
           turnId: activity.turnId,
           turnIndex: activity.turnIndex,
-          toolCalls: activity.toolCalls,
+          toolCallsRequested: activity.toolCalls.requested,
+          toolCallsAdmitted: activity.toolCalls.admitted,
           ...(activity.inputTokens === undefined
             ? {}
             : { inputTokens: activity.inputTokens }),

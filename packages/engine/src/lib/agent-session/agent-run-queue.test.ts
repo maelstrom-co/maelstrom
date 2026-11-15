@@ -134,7 +134,7 @@ describe('agent run queue', () => {
         reply: 'Your order is o-1.',
         metrics: {
           turns: 2,
-          toolCalls: 1,
+          toolCalls: { requested: 1, admitted: 1 },
           elapsedMs: 250,
           inputTokens: 14,
           outputTokens: 3,
@@ -151,7 +151,8 @@ describe('agent run queue', () => {
         reason: 'completed',
         outcome: 'succeeded',
         turns: 2,
-        toolCalls: 1,
+        toolCallsRequested: 1,
+        toolCallsAdmitted: 1,
         elapsedMs: 250,
         durationMs: 250,
         inputTokens: 14,
@@ -813,7 +814,7 @@ describe('agent run queue', () => {
         reply: BUDGET_CLOSING_MESSAGE,
         metrics: {
           turns: 1,
-          toolCalls: 0,
+          toolCalls: { requested: 1, admitted: 0 },
           elapsedMs: 0,
           inputTokens: 3,
           outputTokens: 1,
@@ -1425,7 +1426,7 @@ const LATEST_ORDER = { orderId: 'o-1', total: 42 };
 
 const ZERO_METRICS = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,

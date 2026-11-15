@@ -61,7 +61,7 @@ describe('admission before chat()', () => {
       expect(run.policy.metrics()).toEqual({
         metrics: {
           turns: 0,
-          toolCalls: 0,
+          toolCalls: { requested: 0, admitted: 0 },
           elapsedMs: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -152,7 +152,7 @@ describe('turn cap', () => {
     expect(run.policy.ending).toEqual(ending);
     expect(run.policy.metrics().metrics).toMatchObject({
       turns: 3,
-      toolCalls: 2,
+      toolCalls: { requested: 0, admitted: 2 },
     });
   });
 
@@ -207,7 +207,7 @@ describe('batch reservation', () => {
         ending,
       });
     }
-    expect(run.policy.metrics().metrics.toolCalls).toBe(0);
+    expect(run.policy.metrics().metrics.toolCalls.admitted).toBe(0);
     expect(run.policy.shouldStartNextTurn({ requestedTools: true })).toBe(
       false,
     );
@@ -234,7 +234,7 @@ describe('batch reservation', () => {
 
     expect(balances).toEqual([1, 3]);
     expect(run.policy.ending).toBeUndefined();
-    expect(run.policy.metrics().metrics.toolCalls).toBe(2);
+    expect(run.policy.metrics().metrics.toolCalls.admitted).toBe(2);
   });
 
   test('a later batch that no longer fits the remaining calls runs none', async () => {
@@ -252,7 +252,29 @@ describe('batch reservation', () => {
       admitted: false,
       ending: { limit: 'toolCalls' },
     });
-    expect(run.policy.metrics().metrics.toolCalls).toBe(1);
+    expect(run.policy.metrics().metrics.toolCalls.admitted).toBe(1);
+  });
+
+  test('tool call metrics count every requested call and only the admitted ones as admitted', async () => {
+    const run = setup({ budgets: { ...roomyBudgets, maxToolCalls: 2 } });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+    run.policy.noteToolCallRequested('c1');
+    run.policy.countRequestedToolCall();
+    expect(run.policy.beforeToolCall('c1')).toEqual({ admitted: true });
+    run.policy.shouldStartNextTurn({ requestedTools: true });
+    await run.policy.beforeModelTurn();
+    for (const callId of ['c2', 'c3']) {
+      run.policy.noteToolCallRequested(callId);
+      run.policy.countRequestedToolCall();
+    }
+    for (const callId of ['c2', 'c3'])
+      expect(run.policy.beforeToolCall(callId).admitted).toBe(false);
+
+    expect(run.policy.metrics().metrics.toolCalls).toEqual({
+      requested: 3,
+      admitted: 1,
+    });
   });
 
   test('a call the stream never announced still counts as a batch of one', async () => {
@@ -351,7 +373,11 @@ describe('usage before tools', () => {
       ending: { reason: 'budget', limit: 'tokens' },
     });
     expect(run.policy.metrics()).toMatchObject({
-      metrics: { toolCalls: 1, inputTokens: 8, outputTokens: 4 },
+      metrics: {
+        toolCalls: { requested: 0, admitted: 1 },
+        inputTokens: 8,
+        outputTokens: 4,
+      },
     });
   });
 

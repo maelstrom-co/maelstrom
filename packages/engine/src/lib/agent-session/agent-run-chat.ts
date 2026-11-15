@@ -1,4 +1,8 @@
-import { CallId, type RunId } from '@maelstrom-co/protocol';
+import {
+  type AgentRunToolCallCounts,
+  CallId,
+  type RunId,
+} from '@maelstrom-co/protocol';
 import {
   createUsageLedger,
   type ProviderCallRecord,
@@ -109,6 +113,7 @@ async function* streamAgentRun(
     input.clock,
     input.logger,
     options.onActivity,
+    policy,
   );
   const executions = createToolExecutionFence();
   let chunks: AsyncIterator<StreamChunk> | undefined;
@@ -437,7 +442,8 @@ interface AnnouncedToolCall {
 
 interface OpenTurn {
   readonly index: number;
-  toolCalls: number;
+  /** The run's tool call counts when the turn started, diffed when it finishes. */
+  readonly toolCallsAtStart: AgentRunToolCallCounts;
   inputTokens?: number;
   outputTokens?: number;
 }
@@ -471,6 +477,7 @@ function createToolCallTracker(
   clock: AgentRunClock,
   logger: Logger,
   onActivity: ((activity: AgentRunActivity) => void) | undefined,
+  policy: Pick<AgentRunPolicy, 'countRequestedToolCall' | 'metrics'>,
 ) {
   let turn = 0;
   let openTurn: OpenTurn | undefined;
@@ -487,6 +494,7 @@ function createToolCallTracker(
   const announced = new Map<CallId, AnnouncedToolCall>();
   const settled = new Map<CallId, ToolCallResult>();
   const turnIdOf = (index: number) => `${runId}:t${index}`;
+  const runToolCalls = () => policy.metrics().metrics.toolCalls;
   const turnId = () => turnIdOf(turn);
 
   const report = (activity: AgentRunActivity) => {
@@ -534,11 +542,16 @@ function createToolCallTracker(
     const finishing = openTurn;
     if (finishing === undefined) return;
     openTurn = undefined;
+    const atStart = finishing.toolCallsAtStart;
+    const atFinish = runToolCalls();
     report({
       type: 'turn_finished',
       turnId: turnIdOf(finishing.index),
       turnIndex: finishing.index,
-      toolCalls: finishing.toolCalls,
+      toolCalls: {
+        requested: atFinish.requested - atStart.requested,
+        admitted: atFinish.admitted - atStart.admitted,
+      },
       ...(finishing.inputTokens === undefined
         ? {}
         : { inputTokens: finishing.inputTokens }),
@@ -594,7 +607,7 @@ function createToolCallTracker(
       finishTurn();
       turn = next;
       if (!admitted) return;
-      openTurn = { index: next, toolCalls: 0 };
+      openTurn = { index: next, toolCallsAtStart: runToolCalls() };
       report({ type: 'turn_started', turnId: turnId(), turnIndex: next });
     },
     finishTurn,
@@ -706,7 +719,7 @@ function createToolCallTracker(
             turnId: call.turnId,
             completionReported: false,
           });
-          if (openTurn !== undefined) openTurn.toolCalls += 1;
+          policy.countRequestedToolCall();
           yield {
             type: 'tool_call',
             turnId: call.turnId,

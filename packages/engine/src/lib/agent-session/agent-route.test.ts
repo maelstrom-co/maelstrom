@@ -2349,7 +2349,7 @@ describe('agent route through the Engine handle', () => {
       const runId = runIdOf(session.received, 'input-1');
       const counters = {
         turns: 3,
-        toolCalls: 2,
+        toolCalls: { requested: 2, admitted: 2 },
         elapsedMs: 500,
         inputTokens: 14,
         outputTokens: 3,
@@ -2366,7 +2366,12 @@ describe('agent route through the Engine handle', () => {
       ).toMatchObject({
         reason: 'completed',
         outcome: 'succeeded',
-        ...counters,
+        turns: 3,
+        toolCallsRequested: 2,
+        toolCallsAdmitted: 2,
+        elapsedMs: 500,
+        inputTokens: 14,
+        outputTokens: 3,
         unreportedUsageCalls: 1,
       });
     });
