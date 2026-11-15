@@ -254,8 +254,8 @@ function ShopWorkspace({
     onMintError,
   });
 
-  // A refused resume stays pending and retries only when the connection or
-  // processing changes, never in a tight loop.
+  // The resume waits for a connected session. A refusal while a key is still
+  // needed stays pending until the next connection change.
   useEffect(() => {
     if (!resumeIntent || connectionStatus !== 'connected') return;
     let live = true;
@@ -266,8 +266,8 @@ function ShopWorkspace({
     return () => {
       live = false;
     };
-    // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
-  }, [resumeIntent, connectionStatus, isProcessing]);
+    // oxlint-disable-next-line react/exhaustive-deps -- A new resume request and connection changes are the intentional triggers.
+  }, [resumeIntent, connectionStatus]);
 
   return (
     <div className="demo-shell shop-shell relative z-[2]">

@@ -144,26 +144,6 @@ describe('shop instance', () => {
 });
 
 describe('shop voice route', () => {
-  it('sends a voice intent through sendMessage with the voice source', async () => {
-    const orchestrator = fakeOrchestrator();
-    const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions[0]);
-
-    await expect(
-      sendAgentMessage(orchestrator.instance, '  show my last order '),
-    ).resolves.toBe(MessageId('voice-message'));
-
-    expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
-    expect(orchestrator.sendMessage).toHaveBeenCalledWith(
-      'show my last order',
-      { source: 'voice' },
-    );
-    expect(orchestrator.sendMessageReceivers).toEqual([orchestrator.instance]);
-    expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
-    expect(orchestrator.createIntentScope).not.toHaveBeenCalled();
-  });
-});
-
-describe('shop voice route on a hosted build', () => {
   let recorded: RecordedInstance;
 
   beforeEach(() => {
@@ -175,22 +155,36 @@ describe('shop voice route on a hosted build', () => {
     restoreInstance(recorded);
   });
 
-  it('still sends a voice intent through sendMessage with the voice source', async () => {
-    vi.stubEnv('VITE_HOSTED', '1');
-    vi.resetModules();
-    await import('./maelstrom');
-    const orchestrator = fakeOrchestrator();
-    const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions.at(-1));
+  it.each([
+    ['a local', undefined],
+    ['a hosted', '1'],
+  ])(
+    'sends a voice intent through sendMessage with the voice source on %s build',
+    async (_build, hosted) => {
+      vi.stubEnv('VITE_HOSTED', hosted);
+      vi.resetModules();
+      state.realtimeOptions.splice(0, Infinity);
+      await import('./maelstrom');
+      expect(state.realtimeOptions).toHaveLength(1);
+      const orchestrator = fakeOrchestrator();
+      const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions[0]);
 
-    await sendAgentMessage(orchestrator.instance, 'show my last order');
+      await expect(
+        sendAgentMessage(orchestrator.instance, '  show my last order '),
+      ).resolves.toBe(MessageId('voice-message'));
 
-    expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
-    expect(orchestrator.sendMessage).toHaveBeenCalledWith(
-      'show my last order',
-      { source: 'voice' },
-    );
-    expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
-  });
+      expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
+      expect(orchestrator.sendMessage).toHaveBeenCalledWith(
+        'show my last order',
+        { source: 'voice' },
+      );
+      expect(orchestrator.sendMessageReceivers).toEqual([
+        orchestrator.instance,
+      ]);
+      expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
+      expect(orchestrator.createIntentScope).not.toHaveBeenCalled();
+    },
+  );
 });
 
 type RecordedInstance = {
