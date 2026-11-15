@@ -49,7 +49,8 @@ function finished(
     reason,
     outcome,
     turns: 1,
-    toolCalls: 1,
+    toolCallsRequested: 2,
+    toolCallsAdmitted: 1,
     elapsedMs: 42,
     durationMs: 42,
     inputTokens: 10,
@@ -89,7 +90,8 @@ test('one agent run groups by client and run id with metrics and turns from its 
     event('engine.agent.turn.finished', {
       turnId,
       turnIndex: 1,
-      toolCalls: 1,
+      toolCallsRequested: 2,
+      toolCallsAdmitted: 1,
       inputTokens: 10,
       outputTokens: 5,
     }),
@@ -107,7 +109,8 @@ test('one agent run groups by client and run id with metrics and turns from its 
     durationMs: 42,
     metrics: {
       turns: 1,
-      toolCalls: 1,
+      toolCallsRequested: 2,
+      toolCallsAdmitted: 1,
       elapsedMs: 42,
       inputTokens: 10,
       outputTokens: 5,
@@ -272,7 +275,11 @@ test('a queued run cancelled before starting is a valid group and not missing it
     }),
     event(
       'engine.agent.run.finished',
-      finished('cancelled', 'failed', { turns: 0, toolCalls: 0 }),
+      finished('cancelled', 'failed', {
+        turns: 0,
+        toolCallsRequested: 0,
+        toolCallsAdmitted: 0,
+      }),
     ),
   ]);
   expect(run).toMatchObject({ status: 'cancelled', missingStart: false });
@@ -299,7 +306,11 @@ test('a ui_only run groups the same way as an agent run', () => {
     }),
     event(
       'engine.agent.run.finished',
-      finished('completed', 'succeeded', { turns: 0, toolCalls: 0 }),
+      finished('completed', 'succeeded', {
+        turns: 0,
+        toolCallsRequested: 0,
+        toolCallsAdmitted: 0,
+      }),
     ),
   ]);
   expect(run).toMatchObject({

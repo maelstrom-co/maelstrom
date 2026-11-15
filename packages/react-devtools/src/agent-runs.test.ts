@@ -52,7 +52,8 @@ test('the Agent tab renders live run groups and the session timeline after recen
   deliver(
     runEvent('engine.agent.turn.finished', {
       ...turn,
-      toolCalls: 1,
+      toolCallsRequested: 1,
+      toolCallsAdmitted: 1,
       inputTokens: 120,
       outputTokens: 30,
     }),
@@ -62,7 +63,8 @@ test('the Agent tab renders live run groups and the session timeline after recen
       reason: 'completed',
       outcome: 'succeeded',
       turns: 1,
-      toolCalls: 1,
+      toolCallsRequested: 1,
+      toolCallsAdmitted: 1,
       elapsedMs: 850,
       durationMs: 850,
       inputTokens: 120,
@@ -119,7 +121,12 @@ test('the Agent tab renders a recorded run group with its turn timeline, linked 
           captured(
             'turn-finished',
             'engine.agent.turn.finished',
-            { inputId: 'input-1', ...turn, toolCalls: 0 },
+            {
+              inputId: 'input-1',
+              ...turn,
+              toolCallsRequested: 2,
+              toolCallsAdmitted: 1,
+            },
             'run-1',
             { text: 'Recorded turn reply' },
           ),
@@ -132,7 +139,8 @@ test('the Agent tab renders a recorded run group with its turn timeline, linked 
               outcome: 'failed',
               limit: 'turns',
               turns: 1,
-              toolCalls: 0,
+              toolCallsRequested: 2,
+              toolCallsAdmitted: 1,
               elapsedMs: 2400,
               durationMs: 2400,
               inputTokens: 5,
@@ -152,7 +160,9 @@ test('the Agent tab renders a recorded run group with its turn timeline, linked 
   expect(row?.textContent).toContain('Budget');
   expect(row?.textContent).toContain('2.4 s');
   expect(row?.textContent).toContain('Limit turns');
+  expect(row?.textContent).toContain('1 tool call');
   const detail = shadow.querySelector('.agent-run-detail');
+  expect(detail?.textContent).toContain('1 of 2 requested');
   expect(detail?.textContent).toContain('Client sent input');
   expect(detail?.textContent).toContain('Turn 1');
   click('Inspect Turn finished');
