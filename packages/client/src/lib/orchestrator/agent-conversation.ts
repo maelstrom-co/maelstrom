@@ -352,7 +352,7 @@ export class AgentConversation {
         type: 'ui_change',
         runId: event.runId,
         changeId: event.changeId,
-        actionOutcomes: [...actionOutcomes],
+        actionOutcomes: actionOutcomes.map((outcome) => ({ ...outcome })),
       });
     try {
       await acknowledgement;

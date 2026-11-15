@@ -730,6 +730,41 @@ describe('Orchestrator agent path', () => {
       }
     });
 
+    it('keeps the ui_applied outcomes intact when a ui_change listener mutates the event outcomes', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      try {
+        orchestrator.commandProcessor.registerRunner(newBoard, {
+          step: () => Promise.resolve<ActionResult>(ok(undefined)),
+        });
+        orchestrator.agent.on('ui_change', (event) => {
+          const outcome = event.actionOutcomes[0] as {
+            ok: boolean;
+            error?: string;
+          };
+          outcome.ok = false;
+          outcome.error = 'tampered';
+        });
+
+        const applied = agent.nextInput('ui_applied');
+        agent.emit(
+          uiChange(
+            'change-mutating-listener',
+            boardLayout([{ instanceId: newBoard, variant: 'collapsed' }]),
+            [step(newBoard, 'step')],
+          ),
+        );
+        await applied;
+        await drainMicrotasks();
+
+        expect(
+          uiAppliedInputs(agent).map((input) => input.actionOutcomes),
+        ).toEqual([[{ ok: true }]]);
+      } finally {
+        await orchestrator.dispose();
+      }
+    });
+
     it('emits ui_change and logs a warning when the ui_applied send rejects', async () => {
       const agent = createMockAgentConnector({
         sendInput: () => Promise.reject(new Error('transport down')),
