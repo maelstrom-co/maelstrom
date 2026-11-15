@@ -201,6 +201,10 @@ Things to type or say there:
 - "Reorder my dog food but with less fat"
 - "Check out"
 
+### Live agent check
+
+`bunx nx run @maelstrom-co/demo:agent-live-e2e` drives `/shop` against a real model and checks the agent route on the wire: typing "show my last order" must reach the demo agent, call its `latest_order` tool and open order `ORD-10455`. It starts the local ws-server with the demo agent on port 4391 and the Vite dev client on port 4390, so both ports must be free. It reads `OPENAI_API_KEY` from the shell, or from the repo-root `.env` when the shell does not set it. Without a key the spec reports skipped and starts no server. The check calls OpenAI and costs real tokens, so it is not part of the default e2e or CI.
+
 ## How voice works
 
 Voice has three provider choices across two pipeline kinds: speech-native Live/Realtime and the LiveKit STT/TTS cascade.
