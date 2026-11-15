@@ -99,6 +99,30 @@ selected events. See [Live setup and recovery](https://docs.maelstrom-ai.co/guid
 The binding does not impose one provider's state progression or recovery policy
 on another.
 
+### Send voice intents to the agent
+
+By default each voice `update_ui` intent goes to the intent scheduler. Pass
+`sendAgentMessage(orchestrator, text)` to send it to the agent instead, so voice
+takes the same path as typed text sent with `sendMessage`. It must resolve with
+the input's `MessageId`:
+
+```ts
+maelstromRealtime({
+  createAdapter: () => adapter,
+  sendAgentMessage: (orchestrator, text) =>
+    orchestrator.sendMessage(text, { source: 'voice' }),
+});
+```
+
+The tool call is answered when the Agent Run that handles the input ends,
+speaking its reply when there is one. The run can end before its UI changes are
+applied, so the answer does not confirm them. A rejection may follow a send that
+reached the agent, so it is reported as unconfirmed and never resent, unless it
+is an `AgentWireUnsupportedError`. While the engine connection is down the
+option is not called and the tool call is answered as not submitted. The option
+is opt-in because `HttpConnector` and hosts that answer agent inputs with plain
+`handleEnvelope` cannot serve them.
+
 ## Session contract
 
 The hook reports lifecycle `state`, `error`, user/assistant transcripts,

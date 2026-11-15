@@ -19,8 +19,8 @@ import type { MaelstromResponse } from './response.ts';
  * A new optional field on a member keeps the version, because decoders strip
  * keys they do not know. A new union member or enum value is rejected by an
  * older decoder as `invalid_envelope`, so such a change bumps the version.
- * The wire is unstable until the client event applier ships, and version
- * bumps apply from then on. Decoders reject any other version value.
+ * The wire is stable now that the client event applier has shipped, so every
+ * change follows these version rules. Decoders reject any other version value.
  */
 export const AGENT_WIRE_VERSION = 1 as const;
 
