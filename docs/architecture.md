@@ -403,7 +403,7 @@ request cap, which stay request-only. Forwarding stays disabled in production.
 | `engine.agent.show.failed`, `.show.skipped`, `.show.cancelled`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
 | `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. |
 | `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
-| `engine.agent.ui_applied.rejected` | Session | An acknowledgement named an unknown change or the wrong outcome count. |
+| `engine.agent.ui_applied.rejected` | Run for a known change, Session for an unknown one | An acknowledgement named an unknown change or the wrong outcome count. |
 | `engine.planner.*`, `engine.stage.*` in a run | Run | Planner work for the run, with `turnId` when a loop turn asked for it. |
 | `client.agent.input.sent`, `client.agent.ui.applied` | Client | The client sent an input or acknowledged a change. |
 
