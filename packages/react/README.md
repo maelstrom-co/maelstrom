@@ -95,7 +95,7 @@ function AgentReply() {
 }
 ```
 
-A rejected send does not appear in `run`, `runs` or `error`, so handle the promise `sendMessage` returns. A rejection does not prove the agent missed the text, and a loss never proves the input went unprocessed, so do not resend automatically. A `stale_run` loss can recover when later events arrive. See `run.lostReason`.
+A rejected send does not register a run or set `error` by itself, so handle the promise `sendMessage` returns. Agent events for that input can still register a run. A rejection does not prove the agent missed the text, and a loss never proves the input went unprocessed, so do not resend automatically. A `stale_run` loss can recover when later events arrive. See `run.lostReason`.
 
 To follow raw agent events such as `ui_change` or `finished`, call `m.useAgentEvent(type, handler)`.
 

@@ -27,15 +27,16 @@ export type AgentRunStore = {
   getSnapshot(): AgentRunsSnapshot;
   /**
    * Sends text to the agent through the Orchestrator and registers the input
-   * once it resolves. Rejections are rethrown and register nothing. A loss
-   * never rejects it, because the input may have reached the agent. When the
-   * conversation was lost while the send was in flight and the input is still
-   * unknown when it resolves, the input is registered already lost: for good
-   * after a disconnect or connector replacement, otherwise as a recoverable
-   * `stale_run` loss that later events move on. After `dispose` the text is
-   * still sent and the promise still resolves, but the input is no longer
-   * registered in the snapshot. An input whose run was already evicted from
-   * the snapshot when the send resolves is not registered again.
+   * once it resolves. Rejections are rethrown and register nothing
+   * themselves. A loss never rejects it, because the input may have reached
+   * the agent. When the conversation was lost while the send was in flight
+   * and the input is still unknown when it resolves, the input is registered
+   * already lost: for good after a disconnect or connector replacement,
+   * otherwise as a recoverable `stale_run` loss that later events move on.
+   * After `dispose` the text is still sent and the promise still resolves, but
+   * the input is no longer registered in the snapshot. An input whose run was
+   * already evicted from the snapshot when the send resolves is not registered
+   * again.
    */
   sendMessage(text: string, options?: SendMessageOptions): Promise<MessageId>;
   /**
