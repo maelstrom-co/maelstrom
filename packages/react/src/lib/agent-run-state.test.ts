@@ -348,6 +348,34 @@ describe('reduceAgentRuns', () => {
     expect(snapshot.error).toBeNull();
   });
 
+  it.each([
+    ['placeholder', agentPlaceholderEvent(INPUT, 'Looking up your orders')],
+    ['accepted', accepted(INPUT, RUN)],
+  ] as const)(
+    'clears the snapshot error when %s registers an input that was never sent through the store',
+    (_label, event) => {
+      const snapshot = reduce(
+        agentErrorEvent({ error: 'Session error' }),
+        event,
+      );
+
+      expect(snapshot.error).toBeNull();
+      expect(snapshot.run?.inputId).toBe(INPUT);
+      expect(snapshot.run?.status).toBe('working');
+    },
+  );
+
+  it('keeps the snapshot error when an event targets an input already registered', () => {
+    const before = reduce(
+      agentPlaceholderEvent(INPUT, 'Working'),
+      agentErrorEvent({ error: 'Session error' }),
+    );
+
+    const snapshot = reduceAgentRuns(before, accepted(INPUT, RUN));
+
+    expect(snapshot.error).toEqual({ message: 'Session error' });
+  });
+
   it('marks every open run stale-lost on any stale loss and lets a late finish win per run', () => {
     const done = MessageId('input-done');
     const doneRun = RunId('run-done');
