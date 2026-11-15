@@ -66,23 +66,36 @@ export function App() {
 
 ## Rendering an Agent Run
 
-`m.useAgentRun()` returns the run of the latest input and a stable `sendMessage`. Branch on `run.status` to render each stage.
+`m.useAgentRun()` returns the run of the most recently registered input and a stable `sendMessage`. Branch on `run.status` to render each stage.
 
 ```tsx
+import { useState } from 'react';
+
 function AgentReply() {
   const { run, sendMessage } = m.useAgentRun();
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const ask = () => {
+    setSendError(null);
+    sendMessage('show my last order').catch((error: unknown) => {
+      setSendError(error instanceof Error ? error.message : String(error));
+    });
+  };
 
   return (
     <section>
-      <button onClick={() => void sendMessage('show my last order')}>Ask</button>
+      <button onClick={ask}>Ask</button>
+      {sendError && <p role="alert">{sendError}</p>}
       {run?.status === 'working' && <p>{run.placeholder ?? 'Working...'}</p>}
       {(run?.status === 'streaming' || run?.status === 'finished') && <p>{run.reply}</p>}
-      {run?.status === 'lost' && <p>Connection lost. Try again.</p>}
+      {run?.status === 'lost' && <p>Lost contact with the agent.</p>}
       {run?.status === 'failed' && <p role="alert">{run.error?.message}</p>}
     </section>
   );
 }
 ```
+
+A rejected send does not appear in `run`, `runs` or `error`, so handle the promise `sendMessage` returns. A rejection does not prove the agent missed the text, and a loss never proves the input went unprocessed, so do not resend automatically. A `stale_run` loss can recover when later events arrive. See `run.lostReason`.
 
 To follow raw agent events such as `ui_change` or `finished`, call `m.useAgentEvent(type, handler)`.
 

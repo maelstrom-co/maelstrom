@@ -5,21 +5,16 @@ import type { AgentRunsSnapshot } from './agent-run-state.js';
 import type { MaelstromContextPair } from './context.js';
 
 /** What `useAgentRun()` returns: the Agent Run snapshot plus a way to send input. */
-export type UseAgentRunResult = {
-  /** The run of the most recently registered input, or null before any input. */
-  readonly run: AgentRunsSnapshot['run'];
-  /** Known runs, oldest first, capped at the most recent 20. */
-  readonly runs: AgentRunsSnapshot['runs'];
-  /**
-   * The latest failure not tied to any input or run. Cleared when the next
-   * input is sent.
-   */
-  readonly error: AgentRunsSnapshot['error'];
+export type UseAgentRunResult = AgentRunsSnapshot & {
   /**
    * Sends text to the agent and resolves to the input id that its events carry.
-   * Keeps its identity for the life of the Provider. Rejects when the
-   * Orchestrator is disposed, not connected, or its connector cannot carry
-   * agent inputs, and a rejected send registers no run.
+   * Keeps its identity for the life of the Provider. Rejects as
+   * `Orchestrator.sendMessage` does: when the Orchestrator is disposed or not
+   * connected, when its connector cannot carry agent inputs, or with the
+   * connector's own error when the transport refused the frame. After a
+   * transport refusal the agent may still have received the text, so do not
+   * resend it automatically. A rejected send does not register a run itself,
+   * but agent events for the input can still register one.
    */
   readonly sendMessage: (
     text: string,
@@ -44,12 +39,7 @@ export function createUseAgentRun(contextPair: MaelstromContextPair) {
     const sendMessage = agentRunStore.sendMessage;
 
     return useMemo(
-      () => ({
-        run: snapshot.run,
-        runs: snapshot.runs,
-        error: snapshot.error,
-        sendMessage,
-      }),
+      () => ({ ...snapshot, sendMessage }),
       [snapshot, sendMessage],
     );
   };

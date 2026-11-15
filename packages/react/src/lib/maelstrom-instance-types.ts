@@ -155,15 +155,24 @@ export interface MaelstromInstanceCore<
   /**
    * Returns the Agent Run state of the Provider's Orchestrator and a stable
    * `sendMessage` that sends text to the agent. `run` is the run of the most
-   * recent input, `runs` keeps the recent history oldest first, and `error` is
-   * the latest failure tied to no input or run. The component re-renders when
-   * that state changes. Branch on `run.status` to render a placeholder, a
-   * streaming reply, a lost conversation or a failure.
+   * recently registered input, `runs` keeps the recent history oldest first,
+   * and `error` is the latest failure tied to no input or run. The component
+   * re-renders when that state changes. Branch on `run.status` to render a
+   * placeholder, a streaming reply, a lost conversation or a failure. A
+   * rejected send does not appear in `run`, `runs` or `error`, so handle the
+   * promise `sendMessage` returns.
    *
    * @example
    * ```tsx
    * const { run, sendMessage } = m.useAgentRun();
-   * const onSubmit = (text: string) => void sendMessage(text);
+   * const [sendError, setSendError] = useState<string | null>(null);
+   * const onSubmit = (text: string) => {
+   *   setSendError(null);
+   *   sendMessage(text).catch((error: unknown) => {
+   *     setSendError(error instanceof Error ? error.message : String(error));
+   *   });
+   * };
+   * if (sendError) return <p role="alert">{sendError}</p>;
    * if (run?.status === 'streaming') return <p>{run.reply}</p>;
    * ```
    */

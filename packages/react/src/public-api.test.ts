@@ -1,14 +1,27 @@
 import { expect, expectTypeOf, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-import type { MessageId, SendMessageOptions } from '@maelstrom-co/client';
+import type * as client from '@maelstrom-co/client';
+import type * as protocol from '@maelstrom-co/protocol';
 
 import * as testingApi from './_testing.js';
 import {
+  type AgentConversationEvents,
+  type AgentFinishReason,
+  type AgentRunChange,
+  type AgentRunChangeError,
+  type AgentRunError,
+  type AgentRunMetrics,
+  type AgentRunOutcome,
   type AgentRunState,
   type AgentRunStatus,
   type AgentRunsSnapshot,
+  type ChangeId,
+  type ConversationLostReason,
   createMaelstrom,
+  type MessageId,
+  type RunId,
+  type SendMessageOptions,
   type UseAgentRunResult,
   vessel,
 } from './index.js';
@@ -72,29 +85,47 @@ test('exports the Agent Run types and the useAgentRun result from the root', () 
   expectTypeOf<keyof UseAgentRunResult>().toEqualTypeOf<
     'run' | 'runs' | 'error' | 'sendMessage'
   >();
-  expectTypeOf<UseAgentRunResult['run']>().toEqualTypeOf<
-    AgentRunsSnapshot['run']
-  >();
+  expectTypeOf<
+    UseAgentRunResult['run']
+  >().toEqualTypeOf<AgentRunState | null>();
   expectTypeOf<UseAgentRunResult['runs']>().toEqualTypeOf<
-    AgentRunsSnapshot['runs']
+    readonly AgentRunState[]
   >();
-  expectTypeOf<UseAgentRunResult['error']>().toEqualTypeOf<
-    AgentRunsSnapshot['error']
-  >();
+  expectTypeOf<
+    UseAgentRunResult['error']
+  >().toEqualTypeOf<AgentRunError | null>();
   expectTypeOf<UseAgentRunResult['sendMessage']>().toEqualTypeOf<
     (text: string, options?: SendMessageOptions) => Promise<MessageId>
   >();
+  expectTypeOf<AgentRunState['error']>().toEqualTypeOf<AgentRunError | null>();
+  expectTypeOf<
+    AgentRunState['finished']
+  >().toEqualTypeOf<AgentRunOutcome | null>();
+  expectTypeOf<AgentRunState['changes']>().toEqualTypeOf<
+    readonly AgentRunChange[]
+  >();
+  expectTypeOf<AgentRunState['changeErrors']>().toEqualTypeOf<
+    readonly AgentRunChangeError[]
+  >();
+});
 
-  const rootSource = readFileSync(
-    new URL('./index.ts', import.meta.url),
-    'utf8',
-  );
-  for (const name of [
-    'AgentRunState',
-    'AgentRunStatus',
-    'AgentRunsSnapshot',
-    'UseAgentRunResult',
-  ]) {
-    expect(rootSource).toMatch(new RegExp(`\\b${name}\\b`));
-  }
+test('re-exports the client and protocol types used by the Agent Run API', () => {
+  expectTypeOf<AgentConversationEvents>().toEqualTypeOf<client.AgentConversationEvents>();
+  expectTypeOf<ConversationLostReason>().toEqualTypeOf<client.ConversationLostReason>();
+  expectTypeOf<MessageId>().toEqualTypeOf<client.MessageId>();
+  expectTypeOf<SendMessageOptions>().toEqualTypeOf<client.SendMessageOptions>();
+  expectTypeOf<AgentFinishReason>().toEqualTypeOf<protocol.AgentFinishReason>();
+  expectTypeOf<AgentRunMetrics>().toEqualTypeOf<protocol.AgentRunMetrics>();
+  expectTypeOf<ChangeId>().toEqualTypeOf<protocol.ChangeId>();
+  expectTypeOf<RunId>().toEqualTypeOf<protocol.RunId>();
+  expectTypeOf<AgentRunState['inputId']>().toEqualTypeOf<MessageId>();
+  expectTypeOf<AgentRunState['runId']>().toEqualTypeOf<RunId | null>();
+  expectTypeOf<AgentRunChange['changeId']>().toEqualTypeOf<ChangeId>();
+  expectTypeOf<
+    AgentRunState['lostReason']
+  >().toEqualTypeOf<ConversationLostReason | null>();
+  expectTypeOf<AgentRunOutcome['reason']>().toEqualTypeOf<AgentFinishReason>();
+  expectTypeOf<AgentRunOutcome['metrics']>().toEqualTypeOf<
+    Readonly<AgentRunMetrics>
+  >();
 });

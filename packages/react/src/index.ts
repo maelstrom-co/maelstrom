@@ -10,7 +10,19 @@ export type {
   VariantNames,
 } from '@maelstrom-co/client';
 export { HttpConnector, WebSocketConnector } from '@maelstrom-co/client';
+export type {
+  AgentConversationEvents,
+  ConversationLostReason,
+  MessageId,
+  SendMessageOptions,
+} from '@maelstrom-co/client';
 
+export type {
+  AgentFinishReason,
+  AgentRunMetrics,
+  ChangeId,
+  RunId,
+} from '@maelstrom-co/protocol';
 export { defineVessel } from '@maelstrom-co/protocol';
 // Types — Agent Run
 export type {
