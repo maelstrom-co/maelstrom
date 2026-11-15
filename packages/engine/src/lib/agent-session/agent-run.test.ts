@@ -650,16 +650,25 @@ describe('runAgent on chat()', () => {
         name: 'test-transform-args',
         onBeforeToolCall: () => ({ type: 'transformArgs', args: { by: 5 } }),
       };
+      const activity: AgentRunActivity[] = [];
 
       const events = await collect(
         runAgentChat(
           runInput({ adapter: model.adapter, registry: tools.registry }),
-          { signal: new AbortController().signal },
+          {
+            signal: new AbortController().signal,
+            onActivity: (next) => {
+              activity.push(next);
+            },
+          },
           { middleware: [transform] },
         ),
       );
 
       expect(tools.balances).toEqual([5]);
+      const started = activity.filter((entry) => entry.type === 'tool_started');
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({ callId: 'c1', args: { by: 5 } });
       expect(toolMessageContents(model.requests[1])).toEqual([{ balance: 5 }]);
       expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
       expectEveryCallSettledOnce(events);

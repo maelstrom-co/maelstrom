@@ -179,7 +179,10 @@ export interface AgentRunToolStartedActivity {
   readonly callId: CallId;
   /** The tool name. */
   readonly name: string;
-  /** The arguments the model sent, before the tool's input schema parsed them. */
+  /**
+   * The arguments the tool runs with, before its input schema parsed them.
+   * They are the model's arguments unless a middleware transformed them.
+   */
   readonly args: unknown;
 }
 
