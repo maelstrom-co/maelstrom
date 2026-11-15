@@ -215,7 +215,7 @@ const frame = AgentInputMessage({ sessionId, input: utterance });
 ws.send(encodeEnvelope(frame));
 ```
 
-Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is not stable yet. New event and input types are still expected, and each one bumps `AGENT_WIRE_VERSION` under these rules. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
+Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is not stable yet. New event and input types and other changes are still expected, and they land without bumping `AGENT_WIRE_VERSION`, which stays 1 until the wire is declared stable. These version rules apply from that point. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 UI-only utterances start a server-minted run without a model loop. Their event order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after a valid `ui_applied`. In `accepted`, only `noise` has a null `runId`. The acknowledgement must contain one outcome per Action, in Execution Plan order. Failed outcomes end the run without a successful reply.
 
