@@ -15,14 +15,18 @@ export function createUseAgentEvent(contextPair: MaelstromContextPair) {
     handler: (event: AgentConversationEvents[K]) => void,
   ): void {
     const { orchestrator } = useMaelstromContext();
-    const handlerRef = useRef(handler);
+    const committedRef = useRef({ type, handler });
 
     useLayoutEffect(() => {
-      handlerRef.current = handler;
+      committedRef.current = { type, handler };
     });
 
     useEffect(
-      () => orchestrator.agent.on(type, (event) => handlerRef.current(event)),
+      () =>
+        orchestrator.agent.on(type, (event) => {
+          if (committedRef.current.type !== type) return;
+          return committedRef.current.handler(event);
+        }),
       [orchestrator, type],
     );
   };

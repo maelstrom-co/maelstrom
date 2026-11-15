@@ -25,6 +25,7 @@ import {
   StrictMode,
   Suspense,
   startTransition,
+  useLayoutEffect,
   useState,
 } from 'react';
 
@@ -298,6 +299,40 @@ describe('m.useAgentEvent()', () => {
       messageSubscriptionsBefore + 1,
     );
     expect(received).toEqual(['message']);
+  });
+
+  it('does not deliver an old-type event to the new handler before the old subscription is cleaned up', async () => {
+    const received: string[] = [];
+    let setType: ((type: 'placeholder' | 'message') => void) | null = null;
+    let emitter: Awaited<ReturnType<typeof renderWithAgent>>['agent'] | null =
+      null;
+    const harness = await renderWithAgent(({ m }) => {
+      function Listener() {
+        const [type, setState] = useState<'placeholder' | 'message'>(
+          'placeholder',
+        );
+        setType = setState;
+        m.useAgentEvent(type, (event) => {
+          received.push(event.type);
+        });
+        useLayoutEffect(() => {
+          if (type === 'message') {
+            assertDefined(emitter);
+            emitter.emit(agentPlaceholderEvent(toMessageId('input-1'), 'one'));
+          }
+        }, [type]);
+        return null;
+      }
+      return <Listener />;
+    });
+    emitter = harness.agent;
+
+    act(() => {
+      assertDefined(setType);
+      setType('message');
+    });
+
+    expect(received).toEqual([]);
   });
 
   it('stops calling the handler after the component unmounts', async () => {
