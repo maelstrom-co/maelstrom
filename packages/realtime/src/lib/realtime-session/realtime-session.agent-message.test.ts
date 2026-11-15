@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import type { IntentScope, UIStructuralSnapshot } from '@maelstrom-co/client';
 import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
@@ -20,6 +20,8 @@ const sessionId = SessionId('voice-agent-message');
 const SNAPSHOT_SUMMARY = 'Snapshot summary.';
 const UNCONFIRMED_SUMMARY =
   'The application result could not be confirmed. Do not retry automatically.';
+const AGENT_RUN_FINISHED_SUMMARY =
+  'The request was handled. The screen may still be updating.';
 
 describe('RealtimeSession agent message submission', () => {
   let clock: ReturnType<typeof FakeTimers.install>;
@@ -32,8 +34,13 @@ describe('RealtimeSession agent message submission', () => {
     clock.uninstall();
   });
 
-  async function setup() {
+  async function setup(
+    options: {
+      sendAgentMessage?: (text: string) => Promise<AgentMessageOutcome>;
+    } = {},
+  ) {
     const agentMessages: string[] = [];
+    const reads = { snapshot: 0, summarize: 0 };
     const outcomes: Array<ReturnType<typeof deferred<AgentMessageOutcome>>> =
       [];
     const legacyCalls = {
@@ -51,6 +58,7 @@ describe('RealtimeSession agent message submission', () => {
     const bridge: RealtimeInstance = {
       sendAgentMessage: (text) => {
         agentMessages.push(text);
+        if (options.sendAgentMessage) return options.sendAgentMessage(text);
         const outcome = deferred<AgentMessageOutcome>();
         outcomes.push(outcome);
         return outcome.promise;
@@ -69,7 +77,10 @@ describe('RealtimeSession agent message submission', () => {
       waitForIdleResult: async () => {
         throw new Error('Agent bridge used global idle result');
       },
-      getStructuralSnapshot: () => emptySnapshot(),
+      getStructuralSnapshot: () => {
+        reads.snapshot++;
+        return emptySnapshot();
+      },
       getCapabilitySnapshot: () => ({ vessels: [] }),
       onSettled: () => () => {},
       addAssistantMessageAcknowledged: async () => 'inserted',
@@ -83,7 +94,10 @@ describe('RealtimeSession agent message submission', () => {
       sessionId,
       instance: bridge,
       adapter: provider.instance,
-      summarize: () => SNAPSHOT_SUMMARY,
+      summarize: () => {
+        reads.summarize++;
+        return SNAPSHOT_SUMMARY;
+      },
     });
     cleanup.push(() => session.dispose());
     const events: SessionEvent[] = [];
@@ -96,6 +110,7 @@ describe('RealtimeSession agent message submission', () => {
       outcomes,
       legacyCalls,
       events,
+      reads,
       settle: async (outcome: AgentMessageOutcome, index = 0) => {
         expect(agentMessages.length).toBeGreaterThan(index);
         outcomes[index].resolve(outcome);
@@ -162,7 +177,7 @@ describe('RealtimeSession agent message submission', () => {
     expect(state.provider.results).toHaveLength(1);
   });
 
-  it('answers a successful run with its reply and the snapshot summary', async () => {
+  it('answers a successful run with its reply only and records it as unconfirmed, without reading the screen', async () => {
     const state = await setup();
 
     state.provider.call('call-1', 'show my last order');
@@ -176,18 +191,14 @@ describe('RealtimeSession agent message submission', () => {
     expect(state.provider.results).toEqual([
       {
         callId: ToolCallId('call-1'),
-        result: {
-          ok: true,
-          summary: SNAPSHOT_SUMMARY,
-          userMessage: 'Here is your last order.',
-        },
+        result: { ok: true, userMessage: 'Here is your last order.' },
       },
     ]);
     expect(updateEvents(state.events)).toEqual([
       { type: 'tool.submitted', intent: 'show my last order', retry: false },
-      { type: 'timing', label: 'update_ui.render', ms: 250 },
+      { type: 'timing', label: 'update_ui.agent_run', ms: 250 },
       {
-        type: 'tool.completed',
+        type: 'tool.unconfirmed',
         intent: 'show my last order',
         summary: 'Here is your last order.',
       },
@@ -195,33 +206,49 @@ describe('RealtimeSession agent message submission', () => {
     ]);
     expect(
       state.session.memory.getSnapshot().outcomes.map((value) => value.status),
-    ).toEqual(['completed']);
+    ).toEqual(['unknown']);
+    expect(state.reads).toEqual({ snapshot: 0, summarize: 0 });
   });
 
-  it('answers a successful run without a reply with the snapshot summary', async () => {
-    const state = await setup();
+  for (const [name, reply] of [
+    ['without a reply', undefined],
+    ['with a blank reply', '   '],
+  ] as const) {
+    it(`answers a successful run ${name} with the fixed handled sentence, recorded as unconfirmed`, async () => {
+      const state = await setup();
 
-    state.provider.call('call-1', 'show my last order');
-    await clock.tickAsync(250);
-    await state.settle({ status: 'finished', ok: true });
+      state.provider.call('call-1', 'show my last order');
+      await clock.tickAsync(250);
+      await state.settle(
+        reply === undefined
+          ? { status: 'finished', ok: true }
+          : { status: 'finished', ok: true, reply },
+      );
 
-    expect(state.provider.results).toEqual([
-      {
-        callId: ToolCallId('call-1'),
-        result: { ok: true, summary: SNAPSHOT_SUMMARY },
-      },
-    ]);
-    expect(updateEvents(state.events)).toEqual([
-      { type: 'tool.submitted', intent: 'show my last order', retry: false },
-      { type: 'timing', label: 'update_ui.render', ms: 250 },
-      {
-        type: 'tool.completed',
-        intent: 'show my last order',
-        summary: SNAPSHOT_SUMMARY,
-      },
-      { type: 'tool.result', ok: true },
-    ]);
-  });
+      expect(state.provider.results).toEqual([
+        {
+          callId: ToolCallId('call-1'),
+          result: { ok: true, summary: AGENT_RUN_FINISHED_SUMMARY },
+        },
+      ]);
+      expect(updateEvents(state.events)).toEqual([
+        { type: 'tool.submitted', intent: 'show my last order', retry: false },
+        { type: 'timing', label: 'update_ui.agent_run', ms: 250 },
+        {
+          type: 'tool.unconfirmed',
+          intent: 'show my last order',
+          summary: AGENT_RUN_FINISHED_SUMMARY,
+        },
+        { type: 'tool.result', ok: true },
+      ]);
+      expect(
+        state.session.memory
+          .getSnapshot()
+          .outcomes.map((value) => value.status),
+      ).toEqual(['unknown']);
+      expect(state.reads).toEqual({ snapshot: 0, summarize: 0 });
+    });
+  }
 
   it('answers a failed run as a failure carrying its error text', async () => {
     const state = await setup();
@@ -308,6 +335,155 @@ describe('RealtimeSession agent message submission', () => {
     expect(
       state.session.memory.getSnapshot().outcomes.map((value) => value.status),
     ).toEqual(['not_submitted']);
+  });
+
+  it('requires a failed finished outcome to say why it failed', () => {
+    // @ts-expect-error A failed run must carry its error.
+    const missingError: AgentMessageOutcome = { status: 'finished', ok: false };
+    const failed: AgentMessageOutcome = {
+      status: 'finished',
+      ok: false,
+      error: 'The order service is unavailable.',
+    };
+
+    expect([missingError, failed]).toHaveLength(2);
+  });
+
+  it('answers a rejecting bridge as unconfirmed, logs the rejection and never sends the message again', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const rejection = new Error('bridge broke its contract');
+      const state = await setup({
+        sendAgentMessage: () => Promise.reject(rejection),
+      });
+
+      state.provider.call('call-1', 'show my last order');
+      await clock.tickAsync(250);
+      await clock.tickAsync(60_000);
+      state.provider.emit({ type: 'speech_started' });
+      await clock.tickAsync(60_000);
+
+      expect(state.agentMessages).toEqual(['show my last order']);
+      expect(state.legacyCalls).toEqual({
+        createIntentScope: 0,
+        enqueueIntent: 0,
+        submitIntent: 0,
+      });
+      expect(state.provider.results).toEqual([
+        {
+          callId: ToolCallId('call-1'),
+          result: { ok: false, summary: UNCONFIRMED_SUMMARY },
+        },
+      ]);
+      expect(updateEvents(state.events)).toEqual([
+        { type: 'tool.submitted', intent: 'show my last order', retry: false },
+        { type: 'timing', label: 'update_ui.error', ms: 0 },
+        {
+          type: 'tool.unconfirmed',
+          intent: 'show my last order',
+          summary: UNCONFIRMED_SUMMARY,
+        },
+        { type: 'tool.result', ok: false },
+      ]);
+      expect(
+        state.session.memory
+          .getSnapshot()
+          .outcomes.map((value) => value.status),
+      ).toEqual(['unknown']);
+      expect(
+        warn.mock.calls.some(
+          (args) =>
+            args.includes('update_ui: sendAgentMessage rejected') &&
+            args.includes(rejection),
+        ),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('records an outcome that settles after disconnect without delivering it or sending the message again', async () => {
+    const state = await setup();
+
+    state.provider.call('call-1', 'show my last order');
+    await clock.tickAsync(250);
+    await state.session.disconnect();
+    await state.settle({ status: 'finished', ok: true, reply: 'Here it is.' });
+    await clock.tickAsync(60_000);
+
+    expect(state.agentMessages).toEqual(['show my last order']);
+    expect(state.provider.results).toHaveLength(0);
+    expect(state.session.memory.getSnapshot().outcomes).toMatchObject([
+      {
+        intent: 'show my last order',
+        status: 'unknown',
+        summary: 'Here it is.',
+      },
+    ]);
+  });
+
+  it('keeps an outcome from the previous connection away from the reconnected adapter and never replays it', async () => {
+    const state = await setup();
+
+    state.provider.call('call-1', 'show my last order');
+    await clock.tickAsync(250);
+    await state.session.disconnect();
+    await state.session.connect();
+    await state.settle({ status: 'lost', reason: 'disconnected' });
+    await clock.tickAsync(60_000);
+    state.provider.emit({ type: 'speech_started' });
+    await clock.tickAsync(60_000);
+
+    expect(state.agentMessages).toEqual(['show my last order']);
+    expect(state.provider.results).toHaveLength(0);
+
+    state.provider.call('call-2', 'show my orders');
+    await clock.tickAsync(0);
+    await state.settle({ status: 'finished', ok: true, reply: 'Done.' }, 1);
+
+    expect(state.agentMessages).toEqual([
+      'show my last order',
+      'show my orders',
+    ]);
+    expect(state.provider.results).toEqual([
+      {
+        callId: ToolCallId('call-2'),
+        result: { ok: true, userMessage: 'Done.' },
+      },
+    ]);
+    expect(
+      state.session.memory.getSnapshot().outcomes.map((value) => ({
+        intent: value.intent,
+        status: value.status,
+      })),
+    ).toEqual([
+      { intent: 'show my last order', status: 'unknown' },
+      { intent: 'show my orders', status: 'unknown' },
+    ]);
+  });
+
+  it('records an outcome that settles after dispose in memory without delivering it or sending the message again', async () => {
+    const state = await setup();
+
+    state.provider.call('call-1', 'show my last order');
+    await clock.tickAsync(250);
+    await state.session.dispose();
+    await state.settle({
+      status: 'finished',
+      ok: false,
+      error: 'The order service is unavailable.',
+    });
+    await clock.tickAsync(60_000);
+
+    expect(state.agentMessages).toEqual(['show my last order']);
+    expect(state.provider.results).toHaveLength(0);
+    expect(state.session.memory.getSnapshot().outcomes).toMatchObject([
+      {
+        intent: 'show my last order',
+        status: 'failed',
+        summary: 'The order service is unavailable.',
+      },
+    ]);
   });
 });
 

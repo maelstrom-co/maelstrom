@@ -161,13 +161,16 @@ export interface AdapterTurnControl {
 export interface UpdateUIToolResult {
   /**
    * Whether the intent applied. `false` carries a user-facing `summary`
-   * explaining why (bad request, render failure, still busy).
+   * explaining why (bad request, render failure, still busy). On the agent
+   * message path it reports that the agent run ended successfully, and the
+   * run's UI changes may still be applying.
    */
   readonly ok: boolean;
   /**
-   * Structural description derived from the post-render snapshot. Always
-   * present for a settled call; the fallback an adapter speaks when the engine
-   * surfaced no `userMessage`.
+   * Structural description derived from the post-render snapshot, or a fixed
+   * sentence when an agent run ended without a reply. The fallback an adapter
+   * speaks when there is no `userMessage`. Absent only when an agent run's
+   * reply is the whole answer.
    */
   readonly summary?: string;
   /**

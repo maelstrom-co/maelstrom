@@ -118,6 +118,9 @@ const APPLY_FAILED_SUMMARY = 'Something went wrong applying that change.';
 const UNCONFIRMED_SUMMARY =
   'The application result could not be confirmed. Do not retry automatically.';
 
+const AGENT_RUN_FINISHED_SUMMARY =
+  'The request was handled. The screen may still be updating.';
+
 // ~100 tokens — the design budget for a grounding push. injectGrounding is a
 // realtime-voice sidechannel, not a chat turn; an unbounded summary would
 // blow that budget silently since `summarize` is caller-injectable.
@@ -189,13 +192,14 @@ function defaultSummarize(
  *
  * Submission prefers `sendAgentMessage`, then `createIntentScope`, then
  * `submitIntent`. Instances with `sendAgentMessage` hand each intent to an
- * agent run and answer from its settled outcome, which is sent once and never
- * replayed when lost. Instances with `createIntentScope` share the
- * application's bounded FIFO with typed input. Each connection owns only its pending work; disconnect retires
- * that work without cancelling a submitted turn. Tickets provide exact batch
- * outcomes, so no global idle wait or busy retry is added here. Legacy instances
- * are called once: busy is not-submitted, and transport uncertainty never
- * authorizes automatic replay.
+ * agent run and answer when the run ends, without confirming the run's UI
+ * changes. The message is sent once and never replayed when its outcome is
+ * lost. Instances with `createIntentScope` share the application's bounded
+ * FIFO with typed input. Each connection owns only its pending work;
+ * disconnect retires that work without cancelling a submitted turn. Tickets
+ * provide exact batch outcomes, so no global idle wait or busy retry is added
+ * here. Legacy instances are called once: busy is not-submitted, and transport
+ * uncertainty never authorizes automatic replay.
  *
  * @example
  * ```ts
@@ -1422,30 +1426,37 @@ export class RealtimeSession implements VoiceSession {
     let outcome: AgentMessageOutcome;
     try {
       outcome = await sendAgentMessage(intent);
-    } catch {
+    } catch (error) {
       // The contract forbids rejection, so a rejection proves nothing about
       // whether the agent run already changed the UI.
+      this.#logger.warn('update_ui: sendAgentMessage rejected', error);
       outcome = { status: 'lost', reason: 'rejected' };
     }
     const succeeded = outcome.status === 'finished' && outcome.ok;
     this.#publishTiming(
-      succeeded ? 'update_ui.render' : 'update_ui.error',
+      succeeded ? 'update_ui.agent_run' : 'update_ui.error',
       started,
     );
     switch (outcome.status) {
       case 'finished':
         if (outcome.ok) {
+          // A run ends before its UI changes are applied, so the answer
+          // never describes the screen and the outcome stays unconfirmed.
+          const reply = outcome.reply?.trim();
           await this.#sendUpdateUIResult(
             epoch,
             callId,
-            this.#settledUpdateResult(outcome.reply),
+            reply
+              ? { ok: true, userMessage: reply }
+              : { ok: true, summary: AGENT_RUN_FINISHED_SUMMARY },
+            'unknown',
           );
           return true;
         }
         invocation.result = { outcome: 'failed', errorCategory: 'application' };
         await this.#sendUpdateUIResult(epoch, callId, {
           ok: false,
-          summary: outcome.error?.trim() || APPLY_FAILED_SUMMARY,
+          summary: outcome.error.trim() || APPLY_FAILED_SUMMARY,
         });
         return false;
       case 'lost':

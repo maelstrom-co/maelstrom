@@ -36,22 +36,37 @@ export interface SubmitIntentResult {
 /**
  * Settled outcome of one voice intent sent as an agent message through
  * {@link RealtimeInstance.sendAgentMessage}. `RealtimeSession` answers the
- * `update_ui` tool call from it.
+ * `update_ui` tool call from it when the run ends, and reports the run's UI
+ * changes as unconfirmed, because they can still be applying.
  *
  * A `lost` outcome is unknown: the agent run may already have changed the
  * UI, so the session reports it as unconfirmed and never sends the message
  * again.
  */
 export type AgentMessageOutcome =
-  /** The agent run finished. */
+  /**
+   * The agent handled the input to its end: an agent run ended, or the agent
+   * rejected or ignored the input. `ok` reports how the run ended. It does not
+   * confirm that the run's UI changes were applied, which can happen after the
+   * run ended.
+   */
   | {
       readonly status: 'finished';
-      /** Whether the run reports success. */
-      readonly ok: boolean;
-      /** The agent's reply, spoken in place of the snapshot summary when non-empty. */
+      /** The run ended successfully. */
+      readonly ok: true;
+      /** The agent's reply, spoken as the tool result when non-empty. */
       readonly reply?: string;
-      /** Why a failed run failed, spoken as the failure summary. */
-      readonly error?: string;
+    }
+  /**
+   * The agent handled the input to its end, and the run failed, or the agent
+   * rejected or ignored the input.
+   */
+  | {
+      readonly status: 'finished';
+      /** The run did not end successfully. */
+      readonly ok: false;
+      /** Why the run failed, spoken as the failure summary when non-empty. */
+      readonly error: string;
     }
   /** The run's outcome is unknown, and its side effects may have happened. */
   | {
@@ -99,9 +114,10 @@ export interface RealtimeInstance {
   createIntentScope?(): IntentScope;
   /**
    * Sends one `update_ui` intent as an agent message and resolves once its
-   * agent run settles. Preferred over `createIntentScope` and `submitIntent`
-   * when present. Must never reject: a send that fails resolves
-   * `not_submitted`. A `lost` outcome is unknown and is never replayed.
+   * agent run ends, which can be before the run's UI changes are applied.
+   * Preferred over `createIntentScope` and `submitIntent` when present. Must
+   * never reject: a send that fails resolves `not_submitted`. A `lost` outcome
+   * is unknown and is never replayed.
    */
   sendAgentMessage?(text: string): Promise<AgentMessageOutcome>;
   /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */
