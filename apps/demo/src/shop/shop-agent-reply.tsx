@@ -3,15 +3,12 @@ import type { AgentRunsSnapshot, AgentRunStatus } from '@maelstrom-co/react';
 import { shopM } from './maelstrom';
 
 /**
- * Shows the latest Agent Run of the shop: the placeholder while the agent
- * works, the reply as it streams and once it finishes, a notice when the
- * conversation is lost, and an error notice when the run or the conversation
- * fails. Typed and voice runs render the same way. Renders nothing before any
- * input.
+ * Shows the latest Agent Run of the shop, typed or voice, on one line.
+ * Renders nothing until there is text to show. A conversation-level error
+ * takes precedence until the next input registers.
  */
 export function ShopAgentReply() {
-  const { run, error } = shopM.useAgentRun();
-  const reply = describeReply({ run, error });
+  const reply = describeReply(shopM.useAgentRun());
   if (reply === null) return null;
 
   return (
@@ -19,6 +16,7 @@ export function ShopAgentReply() {
       className="shop-agent-reply"
       data-testid="shop-agent-reply"
       data-status={reply.status}
+      data-change-error={reply.changeError ? '' : undefined}
       aria-live="polite"
     >
       <p className="shop-caption-line">{reply.text}</p>
@@ -31,10 +29,12 @@ const DROPPED_COPY =
   'Conversation lost. The connection dropped, so please ask again.';
 const STALE_COPY =
   'Conversation lost. The assistant went quiet and may still answer.';
+const CHANGE_ERROR_COPY = 'The page could not be fully updated.';
 
 type ReplyView = {
   readonly status: AgentRunStatus;
   readonly text: string;
+  readonly changeError?: boolean;
 };
 
 function describeReply({
@@ -51,10 +51,18 @@ function describeReply({
     case 'working':
       return { status: run.status, text: run.placeholder ?? WORKING_COPY };
     case 'streaming':
-    case 'finished':
+    case 'finished': {
+      if (run.changeErrors.length > 0) {
+        return {
+          status: run.status,
+          text: [run.reply, CHANGE_ERROR_COPY].filter(Boolean).join(' '),
+          changeError: true,
+        };
+      }
       return run.reply.length === 0
         ? null
         : { status: run.status, text: run.reply };
+    }
     case 'lost':
       return {
         status: run.status,

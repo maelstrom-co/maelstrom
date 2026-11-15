@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { EngineConnector, MessageId } from '@maelstrom-co/client';
+import type { EngineConnector } from '@maelstrom-co/client';
 import {
   agentAcceptedEvent,
   agentErrorEvent,
@@ -10,7 +10,7 @@ import {
   createMockAgentConnector,
   type MockAgentConnector,
 } from '@maelstrom-co/client/_testing';
-import { RunId } from '@maelstrom-co/protocol';
+import { ChangeId, MessageId, RunId } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -86,18 +86,60 @@ describe('ShopAgentReply', () => {
     expect(view.text()).toBe('Planning');
 
     act(() => {
-      view.agent.emit(agentMessageEvent(RUN, 'Here are your orders.'));
+      view.agent.emit(agentMessageEvent(RUN, 'Here are your'));
     });
-    expect(view.text()).toBe('Here are your orders.');
+    expect(view.text()).toBe('Here are your');
 
     act(() => {
       view.agent.emit(
-        agentFinishedEvent(RUN, { reply: 'Here are your orders.' }),
+        agentFinishedEvent(RUN, { reply: 'Here are your three orders.' }),
       );
     });
-    expect(view.text()).toBe('Here are your orders.');
+    expect(view.text()).toBe('Here are your three orders.');
     expect(view.reply()?.dataset['status']).toBe('finished');
   });
+
+  it('renders nothing for a run that finishes with an empty reply', async () => {
+    const view = await renderReply();
+    const inputId = await view.send('show my orders', 'text');
+    act(() => {
+      view.agent.emit(agentAcceptedEvent(inputId, RUN, 'ui_only'));
+    });
+    expect(view.text()).toBe('Working on it…');
+
+    act(() => {
+      view.agent.emit(agentFinishedEvent(RUN, { reply: '' }));
+    });
+
+    expect(view.reply()).toBeNull();
+  });
+
+  it.each([
+    ['a', 'Done.', 'Done. The page could not be fully updated.'],
+    ['an empty', '', 'The page could not be fully updated.'],
+  ])(
+    'adds a fixed one-line notice to %s reply when a UI change fails',
+    async (_label, finalReply, expected) => {
+      const view = await renderReply();
+      const inputId = await view.send('show my last order', 'text');
+      act(() => {
+        view.agent.emit(agentAcceptedEvent(inputId, RUN));
+        view.agent.emit(agentFinishedEvent(RUN, { reply: finalReply }));
+        view.agent.emit(
+          agentErrorEvent({
+            runId: RUN,
+            changeId: ChangeId('change-1'),
+            error: 'Vessel orders rejected the layout',
+          }),
+        );
+      });
+
+      expect(view.text()).toBe(expected);
+      expect(view.reply()?.dataset['status']).toBe('finished');
+      expect(view.reply()?.hasAttribute('data-change-error')).toBe(true);
+      expect(view.reply()?.querySelectorAll('p')).toHaveLength(1);
+    },
+  );
 
   it('shows a dropped connection as a lost conversation', async () => {
     const view = await renderReply();
@@ -170,6 +212,25 @@ describe('ShopAgentReply', () => {
     expect(view.text()).toBe('Something went wrong: Model unavailable');
   });
 
+  it('falls back to the finish reason when a failed run carries no error text', async () => {
+    const view = await renderReply();
+    const inputId = await view.send('show my last order', 'text');
+
+    act(() => {
+      view.agent.emit(agentAcceptedEvent(inputId, RUN));
+      view.agent.emit(
+        agentFinishedEvent(RUN, {
+          ok: false,
+          reason: 'budget',
+          reply: undefined,
+        }),
+      );
+    });
+
+    expect(view.reply()?.dataset['status']).toBe('failed');
+    expect(view.text()).toBe('Something went wrong: budget');
+  });
+
   it('shows an error notice when the input is rejected', async () => {
     const view = await renderReply();
     const inputId = await view.send('show my last order', 'voice');
@@ -190,6 +251,30 @@ describe('ShopAgentReply', () => {
 
     expect(view.reply()?.dataset['status']).toBe('failed');
     expect(view.text()).toBe('Something went wrong: Agent unavailable');
+  });
+
+  it('replaces a failure tied to no input with a later voice run', async () => {
+    const view = await renderReply();
+    act(() => {
+      view.agent.emit(agentErrorEvent({ error: 'Unknown change' }));
+    });
+    expect(view.text()).toBe('Something went wrong: Unknown change');
+
+    const voiceInput = MessageId('voice-input-1');
+    act(() => {
+      view.agent.emit(agentPlaceholderEvent(voiceInput, 'Looking it up'));
+    });
+    expect(view.reply()?.dataset['status']).toBe('working');
+    expect(view.text()).toBe('Looking it up');
+
+    act(() => {
+      view.agent.emit(agentAcceptedEvent(voiceInput, RUN));
+      view.agent.emit(
+        agentFinishedEvent(RUN, { reply: 'Your last order is ORD-10455.' }),
+      );
+    });
+    expect(view.reply()?.dataset['status']).toBe('finished');
+    expect(view.text()).toBe('Your last order is ORD-10455.');
   });
 
   it('prefers a later failure tied to no input over the finished reply', async () => {
