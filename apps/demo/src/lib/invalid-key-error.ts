@@ -11,8 +11,20 @@ import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live'
  */
 export function isInvalidKeyError(error: Error): boolean {
   const code = error instanceof WireEngineError ? error.code : undefined;
-  if (code !== 'ProviderError') return false;
-  return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
+  return isInvalidKeyFailure({ message: error.message, code });
+}
+
+/**
+ * True for an agent failure report, such as an Agent Run's error, caused by a
+ * rejected OpenAI key. It applies the same code and message checks as
+ * {@link isInvalidKeyError} to the reported code and message.
+ */
+export function isInvalidKeyFailure(failure: {
+  readonly message: string;
+  readonly code?: string;
+}): boolean {
+  if (failure.code !== 'ProviderError') return false;
+  return /\b401\b|invalid api key|incorrect api key/i.test(failure.message);
 }
 
 /**

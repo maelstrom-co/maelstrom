@@ -1,5 +1,6 @@
-import { SessionId } from '@maelstrom-co/protocol';
-import { describe, expect, it, vi } from 'vitest';
+import type { Orchestrator } from '@maelstrom-co/client';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
@@ -141,3 +142,120 @@ describe('shop instance', () => {
     );
   });
 });
+
+describe('shop voice route', () => {
+  it('sends a voice intent through sendMessage with the voice source', async () => {
+    const orchestrator = fakeOrchestrator();
+    const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions[0]);
+
+    await expect(
+      sendAgentMessage(orchestrator.instance, '  show my last order '),
+    ).resolves.toBe(MessageId('voice-message'));
+
+    expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
+    expect(orchestrator.sendMessage).toHaveBeenCalledWith(
+      'show my last order',
+      { source: 'voice' },
+    );
+    expect(orchestrator.sendMessageReceivers).toEqual([orchestrator.instance]);
+    expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
+    expect(orchestrator.createIntentScope).not.toHaveBeenCalled();
+  });
+});
+
+describe('shop voice route on a hosted build', () => {
+  let recorded: RecordedInstance;
+
+  beforeEach(() => {
+    recorded = recordInstance();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    restoreInstance(recorded);
+  });
+
+  it('still sends a voice intent through sendMessage with the voice source', async () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    vi.resetModules();
+    await import('./maelstrom');
+    const orchestrator = fakeOrchestrator();
+    const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions.at(-1));
+
+    await sendAgentMessage(orchestrator.instance, 'show my last order');
+
+    expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
+    expect(orchestrator.sendMessage).toHaveBeenCalledWith(
+      'show my last order',
+      { source: 'voice' },
+    );
+    expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
+  });
+});
+
+type RecordedInstance = {
+  readonly vesselIds: string[];
+  readonly installedExtensions: unknown[];
+  readonly realtimeOptions: Record<string, unknown>[];
+  readonly telemetryOwners: number;
+  readonly devtoolsOptions: Record<string, unknown>[];
+};
+
+// A re-import records a second instance, so tests that re-import restore the
+// first import's records and the instance tests hold in any order.
+function recordInstance(): RecordedInstance {
+  return {
+    vesselIds: [...state.vesselIds],
+    installedExtensions: [...state.installedExtensions],
+    realtimeOptions: [...state.realtimeOptions],
+    telemetryOwners: state.telemetryOwners,
+    devtoolsOptions: [...state.devtoolsOptions],
+  };
+}
+
+function restoreInstance(recorded: RecordedInstance): void {
+  state.vesselIds = [...recorded.vesselIds];
+  state.installedExtensions.splice(
+    0,
+    Infinity,
+    ...recorded.installedExtensions,
+  );
+  state.realtimeOptions.splice(0, Infinity, ...recorded.realtimeOptions);
+  state.telemetryOwners = recorded.telemetryOwners;
+  state.devtoolsOptions.splice(0, Infinity, ...recorded.devtoolsOptions);
+}
+
+type ShopSendAgentMessage = (
+  orchestrator: Orchestrator,
+  text: string,
+) => Promise<MessageId>;
+
+function shopSendAgentMessage(
+  options: Record<string, unknown> | undefined,
+): ShopSendAgentMessage {
+  const sendAgentMessage = options?.sendAgentMessage;
+  expect(sendAgentMessage).toBeTypeOf('function');
+  return sendAgentMessage as ShopSendAgentMessage;
+}
+
+function fakeOrchestrator() {
+  const sendMessageReceivers: unknown[] = [];
+  const enqueueIntent = vi.fn();
+  const createIntentScope = vi.fn(() => ({ enqueueIntent }));
+  const sendMessage = vi.fn(function (this: unknown) {
+    sendMessageReceivers.push(this);
+    return Promise.resolve(MessageId('voice-message'));
+  });
+  const instance = {
+    sendMessage,
+    enqueueIntent,
+    createIntentScope,
+  } as unknown as Orchestrator;
+  return {
+    instance,
+    sendMessage,
+    sendMessageReceivers,
+    enqueueIntent,
+    createIntentScope,
+  };
+}

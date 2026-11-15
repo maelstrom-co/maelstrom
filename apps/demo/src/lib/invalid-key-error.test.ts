@@ -3,7 +3,11 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
 import { describe, expect, it } from 'vitest';
 
-import { isInvalidKeyError, isLiveInvalidKeyError } from './invalid-key-error';
+import {
+  isInvalidKeyError,
+  isInvalidKeyFailure,
+  isLiveInvalidKeyError,
+} from './invalid-key-error';
 
 describe('isInvalidKeyError', () => {
   it.each([
@@ -26,6 +30,33 @@ describe('isInvalidKeyError', () => {
     expect(isInvalidKeyError(new Error('401 invalid API key'))).toBe(false);
     expect(
       isInvalidKeyError(new WireEngineError('401 invalid API key', 'Timeout')),
+    ).toBe(false);
+  });
+});
+
+describe('isInvalidKeyFailure', () => {
+  it('recognises an agent failure report of a rejected key', () => {
+    expect(
+      isInvalidKeyFailure({
+        message: '401 invalid API key',
+        code: 'ProviderError',
+      }),
+    ).toBe(true);
+  });
+
+  it('ignores a key-shaped report without the provider code', () => {
+    expect(isInvalidKeyFailure({ message: '401 invalid API key' })).toBe(false);
+    expect(
+      isInvalidKeyFailure({
+        message: '401 invalid API key',
+        code: 'provider_error',
+      }),
+    ).toBe(false);
+  });
+
+  it('ignores a provider report unrelated to the key', () => {
+    expect(
+      isInvalidKeyFailure({ message: '429 rate limit', code: 'ProviderError' }),
     ).toBe(false);
   });
 });
