@@ -115,6 +115,8 @@ export function useShopAgentSubmit({
     }
     if (connectionStatus !== 'connected') return false;
     changeDraft('');
+    // A submit outside a React event can see its send reject before the cleared draft commits.
+    current.current = { ...current.current, intent: '' };
     const submission: Submission = {
       text: intent,
       revision: draftRevision.current,

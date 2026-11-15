@@ -116,6 +116,20 @@ describe('useShopAgentSubmit', () => {
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
+  it('restores the draft when the send rejects before the cleared draft commits', async () => {
+    const rejected = Promise.reject(new Error('Orchestrator is not connected'));
+    sendMessage.mockReturnValueOnce(rejected);
+    const h = renderSubmit('restore me');
+
+    await act(async () => {
+      h.result.current.submit();
+      await rejected.catch(() => undefined);
+      for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+    });
+
+    expect(h.result.current.intent).toBe('restore me');
+  });
+
   it('keeps newer typing when a rejected send settles', async () => {
     const send = deferredSend();
     const h = renderSubmit('old');
