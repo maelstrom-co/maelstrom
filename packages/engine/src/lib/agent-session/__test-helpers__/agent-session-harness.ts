@@ -1,12 +1,16 @@
 import {
+  ActionName,
   AGENT_WIRE_VERSION,
   type AgentEvent,
+  type AgentUiChangeEvent,
   type AgentUtteranceInput,
   type ChartRequest,
   type DiagnosticEvent,
+  InstanceId,
   type JsonValue,
   MessageId,
   ok,
+  type RunId,
   SessionId,
 } from '@maelstrom-co/protocol';
 import { z } from 'zod';
@@ -20,6 +24,7 @@ import {
 import {
   makeTilingRequest,
   silentLogger,
+  threeViewCalendarVessel,
 } from '../../__test-helpers__/fixtures.js';
 import type { AgentConfig } from '../agent-config.js';
 import * as agentRunQueueModule from '../agent-run-queue.js';
@@ -254,6 +259,89 @@ export function utterance(
     source: 'text',
     chart,
   };
+}
+
+/** The intent facts the `latest_order` tool reports for an order. */
+export function orderFacts(order: typeof LATEST_ORDER) {
+  return { orderId: order.orderId, itemCount: order.items.length };
+}
+
+/** A tiling Chart holding the three-view calendar Vessel. */
+export function calendarChart(): ChartRequest {
+  return makeTilingRequest({ vessels: [threeViewCalendarVessel] });
+}
+
+/** A Planner that runs `addEvent` on the calendar and keeps the layout. */
+export const addEventPlanner: ClarifyingPlanner = (input) =>
+  Promise.resolve(
+    ok({
+      type: 'plan',
+      rationale: 'Add the order to the calendar.',
+      executionPlan: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ],
+      layout: tilingLayoutOf(input.request),
+    }),
+  );
+
+/** The `ui_change` events among `events`, in order. */
+export function uiChangesOf(
+  events: readonly AgentEvent[],
+): AgentUiChangeEvent[] {
+  return events.filter(
+    (event): event is AgentUiChangeEvent => event.type === 'ui_change',
+  );
+}
+
+/** A `ui_applied` that reports every Action of `change` as applied on `chart`. */
+export function acknowledgementOf(
+  change: AgentUiChangeEvent,
+  chart: ChartRequest,
+) {
+  return {
+    type: 'ui_applied',
+    version: AGENT_WIRE_VERSION,
+    changeId: change.changeId,
+    chart,
+    actionOutcomes: change.response.executionPlan.map(() => ({ ok: true })),
+  } as const;
+}
+
+/** Resolves once `condition` holds, checking once per macrotask. Throws after 100 checks. */
+export async function waitUntil(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+  throw new Error('condition never held');
+}
+
+/** Lets 20 macrotasks run, so work started by a stopped run can surface. */
+export async function settle(): Promise<void> {
+  for (let tick = 0; tick < 20; tick += 1) {
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+/** The run id of the `accepted` event for `inputId`. Throws when there is none. */
+export function runIdOf(events: readonly AgentEvent[], inputId: string): RunId {
+  for (const event of events) {
+    if (
+      event.type === 'accepted' &&
+      event.inputId === inputId &&
+      event.runId !== null
+    ) {
+      return event.runId;
+    }
+  }
+  throw new Error(`no accepted event for ${inputId}`);
 }
 
 /** The tiling layout of a Chart. Throws for any other layout. */

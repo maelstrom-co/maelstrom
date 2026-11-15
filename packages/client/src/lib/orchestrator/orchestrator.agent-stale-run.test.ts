@@ -903,7 +903,7 @@ function finishedEvent(runId: RunId): AgentFinishedEvent {
     reply: 'Done',
     metrics: {
       turns: 1,
-      toolCalls: 0,
+      toolCalls: { requested: 0, admitted: 0 },
       elapsedMs: 5,
       inputTokens: 10,
       outputTokens: 4,

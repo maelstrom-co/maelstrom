@@ -3,6 +3,7 @@ import {
   type AgentDisposition,
   type AgentEvent,
   type AgentFinishReason,
+  type AgentRunToolCallCounts,
   type DiagnosticMetadata,
   type MessageId,
   type RunId,
@@ -29,7 +30,7 @@ export interface RunBudgetExhaustion {
  */
 export interface AgentRunCounters {
   readonly turns: number;
-  readonly toolCalls: number;
+  readonly toolCalls: AgentRunToolCallCounts;
   /** Elapsed time the run measured. Reported as is, never recomputed. */
   readonly elapsedMs: number;
   readonly inputTokens: number;
@@ -84,7 +85,7 @@ export function buildRunEnding(
     budget?.reason ?? failure?.reason ?? (failure ? 'error' : 'completed');
   const metrics = {
     turns: counters?.turns ?? 0,
-    toolCalls: counters?.toolCalls ?? 0,
+    toolCalls: counters?.toolCalls ?? { requested: 0, admitted: 0 },
     elapsedMs:
       counters?.elapsedMs ?? Math.max(0, Math.round(now - run.started)),
     inputTokens: counters?.inputTokens ?? 0,
@@ -122,7 +123,13 @@ export function buildRunEnding(
     metadata: {
       reason,
       outcome: ok ? 'succeeded' : 'failed',
-      ...metrics,
+      // Diagnostic metadata holds scalars only, so the tool call counts are flattened.
+      turns: metrics.turns,
+      toolCallsRequested: metrics.toolCalls.requested,
+      toolCallsAdmitted: metrics.toolCalls.admitted,
+      elapsedMs: metrics.elapsedMs,
+      inputTokens: metrics.inputTokens,
+      outputTokens: metrics.outputTokens,
       // Devtools reads durationMs. It equals elapsedMs and comes from the same metrics object.
       durationMs: metrics.elapsedMs,
       ...(failure ? { code: failure.code } : {}),

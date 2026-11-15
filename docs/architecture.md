@@ -390,6 +390,32 @@ run-owned. A diagnostic connection forwards run-owned and session-owned events
 of its own session only. Both skip request ambiguity tracking and the in-flight
 request cap, which stay request-only. Forwarding stays disabled in production.
 
+| Agent diagnostic kind | Owner | Evidence |
+| --- | --- | --- |
+| `engine.agent.input.accepted` | Run | An utterance was accepted into a run, `agent` or `ui_only`. |
+| `engine.agent.run.started` | Run | The run left the queue and began work. A run cancelled while queued or failing setup has none. |
+| `engine.agent.turn.started` | Run | The agent loop began a model turn, with `turnId` and a 1-based `turnIndex`. |
+| `engine.agent.turn.finished` | Run | The turn ended, with `toolCallsRequested`, `toolCallsAdmitted` and the tokens its provider calls reported. The admitted counts of a run's turns sum to its `toolCallsAdmitted`. |
+| `engine.agent.tool.started` | Run | A Server Tool began executing. |
+| `engine.agent.tool.completed` | Run | A tool call settled as `succeeded`, `failed` or `not_run`, with `durationMs` only when it started. |
+| `engine.agent.ui_change.emitted` | Run, or Session without a run | A UI change was sent to the client. |
+| `engine.agent.ui_change.applied` | Run | The client acknowledged the change. |
+| `engine.agent.show.failed`, `.show.skipped`, `.show.cancelled`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
+| `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. Metadata holds scalars only, so `metrics.toolCalls.requested` and `.admitted` appear as `toolCallsRequested` and `toolCallsAdmitted`. |
+| `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
+| `engine.agent.ui_applied.rejected` | Run for a known change, Session for an unknown one | An acknowledgement named an unknown change or the wrong outcome count. |
+| `engine.planner.*`, `engine.stage.*` in a run | Run | Planner work for the run, with `turnId` when a loop turn asked for it. |
+| `client.agent.input.sent`, `client.agent.ui.applied` | Client | The client sent an input or acknowledged a change. |
+
+After a run is cancelled or its connection closes, no further turn or tool
+event is published. A `turn.started` or `tool.started` can therefore be left
+without its closing event, and `engine.agent.run.finished` closes every turn
+and tool of the run still open.
+
+Agent metadata stays structural. Message text, UI change payloads, tool arguments
+and tool results are content only, read lazily and sent only to a subscription
+that includes content.
+
 The default DevTools production entrypoints are inert. Explicit `/production`
 imports enable browser tools in every build without changing server policy.
 See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for setup,

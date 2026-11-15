@@ -134,7 +134,7 @@ describe('agent run queue', () => {
         reply: 'Your order is o-1.',
         metrics: {
           turns: 2,
-          toolCalls: 1,
+          toolCalls: { requested: 1, admitted: 1 },
           elapsedMs: 250,
           inputTokens: 14,
           outputTokens: 3,
@@ -151,7 +151,8 @@ describe('agent run queue', () => {
         reason: 'completed',
         outcome: 'succeeded',
         turns: 2,
-        toolCalls: 1,
+        toolCallsRequested: 1,
+        toolCallsAdmitted: 1,
         elapsedMs: 250,
         durationMs: 250,
         inputTokens: 14,
@@ -622,6 +623,24 @@ describe('agent run queue', () => {
     ]);
   });
 
+  test('closing from a started listener neither observes run.started nor starts the run', async () => {
+    let startRunCalls = 0;
+    const startRun: AgentRunStarter = () => {
+      startRunCalls += 1;
+      return (async function* (): AsyncGenerator<AgentRunEvent> {})();
+    };
+    const session = createSession({ startRun });
+    session.events.subscribe((event) => {
+      if (event.type === 'started') session.queue.close();
+    });
+
+    await session.queue.enqueue(utterance('input-1', 'hi'));
+    await flushMacrotasks();
+
+    expect(startRunCalls).toBe(0);
+    expect(session.observedKinds()).not.toContain('engine.agent.run.started');
+  });
+
   test.each([
     ['model factory', 'model'],
     ['budget resolver', 'budgets'],
@@ -795,7 +814,7 @@ describe('agent run queue', () => {
         reply: BUDGET_CLOSING_MESSAGE,
         metrics: {
           turns: 1,
-          toolCalls: 0,
+          toolCalls: { requested: 1, admitted: 0 },
           elapsedMs: 0,
           inputTokens: 3,
           outputTokens: 1,
@@ -1407,7 +1426,7 @@ const LATEST_ORDER = { orderId: 'o-1', total: 42 };
 
 const ZERO_METRICS = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,
@@ -1500,11 +1519,13 @@ function createSession(overrides: SessionOverrides = {}) {
   });
   return {
     queue,
+    events,
     received,
     transcript,
     toolResults,
     user,
     showPlans,
+    observedKinds: () => observed.map((entry) => entry.kind),
     finishedMetadata: () =>
       observed
         .filter((entry) => entry.kind === 'engine.agent.run.finished')

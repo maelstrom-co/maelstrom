@@ -126,6 +126,12 @@ export interface AgentRunPolicy {
   /** Records that the current model turn requested `callId`, so the whole batch is reserved at once. */
   noteToolCallRequested(callId: string): void;
   /**
+   * Counts one tool call the model finished requesting, whether the run
+   * admits it, refuses it or cannot run it. It feeds the `requested` count
+   * of {@link metrics}, while {@link beforeToolCall} feeds `admitted`.
+   */
+  countRequestedToolCall(): void;
+  /**
    * Runs before each tool call. Refuses when an ending is latched, the
    * deadline passed, the token budget is spent or unknown, or the call was
    * requested on the final allowed turn. On a turn's first call, reserves
@@ -185,80 +191,11 @@ export function createAgentRunPolicy(
   let turnsStarted = 0;
   let turnCallPending = false;
   let activeProviderCalls = 0;
+  let toolCallsRequested = 0;
   let toolCallsAdmitted = 0;
   let toolCallsReserved = 0;
   let reservedTurn = 0;
   let requestedThisTurn = new Set<string>();
-
-  const latch = (next: AgentRunEnding): boolean => {
-    if (ending !== undefined) return false;
-    ending = next;
-    return true;
-  };
-
-  const abortRun = (reason: unknown): void => {
-    if (!abortController.signal.aborted) abortController.abort(reason);
-  };
-
-  const onCallerAbort = (): void => {
-    latch({ reason: 'cancelled', cause: signal.reason });
-    abortRun(signal.reason);
-  };
-
-  const elapsedOrTokenRefusal = (): AgentRunEnding | undefined => {
-    if (
-      startedAt !== undefined &&
-      clock.now() - startedAt >= budgets.maxElapsedMs
-    ) {
-      return { reason: 'budget', limit: 'elapsed' };
-    }
-    if (!Number.isFinite(budgets.maxTokens)) return undefined;
-    const total = totalTokens(ledger.snapshot());
-    if (total === undefined) {
-      return { reason: 'budget', limit: 'tokens', usageUnknown: true };
-    }
-    return total >= budgets.maxTokens
-      ? { reason: 'budget', limit: 'tokens' }
-      : undefined;
-  };
-
-  const refuseTurn = (refusal?: AgentRunEnding): false => {
-    if (refusal !== undefined) latch(refusal);
-    abortRun(new DOMException('Agent run stopped by its policy', 'AbortError'));
-    return false;
-  };
-
-  const refuseToolCall = (
-    refusal: AgentRunEnding,
-  ): AgentRunToolCallAdmission => {
-    latch(refusal);
-    return { admitted: false, ending: ending ?? refusal };
-  };
-
-  const awaitGate = async (turnGate: AgentRunGate, turn: number) => {
-    const runSignal = abortController.signal;
-    if (runSignal.aborted) return;
-    let onAbort = (): void => undefined;
-    const interrupted = new Promise<void>((resolve) => {
-      onAbort = () => resolve();
-      runSignal.addEventListener('abort', onAbort, { once: true });
-    });
-    try {
-      await Promise.race([
-        new Promise<void>((resolve) => resolve(turnGate({ turn }))),
-        interrupted,
-      ]);
-    } catch (error) {
-      logger.error('Agent run gate failed', error, { runId, turn });
-      latch({
-        reason: 'error',
-        code: 'gate_failed',
-        error: 'The run could not continue.',
-      });
-    } finally {
-      runSignal.removeEventListener('abort', onAbort);
-    }
-  };
 
   return {
     abortController,
@@ -327,6 +264,9 @@ export function createAgentRunPolicy(
     noteToolCallRequested(callId) {
       requestedThisTurn.add(callId);
     },
+    countRequestedToolCall() {
+      toolCallsRequested += 1;
+    },
     beforeToolCall(callId) {
       if (ending !== undefined) return { admitted: false, ending };
       const refusal =
@@ -368,7 +308,10 @@ export function createAgentRunPolicy(
       return {
         metrics: {
           turns: turnsStarted,
-          toolCalls: toolCallsAdmitted,
+          toolCalls: {
+            requested: toolCallsRequested,
+            admitted: toolCallsAdmitted,
+          },
           elapsedMs:
             startedAt === undefined
               ? 0
@@ -391,6 +334,74 @@ export function createAgentRunPolicy(
       }
     },
   };
+
+  function latch(next: AgentRunEnding): boolean {
+    if (ending !== undefined) return false;
+    ending = next;
+    return true;
+  }
+
+  function abortRun(reason: unknown): void {
+    if (!abortController.signal.aborted) abortController.abort(reason);
+  }
+
+  function onCallerAbort(): void {
+    latch({ reason: 'cancelled', cause: signal.reason });
+    abortRun(signal.reason);
+  }
+
+  function elapsedOrTokenRefusal(): AgentRunEnding | undefined {
+    if (
+      startedAt !== undefined &&
+      clock.now() - startedAt >= budgets.maxElapsedMs
+    ) {
+      return { reason: 'budget', limit: 'elapsed' };
+    }
+    if (!Number.isFinite(budgets.maxTokens)) return undefined;
+    const total = totalTokens(ledger.snapshot());
+    if (total === undefined) {
+      return { reason: 'budget', limit: 'tokens', usageUnknown: true };
+    }
+    return total >= budgets.maxTokens
+      ? { reason: 'budget', limit: 'tokens' }
+      : undefined;
+  }
+
+  function refuseTurn(refusal?: AgentRunEnding): false {
+    if (refusal !== undefined) latch(refusal);
+    abortRun(new DOMException('Agent run stopped by its policy', 'AbortError'));
+    return false;
+  }
+
+  function refuseToolCall(refusal: AgentRunEnding): AgentRunToolCallAdmission {
+    latch(refusal);
+    return { admitted: false, ending: ending ?? refusal };
+  }
+
+  async function awaitGate(turnGate: AgentRunGate, turn: number) {
+    const runSignal = abortController.signal;
+    if (runSignal.aborted) return;
+    let onAbort = (): void => undefined;
+    const interrupted = new Promise<void>((resolve) => {
+      onAbort = () => resolve();
+      runSignal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      await Promise.race([
+        new Promise<void>((resolve) => resolve(turnGate({ turn }))),
+        interrupted,
+      ]);
+    } catch (error) {
+      logger.error('Agent run gate failed', error, { runId, turn });
+      latch({
+        reason: 'error',
+        code: 'gate_failed',
+        error: 'The run could not continue.',
+      });
+    } finally {
+      runSignal.removeEventListener('abort', onAbort);
+    }
+  }
 }
 
 /**

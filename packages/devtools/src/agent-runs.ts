@@ -20,8 +20,10 @@ export type AgentRunStatus =
 export interface AgentRunMetrics {
   /** Model turns the run took. */
   turns?: number;
-  /** Tool calls the run made. */
-  toolCalls?: number;
+  /** Tool calls the model requested, including refused ones. */
+  toolCallsRequested?: number;
+  /** Tool calls the run's policy admitted. */
+  toolCallsAdmitted?: number;
   /** Elapsed run time in milliseconds. */
   elapsedMs?: number;
   /** Provider input tokens reported for the run. */
@@ -300,7 +302,8 @@ function attach(trace: AgentRunTrace, event: PanelEvent, owned: boolean) {
     trace.durationMs = count(metadata.durationMs) ?? count(metadata.elapsedMs);
     trace.metrics = {
       turns: count(metadata.turns),
-      toolCalls: count(metadata.toolCalls),
+      toolCallsRequested: count(metadata.toolCallsRequested),
+      toolCallsAdmitted: count(metadata.toolCallsAdmitted),
       elapsedMs: count(metadata.elapsedMs),
       inputTokens: count(metadata.inputTokens),
       outputTokens: count(metadata.outputTokens),

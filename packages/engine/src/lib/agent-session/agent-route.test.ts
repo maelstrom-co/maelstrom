@@ -5,7 +5,6 @@ import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
   AgentEventSchema,
-  type AgentUiChangeEvent,
   CallId,
   ChangeId,
   type ChartRequest,
@@ -30,7 +29,6 @@ import { defer } from '../__test-helpers__/defer.js';
 import {
   makeTilingRequest,
   silentLogger,
-  threeViewCalendarVessel,
 } from '../__test-helpers__/fixtures.js';
 import {
   blockingPlanner,
@@ -43,18 +41,26 @@ import type { PlannerCandidate } from '../planner/candidate.js';
 import { named } from '../planner/instrument.js';
 import { pipeline } from '../planner/pipeline.js';
 import {
+  acknowledgementOf,
+  addEventPlanner,
+  calendarChart,
   capturingAgentRunQueueModule,
   capturingPlannerShowQueueModule,
   LATEST_ORDER,
   nothingToShowPlanner,
   openAgentSession,
+  orderFacts,
   orderTool,
+  runIdOf,
   sessionInternals,
+  settle,
   TEST_BUDGETS,
   tilingLayoutOf,
   TOKEN_SENTINEL,
+  uiChangesOf,
   USER_SENTINEL,
   utterance,
+  waitUntil,
 } from './__test-helpers__/agent-session-harness.js';
 import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import {
@@ -2343,7 +2349,7 @@ describe('agent route through the Engine handle', () => {
       const runId = runIdOf(session.received, 'input-1');
       const counters = {
         turns: 3,
-        toolCalls: 2,
+        toolCalls: { requested: 2, admitted: 2 },
         elapsedMs: 500,
         inputTokens: 14,
         outputTokens: 3,
@@ -2360,7 +2366,12 @@ describe('agent route through the Engine handle', () => {
       ).toMatchObject({
         reason: 'completed',
         outcome: 'succeeded',
-        ...counters,
+        turns: 3,
+        toolCallsRequested: 2,
+        toolCallsAdmitted: 2,
+        elapsedMs: 500,
+        inputTokens: 14,
+        outputTokens: 3,
         unreportedUsageCalls: 1,
       });
     });
@@ -2417,29 +2428,6 @@ interface StalledCall {
 }
 
 const neverSettlingPlanner: ClarifyingPlanner = () => new Promise(() => {});
-
-function orderFacts(order: typeof LATEST_ORDER) {
-  return { orderId: order.orderId, itemCount: order.items.length };
-}
-
-function calendarChart(): ChartRequest {
-  return makeTilingRequest({ vessels: [threeViewCalendarVessel] });
-}
-
-const addEventPlanner: ClarifyingPlanner = (input) =>
-  Promise.resolve(
-    ok({
-      type: 'plan',
-      rationale: 'Add the order to the calendar.',
-      executionPlan: [
-        {
-          instanceId: InstanceId('calendar-main'),
-          action: ActionName('addEvent'),
-        },
-      ],
-      layout: tilingLayoutOf(input.request),
-    }),
-  );
 
 function addEventCandidate(chart: ChartRequest): PlannerCandidate {
   return {
@@ -2550,12 +2538,6 @@ function weekCalendarChart(): ChartRequest {
   };
 }
 
-function uiChangesOf(events: readonly AgentEvent[]): AgentUiChangeEvent[] {
-  return events.filter(
-    (event): event is AgentUiChangeEvent => event.type === 'ui_change',
-  );
-}
-
 function diagnosticsOfKind(
   events: readonly DiagnosticEvent[],
   kind: string,
@@ -2563,16 +2545,6 @@ function diagnosticsOfKind(
   const matching = events.filter((event) => event.kind === kind);
   if (matching.length === 0) throw new Error(`no ${kind} diagnostic`);
   return matching;
-}
-
-function acknowledgementOf(change: AgentUiChangeEvent, chart: ChartRequest) {
-  return {
-    type: 'ui_applied',
-    version: AGENT_WIRE_VERSION,
-    changeId: change.changeId,
-    chart,
-    actionOutcomes: change.response.executionPlan.map(() => ({ ok: true })),
-  } as const;
 }
 
 function expectBudgetEnding(events: readonly AgentEvent[], runId: RunId) {
@@ -2598,19 +2570,6 @@ function expectBudgetEnding(events: readonly AgentEvent[], runId: RunId) {
   for (const event of own) {
     expect(AgentEventSchema.safeParse(event).success).toBe(true);
   }
-}
-
-function runIdOf(events: readonly AgentEvent[], inputId: string): RunId {
-  for (const event of events) {
-    if (
-      event.type === 'accepted' &&
-      event.inputId === inputId &&
-      event.runId !== null
-    ) {
-      return event.runId;
-    }
-  }
-  throw new Error(`no accepted event for ${inputId}`);
 }
 
 function eventsOf(events: readonly AgentEvent[], runId: RunId) {
@@ -2729,22 +2688,4 @@ function serializeLoosely(value: unknown): string {
 
 function occurrencesIn(value: unknown, needle: string): number {
   return serializeLoosely(value).split(needle).length - 1;
-}
-
-async function settle(): Promise<void> {
-  for (let tick = 0; tick < 20; tick += 1) {
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-}
-
-async function waitUntil(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (condition()) return;
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
-  }
-  throw new Error('condition never held');
 }

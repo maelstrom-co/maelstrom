@@ -4,6 +4,7 @@ import {
   type AgentRunMetrics,
   type AgentUiAppliedInput,
   type AgentUtteranceInput,
+  type DiagnosticMetadata,
   RunId,
 } from '@maelstrom-co/protocol';
 
@@ -17,6 +18,7 @@ import {
 } from './agent-config.js';
 import type { RunObserver } from './agent-diagnostics.js';
 import {
+  type AgentRunActivity,
   type AgentRunClock,
   type AgentRunEvent,
   type AgentRunFailed,
@@ -140,251 +142,6 @@ export function createAgentRunQueue({
     active?.sessionNotes.push(renderShowNote(turnId, text));
   });
 
-  const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
-
-  const measuredSince = (
-    finished: AgentRunFinished,
-    since: number,
-  ): AgentRunFinished => ({
-    ...finished,
-    metrics: {
-      ...finished.metrics,
-      elapsedMs: Math.max(0, Math.round(clock() - since)),
-    },
-  });
-
-  const finish = (
-    run: ActiveAgentRun,
-    finished: AgentRunFinished,
-    toolsSettled?: Promise<void>,
-  ) => {
-    if (finished.reason === 'budget') {
-      transcript.recordClosingMessage(run.runId, finished.reply);
-    }
-    transcript.recordEnding(run.runId, finished);
-    const now = clock();
-    const ending = buildRunEnding(
-      { runId: run.runId, started: now },
-      now,
-      replyOf(finished),
-      wireOutcome(finished),
-      {
-        ...finished.metrics,
-        unreportedUsageCalls: finished.unreportedUsageCalls,
-      },
-    );
-    events.emit(...ending.events);
-    observe(
-      run.runId,
-      run.input.inputId,
-      'engine.agent.run.finished',
-      ending.metadata,
-    );
-    active = undefined;
-    run.done.resolve();
-    if (toolsSettled === undefined) {
-      void pump();
-      return;
-    }
-    // A tool that ignored the abort may still perform its side effect, so the
-    // next run must not start until it settles.
-    const settling = Promise.resolve(toolsSettled)
-      .catch(() => undefined)
-      .then(() => {
-        if (toolsSettling === settling) toolsSettling = undefined;
-        void pump();
-      });
-    toolsSettling = settling;
-  };
-
-  const forward = (run: ActiveAgentRun, event: AgentRunEvent) => {
-    const { runId } = run;
-    switch (event.type) {
-      case 'message':
-        if (event.turnId === `${runId}:close`) return;
-        transcript.recordMessage(runId, event.turnId, event.delta);
-        events.emit({
-          type: 'message',
-          version: AGENT_WIRE_VERSION,
-          runId,
-          turnId: event.turnId,
-          delta: event.delta,
-        });
-        return;
-      case 'tool_call':
-        transcript.recordToolCall(runId, event.callId, event.name, event.args);
-        events.emit({
-          type: 'tool_call',
-          version: AGENT_WIRE_VERSION,
-          runId,
-          turnId: event.turnId,
-          callId: event.callId,
-          name: event.name,
-        });
-        return;
-      case 'tool_result':
-        transcript.recordToolResult(
-          runId,
-          event.callId,
-          event.ok,
-          event.summary,
-        );
-        events.emit({
-          type: 'tool_result',
-          version: AGENT_WIRE_VERSION,
-          runId,
-          turnId: event.turnId,
-          callId: event.callId,
-          name: event.name,
-          ok: event.ok,
-          summary: event.summary,
-        });
-        return;
-      case 'tool_phase_ended': {
-        toolResults.recordToolPhase(runId, event);
-        const facts = collectShowFacts(event, agent.registry, logger);
-        if (facts === undefined) return;
-        transcript.recordShowNote(
-          runId,
-          event.turnId,
-          describeShowQueued(facts.toolNames),
-        );
-        shows.request({
-          runId,
-          inputId: run.input.inputId,
-          turnId: event.turnId,
-          intent: run.input.text,
-          ...facts,
-        });
-        return;
-      }
-      case 'finished':
-        return;
-    }
-  };
-
-  const drive = async (run: ActiveAgentRun): Promise<void> => {
-    const turnBegan = clock();
-    const priorMessages = transcript.renderPriorMessages();
-    transcript.recordUserInput(run.runId, run.input.text);
-    const aborted = whenAborted(run.controller.signal);
-    const deadline = setupDeadline(agent, scheduleTimeout);
-    let setup: AgentRunSetup | typeof SETUP_ABORTED | typeof SETUP_TIMED_OUT;
-    try {
-      setup = await Promise.race([
-        resolveAgentRunSetup(agent, identity),
-        aborted.promise,
-        deadline.promise,
-      ]);
-    } catch (error) {
-      if (!isCurrent(run)) return;
-      if (run.cancelled) {
-        finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
-        return;
-      }
-      logger.error('Agent run setup failed', error, { runId: run.runId });
-      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
-      return;
-    } finally {
-      aborted.dispose();
-      deadline.dispose();
-    }
-    if (!isCurrent(run)) return;
-    if (setup === SETUP_ABORTED || run.controller.signal.aborted) {
-      finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
-      return;
-    }
-    if (setup === SETUP_TIMED_OUT) {
-      logger.error(
-        'Agent run setup timed out',
-        new Error('Agent run setup did not settle before its deadline'),
-        { runId: run.runId },
-      );
-      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
-      return;
-    }
-    const started = clock();
-    events.emit({
-      type: 'started',
-      version: AGENT_WIRE_VERSION,
-      runId: run.runId,
-    });
-    const iterator = startRun(
-      {
-        runId: run.runId,
-        adapter: setup.adapter,
-        instructions: agent.instructions,
-        registry: agent.registry,
-        budgets: setup.budgets,
-        ...(agent.retry === undefined ? {} : { retry: agent.retry }),
-        priorMessages,
-        utterance: run.input.text,
-        identity,
-        clock: runClock,
-        logger,
-      },
-      {
-        signal: run.controller.signal,
-        gate: ({ turn }) =>
-          turn === 1 ? earlierShowsSettled(run.controller.signal) : undefined,
-        takeSessionNotes: () => run.sessionNotes.splice(0),
-      },
-    )[Symbol.asyncIterator]();
-    run.iterator = iterator;
-    let finished: AgentRunFinished;
-    for (;;) {
-      let step: IteratorResult<AgentRunEvent>;
-      try {
-        step = await iterator.next();
-      } catch (error) {
-        if (!isCurrent(run)) return;
-        logger.error('Agent run failed', error, { runId: run.runId });
-        finished = measuredSince(RUN_FAILURE, started);
-        break;
-      }
-      if (!isCurrent(run)) return;
-      if (step.done === true) {
-        finished = measuredSince(RUN_FAILURE, started);
-        break;
-      }
-      if (step.value.type === 'finished') {
-        finished = step.value;
-        break;
-      }
-      if (!run.cancelled) forward(run, step.value);
-    }
-    finish(
-      run,
-      run.cancelled && finished.reason !== 'cancelled'
-        ? cancelledRun(finished.metrics, finished.unreportedUsageCalls)
-        : finished,
-      finished.toolsSettled,
-    );
-  };
-
-  const earlierShowsSettled = (signal: AbortSignal): Promise<void> => {
-    let cancelTimeout = () => {};
-    const timedOut = new Promise<void>((resolve) => {
-      cancelTimeout = scheduleTimeout(resolve, showsSettleTimeoutMs);
-    });
-    signal.addEventListener('abort', () => cancelTimeout(), { once: true });
-    return Promise.race([shows.whenIdle(), timedOut]).finally(cancelTimeout);
-  };
-
-  const pump = async (): Promise<void> => {
-    if (closed || active !== undefined || toolsSettling !== undefined) return;
-    const next = queue.shift();
-    if (next === undefined) return;
-    const run: ActiveAgentRun = {
-      ...next,
-      controller: new AbortController(),
-      cancelled: false,
-      sessionNotes: [],
-    };
-    active = run;
-    await drive(run);
-  };
-
   return {
     pendingRuns: () => queue.length + (active === undefined ? 0 : 1),
     enqueue(input) {
@@ -460,6 +217,269 @@ export function createAgentRunQueue({
       for (const queued of queue.splice(0)) queued.done.resolve();
     },
   };
+
+  function isCurrent(run: ActiveAgentRun) {
+    return !closed && active === run;
+  }
+
+  // Deliberately drops activity once the run is cancelled or stale, as
+  // forward drops wire events, so a turn or tool can stay open until
+  // run.finished closes it.
+  function observeActivity(run: ActiveAgentRun, activity: AgentRunActivity) {
+    if (!isCurrent(run) || run.cancelled) return;
+    const { kind, metadata, readContent } = activityObservation(activity);
+    observe(run.runId, run.input.inputId, kind, metadata, readContent);
+  }
+
+  function measuredSince(
+    finished: AgentRunFinished,
+    since: number,
+  ): AgentRunFinished {
+    return {
+      ...finished,
+      metrics: {
+        ...finished.metrics,
+        elapsedMs: Math.max(0, Math.round(clock() - since)),
+      },
+    };
+  }
+
+  function finish(
+    run: ActiveAgentRun,
+    finished: AgentRunFinished,
+    toolsSettled?: Promise<void>,
+  ) {
+    if (finished.reason === 'budget') {
+      transcript.recordClosingMessage(run.runId, finished.reply);
+    }
+    transcript.recordEnding(run.runId, finished);
+    const now = clock();
+    const ending = buildRunEnding(
+      { runId: run.runId, started: now },
+      now,
+      replyOf(finished),
+      wireOutcome(finished),
+      {
+        ...finished.metrics,
+        unreportedUsageCalls: finished.unreportedUsageCalls,
+      },
+    );
+    events.emit(...ending.events);
+    observe(
+      run.runId,
+      run.input.inputId,
+      'engine.agent.run.finished',
+      ending.metadata,
+    );
+    active = undefined;
+    run.done.resolve();
+    if (toolsSettled === undefined) {
+      void pump();
+      return;
+    }
+    // A tool that ignored the abort may still perform its side effect, so the
+    // next run must not start until it settles.
+    const settling = Promise.resolve(toolsSettled)
+      .catch(() => undefined)
+      .then(() => {
+        if (toolsSettling === settling) toolsSettling = undefined;
+        void pump();
+      });
+    toolsSettling = settling;
+  }
+
+  function forward(run: ActiveAgentRun, event: AgentRunEvent) {
+    const { runId } = run;
+    switch (event.type) {
+      case 'message':
+        if (event.turnId === `${runId}:close`) return;
+        transcript.recordMessage(runId, event.turnId, event.delta);
+        events.emit({
+          type: 'message',
+          version: AGENT_WIRE_VERSION,
+          runId,
+          turnId: event.turnId,
+          delta: event.delta,
+        });
+        return;
+      case 'tool_call':
+        transcript.recordToolCall(runId, event.callId, event.name, event.args);
+        events.emit({
+          type: 'tool_call',
+          version: AGENT_WIRE_VERSION,
+          runId,
+          turnId: event.turnId,
+          callId: event.callId,
+          name: event.name,
+        });
+        return;
+      case 'tool_result':
+        transcript.recordToolResult(
+          runId,
+          event.callId,
+          event.ok,
+          event.summary,
+        );
+        events.emit({
+          type: 'tool_result',
+          version: AGENT_WIRE_VERSION,
+          runId,
+          turnId: event.turnId,
+          callId: event.callId,
+          name: event.name,
+          ok: event.ok,
+          summary: event.summary,
+        });
+        return;
+      case 'tool_phase_ended': {
+        toolResults.recordToolPhase(runId, event);
+        const facts = collectShowFacts(event, agent.registry, logger);
+        if (facts === undefined) return;
+        transcript.recordShowNote(
+          runId,
+          event.turnId,
+          describeShowQueued(facts.toolNames),
+        );
+        shows.request({
+          runId,
+          inputId: run.input.inputId,
+          turnId: event.turnId,
+          intent: run.input.text,
+          ...facts,
+        });
+        return;
+      }
+      case 'finished':
+        return;
+    }
+  }
+
+  async function drive(run: ActiveAgentRun): Promise<void> {
+    const turnBegan = clock();
+    const priorMessages = transcript.renderPriorMessages();
+    transcript.recordUserInput(run.runId, run.input.text);
+    const aborted = whenAborted(run.controller.signal);
+    const deadline = setupDeadline(agent, scheduleTimeout);
+    let setup: AgentRunSetup | typeof SETUP_ABORTED | typeof SETUP_TIMED_OUT;
+    try {
+      setup = await Promise.race([
+        resolveAgentRunSetup(agent, identity),
+        aborted.promise,
+        deadline.promise,
+      ]);
+    } catch (error) {
+      if (!isCurrent(run)) return;
+      if (run.cancelled) {
+        finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
+        return;
+      }
+      logger.error('Agent run setup failed', error, { runId: run.runId });
+      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
+      return;
+    } finally {
+      aborted.dispose();
+      deadline.dispose();
+    }
+    if (!isCurrent(run)) return;
+    if (setup === SETUP_ABORTED || run.controller.signal.aborted) {
+      finish(run, measuredSince(cancelledRun(ZERO_METRICS, 0), turnBegan));
+      return;
+    }
+    if (setup === SETUP_TIMED_OUT) {
+      logger.error(
+        'Agent run setup timed out',
+        new Error('Agent run setup did not settle before its deadline'),
+        { runId: run.runId },
+      );
+      finish(run, measuredSince(SETUP_FAILURE, turnBegan));
+      return;
+    }
+    const started = clock();
+    events.emit({
+      type: 'started',
+      version: AGENT_WIRE_VERSION,
+      runId: run.runId,
+    });
+    if (!isCurrent(run)) return;
+    observe(run.runId, run.input.inputId, 'engine.agent.run.started', {
+      disposition: 'agent',
+    });
+    const iterator = startRun(
+      {
+        runId: run.runId,
+        adapter: setup.adapter,
+        instructions: agent.instructions,
+        registry: agent.registry,
+        budgets: setup.budgets,
+        ...(agent.retry === undefined ? {} : { retry: agent.retry }),
+        priorMessages,
+        utterance: run.input.text,
+        identity,
+        clock: runClock,
+        logger,
+      },
+      {
+        signal: run.controller.signal,
+        gate: ({ turn }) =>
+          turn === 1 ? earlierShowsSettled(run.controller.signal) : undefined,
+        takeSessionNotes: () => run.sessionNotes.splice(0),
+        onActivity: (activity) => observeActivity(run, activity),
+      },
+    )[Symbol.asyncIterator]();
+    run.iterator = iterator;
+    let finished: AgentRunFinished;
+    for (;;) {
+      let step: IteratorResult<AgentRunEvent>;
+      try {
+        step = await iterator.next();
+      } catch (error) {
+        if (!isCurrent(run)) return;
+        logger.error('Agent run failed', error, { runId: run.runId });
+        finished = measuredSince(RUN_FAILURE, started);
+        break;
+      }
+      if (!isCurrent(run)) return;
+      if (step.done === true) {
+        finished = measuredSince(RUN_FAILURE, started);
+        break;
+      }
+      if (step.value.type === 'finished') {
+        finished = step.value;
+        break;
+      }
+      if (!run.cancelled) forward(run, step.value);
+    }
+    finish(
+      run,
+      run.cancelled && finished.reason !== 'cancelled'
+        ? cancelledRun(finished.metrics, finished.unreportedUsageCalls)
+        : finished,
+      finished.toolsSettled,
+    );
+  }
+
+  function earlierShowsSettled(signal: AbortSignal): Promise<void> {
+    let cancelTimeout = () => {};
+    const timedOut = new Promise<void>((resolve) => {
+      cancelTimeout = scheduleTimeout(resolve, showsSettleTimeoutMs);
+    });
+    signal.addEventListener('abort', () => cancelTimeout(), { once: true });
+    return Promise.race([shows.whenIdle(), timedOut]).finally(cancelTimeout);
+  }
+
+  async function pump(): Promise<void> {
+    if (closed || active !== undefined || toolsSettling !== undefined) return;
+    const next = queue.shift();
+    if (next === undefined) return;
+    const run: ActiveAgentRun = {
+      ...next,
+      controller: new AbortController(),
+      cancelled: false,
+      sessionNotes: [],
+    };
+    active = run;
+    await drive(run);
+  }
 }
 
 interface QueuedAgentRun {
@@ -477,7 +497,7 @@ interface ActiveAgentRun extends QueuedAgentRun {
 
 const ZERO_METRICS: AgentRunMetrics = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,
@@ -614,4 +634,61 @@ function deferred(): Deferred {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function activityObservation(activity: AgentRunActivity): {
+  readonly kind: string;
+  readonly metadata: DiagnosticMetadata;
+  readonly readContent?: () => unknown;
+} {
+  switch (activity.type) {
+    case 'turn_started':
+      return {
+        kind: 'engine.agent.turn.started',
+        metadata: { turnId: activity.turnId, turnIndex: activity.turnIndex },
+      };
+    case 'turn_finished':
+      return {
+        kind: 'engine.agent.turn.finished',
+        metadata: {
+          turnId: activity.turnId,
+          turnIndex: activity.turnIndex,
+          toolCallsRequested: activity.toolCalls.requested,
+          toolCallsAdmitted: activity.toolCalls.admitted,
+          ...(activity.inputTokens === undefined
+            ? {}
+            : { inputTokens: activity.inputTokens }),
+          ...(activity.outputTokens === undefined
+            ? {}
+            : { outputTokens: activity.outputTokens }),
+        },
+        readContent: () => ({ text: activity.text }),
+      };
+    case 'tool_started':
+      return {
+        kind: 'engine.agent.tool.started',
+        metadata: {
+          turnId: activity.turnId,
+          callId: activity.callId,
+          toolName: activity.name,
+        },
+        readContent: () => ({ args: activity.args }),
+      };
+    case 'tool_completed':
+      return {
+        kind: 'engine.agent.tool.completed',
+        metadata: {
+          turnId: activity.turnId,
+          callId: activity.callId,
+          toolName: activity.name,
+          outcome: activity.outcome,
+          ...(activity.durationMs === undefined
+            ? {}
+            : { durationMs: activity.durationMs }),
+        },
+        readContent: () => ({ result: activity.result }),
+      };
+    default:
+      return assertNever(activity, 'agent run activity');
+  }
 }

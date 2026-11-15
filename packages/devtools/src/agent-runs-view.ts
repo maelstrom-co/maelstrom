@@ -201,7 +201,7 @@ function runDetail(
       ],
       ['Duration', duration(run.durationMs)],
       ['Turns', String(turnCount(run))],
-      ['Tool calls', String(toolCallCount(run))],
+      ['Tool calls', toolCallDetail(run)],
       ['Tokens', tokenSummary(run) ?? 'Not reported'],
       ['App instance', context.appLabel(run.clientId)],
       ...(run.code ? [['Code', run.code] as const] : []),
@@ -380,10 +380,18 @@ function turnCount(run: AgentRunTrace): number {
 
 function toolCallCount(run: AgentRunTrace): number {
   return (
-    run.metrics?.toolCalls ??
+    run.metrics?.toolCallsAdmitted ??
     run.events.filter((event) => event.kind === 'engine.agent.tool.started')
       .length
   );
+}
+
+function toolCallDetail(run: AgentRunTrace): string {
+  const admitted = toolCallCount(run);
+  const requested = run.metrics?.toolCallsRequested;
+  return requested === undefined || requested === admitted
+    ? String(admitted)
+    : `${admitted} of ${requested} requested`;
 }
 
 function tokenSummary(run: AgentRunTrace): string | undefined {

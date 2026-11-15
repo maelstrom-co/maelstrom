@@ -20,6 +20,7 @@ export type {
   AgentMessageEvent,
   AgentPlaceholderEvent,
   AgentRunMetrics,
+  AgentRunToolCallCounts,
   AgentStartedEvent,
   AgentToolCallEvent,
   AgentToolResultEvent,

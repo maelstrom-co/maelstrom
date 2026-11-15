@@ -1,10 +1,16 @@
-import { CallId, type RunId } from '@maelstrom-co/protocol';
+import {
+  type AgentRunToolCallCounts,
+  CallId,
+  type RunId,
+} from '@maelstrom-co/protocol';
 import {
   createUsageLedger,
   type ProviderCallRecord,
   withUsage,
 } from '@maelstrom-co/telemetry/usage-adapter';
 import {
+  type AfterToolCallDecision,
+  type AfterToolCallInfo,
   type AnyTextAdapter,
   type BeforeToolCallDecision,
   chat,
@@ -18,6 +24,7 @@ import {
 } from '@tanstack/ai';
 
 import { assertNever } from '../assert-never.js';
+import type { Logger } from '../logger.js';
 import {
   type AgentRunEnding,
   type AgentRunPolicy,
@@ -29,6 +36,9 @@ import {
   stoppedToolResult,
 } from './agent-run-policy.js';
 import {
+  type AgentRunActivity,
+  type AgentRunActivityToolResult,
+  type AgentRunClock,
   type AgentRunEvent,
   type AgentRunFinished,
   type AgentRunInput,
@@ -98,7 +108,13 @@ async function* streamAgentRun(
     signal: options.signal,
     gate: options.gate,
   });
-  const calls = createToolCallTracker(input.runId);
+  const calls = createRunActivityTracker(
+    input.runId,
+    input.clock,
+    input.logger,
+    options.onActivity,
+    policy,
+  );
   const executions = createToolExecutionFence();
   let chunks: AsyncIterator<StreamChunk> | undefined;
   let reachedEnd = false;
@@ -192,6 +208,7 @@ async function* streamAgentRun(
     policy.finish();
     reachedEnd = true;
     yield* calls.closeQueue();
+    calls.closeActivity();
     yield* endingEvents(
       input.runId,
       policy.ending ?? { reason: 'cancelled', cause: undefined },
@@ -200,6 +217,9 @@ async function* streamAgentRun(
       executions.settled(),
     );
   } finally {
+    // A consumer that closes the run before finished gets no closing
+    // activity, and a tool that settles later reports nothing.
+    calls.stopActivity();
     if (!reachedEnd && !policy.abortController.signal.aborted) {
       policy.abortController.abort(
         new DOMException('Agent run closed by its consumer', 'AbortError'),
@@ -214,13 +234,14 @@ function startChat(
   input: AgentRunInput,
   options: AgentRunOptions,
   policy: AgentRunPolicy,
-  calls: ToolCallTracker,
+  calls: RunActivityTracker,
   executions: ToolExecutionFence,
   instrumentation: AgentRunChatInstrumentation,
 ): AsyncIterable<StreamChunk> {
   const adapter = admittingProviderCalls(
     withUsage(input.adapter, 'agent', (call) => {
       policy.recordProviderCall(call);
+      calls.recordProviderCall(call);
       instrumentation.onProviderCall?.(call);
     }),
     policy,
@@ -232,35 +253,13 @@ function startChat(
     },
   });
   const rawArgsByCall = new Map<string, unknown>();
-  // chat() would send its own validation message to the model, so invalid
-  // arguments get the executor's sanitized failure instead.
-  const admitArgs = async (
-    ctx: ChatMiddlewareContext,
-    hookCtx: ToolCallHookContext,
-    args: unknown,
-  ): Promise<BeforeToolCallDecision> => {
-    const entry = input.registry.get(hookCtx.toolName);
-    if (entry === undefined) return undefined;
-    rawArgsByCall.set(hookCtx.toolCallId, args);
-    if (await acceptsInput(entry, args)) return undefined;
-    const result = await executions.track(
-      entry,
-      executeToolCall(
-        entry,
-        args,
-        input.identity,
-        ctx.signal ?? policy.abortController.signal,
-      ),
-    );
-    calls.settle(hookCtx.toolCallId, result);
-    return { type: 'skip', result: toModelToolPayload(result) };
-  };
   const runEventsMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-events',
     // After the policy middleware, whose gate wait can record more notes.
     onConfig: (ctx, config) => {
       if (ctx.phase !== 'beforeModel') return undefined;
-      calls.startTurn(ctx.iteration + 1);
+      if (policy.ending === undefined) calls.beginTurn(ctx.iteration + 1);
+      else calls.skipTurn(ctx.iteration + 1);
       const notes = options.takeSessionNotes?.() ?? [];
       if (notes.length === 0) return undefined;
       return {
@@ -273,35 +272,19 @@ function startChat(
     onBeforeToolCall: (ctx, hookCtx) => admitArgs(ctx, hookCtx, hookCtx.args),
     onToolPhaseComplete: (_ctx, info) => {
       calls.endToolPhase(info.toolCalls.map((call) => call.id));
+      calls.endTurn();
     },
   };
-  // Last in the array, so it sees every other middleware's substitution.
+  // Last in the array, so it sees every other middleware's substitution and
+  // the call's settlement is final once it has run.
   const resultGuardMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-result-guard',
     onAfterToolCall: async (_ctx, info) => {
-      const entry = input.registry.get(info.toolName);
-      if (entry === undefined) return undefined;
-      if (!info.ok && info.result === undefined) return undefined;
-      const own = calls.settledResult(info.toolCallId);
-      if (
-        own !== undefined &&
-        isSameModelPayload(info.result, toModelToolPayload(own))
-      ) {
-        return undefined;
+      try {
+        return await guardResult(info);
+      } finally {
+        calls.completeCall(info.toolCallId);
       }
-      const validation = await validateToolResultEnvelope(entry, info.result);
-      if (!validation.valid) {
-        input.logger.warn('Agent run replaced an invalid substituted result', {
-          runId: input.runId,
-          tool: entry.tool.name,
-          reason: validation.reason,
-        });
-      }
-      const result = validation.valid
-        ? validation.result
-        : invalidSubstitutionResult(entry);
-      calls.settle(info.toolCallId, result);
-      return { type: 'replaceResult', result: toModelToolPayload(result) };
     },
   };
   return chat({
@@ -333,6 +316,58 @@ function startChat(
     debug: false,
     ...(input.retry !== undefined && { retry: input.retry }),
   });
+
+  // chat() would send its own validation message to the model, so invalid
+  // arguments get the executor's sanitized failure instead.
+  async function admitArgs(
+    ctx: ChatMiddlewareContext,
+    hookCtx: ToolCallHookContext,
+    args: unknown,
+  ): Promise<BeforeToolCallDecision> {
+    const entry = input.registry.get(hookCtx.toolName);
+    if (entry === undefined) return undefined;
+    rawArgsByCall.set(hookCtx.toolCallId, args);
+    if (await acceptsInput(entry, args)) return undefined;
+    const result = await executions.track(
+      entry,
+      executeToolCall(
+        entry,
+        args,
+        input.identity,
+        ctx.signal ?? policy.abortController.signal,
+      ),
+    );
+    calls.settle(hookCtx.toolCallId, result);
+    return { type: 'skip', result: toModelToolPayload(result) };
+  }
+
+  async function guardResult(
+    info: AfterToolCallInfo,
+  ): Promise<AfterToolCallDecision> {
+    const entry = input.registry.get(info.toolName);
+    if (entry === undefined) return undefined;
+    if (!info.ok && info.result === undefined) return undefined;
+    const own = calls.settledResult(info.toolCallId);
+    if (
+      own !== undefined &&
+      isSameModelPayload(info.result, toModelToolPayload(own))
+    ) {
+      return undefined;
+    }
+    const validation = await validateToolResultEnvelope(entry, info.result);
+    if (!validation.valid) {
+      input.logger.warn('Agent run replaced an invalid substituted result', {
+        runId: input.runId,
+        tool: entry.tool.name,
+        reason: validation.reason,
+      });
+    }
+    const result = validation.valid
+      ? validation.result
+      : invalidSubstitutionResult(entry);
+    calls.settle(info.toolCallId, result);
+    return { type: 'replaceResult', result: toModelToolPayload(result) };
+  }
 }
 
 // chat() stops at the first onBeforeToolCall decision, so a transformArgs
@@ -361,7 +396,7 @@ function toChatTool(
   entry: ToolRegistryEntry,
   input: AgentRunInput,
   policy: AgentRunPolicy,
-  calls: ToolCallTracker,
+  calls: RunActivityTracker,
   executions: ToolExecutionFence,
   rawArgsOf: (callId: string) => unknown,
 ): Tool {
@@ -377,7 +412,7 @@ function toChatTool(
       callId === undefined
         ? validatedArgs
         : (rawArgsOf(callId) ?? validatedArgs);
-    if (callId !== undefined) calls.markStarted(callId);
+    if (callId !== undefined) calls.markStarted(callId, rawArgs);
     const result = await executions.track(
       entry,
       executeToolCall(
@@ -403,10 +438,20 @@ interface AnnouncedToolCall {
   readonly callId: CallId;
   readonly name: string;
   readonly turnId: string;
-  started: boolean;
+  startedAt?: number;
+  settledAt?: number;
+  completionReported: boolean;
 }
 
-type ToolCallTracker = ReturnType<typeof createToolCallTracker>;
+interface OpenTurn {
+  readonly index: number;
+  /** The run's tool call counts when the turn started, diffed when it finishes. */
+  readonly toolCallsAtStart: AgentRunToolCallCounts;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+type RunActivityTracker = ReturnType<typeof createRunActivityTracker>;
 
 type ToolExecutionFence = ReturnType<typeof createToolExecutionFence>;
 
@@ -430,8 +475,16 @@ function createToolExecutionFence() {
   };
 }
 
-function createToolCallTracker(runId: RunId) {
+function createRunActivityTracker(
+  runId: RunId,
+  clock: AgentRunClock,
+  logger: Logger,
+  onActivity: ((activity: AgentRunActivity) => void) | undefined,
+  policy: Pick<AgentRunPolicy, 'countRequestedToolCall' | 'metrics'>,
+) {
   let turn = 0;
+  let openTurn: OpenTurn | undefined;
+  let activityClosed = false;
   let textTurn = 0;
   let text = '';
   let accepting = true;
@@ -443,84 +496,30 @@ function createToolCallTracker(runId: RunId) {
   const callIdByProviderId = new Map<string, CallId>();
   const announced = new Map<CallId, AnnouncedToolCall>();
   const settled = new Map<CallId, ToolCallResult>();
-  const turnId = () => `${runId}:t${turn}`;
-
-  const settleAnnounced = (
-    call: AnnouncedToolCall,
-  ): { event: AgentRunEvent; phaseResult: AgentRunToolPhaseResult } => {
-    const result = settled.get(call.callId) ?? unsettledResult(call);
-    announced.delete(call.callId);
-    return {
-      event: {
-        type: 'tool_result',
-        turnId: call.turnId,
-        callId: call.callId,
-        name: call.name,
-        ok: result.ok,
-        summary: result.summary,
-      },
-      phaseResult: result.ok
-        ? {
-            callId: call.callId,
-            name: call.name,
-            ok: true,
-            summary: result.summary,
-            value: result.value,
-          }
-        : {
-            callId: call.callId,
-            name: call.name,
-            ok: false,
-            summary: result.summary,
-          },
-    };
-  };
-
-  function* drainQueued(): Generator<AgentRunEvent> {
-    for (let event = queued.shift(); event; event = queued.shift()) {
-      yield event;
-    }
-  }
 
   return {
-    drainQueued,
-    startTurn(next: number) {
-      turn = next;
+    beginTurn(index: number) {
+      // A tool turn cut off at the output limit is still open here.
+      endTurn();
+      turn = index;
+      openTurn = { index, toolCallsAtStart: runToolCalls() };
+      report({ type: 'turn_started', turnId: turnId(), turnIndex: index });
     },
-    settle(providerCallId: string, result: ToolCallResult) {
-      const callId = callIdByProviderId.get(providerCallId);
-      if (callId !== undefined) settled.set(callId, result);
+    skipTurn(index: number) {
+      endTurn();
+      turn = index;
     },
-    settledResult(providerCallId: string): ToolCallResult | undefined {
-      const callId = callIdByProviderId.get(providerCallId);
-      return callId === undefined ? undefined : settled.get(callId);
+    endTurn,
+    recordProviderCall(call: ProviderCallRecord) {
+      if (openTurn === undefined) return;
+      const { inputTokens, outputTokens } = call.usage ?? {};
+      if (inputTokens !== undefined)
+        openTurn.inputTokens = (openTurn.inputTokens ?? 0) + inputTokens;
+      if (outputTokens !== undefined)
+        openTurn.outputTokens = (openTurn.outputTokens ?? 0) + outputTokens;
     },
-    markStarted(providerCallId: string) {
-      const callId = callIdByProviderId.get(providerCallId);
-      const call = callId === undefined ? undefined : announced.get(callId);
-      if (call !== undefined) call.started = true;
-    },
-    endToolPhase(providerCallIds: readonly string[]) {
-      if (!accepting) return;
-      const results: AgentRunToolPhaseResult[] = [];
-      for (const providerCallId of providerCallIds) {
-        const callId = callIdByProviderId.get(providerCallId);
-        const call = callId === undefined ? undefined : announced.get(callId);
-        if (call === undefined) continue;
-        const { event, phaseResult } = settleAnnounced(call);
-        queued.push(event);
-        results.push(phaseResult);
-      }
-      if (results.length > 0) {
-        queued.push({ type: 'tool_phase_ended', turnId: turnId(), results });
-      }
-    },
-    *closeQueue(): Generator<AgentRunEvent> {
-      accepting = false;
-      yield* drainQueued();
-      for (const call of [...announced.values()]) {
-        yield settleAnnounced(call).event;
-      }
+    lastTurnText(): string {
+      return textTurn === turn ? text : '';
     },
     *mapChunk(chunk: StreamChunk): Generator<AgentRunEvent> {
       switch (chunk.type) {
@@ -557,8 +556,9 @@ function createToolCallTracker(runId: RunId) {
             callId,
             name: call.name,
             turnId: call.turnId,
-            started: false,
+            completionReported: false,
           });
+          policy.countRequestedToolCall();
           yield {
             type: 'tool_call',
             turnId: call.turnId,
@@ -575,10 +575,184 @@ function createToolCallTracker(runId: RunId) {
           return;
       }
     },
-    lastTurnText(): string {
-      return textTurn === turn ? text : '';
+    drainQueued,
+    markStarted(providerCallId: string, args: unknown) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
+      if (call === undefined) return;
+      call.startedAt = clock.now();
+      report({
+        type: 'tool_started',
+        turnId: call.turnId,
+        callId: call.callId,
+        name: call.name,
+        args,
+      });
+    },
+    settle(providerCallId: string, result: ToolCallResult) {
+      const callId = callIdByProviderId.get(providerCallId);
+      if (callId === undefined) return;
+      settled.set(callId, result);
+      const call = announced.get(callId);
+      if (call !== undefined) call.settledAt = clock.now();
+    },
+    settledResult(providerCallId: string): ToolCallResult | undefined {
+      const callId = callIdByProviderId.get(providerCallId);
+      return callId === undefined ? undefined : settled.get(callId);
+    },
+    completeCall(providerCallId: string) {
+      const callId = callIdByProviderId.get(providerCallId);
+      const call = callId === undefined ? undefined : announced.get(callId);
+      if (call !== undefined) {
+        reportCompletion(
+          call,
+          settled.get(call.callId) ?? unsettledResult(call),
+        );
+      }
+    },
+    endToolPhase(providerCallIds: readonly string[]) {
+      if (!accepting) return;
+      const results: AgentRunToolPhaseResult[] = [];
+      for (const providerCallId of providerCallIds) {
+        const callId = callIdByProviderId.get(providerCallId);
+        const call = callId === undefined ? undefined : announced.get(callId);
+        if (call === undefined) continue;
+        const { event, phaseResult } = settleAnnounced(call);
+        queued.push(event);
+        results.push(phaseResult);
+      }
+      if (results.length > 0) {
+        queued.push({ type: 'tool_phase_ended', turnId: turnId(), results });
+      }
+    },
+    *closeQueue(): Generator<AgentRunEvent> {
+      accepting = false;
+      yield* drainQueued();
+      for (const call of [...announced.values()]) {
+        yield settleAnnounced(call).event;
+      }
+    },
+    closeActivity() {
+      endTurn();
+      activityClosed = true;
+    },
+    stopActivity() {
+      activityClosed = true;
     },
   };
+
+  function turnIdOf(index: number) {
+    return `${runId}:t${index}`;
+  }
+
+  function runToolCalls() {
+    return policy.metrics().metrics.toolCalls;
+  }
+
+  function turnId() {
+    return turnIdOf(turn);
+  }
+
+  function report(activity: AgentRunActivity) {
+    if (activityClosed || onActivity === undefined) return;
+    try {
+      onActivity(activity);
+    } catch (error) {
+      logger.warn('Agent run activity observer threw', {
+        runId,
+        activity: activity.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  function reportCompletion(call: AnnouncedToolCall, result: ToolCallResult) {
+    if (call.completionReported) return;
+    call.completionReported = true;
+    report({
+      type: 'tool_completed',
+      turnId: call.turnId,
+      callId: call.callId,
+      name: call.name,
+      outcome: result.ok
+        ? 'succeeded'
+        : hasStarted(call)
+          ? 'failed'
+          : 'not_run',
+      ...(call.startedAt === undefined
+        ? {}
+        : {
+            durationMs: Math.max(
+              0,
+              Math.round((call.settledAt ?? clock.now()) - call.startedAt),
+            ),
+          }),
+      result: activityResultOf(result),
+    });
+  }
+
+  function endTurn() {
+    const finishing = openTurn;
+    if (finishing === undefined) return;
+    openTurn = undefined;
+    const atStart = finishing.toolCallsAtStart;
+    const atFinish = runToolCalls();
+    report({
+      type: 'turn_finished',
+      turnId: turnIdOf(finishing.index),
+      turnIndex: finishing.index,
+      toolCalls: {
+        requested: atFinish.requested - atStart.requested,
+        admitted: atFinish.admitted - atStart.admitted,
+      },
+      ...(finishing.inputTokens === undefined
+        ? {}
+        : { inputTokens: finishing.inputTokens }),
+      ...(finishing.outputTokens === undefined
+        ? {}
+        : { outputTokens: finishing.outputTokens }),
+      text: textTurn === finishing.index ? text : '',
+    });
+  }
+
+  function settleAnnounced(call: AnnouncedToolCall): {
+    event: AgentRunEvent;
+    phaseResult: AgentRunToolPhaseResult;
+  } {
+    const result = settled.get(call.callId) ?? unsettledResult(call);
+    reportCompletion(call, result);
+    announced.delete(call.callId);
+    return {
+      event: {
+        type: 'tool_result',
+        turnId: call.turnId,
+        callId: call.callId,
+        name: call.name,
+        ok: result.ok,
+        summary: result.summary,
+      },
+      phaseResult: result.ok
+        ? {
+            callId: call.callId,
+            name: call.name,
+            ok: true,
+            summary: result.summary,
+            value: result.value,
+          }
+        : {
+            callId: call.callId,
+            name: call.name,
+            ok: false,
+            summary: result.summary,
+          },
+    };
+  }
+
+  function* drainQueued(): Generator<AgentRunEvent> {
+    for (let event = queued.shift(); event; event = queued.shift()) {
+      yield event;
+    }
+  }
 }
 
 function* endingEvents(
@@ -765,12 +939,22 @@ function parseJsonOrKeep(value: string): unknown {
   }
 }
 
+function activityResultOf(result: ToolCallResult): AgentRunActivityToolResult {
+  return result.ok
+    ? { ok: true, value: result.value, summary: result.summary }
+    : { ok: false, code: result.code, summary: result.summary };
+}
+
 function unsettledResult(call: AnnouncedToolCall): ToolCallResult {
   return {
     ok: false,
     code: 'cancelled',
-    summary: call.started ? STOPPED_TOOL_SUMMARY : NOT_RUN_TOOL_SUMMARY,
+    summary: hasStarted(call) ? STOPPED_TOOL_SUMMARY : NOT_RUN_TOOL_SUMMARY,
   };
+}
+
+function hasStarted(call: AnnouncedToolCall): boolean {
+  return call.startedAt !== undefined;
 }
 
 function parseArgsText(argsText: string): unknown {

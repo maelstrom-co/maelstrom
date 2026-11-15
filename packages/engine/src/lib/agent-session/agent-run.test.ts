@@ -21,6 +21,7 @@ import {
   STOPPED_TOOL_SUMMARY,
 } from './agent-run-policy.js';
 import {
+  type AgentRunActivity,
   type AgentRunBudgets,
   type AgentRunEvent,
   type AgentRunFinished,
@@ -108,7 +109,7 @@ describe('runAgent on chat()', () => {
         reply: 'Your order is o-1.',
         metrics: {
           turns: 2,
-          toolCalls: 1,
+          toolCalls: { requested: 1, admitted: 1 },
           elapsedMs: 0,
           inputTokens: 14,
           outputTokens: 3,
@@ -509,6 +510,54 @@ describe('runAgent on chat()', () => {
       },
     );
 
+    test('tool_completed reports the replaced result, not the tool own result', async () => {
+      const tools = orderTools();
+      const model = scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        textTurn(['No order found.'], usage(4, 1)),
+      ]);
+      const substitution = {
+        name: 'test-malformed-replace',
+        onAfterToolCall: () => ({
+          type: 'replaceResult',
+          result: { ok: true, value: { orderId: SECRET }, summary: 'Order' },
+        }),
+      } satisfies ChatMiddleware;
+      const activity: AgentRunActivity[] = [];
+
+      await collect(
+        runAgentChat(
+          runInput({ adapter: model.adapter, registry: tools.registry }),
+          {
+            signal: new AbortController().signal,
+            onActivity: (next) => {
+              activity.push(next);
+            },
+          },
+          { middleware: [substitution] },
+        ),
+      );
+
+      const completed = activity.filter(
+        (entry) => entry.type === 'tool_completed' && entry.callId === 'c1',
+      );
+      expect(completed).toEqual([
+        {
+          type: 'tool_completed',
+          turnId: 'run-1:t1',
+          callId: CallId('c1'),
+          name: 'latest_order',
+          outcome: 'failed',
+          durationMs: expect.any(Number),
+          result: {
+            ok: false,
+            code: 'invalid_output',
+            summary: INVALID_RESULT_SUMMARY,
+          },
+        },
+      ]);
+    });
+
     test('a substituted success envelope whose output schema has a rejecting async refine is replaced without an unhandled rejection', async () => {
       const unhandled = recordUnhandledRejections();
       const tools = asyncOutputRefineTools(async () => {
@@ -601,16 +650,25 @@ describe('runAgent on chat()', () => {
         name: 'test-transform-args',
         onBeforeToolCall: () => ({ type: 'transformArgs', args: { by: 5 } }),
       };
+      const activity: AgentRunActivity[] = [];
 
       const events = await collect(
         runAgentChat(
           runInput({ adapter: model.adapter, registry: tools.registry }),
-          { signal: new AbortController().signal },
+          {
+            signal: new AbortController().signal,
+            onActivity: (next) => {
+              activity.push(next);
+            },
+          },
           { middleware: [transform] },
         ),
       );
 
       expect(tools.balances).toEqual([5]);
+      const started = activity.filter((entry) => entry.type === 'tool_started');
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({ callId: 'c1', args: { by: 5 } });
       expect(toolMessageContents(model.requests[1])).toEqual([{ balance: 5 }]);
       expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
       expectEveryCallSettledOnce(events);
@@ -1097,7 +1155,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: BUDGET_CLOSING_MESSAGE,
       metrics: {
         turns: 3,
-        toolCalls: 2,
+        toolCalls: { requested: 3, admitted: 2 },
         elapsedMs: 0,
         inputTokens: 30,
         outputTokens: 6,
@@ -1105,6 +1163,80 @@ describe('runAgent budgets and stops on chat()', () => {
       unreportedUsageCalls: 0,
     });
     expectEveryCallSettledOnce(events);
+  });
+
+  test('a turn the cap refuses reports no turn activity, and each admitted turn finishes once before finished', async () => {
+    const tools = orderTools();
+    const model = scriptedAdapter(
+      [1, 2, 3, 4].map((turn) =>
+        toolTurn(
+          [{ id: `c${turn}`, name: 'latest_order', args: {} }],
+          usage(10, 2),
+        ),
+      ),
+    );
+    const log: (AgentRunActivity | 'finished')[] = [];
+
+    for await (const event of runAgent(
+      runInput({
+        adapter: model.adapter,
+        registry: tools.registry,
+        budgets: { ...testBudgets, maxTurns: 3 },
+      }),
+      {
+        signal: new AbortController().signal,
+        onActivity: (activity) => {
+          log.push(activity);
+        },
+      },
+    )) {
+      if (event.type === 'finished') log.push('finished');
+    }
+
+    const activity = log.filter((entry) => entry !== 'finished');
+    const turnsOf = (type: 'turn_started' | 'turn_finished') =>
+      activity.flatMap((entry) =>
+        entry.type === type ? [entry.turnIndex] : [],
+      );
+    expect(turnsOf('turn_started')).toEqual([1, 2, 3]);
+    expect(turnsOf('turn_finished')).toEqual([1, 2, 3]);
+    expect(serializeLoosely(activity)).not.toContain('run-1:t4');
+    expect(log.at(-1)).toBe('finished');
+  });
+
+  test('a tool turn cut off at the output limit finishes when the next turn starts', async () => {
+    const tools = orderTools();
+    const model = scriptedAdapter([
+      withFinishReason(
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        { finishReason: 'length' },
+      ),
+      textTurn(['Done'], usage(5, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      }),
+    );
+
+    expect(activity.map((entry) => entry.type)).toEqual([
+      'turn_started',
+      'tool_completed',
+      'turn_finished',
+      'turn_started',
+      'turn_finished',
+    ]);
+    expect(activity[2]).toMatchObject({
+      turnIndex: 1,
+      toolCalls: { requested: 1, admitted: 0 },
+      inputTokens: 10,
+      outputTokens: 2,
+    });
   });
 
   test.each([
@@ -1152,7 +1284,11 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'budget',
         limit: 'elapsed',
-        metrics: { turns: 2, toolCalls: 1, elapsedMs: 99 + lateBy },
+        metrics: {
+          turns: 2,
+          toolCalls: { requested: 2, admitted: 1 },
+          elapsedMs: 99 + lateBy,
+        },
       });
       expectEveryCallSettledOnce(events);
     },
@@ -1198,7 +1334,10 @@ describe('runAgent budgets and stops on chat()', () => {
         type: 'finished',
         reason: 'budget',
         limit: 'elapsed',
-        metrics: expect.objectContaining({ turns: 1, toolCalls: 0 }),
+        metrics: expect.objectContaining({
+          turns: 1,
+          toolCalls: { requested: 0, admitted: 0 },
+        }),
       }),
     ]);
     expect(stalled.signal?.aborted).toBe(true);
@@ -1299,7 +1438,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: BUDGET_CLOSING_MESSAGE,
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 2, admitted: 1 },
         elapsedMs: 0,
         inputTokens: 8,
         outputTokens: 4,
@@ -1336,7 +1475,11 @@ describe('runAgent budgets and stops on chat()', () => {
       limit: 'tokens',
       usageUnknown: true,
       reply: BUDGET_CLOSING_MESSAGE,
-      metrics: { ...ZERO_METRICS, turns: 1 },
+      metrics: {
+        ...ZERO_METRICS,
+        turns: 1,
+        toolCalls: { requested: 1, admitted: 0 },
+      },
       unreportedUsageCalls: 1,
     });
     expectEveryCallSettledOnce(events);
@@ -1367,7 +1510,7 @@ describe('runAgent budgets and stops on chat()', () => {
       reply: 'Added.',
       metrics: {
         turns: 2,
-        toolCalls: 1,
+        toolCalls: { requested: 1, admitted: 1 },
         elapsedMs: 0,
         inputTokens: 4,
         outputTokens: 1,
@@ -1409,7 +1552,7 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(lastEvent(events)).toMatchObject({
       reason: 'budget',
       limit: 'toolCalls',
-      metrics: { turns: 1, toolCalls: 0 },
+      metrics: { turns: 1, toolCalls: { requested: 3, admitted: 0 } },
     });
     expectEveryCallSettledOnce(events);
   });
@@ -1450,7 +1593,101 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(lastEvent(events)).toMatchObject({
       reason: 'completed',
       reply: 'Balance is 1.',
-      metrics: { turns: 2, toolCalls: 1 },
+      metrics: { turns: 2, toolCalls: { requested: 2, admitted: 1 } },
+    });
+  });
+
+  test('each turn_finished counts the calls its turn requested and admitted, and the admitted counts of the turns sum to the run total', async () => {
+    const counter = counterTools();
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'increment', args: { by: 1 } },
+          { id: 'c2', name: 'made_up_tool', args: {} },
+        ],
+        usage(4, 1),
+      ),
+      toolTurn(
+        [
+          { id: 'c3', name: 'increment', args: { by: 1 } },
+          { id: 'c4', name: 'increment', args: { by: 1 } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: counter.registry,
+          budgets: { ...testBudgets, maxToolCalls: 2 },
+        }),
+        {
+          signal: new AbortController().signal,
+          onActivity: (next) => {
+            activity.push(next);
+          },
+        },
+      ),
+    );
+
+    const turns = activity.filter((entry) => entry.type === 'turn_finished');
+    expect(turns.map((turn) => [turn.turnIndex, turn.toolCalls])).toEqual([
+      [1, { requested: 2, admitted: 1 }],
+      [2, { requested: 2, admitted: 0 }],
+    ]);
+    const finished = lastEvent(events);
+    expect(finished).toMatchObject({
+      reason: 'budget',
+      limit: 'toolCalls',
+      metrics: { toolCalls: { requested: 4, admitted: 1 } },
+    });
+    if (finished.type !== 'finished') throw new Error('no finished event');
+    expect(turns.reduce((sum, turn) => sum + turn.toolCalls.admitted, 0)).toBe(
+      finished.metrics.toolCalls.admitted,
+    );
+    expect(turns.reduce((sum, turn) => sum + turn.toolCalls.requested, 0)).toBe(
+      finished.metrics.toolCalls.requested,
+    );
+  });
+
+  test('a call with invalid arguments passes the policy before its arguments are rejected, so it counts as admitted', async () => {
+    const counter = counterTools();
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'increment', args: { by: 'one' } }],
+        usage(4, 1),
+      ),
+      textTurn(['Sorry.'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+
+    const events = await collect(
+      runAgent(
+        runInput({ adapter: model.adapter, registry: counter.registry }),
+        {
+          signal: new AbortController().signal,
+          onActivity: (next) => {
+            activity.push(next);
+          },
+        },
+      ),
+    );
+
+    expect(counter.balances).toEqual([]);
+    expect(activity).toContainEqual(
+      expect.objectContaining({
+        type: 'turn_finished',
+        turnIndex: 1,
+        toolCalls: { requested: 1, admitted: 1 },
+      }),
+    );
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      metrics: { toolCalls: { requested: 1, admitted: 1 } },
     });
   });
 
@@ -1482,7 +1719,7 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(counter.log).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
     expect(lastEvent(events)).toMatchObject({
       reason: 'completed',
-      metrics: { turns: 2, toolCalls: 2 },
+      metrics: { turns: 2, toolCalls: { requested: 2, admitted: 2 } },
     });
   });
 
@@ -1558,6 +1795,193 @@ describe('runAgent budgets and stops on chat()', () => {
     expect(events[1]).toEqual(stoppedResult('run-1:t1', 'c1', 'increment'));
     expect(lastEvent(events)).toMatchObject({ reason: 'cancelled' });
     expect(await iterator.next()).toEqual({ done: true, value: undefined });
+  });
+
+  test('reports turn and tool activity with a stopped call as failed, and nothing after finished when a tool that ignores the abort settles later', async () => {
+    const controller = new AbortController();
+    const release = defer<void>();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await release.promise;
+      },
+      ignoresAbort: true,
+    });
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'increment', args: { by: 1 } }], usage(4, 1)),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+    const iterator = runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      },
+    )[Symbol.asyncIterator]();
+
+    await drain(iterator);
+    const reportedBeforeFinished = activity.length;
+    release.resolve();
+    await flushMacrotask();
+    await flushMacrotask();
+
+    expect(activity).toHaveLength(reportedBeforeFinished);
+    expect(activity.map((entry) => entry.type)).toEqual([
+      'turn_started',
+      'tool_started',
+      'tool_completed',
+      'turn_finished',
+    ]);
+    expect(activity[1]).toEqual({
+      type: 'tool_started',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'increment',
+      args: { by: 1 },
+    });
+    expect(activity[2]).toMatchObject({
+      type: 'tool_completed',
+      callId: 'c1',
+      outcome: 'failed',
+      result: { ok: false, code: 'cancelled' },
+    });
+    expect(activity[3]).toMatchObject({
+      type: 'turn_finished',
+      turnId: 'run-1:t1',
+      turnIndex: 1,
+      toolCalls: { requested: 1, admitted: 1 },
+      inputTokens: 4,
+      outputTokens: 1,
+    });
+  });
+
+  test('a call announced beside one that aborts the run completes as not_run without a duration and never starts', async () => {
+    const controller = new AbortController();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await Promise.resolve();
+      },
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'increment', args: { by: 1 } },
+          { id: 'c2', name: 'increment', args: { by: 2 } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const log: (AgentRunActivity | 'finished')[] = [];
+
+    for await (const event of runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (activity) => {
+          log.push(activity);
+        },
+      },
+    )) {
+      if (event.type === 'finished') log.push('finished');
+    }
+
+    const ofSecondCall = log.filter(
+      (entry) =>
+        entry !== 'finished' && 'callId' in entry && entry.callId === 'c2',
+    );
+    expect(ofSecondCall).toEqual([
+      expect.objectContaining({
+        type: 'tool_completed',
+        outcome: 'not_run',
+        result: expect.objectContaining({ ok: false }),
+      }),
+    ]);
+    expect(ofSecondCall[0]).not.toHaveProperty('durationMs');
+    expect(log.indexOf(ofSecondCall[0] ?? 'finished')).toBeLessThan(
+      log.indexOf('finished'),
+    );
+  });
+
+  test('after return() before finished, no activity is reported even when a tool that ignores the abort settles later', async () => {
+    const controller = new AbortController();
+    const release = defer<void>();
+    const counter = counterTools({
+      beforeEffect: async () => {
+        controller.abort('user stopped');
+        await release.promise;
+      },
+      ignoresAbort: true,
+    });
+    const model = scriptedAdapter([
+      toolTurn([{ id: 'c1', name: 'increment', args: { by: 1 } }], usage(4, 1)),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const activity: AgentRunActivity[] = [];
+    const iterator = runAgent(
+      runInput({ adapter: model.adapter, registry: counter.registry }),
+      {
+        signal: controller.signal,
+        onActivity: (next) => {
+          activity.push(next);
+        },
+      },
+    )[Symbol.asyncIterator]();
+
+    await takeUntil(iterator, (event) => event.type === 'tool_result');
+    await iterator.return?.();
+    const reportedAtReturn = activity.length;
+    release.resolve();
+    await flushMacrotask();
+    await flushMacrotask();
+
+    expect(counter.balances).toEqual([1]);
+    expect(activity).toHaveLength(reportedAtReturn);
+  });
+
+  test('an observer that throws on every activity changes neither the events nor the ending, and is logged', async () => {
+    const script = () =>
+      scriptedAdapter([
+        toolTurn([{ id: 'c1', name: 'latest_order', args: {} }], usage(10, 2)),
+        textTurn(['Your order is o-1.'], usage(4, 1)),
+      ]);
+    const unobserved = await collect(
+      runAgent(
+        runInput({
+          adapter: script().adapter,
+          registry: orderTools().registry,
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+    const warnings: { message: string; data?: Record<string, unknown> }[] = [];
+
+    const observed = await collect(
+      runAgent(
+        runInput({
+          adapter: script().adapter,
+          registry: orderTools().registry,
+          logger: recordingLogger(warnings),
+        }),
+        {
+          signal: new AbortController().signal,
+          onActivity: () => {
+            throw new Error('observer failed');
+          },
+        },
+      ),
+    );
+
+    expect(observed).toEqual(unobserved);
+    expect(lastEvent(observed)).toMatchObject({ reason: 'completed' });
+    expect(observed).toContainEqual(
+      expect.objectContaining({ type: 'tool_result', ok: true }),
+    );
+    expect(warnings.length).toBeGreaterThan(0);
   });
 
   describe('toolsSettled on the ending', () => {
@@ -2015,7 +2439,10 @@ describe('runAgent budgets and stops on chat()', () => {
         expect.objectContaining({
           reason: 'budget',
           limit: 'turns',
-          metrics: expect.objectContaining({ turns: 3, toolCalls: 2 }),
+          metrics: expect.objectContaining({
+            turns: 3,
+            toolCalls: { requested: 4, admitted: 2 },
+          }),
         }),
       ]);
       expect(substituted).toEqual([
@@ -2058,7 +2485,7 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'completed',
         reply: 'All done.',
-        metrics: { turns: 3, toolCalls: 2 },
+        metrics: { turns: 3, toolCalls: { requested: 2, admitted: 2 } },
       });
     });
 
@@ -2090,7 +2517,7 @@ describe('runAgent budgets and stops on chat()', () => {
       expect(lastEvent(events)).toMatchObject({
         reason: 'budget',
         limit: 'turns',
-        metrics: { turns: 12, toolCalls: 11 },
+        metrics: { turns: 12, toolCalls: { requested: 12, admitted: 11 } },
       });
       expectEveryCallSettledOnce(events);
     });
@@ -2242,7 +2669,7 @@ const testBudgets: AgentRunBudgets = {
 
 const ZERO_METRICS = {
   turns: 0,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 0,
   inputTokens: 0,
   outputTokens: 0,
@@ -2423,7 +2850,7 @@ function runFinished(
 
 function withFinishReason(
   call: ModelCall,
-  replacement: { readonly finishReason?: null },
+  replacement: { readonly finishReason?: null | 'length' },
 ): ModelCall {
   return async function* (request) {
     for await (const chunk of call(request)) {

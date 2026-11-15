@@ -15,7 +15,7 @@ const secondRun = RunId('run-2');
 const thirdRun = RunId('run-3');
 const metrics: AgentRunMetrics = {
   turns: 1,
-  toolCalls: 0,
+  toolCalls: { requested: 0, admitted: 0 },
   elapsedMs: 10,
   inputTokens: 5,
   outputTokens: 3,
