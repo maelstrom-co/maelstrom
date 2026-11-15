@@ -142,33 +142,113 @@ export function createAgentRunQueue({
     active?.sessionNotes.push(renderShowNote(turnId, text));
   });
 
-  const isCurrent = (run: ActiveAgentRun) => !closed && active === run;
+  return {
+    pendingRuns: () => queue.length + (active === undefined ? 0 : 1),
+    enqueue(input) {
+      if (closed) return Promise.resolve();
+      const run: QueuedAgentRun = {
+        input,
+        runId: RunId(crypto.randomUUID()),
+        done: deferred(),
+      };
+      queue.push(run);
+      shows.noteChart(input.chart);
+      events.emit(...buildAcceptanceEvents(input.inputId, run.runId, 'agent'));
+      observe(
+        run.runId,
+        input.inputId,
+        'engine.agent.input.accepted',
+        { source: input.source, disposition: 'agent' },
+        () => ({ text: input.text }),
+      );
+      void pump();
+      return run.done.promise;
+    },
+    cancelRun(runId) {
+      if (closed) return;
+      shows.dropRun(runId);
+      if (active?.runId === runId) {
+        if (active.cancelled) return;
+        active.cancelled = true;
+        active.controller.abort(
+          new DOMException('Agent run cancelled', 'AbortError'),
+        );
+        return;
+      }
+      const index = queue.findIndex((queued) => queued.runId === runId);
+      if (index === -1) return;
+      const [queued] = queue.splice(index, 1);
+      if (queued === undefined) return;
+      const now = clock();
+      const ending = buildRunEnding(
+        { runId, started: now },
+        now,
+        undefined,
+        CANCELLED_FAILURE,
+        ZERO_COUNTERS,
+      );
+      events.emit(...ending.events);
+      observe(
+        runId,
+        queued.input.inputId,
+        'engine.agent.run.finished',
+        ending.metadata,
+      );
+      queued.done.resolve();
+    },
+    acknowledge(input) {
+      if (closed) return;
+      shows.acknowledge(input);
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      stopShowNotes();
+      shows.close();
+      const run = active;
+      active = undefined;
+      if (run !== undefined) {
+        run.controller.abort(
+          new DOMException('Agent connection closed', 'AbortError'),
+        );
+        run.iterator?.return?.().catch(() => undefined);
+        run.done.resolve();
+      }
+      for (const queued of queue.splice(0)) queued.done.resolve();
+    },
+  };
+
+  function isCurrent(run: ActiveAgentRun) {
+    return !closed && active === run;
+  }
 
   // Deliberately drops activity once the run is cancelled or stale, as
   // forward drops wire events, so a turn or tool can stay open until
   // run.finished closes it.
-  const observeActivity = (run: ActiveAgentRun, activity: AgentRunActivity) => {
+  function observeActivity(run: ActiveAgentRun, activity: AgentRunActivity) {
     if (!isCurrent(run) || run.cancelled) return;
     const { kind, metadata, readContent } = activityObservation(activity);
     observe(run.runId, run.input.inputId, kind, metadata, readContent);
-  };
+  }
 
-  const measuredSince = (
+  function measuredSince(
     finished: AgentRunFinished,
     since: number,
-  ): AgentRunFinished => ({
-    ...finished,
-    metrics: {
-      ...finished.metrics,
-      elapsedMs: Math.max(0, Math.round(clock() - since)),
-    },
-  });
+  ): AgentRunFinished {
+    return {
+      ...finished,
+      metrics: {
+        ...finished.metrics,
+        elapsedMs: Math.max(0, Math.round(clock() - since)),
+      },
+    };
+  }
 
-  const finish = (
+  function finish(
     run: ActiveAgentRun,
     finished: AgentRunFinished,
     toolsSettled?: Promise<void>,
-  ) => {
+  ) {
     if (finished.reason === 'budget') {
       transcript.recordClosingMessage(run.runId, finished.reply);
     }
@@ -206,9 +286,9 @@ export function createAgentRunQueue({
         void pump();
       });
     toolsSettling = settling;
-  };
+  }
 
-  const forward = (run: ActiveAgentRun, event: AgentRunEvent) => {
+  function forward(run: ActiveAgentRun, event: AgentRunEvent) {
     const { runId } = run;
     switch (event.type) {
       case 'message':
@@ -272,9 +352,9 @@ export function createAgentRunQueue({
       case 'finished':
         return;
     }
-  };
+  }
 
-  const drive = async (run: ActiveAgentRun): Promise<void> => {
+  async function drive(run: ActiveAgentRun): Promise<void> {
     const turnBegan = clock();
     const priorMessages = transcript.renderPriorMessages();
     transcript.recordUserInput(run.runId, run.input.text);
@@ -376,18 +456,18 @@ export function createAgentRunQueue({
         : finished,
       finished.toolsSettled,
     );
-  };
+  }
 
-  const earlierShowsSettled = (signal: AbortSignal): Promise<void> => {
+  function earlierShowsSettled(signal: AbortSignal): Promise<void> {
     let cancelTimeout = () => {};
     const timedOut = new Promise<void>((resolve) => {
       cancelTimeout = scheduleTimeout(resolve, showsSettleTimeoutMs);
     });
     signal.addEventListener('abort', () => cancelTimeout(), { once: true });
     return Promise.race([shows.whenIdle(), timedOut]).finally(cancelTimeout);
-  };
+  }
 
-  const pump = async (): Promise<void> => {
+  async function pump(): Promise<void> {
     if (closed || active !== undefined || toolsSettling !== undefined) return;
     const next = queue.shift();
     if (next === undefined) return;
@@ -399,83 +479,7 @@ export function createAgentRunQueue({
     };
     active = run;
     await drive(run);
-  };
-
-  return {
-    pendingRuns: () => queue.length + (active === undefined ? 0 : 1),
-    enqueue(input) {
-      if (closed) return Promise.resolve();
-      const run: QueuedAgentRun = {
-        input,
-        runId: RunId(crypto.randomUUID()),
-        done: deferred(),
-      };
-      queue.push(run);
-      shows.noteChart(input.chart);
-      events.emit(...buildAcceptanceEvents(input.inputId, run.runId, 'agent'));
-      observe(
-        run.runId,
-        input.inputId,
-        'engine.agent.input.accepted',
-        { source: input.source, disposition: 'agent' },
-        () => ({ text: input.text }),
-      );
-      void pump();
-      return run.done.promise;
-    },
-    cancelRun(runId) {
-      if (closed) return;
-      shows.dropRun(runId);
-      if (active?.runId === runId) {
-        if (active.cancelled) return;
-        active.cancelled = true;
-        active.controller.abort(
-          new DOMException('Agent run cancelled', 'AbortError'),
-        );
-        return;
-      }
-      const index = queue.findIndex((queued) => queued.runId === runId);
-      if (index === -1) return;
-      const [queued] = queue.splice(index, 1);
-      if (queued === undefined) return;
-      const now = clock();
-      const ending = buildRunEnding(
-        { runId, started: now },
-        now,
-        undefined,
-        CANCELLED_FAILURE,
-        ZERO_COUNTERS,
-      );
-      events.emit(...ending.events);
-      observe(
-        runId,
-        queued.input.inputId,
-        'engine.agent.run.finished',
-        ending.metadata,
-      );
-      queued.done.resolve();
-    },
-    acknowledge(input) {
-      if (closed) return;
-      shows.acknowledge(input);
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      stopShowNotes();
-      shows.close();
-      const run = active;
-      active = undefined;
-      if (run !== undefined) {
-        run.controller.abort(
-          new DOMException('Agent connection closed', 'AbortError'),
-        );
-        run.iterator?.return?.().catch(() => undefined);
-        run.done.resolve();
-      }
-      for (const queued of queue.splice(0)) queued.done.resolve();
-    },
-  };
+  }
 }
 
 interface QueuedAgentRun {
