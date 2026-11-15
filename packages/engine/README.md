@@ -97,7 +97,7 @@ Agent runs can also change the screen on their own. When a run's tool phase ends
 
 The request/reply API and its history store remain separate. Streaming connections neither read nor write that store. Agent transcripts and the tool loop are not implemented by this route.
 
-Run-owned development diagnostics carry a server-minted `runId` in place of `requestId`, with the originating `inputId` in metadata. Planning-pipeline events keep their usual kinds, such as `engine.planner.started`. The connection's own lifecycle events use `engine.agent.*` kinds. Events that belong to no run, such as ignored or rejected inputs and refused acknowledgements, are session-owned and carry neither `runId` nor `requestId`. Matching-session run and session diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
+Run-owned development diagnostics carry a server-minted `runId` in place of `requestId`, with the originating `inputId` in metadata. Planning-pipeline events keep their usual kinds, such as `engine.planner.started`. The connection's own lifecycle events use `engine.agent.*` kinds. Events that belong to no run, such as ignored or rejected inputs and acknowledgements for an unknown change, are session-owned and carry neither `runId` nor `requestId`. A refused acknowledgement for a known change, such as one with the wrong outcome count, is run-owned. Matching-session run and session diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
 
 ### Message variants
 

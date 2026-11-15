@@ -439,7 +439,7 @@ test('a reused changeId links the client ui.applied event to the newest run', ()
   ]);
 });
 
-test('session-level agent events stay in their client session timeline and a known rejected acknowledgement joins its run', () => {
+test('session-level agent events stay in their client session timeline while rejected acknowledgements of a known change join its run', () => {
   const event = runOwned('run-1', 'input-1');
   const other = (kind: string, metadata: Record<string, unknown>) =>
     observation(kind, { clientId: 'other-app' }, metadata);
@@ -475,9 +475,13 @@ test('session-level agent events stay in their client session timeline and a kno
         changeId: 'change-1',
         actions: 2,
       }),
-      session('engine.agent.ui_applied.rejected', {
+      event('engine.agent.ui_applied.rejected', {
         changeId: 'change-1',
         code: 'invalid_action_outcomes',
+      }),
+      session('engine.agent.ui_applied.rejected', {
+        changeId: 'change-1',
+        code: 'unknown_change',
       }),
       observation('engine.agent.input.accepted', { requestId: 'request-1' }),
       observation(
@@ -511,10 +515,13 @@ test('session-level agent events stay in their client session timeline and a kno
     { clientId: 'other-app', kinds: ['engine.agent.input.rejected'] },
   ]);
   expect(runs).toHaveLength(1);
-  expect(runs[0]!.events.map((entry) => entry.kind)).toEqual([
-    'engine.agent.input.accepted',
-    'engine.agent.ui_change.emitted',
-    'engine.agent.ui_applied.rejected',
+  expect(
+    runs[0]!.events.map((entry) => [entry.kind, entry.metadata.code]),
+  ).toEqual([
+    ['engine.agent.input.accepted', undefined],
+    ['engine.agent.ui_change.emitted', undefined],
+    ['engine.agent.ui_applied.rejected', 'invalid_action_outcomes'],
+    ['engine.agent.ui_applied.rejected', 'unknown_change'],
   ]);
   expect(runs[0]!.status).toBe('running');
 });

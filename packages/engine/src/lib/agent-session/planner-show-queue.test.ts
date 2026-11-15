@@ -201,11 +201,19 @@ describe('createPlannerShowQueue', () => {
         error: 'Expected one outcome per Action.',
       },
     ]);
-    expect(harness.sessionObserved).toEqual([
+    expect(harness.sessionObserved).toEqual([]);
+    expect(
+      harness.observed
+        .filter((entry) => entry.kind === 'engine.agent.ui_applied.rejected')
+        .map(({ readContent: _, ...entry }) => entry),
+    ).toEqual([
       {
+        runId: show(1).runId,
+        inputId: show(1).inputId,
         kind: 'engine.agent.ui_applied.rejected',
         metadata: {
           changeId: change.changeId,
+          turnId: show(1).turnId,
           code: 'invalid_action_outcomes',
         },
       },

@@ -642,6 +642,27 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).not.toContain('Screen updated');
+      const runId = runIdOf(session.received, 'input-1');
+      const rejected = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_applied.rejected',
+      );
+      expect(rejected).toHaveLength(2);
+      const [unknownChange, wrongCount] = rejected;
+      expect(unknownChange).not.toHaveProperty('runId');
+      expect(unknownChange).not.toHaveProperty('requestId');
+      expect(unknownChange?.metadata).toEqual({
+        changeId: 'stray-change',
+        code: 'unknown_change',
+      });
+      expect(wrongCount).not.toHaveProperty('requestId');
+      expect(wrongCount?.runId).toBe(runId);
+      expect(wrongCount?.metadata).toEqual({
+        changeId: firstChange.changeId,
+        code: 'invalid_action_outcomes',
+        inputId: 'input-1',
+        turnId: `${runId}:t1`,
+      });
 
       await session.connection.send(
         acknowledgementOf(firstChange, calendarChart()),

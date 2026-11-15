@@ -154,7 +154,7 @@ describe('session-level input diagnostics', () => {
   });
 });
 
-describe('session-level acknowledgement diagnostics', () => {
+describe('acknowledgement refusal diagnostics', () => {
   test('on an agent connection a ui_applied for an unknown change yields a session-owned ui_applied.rejected', async () => {
     const session = openAgentSession();
 
@@ -195,7 +195,7 @@ describe('session-level acknowledgement diagnostics', () => {
     session.connection.close();
   });
 
-  test('on a UI-only connection a ui_applied with the wrong outcome count yields a session-owned ui_applied.rejected', async () => {
+  test('on a UI-only connection a ui_applied with the wrong outcome count yields a ui_applied.rejected owned by the run of the change', async () => {
     const session = openUiOnlySession();
     await session.connection.send(utterance('input-1', 'show my calendar'));
     const change = session.received.find(
@@ -211,12 +211,17 @@ describe('session-level acknowledgement diagnostics', () => {
       actionOutcomes: [{ ok: true }],
     });
 
-    expect(
-      sessionEventsOfKind(
-        session.diagnostics,
-        'engine.agent.ui_applied.rejected',
-      ).map((event) => event.metadata),
-    ).toEqual([{ changeId: change.changeId, code: 'invalid_action_outcomes' }]);
+    const rejected = session.diagnostics.filter(
+      (event) => event.kind === 'engine.agent.ui_applied.rejected',
+    );
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).not.toHaveProperty('requestId');
+    expect(rejected[0]).toMatchObject({ runId: change.runId });
+    expect(rejected[0]?.metadata).toEqual({
+      changeId: change.changeId,
+      code: 'invalid_action_outcomes',
+      inputId: 'input-1',
+    });
     session.connection.close();
   });
 });

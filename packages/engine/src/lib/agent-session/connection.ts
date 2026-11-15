@@ -88,7 +88,7 @@ export interface AgentConnectionDependencies {
   readonly planner: SessionPlanner;
   /** Receives diagnostic observations of each run and change. */
   readonly observe: RunObserver;
-  /** Receives diagnostic observations that belong to no run: ignored and rejected inputs and refused acknowledgements. */
+  /** Receives diagnostic observations that belong to no run: ignored and rejected inputs and acknowledgements for an unknown change. */
   readonly observeSession: SessionObserver;
   /** Receives delivered events and run failures. */
   readonly logger: Logger;

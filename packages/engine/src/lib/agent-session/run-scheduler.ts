@@ -36,9 +36,9 @@ export type RunObserver = (
 
 /**
  * Receives a diagnostic observation of Agent Session work that belongs to no
- * Agent Run, such as an ignored input or a refused acknowledgement. The
- * observation carries neither a run id nor a request id, and its metadata is
- * published unchanged.
+ * Agent Run, such as an ignored input or an acknowledgement for an unknown
+ * change. The observation carries neither a run id nor a request id, and its
+ * metadata is published unchanged.
  *
  * @param kind - The diagnostic kind, such as `engine.agent.input.ignored`.
  * @param metadata - Structural metadata only, never user text or payloads.
@@ -204,13 +204,12 @@ export function createRunScheduler({
     events.emit(event);
     void pump();
   };
-  const refuseAcknowledgement = (
-    changeId: ChangeId,
-    code: string,
-    error: string,
-  ) => {
-    observeSession('engine.agent.ui_applied.rejected', { changeId, code });
-    reject(changeError(changeId, code, error));
+  const refuseUnknownChange = (changeId: ChangeId) => {
+    observeSession('engine.agent.ui_applied.rejected', {
+      changeId,
+      code: 'unknown_change',
+    });
+    reject(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
   };
   return {
     pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
@@ -242,19 +241,26 @@ export function createRunScheduler({
         state.phase !== 'awaiting_ack' ||
         state.event.changeId !== input.changeId
       ) {
-        refuseAcknowledgement(
-          input.changeId,
-          'unknown_change',
-          'Unknown UI change.',
-        );
+        refuseUnknownChange(input.changeId);
         return;
       }
       const { run, event, cancelTimeout } = state;
       if (input.actionOutcomes.length !== event.response.executionPlan.length) {
-        refuseAcknowledgement(
-          input.changeId,
-          'invalid_action_outcomes',
-          'Expected one outcome per Action.',
+        observe(
+          run.runId,
+          run.input.inputId,
+          'engine.agent.ui_applied.rejected',
+          {
+            changeId: input.changeId,
+            code: 'invalid_action_outcomes',
+          },
+        );
+        reject(
+          changeError(
+            input.changeId,
+            'invalid_action_outcomes',
+            'Expected one outcome per Action.',
+          ),
         );
         return;
       }

@@ -67,7 +67,7 @@ export interface PlannerShowQueueOptions {
   readonly events: OrderedEmitter<AgentEvent>;
   /** Receives diagnostic observations of each show and change. */
   readonly observe: RunObserver;
-  /** Receives diagnostic observations that belong to no run, such as a refused acknowledgement. */
+  /** Receives diagnostic observations that belong to no run, such as an acknowledgement for an unknown change. */
   readonly observeSession: SessionObserver;
   /** Records a show note for the run and turn that asked for the show. */
   readonly recordShowNote: (runId: RunId, turnId: string, text: string) => void;
@@ -158,13 +158,12 @@ export function createPlannerShowQueue({
     if (state.phase === 'idle') resolveIdleWaiters();
   };
 
-  const refuseAcknowledgement = (
-    changeId: ChangeId,
-    code: string,
-    error: string,
-  ) => {
-    observeSession('engine.agent.ui_applied.rejected', { changeId, code });
-    events.emit(changeError(changeId, code, error));
+  const refuseUnknownChange = (changeId: ChangeId) => {
+    observeSession('engine.agent.ui_applied.rejected', {
+      changeId,
+      code: 'unknown_change',
+    });
+    events.emit(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
   };
 
   const abortPlanning = (job: ShowJob) => {
@@ -373,20 +372,28 @@ export function createPlannerShowQueue({
         state.phase !== 'awaiting_ack' ||
         state.job.changeId !== input.changeId
       ) {
-        refuseAcknowledgement(
-          input.changeId,
-          'unknown_change',
-          'Unknown UI change.',
-        );
+        refuseUnknownChange(input.changeId);
         return;
       }
       const { job, event, cancelTimeout } = state;
       const { executionPlan } = event.response;
       if (input.actionOutcomes.length !== executionPlan.length) {
-        refuseAcknowledgement(
-          input.changeId,
-          'invalid_action_outcomes',
-          'Expected one outcome per Action.',
+        observe(
+          job.show.runId,
+          job.show.inputId,
+          'engine.agent.ui_applied.rejected',
+          {
+            changeId: input.changeId,
+            turnId: job.show.turnId,
+            code: 'invalid_action_outcomes',
+          },
+        );
+        events.emit(
+          changeError(
+            input.changeId,
+            'invalid_action_outcomes',
+            'Expected one outcome per Action.',
+          ),
         );
         return;
       }
