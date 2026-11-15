@@ -466,22 +466,24 @@ export function createEngine(config: EngineConfig): Engine {
     openConnection: (options) =>
       createAgentConnection(options, {
         planner: createSessionPlanner(options.sessionId),
-        observe: (runId, inputId, kind, metadata, readContent) =>
-          diagnosticsEmitter.emit(
-            options.sessionId,
-            { runId, inputId },
-            kind,
-            metadata,
-            readContent,
-          ),
-        observeSession: (kind, metadata, readContent) =>
-          diagnosticsEmitter.emit(
-            options.sessionId,
-            SESSION_DIAGNOSTIC_OWNER,
-            kind,
-            metadata,
-            readContent,
-          ),
+        diagnostics: {
+          run: (runId, inputId, kind, metadata, readContent) =>
+            diagnosticsEmitter.emit(
+              options.sessionId,
+              { runId, inputId },
+              kind,
+              metadata,
+              readContent,
+            ),
+          session: (kind, metadata, readContent) =>
+            diagnosticsEmitter.emit(
+              options.sessionId,
+              SESSION_DIAGNOSTIC_OWNER,
+              kind,
+              metadata,
+              readContent,
+            ),
+        },
         logger,
         ...(agent === undefined ? {} : { agent }),
       }),

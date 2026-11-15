@@ -1290,10 +1290,11 @@ function createHarness({
   const queue = createPlannerShowQueue({
     planner: planner.plan,
     events,
-    observe: (runId, inputId, kind, metadata, readContent) =>
-      observed.push({ runId, inputId, kind, metadata, readContent }),
-    observeSession: (kind, metadata) =>
-      sessionObserved.push({ kind, metadata }),
+    diagnostics: {
+      run: (runId, inputId, kind, metadata, readContent) =>
+        observed.push({ runId, inputId, kind, metadata, readContent }),
+      session: (kind, metadata) => sessionObserved.push({ kind, metadata }),
+    },
     recordShowNote: (runId, turnId, text) =>
       notes.push({ runId, turnId, text }),
     logger,

@@ -50,10 +50,20 @@ export type SessionObserver = (
   readContent?: () => unknown,
 ) => void;
 
+/**
+ * The diagnostic observers of one Agent Session, one per owner. Every
+ * observation chooses its owner by the observer it calls.
+ */
+export interface DiagnosticObservers {
+  /** Observations that belong to one Agent Run. */
+  readonly run: RunObserver;
+  /** Observations that belong to no run. */
+  readonly session: SessionObserver;
+}
+
 export interface RunSchedulerOptions {
   readonly planner: SessionPlanner;
-  readonly observe: RunObserver;
-  readonly observeSession: SessionObserver;
+  readonly diagnostics: DiagnosticObservers;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly signal: AbortSignal;
@@ -89,8 +99,7 @@ type RunState =
 
 export function createRunScheduler({
   planner,
-  observe,
-  observeSession,
+  diagnostics,
   logger,
   events,
   signal,
@@ -104,7 +113,7 @@ export function createRunScheduler({
     if (signal.aborted) return;
     const ending = buildRunEnding(run, clock(), reply, failure);
     events.emit(...ending.events);
-    observe(
+    diagnostics.run(
       run.runId,
       run.input.inputId,
       'engine.agent.run.finished',
@@ -157,12 +166,10 @@ export function createRunScheduler({
       cancelTimeout: () => clearTimeout(timeout),
     };
     events.emit(event);
-    observeUiChangeEmitted(
-      event,
-      run.input.inputId,
-      { observe, observeSession },
-      { changeId: event.changeId, actions: response.executionPlan.length },
-    );
+    observeUiChangeEmitted(event, run.input.inputId, diagnostics, {
+      changeId: event.changeId,
+      actions: response.executionPlan.length,
+    });
     run.ready.resolve();
     void pump();
   };
@@ -205,7 +212,7 @@ export function createRunScheduler({
     void pump();
   };
   const refuseUnknownChange = (changeId: ChangeId) => {
-    observeSession('engine.agent.ui_applied.rejected', {
+    diagnostics.session('engine.agent.ui_applied.rejected', {
       changeId,
       code: 'unknown_change',
     });
@@ -226,7 +233,7 @@ export function createRunScheduler({
       if (state.phase !== 'awaiting_ack') chart = input.chart;
       queue.push(run);
       events.emit(...buildAcceptanceEvents(input.inputId, run.runId));
-      observe(
+      diagnostics.run(
         run.runId,
         input.inputId,
         'engine.agent.input.accepted',
@@ -246,7 +253,7 @@ export function createRunScheduler({
       }
       const { run, event, cancelTimeout } = state;
       if (input.actionOutcomes.length !== event.response.executionPlan.length) {
-        observe(
+        diagnostics.run(
           run.runId,
           run.input.inputId,
           'engine.agent.ui_applied.rejected',
@@ -267,7 +274,7 @@ export function createRunScheduler({
       state = { phase: 'finishing', run };
       cancelTimeout();
       chart = input.chart;
-      observe(
+      diagnostics.run(
         run.runId,
         run.input.inputId,
         'engine.agent.ui_change.applied',
@@ -311,17 +318,14 @@ export function createRunScheduler({
 export function observeUiChangeEmitted(
   event: AgentUiChangeEvent,
   inputId: MessageId,
-  observers: {
-    readonly observe: RunObserver;
-    readonly observeSession: SessionObserver;
-  },
+  diagnostics: DiagnosticObservers,
   metadata: DiagnosticMetadata,
   readContent?: () => unknown,
 ): void {
   const kind = 'engine.agent.ui_change.emitted';
   if (event.runId === null)
-    observers.observeSession(kind, { ...metadata, inputId }, readContent);
-  else observers.observe(event.runId, inputId, kind, metadata, readContent);
+    diagnostics.session(kind, { ...metadata, inputId }, readContent);
+  else diagnostics.run(event.runId, inputId, kind, metadata, readContent);
 }
 
 /** Builds the agent `error` event that refuses a `ui_applied` input. */

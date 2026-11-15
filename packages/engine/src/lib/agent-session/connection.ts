@@ -13,9 +13,8 @@ import {
 import { createPlannerShowQueue } from './planner-show-queue.js';
 import {
   createRunScheduler,
-  type RunObserver,
+  type DiagnosticObservers,
   type RunScheduler,
-  type SessionObserver,
 } from './run-scheduler.js';
 import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
@@ -86,10 +85,12 @@ export interface AgentConnection {
 export interface AgentConnectionDependencies {
   /** Plans every UI change of the connection, on either route. */
   readonly planner: SessionPlanner;
-  /** Receives diagnostic observations of each run and change. */
-  readonly observe: RunObserver;
-  /** Receives diagnostic observations that belong to no run: ignored and rejected inputs and acknowledgements for an unknown change. */
-  readonly observeSession: SessionObserver;
+  /**
+   * Receives diagnostic observations of each run and change, and those that
+   * belong to no run: ignored and rejected inputs and acknowledgements for an
+   * unknown change.
+   */
+  readonly diagnostics: DiagnosticObservers;
   /** Receives delivered events and run failures. */
   readonly logger: Logger;
   /** The resolved agent slot. Without it every utterance takes the UI-only route. */
@@ -98,13 +99,7 @@ export interface AgentConnectionDependencies {
 
 export function createAgentConnection(
   options: OpenConnectionOptions,
-  {
-    planner,
-    observe,
-    observeSession,
-    logger,
-    agent,
-  }: AgentConnectionDependencies,
+  { planner, diagnostics, logger, agent }: AgentConnectionDependencies,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -129,8 +124,7 @@ export function createAgentConnection(
     agent === undefined
       ? createRunScheduler({
           planner,
-          observe,
-          observeSession,
+          diagnostics,
           logger,
           events,
           signal: controller.signal,
@@ -142,8 +136,7 @@ export function createAgentConnection(
             options,
             agent,
             planner,
-            observe,
-            observeSession,
+            diagnostics,
             logger,
             events,
             clock,
@@ -166,7 +159,7 @@ export function createAgentConnection(
       switch (admitted.kind) {
         case 'rejected': {
           const { code, inputId } = admitted.event;
-          observeSession('engine.agent.input.rejected', {
+          diagnostics.session('engine.agent.input.rejected', {
             code,
             ...(inputId === undefined ? {} : { inputId }),
           });
@@ -174,7 +167,7 @@ export function createAgentConnection(
           return;
         }
         case 'ignored':
-          observeSession('engine.agent.input.ignored', {
+          diagnostics.session('engine.agent.input.ignored', {
             inputId: admitted.inputId,
             reason: 'duplicate_input',
           });
@@ -196,8 +189,7 @@ function createAgentRoute({
   options,
   agent,
   planner,
-  observe,
-  observeSession,
+  diagnostics,
   logger,
   events,
   clock,
@@ -206,8 +198,7 @@ function createAgentRoute({
   readonly options: OpenConnectionOptions;
   readonly agent: ResolvedAgentConfig;
   readonly planner: SessionPlanner;
-  readonly observe: RunObserver;
-  readonly observeSession: SessionObserver;
+  readonly diagnostics: DiagnosticObservers;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly clock: () => number;
@@ -218,8 +209,7 @@ function createAgentRoute({
   const shows = createPlannerShowQueue({
     planner,
     events,
-    observe,
-    observeSession,
+    diagnostics,
     recordShowNote: (runId, turnId, text) =>
       transcript.recordShowNote(runId, turnId, text),
     logger,
@@ -233,7 +223,7 @@ function createAgentRoute({
       ...(options.token === undefined ? {} : { token: options.token }),
     },
     events,
-    observe,
+    observe: diagnostics.run,
     logger,
     clock,
     scheduleTimeout,

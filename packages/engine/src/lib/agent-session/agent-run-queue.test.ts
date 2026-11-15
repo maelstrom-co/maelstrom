@@ -1467,8 +1467,7 @@ function createSession(overrides: SessionOverrides = {}) {
       return planner(input);
     },
     events,
-    observe,
-    observeSession: () => undefined,
+    diagnostics: { run: observe, session: () => undefined },
     recordShowNote: (runId, turnId, text) =>
       transcript.recordShowNote(runId, turnId, text),
     logger,

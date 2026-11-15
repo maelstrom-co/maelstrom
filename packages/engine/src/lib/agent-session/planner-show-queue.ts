@@ -20,9 +20,8 @@ import type { AgentRunClock } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import {
   changeError,
+  type DiagnosticObservers,
   observeUiChangeEmitted,
-  type RunObserver,
-  type SessionObserver,
 } from './run-scheduler.js';
 import {
   describeScreenUpdate,
@@ -65,10 +64,11 @@ export interface PlannerShowQueueOptions {
   readonly planner: SessionPlanner;
   /** The connection's ordered event stream. */
   readonly events: OrderedEmitter<AgentEvent>;
-  /** Receives diagnostic observations of each show and change. */
-  readonly observe: RunObserver;
-  /** Receives diagnostic observations that belong to no run, such as an acknowledgement for an unknown change. */
-  readonly observeSession: SessionObserver;
+  /**
+   * Receives diagnostic observations of each show and change, and those that
+   * belong to no run, such as an acknowledgement for an unknown change.
+   */
+  readonly diagnostics: DiagnosticObservers;
   /** Records a show note for the run and turn that asked for the show. */
   readonly recordShowNote: (runId: RunId, turnId: string, text: string) => void;
   /** Receives warnings for shows dropped without a Chart and for failed shows. */
@@ -134,8 +134,7 @@ export interface PlannerShowQueue {
 export function createPlannerShowQueue({
   planner,
   events,
-  observe,
-  observeSession,
+  diagnostics,
   recordShowNote,
   logger,
   scheduleTimeout,
@@ -159,7 +158,7 @@ export function createPlannerShowQueue({
   };
 
   const refuseUnknownChange = (changeId: ChangeId) => {
-    observeSession('engine.agent.ui_applied.rejected', {
+    diagnostics.session('engine.agent.ui_applied.rejected', {
       changeId,
       code: 'unknown_change',
     });
@@ -193,7 +192,7 @@ export function createPlannerShowQueue({
     observeUiChangeEmitted(
       event,
       show.inputId,
-      { observe, observeSession },
+      diagnostics,
       { changeId, turnId: show.turnId, actions: response.executionPlan.length },
       () => ({ intent: show.intent, intentFacts: show.intentFacts }),
     );
@@ -210,10 +209,15 @@ export function createPlannerShowQueue({
     });
     if (closed) return;
     noteFor(show, describeShowNotConfirmed(show.toolNames));
-    observe(show.runId, show.inputId, 'engine.agent.ui_change.timed_out', {
-      changeId,
-      turnId: show.turnId,
-    });
+    diagnostics.run(
+      show.runId,
+      show.inputId,
+      'engine.agent.ui_change.timed_out',
+      {
+        changeId,
+        turnId: show.turnId,
+      },
+    );
     startNextShow();
   };
 
@@ -240,7 +244,7 @@ export function createPlannerShowQueue({
     });
     if (closed) return;
     noteFor(show, describeShowFailed(show.toolNames));
-    observe(show.runId, show.inputId, 'engine.agent.show.failed', {
+    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.failed', {
       changeId,
       turnId: show.turnId,
       code,
@@ -252,7 +256,7 @@ export function createPlannerShowQueue({
     const { show, changeId } = job;
     state = { phase: 'idle' };
     noteFor(show, describeShowSkipped(show.toolNames, skip));
-    observe(show.runId, show.inputId, 'engine.agent.show.skipped', {
+    diagnostics.run(show.runId, show.inputId, 'engine.agent.show.skipped', {
       changeId,
       turnId: show.turnId,
       reason: skip.reason,
@@ -378,7 +382,7 @@ export function createPlannerShowQueue({
       const { job, event, cancelTimeout } = state;
       const { executionPlan } = event.response;
       if (input.actionOutcomes.length !== executionPlan.length) {
-        observe(
+        diagnostics.run(
           job.show.runId,
           job.show.inputId,
           'engine.agent.ui_applied.rejected',
@@ -406,7 +410,7 @@ export function createPlannerShowQueue({
         chart: input.chart,
       });
       noteFor(job.show, screenNote);
-      observe(
+      diagnostics.run(
         job.show.runId,
         job.show.inputId,
         'engine.agent.ui_change.applied',
@@ -445,16 +449,26 @@ export function createPlannerShowQueue({
         state = { phase: 'idle' };
         const { show, changeId } = planning;
         noteFor(show, describeShowCancelled(show.toolNames));
-        observe(show.runId, show.inputId, 'engine.agent.show.cancelled', {
-          turnId: show.turnId,
-          changeId,
-        });
+        diagnostics.run(
+          show.runId,
+          show.inputId,
+          'engine.agent.show.cancelled',
+          {
+            turnId: show.turnId,
+            changeId,
+          },
+        );
       }
       for (const show of dropped) {
         noteFor(show, describeShowCancelled(show.toolNames));
-        observe(show.runId, show.inputId, 'engine.agent.show.cancelled', {
-          turnId: show.turnId,
-        });
+        diagnostics.run(
+          show.runId,
+          show.inputId,
+          'engine.agent.show.cancelled',
+          {
+            turnId: show.turnId,
+          },
+        );
       }
       if (state.phase === 'idle') startNextShow();
     },

@@ -29,11 +29,11 @@ function recordingObservers() {
   return {
     runOwned,
     sessionOwned,
-    observers: {
-      observe: (...args: unknown[]) => {
+    diagnostics: {
+      run: (...args: unknown[]) => {
         runOwned.push(args);
       },
-      observeSession: (...args: unknown[]) => {
+      session: (...args: unknown[]) => {
         sessionOwned.push(args);
       },
     },
@@ -41,12 +41,12 @@ function recordingObservers() {
 }
 
 test('a UI change of an Agent Run is observed as run-owned', () => {
-  const { runOwned, sessionOwned, observers } = recordingObservers();
+  const { runOwned, sessionOwned, diagnostics } = recordingObservers();
   const readContent = () => ({ intent: 'show it' });
   observeUiChangeEmitted(
     uiChange(RunId('run-1')),
     MessageId('input-1'),
-    observers,
+    diagnostics,
     { changeId: 'change-1', actions: 0 },
     readContent,
   );
@@ -63,8 +63,8 @@ test('a UI change of an Agent Run is observed as run-owned', () => {
 });
 
 test('a UI change outside any Agent Run is observed as session-owned with its input id in metadata', () => {
-  const { runOwned, sessionOwned, observers } = recordingObservers();
-  observeUiChangeEmitted(uiChange(null), MessageId('input-1'), observers, {
+  const { runOwned, sessionOwned, diagnostics } = recordingObservers();
+  observeUiChangeEmitted(uiChange(null), MessageId('input-1'), diagnostics, {
     changeId: 'change-1',
     actions: 0,
   });
