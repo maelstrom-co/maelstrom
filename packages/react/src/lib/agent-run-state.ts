@@ -11,7 +11,11 @@ import type {
   RunId,
 } from '@maelstrom-co/protocol';
 
-/** How far an Agent Run has progressed. */
+/**
+ * How far an Agent Run has progressed. Consumers that wait for a run to end
+ * should settle on the status, not on `finished`, which stays null for an
+ * accepted `noise` input.
+ */
 export type AgentRunStatus =
   | 'pending'
   | 'working'
@@ -66,7 +70,10 @@ export type AgentRunState = {
   readonly inputId: MessageId;
   /** The run that handles the input, once the agent accepted it. */
   readonly runId: RunId | null;
-  /** How far the run has progressed. */
+  /**
+   * How far the run has progressed. Settle on this, not on `finished`, to know
+   * whether the run ended.
+   */
   readonly status: AgentRunStatus;
   /** The latest placeholder text to show while the agent works. */
   readonly placeholder: string | null;
@@ -89,19 +96,33 @@ export type AgentRunState = {
    * Failed UI changes are in `changeErrors` instead.
    */
   readonly error: AgentRunError | null;
-  /** Why the run was lost, set only while the status is `lost`. */
+  /**
+   * Why the run was lost, set only while the status is `lost`. A `stale_run`
+   * loss marks every open run and is recoverable, so later events for the run
+   * move it on. `disconnected` and `connector_replaced` are final.
+   */
   readonly lostReason: ConversationLostReason | null;
-  /** The outcome the agent reported when the run ended. */
+  /**
+   * The outcome the agent reported when the run ended. It stays null for an
+   * accepted `noise` input, which ends as `status: 'finished'` with
+   * `runId: null`.
+   */
   readonly finished: AgentRunOutcome | null;
 };
 
 /** Agent Run state of one Orchestrator, folded from its agent events. */
 export type AgentRunsSnapshot = {
-  /** The run of the most recent input. */
+  /**
+   * The most recently registered run. An input registers when `sendMessage`
+   * resolves or on its first event, whichever comes first.
+   */
   readonly run: AgentRunState | null;
   /** Known runs, oldest first, capped at {@link AGENT_RUNS_CAP}. */
   readonly runs: readonly AgentRunState[];
-  /** The latest failure not tied to any input or run. */
+  /**
+   * The latest failure not tied to any input or run. Cleared when the next
+   * input is sent.
+   */
   readonly error: AgentRunError | null;
 };
 
@@ -161,7 +182,7 @@ export function reduceAgentRuns(
       return updateByInput(snapshot, event.inputId, (run) => {
         if (event.runId === null) {
           return run.runId === null && !isEnded(run)
-            ? patch(run, { status: 'finished', reply: '', lostReason: null })
+            ? patch(run, { status: 'finished', lostReason: null })
             : run;
         }
         return patch(run, { runId: run.runId ?? event.runId, ...resume(run) });
@@ -255,8 +276,9 @@ function markRunsLost(
   let changed = false;
   const runs = snapshot.runs.map((run) => {
     if (!shouldMark(run)) return run;
-    changed = true;
-    return { ...run, status: 'lost' as const, lostReason: reason };
+    const next = patch(run, { status: 'lost', lostReason: reason });
+    changed ||= next !== run;
+    return next;
   });
   return changed ? withRuns(snapshot, runs) : snapshot;
 }

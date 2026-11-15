@@ -32,7 +32,9 @@ export type AgentRunStore = {
    * conversation was lost while the send was in flight and the input is still
    * unknown when it resolves, the input is registered already lost: for good
    * after a disconnect or connector replacement, otherwise as a recoverable
-   * `stale_run` loss that later events move on.
+   * `stale_run` loss that later events move on. After `dispose` the text is
+   * still sent and the promise still resolves, but the input is no longer
+   * registered in the snapshot.
    */
   sendMessage(text: string, options?: SendMessageOptions): Promise<MessageId>;
   /**
@@ -44,8 +46,8 @@ export type AgentRunStore = {
 
 /**
  * Creates an {@link AgentRunStore} that follows every agent event of the
- * Orchestrator from now on. Dispose it before the Orchestrator, which rejects
- * new subscriptions once disposed.
+ * Orchestrator from now on. Throws when the Orchestrator is already disposed,
+ * because it rejects new subscriptions.
  */
 export function createAgentRunStore(
   orchestrator: Pick<Orchestrator, 'agent' | 'sendMessage'>,
@@ -108,6 +110,8 @@ export function createAgentRunStore(
 
 type InFlightSend = { lostReason: ConversationLostReason | null };
 
+// The Record type makes a new client agent event fail to compile until the
+// store subscribes to it.
 const AGENT_EVENT_PRESENCE: Record<keyof AgentConversationEvents, true> = {
   accepted: true,
   ui_change: true,

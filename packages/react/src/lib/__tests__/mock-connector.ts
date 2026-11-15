@@ -44,7 +44,7 @@ export function createMockConnector(overrides?: {
 
 /**
  * A scriptable agent connector whose engine requests answer with an empty
- * response unless `overrides.process` replaces it.
+ * response. `overrides` replaces any connector method, including `process`.
  */
 export function createMockAgentEngineConnector(
   overrides: Partial<EngineConnector> = {},
