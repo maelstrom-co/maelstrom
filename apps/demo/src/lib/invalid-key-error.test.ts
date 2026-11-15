@@ -7,6 +7,7 @@ import {
   isInvalidKeyError,
   isInvalidKeyFailure,
   isLiveInvalidKeyError,
+  isProviderFailure,
 } from './invalid-key-error';
 
 describe('isInvalidKeyError', () => {
@@ -58,6 +59,33 @@ describe('isInvalidKeyFailure', () => {
     expect(
       isInvalidKeyFailure({ message: '429 rate limit', code: 'ProviderError' }),
     ).toBe(false);
+  });
+});
+
+type RunFailure = { message: string; code?: string };
+
+describe('isProviderFailure', () => {
+  it.each([
+    [
+      'UI-only route',
+      { message: 'The UI request failed.', code: 'ProviderError' },
+    ],
+    [
+      'agent route',
+      { message: 'The model could not respond.', code: 'provider_error' },
+    ],
+  ])('recognises a model provider failure on the %s', (_route, failure) => {
+    expect(isProviderFailure(failure)).toBe(true);
+  });
+
+  it('ignores failures with another code or none', () => {
+    const otherCode: RunFailure = {
+      message: 'The UI acknowledgement did not arrive.',
+      code: 'ui_ack_timeout',
+    };
+    const noCode: RunFailure = { message: '401 invalid API key' };
+    expect(isProviderFailure(otherCode)).toBe(false);
+    expect(isProviderFailure(noCode)).toBe(false);
   });
 });
 

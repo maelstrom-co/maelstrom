@@ -28,6 +28,18 @@ export function isInvalidKeyFailure(failure: {
 }
 
 /**
+ * True for an agent failure report whose code says the model provider call
+ * failed: `ProviderError` from the UI-only route or `provider_error` from the
+ * agent route. Neither route sends a key-specific signal, so this covers a
+ * rejected key as well as rate limits and network failures.
+ */
+export function isProviderFailure(failure: {
+  readonly code?: string;
+}): boolean {
+  return failure.code === 'ProviderError' || failure.code === 'provider_error';
+}
+
+/**
  * True when GPT-Live could not start because the browser-owned key is missing
  * or was rejected. Live mints no token, so this arrives as a connection
  * failure whose cause is the exchange's transport error.

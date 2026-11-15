@@ -2,23 +2,26 @@ import type { MessageId } from '@maelstrom-co/client';
 import type { AgentRunState } from '@maelstrom-co/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { isInvalidKeyFailure } from '../lib/invalid-key-error';
+import { isProviderFailure } from '../lib/invalid-key-error';
 import { shopM } from './maelstrom';
 import { sendShopInput } from './send-shop-input';
 
 /** What the typed `/shop` submit needs from the page. */
 export interface ShopAgentSubmitOptions {
-  /** The current draft in the input. */
   readonly intent: string;
-  /** Replaces the draft in the input. */
   readonly onIntentChange: (intent: string) => void;
-  /** True while the browser-key build has no key to send with. */
   readonly needsKey: boolean;
-  /** True when the visitor's own key authorizes the Engine's model calls. */
+  /**
+   * True when the visitor's own key authorizes the Engine's model calls. Only
+   * then are runs watched for a model provider failure.
+   */
   readonly browserKeyMode: boolean;
-  /** Called instead of sending while a key is needed. */
   readonly onBlockedSubmit: () => void;
-  /** Called with the message to show when the visitor's key was rejected. */
+  /**
+   * Called with the message to show when a watched run fails on a model
+   * provider code. The wire does not say whether the key was rejected, so the
+   * message asks the visitor to check the key rather than calling it invalid.
+   */
   readonly onMintError: (message: string) => void;
 }
 
@@ -26,20 +29,22 @@ export interface ShopAgentSubmitOptions {
 export interface ShopAgentSubmit {
   /**
    * Sends the trimmed draft to the agent as `text` input and clears the
-   * draft. Returns true when the draft was handed to `sendMessage` while
-   * connected, and false for a blank draft, a missing key or a connection
-   * that is not up yet.
+   * draft. Returns true once the draft was dispatched to `sendMessage` while
+   * connected, before the send settles, so the draft may still be restored
+   * when the send is rejected or the run fails on a model provider code.
+   * Returns false for a blank draft, a missing key or a connection that is
+   * not up yet.
    */
   readonly submit: () => boolean;
-  /** Replaces the draft as the visitor's own edit. */
   readonly changeDraft: (value: string) => void;
 }
 
 /**
- * Sends typed `/shop` input through the agent path. A rejected send, or a
- * run that fails because the visitor's browser key was rejected, puts the
- * sent text back in the input when it is still the latest submission and the
- * visitor has not typed since. A rejected key also reports the mint error.
+ * Sends typed `/shop` input through the agent path. A rejected send, or in
+ * browser-key mode a run that fails on a model provider code, puts the sent
+ * text back in the input when it is still the latest submission and the
+ * visitor has not typed since. A provider failure also reports the mint
+ * error.
  */
 export function useShopAgentSubmit({
   intent,
@@ -80,14 +85,14 @@ export function useShopAgentSubmit({
     if (watched.length === 0) return;
     const remaining = watched.filter(({ submission, inputId }) => {
       const run = runs.find((known) => known.inputId === inputId);
-      if (run === undefined) return true;
+      if (run === undefined) return false;
       if (
         run.status === 'failed' &&
         run.error !== null &&
-        isInvalidKeyFailure(run.error)
+        isProviderFailure(run.error)
       ) {
         restoreDraft(submission);
-        current.current.onMintError('Invalid API key.');
+        current.current.onMintError(MODEL_FAILURE_MESSAGE);
         return false;
       }
       return !isSettled(run);
@@ -129,6 +134,9 @@ export function useShopAgentSubmit({
 
   return { submit, changeDraft };
 }
+
+const MODEL_FAILURE_MESSAGE =
+  'The model request failed. Check your API key and try again.';
 
 type Submission = {
   readonly text: string;

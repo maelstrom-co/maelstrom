@@ -128,10 +128,16 @@ vi.doMock('../components/key-drawer', () => ({
 }));
 const { ShopPage } = await import('./shop-page');
 
-const INVALID_KEY = {
-  error: '401 invalid API key',
+const UI_ROUTE_PROVIDER_FAILURE = {
+  error: 'The UI request failed.',
   code: 'ProviderError',
 } as const;
+const AGENT_ROUTE_PROVIDER_FAILURE = {
+  error: 'The model could not respond.',
+  code: 'provider_error',
+} as const;
+const MODEL_FAILURE_COPY =
+  'The model request failed. Check your API key and try again.';
 const NO_METRICS = {
   turns: 0,
   toolCalls: 0,
@@ -243,83 +249,65 @@ describe('ShopPage typed intents', () => {
     expect(h.thinking()).toBe(false);
   });
 
-  it('restores the draft and reopens the key drawer when the run fails on a rejected key', async () => {
-    const h = await renderShop();
-    h.type('restore me');
-    await h.send();
-    expect(h.input().value).toBe('');
-    const [inputId] = h.engine.inputIds();
-    const runId = RunId('run-invalid-key');
+  it.each([
+    ['UI-only route', UI_ROUTE_PROVIDER_FAILURE],
+    ['agent route', AGENT_ROUTE_PROVIDER_FAILURE],
+  ])(
+    'restores the draft and reopens the key drawer when the run fails with the %s provider code',
+    async (_route, failure) => {
+      const h = await renderShop();
+      h.type('restore me');
+      await h.send();
+      expect(h.input().value).toBe('');
+      const [inputId] = h.engine.inputIds();
+      const runId = RunId('run-provider-failure');
 
-    await h.engine.emit(accepted(inputId, runId), {
-      type: 'finished',
-      version: AGENT_WIRE_VERSION,
-      runId,
-      ok: false,
-      reason: 'error',
-      metrics: NO_METRICS,
-      ...INVALID_KEY,
-    });
+      await h.engine.emit(
+        accepted(inputId, runId),
+        failedFinish(runId, failure),
+      );
 
-    expect(h.input().value).toBe('restore me');
-    expect(h.view.getByTestId('key-error').textContent).toBe(
-      'Invalid API key.',
-    );
-    expect(h.engine.utterances()).toHaveLength(1);
-  });
+      expect(h.input().value).toBe('restore me');
+      expect(h.view.getByTestId('key-error').textContent).toBe(
+        MODEL_FAILURE_COPY,
+      );
+      expect(h.engine.utterances()).toHaveLength(1);
+    },
+  );
 
-  it('restores the draft and reopens the key drawer when the input is rejected on a rejected key', async () => {
-    const h = await renderShop();
-    h.type('restore me');
-    await h.send();
-    const [inputId] = h.engine.inputIds();
-
-    await h.engine.emit({
-      type: 'error',
-      version: AGENT_WIRE_VERSION,
-      inputId,
-      ...INVALID_KEY,
-    });
-
-    expect(h.input().value).toBe('restore me');
-    expect(h.view.getByTestId('key-error').textContent).toBe(
-      'Invalid API key.',
-    );
-  });
-
-  it('keeps newer typing when an older run fails on a rejected key', async () => {
+  it('keeps newer typing when an older run fails with a provider code', async () => {
     const h = await renderShop();
     h.type('old');
     await h.send();
     h.type('newer');
     const [inputId] = h.engine.inputIds();
+    const runId = RunId('run-older');
 
-    await h.engine.emit({
-      type: 'error',
-      version: AGENT_WIRE_VERSION,
-      inputId,
-      ...INVALID_KEY,
-    });
+    await h.engine.emit(
+      accepted(inputId, runId),
+      failedFinish(runId, AGENT_ROUTE_PROVIDER_FAILURE),
+    );
 
     expect(h.input().value).toBe('newer');
     expect(h.view.getByTestId('key-error').textContent).toBe(
-      'Invalid API key.',
+      MODEL_FAILURE_COPY,
     );
   });
 
-  it('leaves the draft cleared and the drawer closed for a run failure unrelated to the key', async () => {
+  it('leaves the draft cleared and the drawer closed for a run failure other than the model provider', async () => {
     const h = await renderShop();
-    h.type('rate limited');
+    h.type('timed out');
     await h.send();
     const [inputId] = h.engine.inputIds();
+    const runId = RunId('run-timeout');
 
-    await h.engine.emit({
-      type: 'error',
-      version: AGENT_WIRE_VERSION,
-      inputId,
-      error: '429 rate limit reached',
-      code: 'ProviderError',
-    });
+    await h.engine.emit(
+      accepted(inputId, runId),
+      failedFinish(runId, {
+        error: 'The UI acknowledgement did not arrive.',
+        code: 'ui_ack_timeout',
+      }),
+    );
 
     expect(h.input().value).toBe('');
     expect(h.view.queryByRole('dialog')).toBeNull();
@@ -579,6 +567,21 @@ function scriptedEngine({ gatedConnect = false } = {}) {
           for (const handler of handlers) handler(event);
         }
       }),
+  };
+}
+
+function failedFinish(
+  runId: RunId,
+  failure: { readonly error: string; readonly code: string },
+): AgentEvent {
+  return {
+    type: 'finished',
+    version: AGENT_WIRE_VERSION,
+    runId,
+    ok: false,
+    reason: 'error',
+    metrics: NO_METRICS,
+    ...failure,
   };
 }
 

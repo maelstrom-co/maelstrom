@@ -37,7 +37,7 @@ beforeEach(() => {
   connectionStatus = 'connected';
   agentRuns = { run: null, runs: [], error: null };
   sendMessage.mockReset();
-  sendMessage.mockResolvedValue(MessageId('input-1'));
+  sendMessage.mockImplementation(async () => registerInput('input-1'));
 });
 
 afterEach(() => {
@@ -149,25 +149,71 @@ describe('useShopAgentSubmit', () => {
     expect(h.result.current.intent).toBe('');
   });
 
-  it('restores the draft and reports the mint error when the run fails on a rejected key', async () => {
+  it.each([
+    ['UI-only route', UI_ROUTE_PROVIDER_FAILURE],
+    ['agent route', AGENT_ROUTE_PROVIDER_FAILURE],
+  ])(
+    'restores the draft and reports the model failure when the run fails on the %s provider code',
+    async (_route, failure) => {
+      const h = renderSubmit('restore me', { browserKeyMode: true });
+      await act(async () => {
+        h.result.current.submit();
+      });
+
+      act(() => publishRun(failedRun('input-1', failure)));
+
+      expect(h.result.current.intent).toBe('restore me');
+      expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
+    },
+  );
+
+  it('restores and reports a provider failure after a recoverable stale loss', async () => {
     const h = renderSubmit('restore me', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
+    act(() => publishRun(lostRun('input-1', 'stale_run')));
+    expect(h.onMintError).not.toHaveBeenCalled();
 
-    act(() => publishRun(failedRun('input-1', INVALID_KEY)));
+    act(() => publishRun(failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)));
 
     expect(h.result.current.intent).toBe('restore me');
-    expect(h.onMintError).toHaveBeenCalledWith('Invalid API key.');
+    expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
   });
 
-  it('reports a rejected key that failed the run before the send resolved', async () => {
+  it('stops watching a run once it finished', async () => {
+    const h = renderSubmit('done', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    act(() => publishRun(run('input-1', 'finished')));
+
+    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
+
+    expect(h.result.current.intent).toBe('');
+    expect(h.onMintError).not.toHaveBeenCalled();
+  });
+
+  it('stops watching a run that is no longer tracked', async () => {
+    const h = renderSubmit('evicted', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    act(() => publishRuns([]));
+
+    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
+
+    expect(h.result.current.intent).toBe('');
+    expect(h.onMintError).not.toHaveBeenCalled();
+  });
+
+  it('reports a provider failure that failed the run before the send resolved', async () => {
     const send = deferredSend();
     const h = renderSubmit('restore me', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
-    act(() => publishRun(failedRun('input-1', INVALID_KEY)));
+    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
 
     await act(async () => {
       send.resolve(MessageId('input-1'));
@@ -177,20 +223,20 @@ describe('useShopAgentSubmit', () => {
     expect(h.onMintError).toHaveBeenCalledOnce();
   });
 
-  it('ignores a rejected key reported for another input', async () => {
+  it('ignores a provider failure reported for another input', async () => {
     const h = renderSubmit('keep cleared', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
 
-    act(() => publishRun(failedRun('voice-input', INVALID_KEY)));
+    act(() => publishRun(failedRun('voice-input', UI_ROUTE_PROVIDER_FAILURE)));
 
     expect(h.result.current.intent).toBe('');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
-  it('leaves the draft cleared for a failure unrelated to the key', async () => {
-    const h = renderSubmit('rate limited', { browserKeyMode: true });
+  it('leaves the draft cleared for a failure other than the model provider', async () => {
+    const h = renderSubmit('timed out', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
@@ -198,8 +244,8 @@ describe('useShopAgentSubmit', () => {
     act(() =>
       publishRun(
         failedRun('input-1', {
-          message: '429 rate limit reached',
-          code: 'ProviderError',
+          message: 'The UI acknowledgement did not arrive.',
+          code: 'ui_ack_timeout',
         }),
       ),
     );
@@ -208,33 +254,42 @@ describe('useShopAgentSubmit', () => {
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
-  it('does not treat a rejected key as a key problem outside browser-key mode', async () => {
+  it('does not treat a provider failure as a key problem outside browser-key mode', async () => {
     const h = renderSubmit('server key', { browserKeyMode: false });
     await act(async () => {
       h.result.current.submit();
     });
 
-    act(() => publishRun(failedRun('input-1', INVALID_KEY)));
+    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
 
     expect(h.result.current.intent).toBe('');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
-  it('reports the mint error but keeps newer typing when an older run fails on a rejected key', async () => {
+  it('reports the model failure but keeps newer typing when an older run fails on a provider code', async () => {
     const h = renderSubmit('old', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
     act(() => h.result.current.changeDraft('newer'));
 
-    act(() => publishRun(failedRun('input-1', INVALID_KEY)));
+    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
 
     expect(h.result.current.intent).toBe('newer');
-    expect(h.onMintError).toHaveBeenCalledWith('Invalid API key.');
+    expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
   });
 });
 
-const INVALID_KEY = { message: '401 invalid API key', code: 'ProviderError' };
+const UI_ROUTE_PROVIDER_FAILURE = {
+  message: 'The UI request failed.',
+  code: 'ProviderError',
+};
+const AGENT_ROUTE_PROVIDER_FAILURE = {
+  message: 'The model could not respond.',
+  code: 'provider_error',
+};
+const MODEL_FAILURE_COPY =
+  'The model request failed. Check your API key and try again.';
 
 function renderSubmit(
   initialIntent: string,
@@ -271,7 +326,10 @@ function deferredSend() {
       }),
   );
   return {
-    resolve: (inputId: MessageIdType) => resolve(inputId),
+    resolve: (inputId: MessageIdType) => {
+      registerInput(inputId);
+      resolve(inputId);
+    },
     reject: (error: Error) => reject(error),
   };
 }
@@ -303,12 +361,32 @@ function run(
   };
 }
 
+function lostRun(
+  inputId: string,
+  lostReason: NonNullable<AgentRunState['lostReason']>,
+): AgentRunState {
+  return { ...run(inputId, 'lost'), lostReason };
+}
+
+// Mirrors the agent run store, which registers the input before `sendMessage`
+// resolves.
+function registerInput(inputId: string): MessageIdType {
+  const id = MessageId(inputId);
+  if (!agentRuns.runs.some((known) => known.inputId === id)) {
+    publishRun(run(inputId, 'pending'));
+  }
+  return id;
+}
+
 function publishRun(next: AgentRunState): void {
-  const runs = [
+  publishRuns([
     ...agentRuns.runs.filter((known) => known.inputId !== next.inputId),
     next,
-  ];
-  agentRuns = { ...agentRuns, runs, run: next };
+  ]);
+}
+
+function publishRuns(runs: readonly AgentRunState[]): void {
+  agentRuns = { ...agentRuns, runs, run: runs.at(-1) ?? null };
   for (const listener of listeners) listener();
 }
 
