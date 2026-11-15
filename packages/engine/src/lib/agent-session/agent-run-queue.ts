@@ -15,6 +15,7 @@ import {
   type ResolvedAgentConfig,
   resolveAgentRunSetup,
 } from './agent-config.js';
+import type { RunObserver } from './agent-diagnostics.js';
 import {
   type AgentRunClock,
   type AgentRunEvent,
@@ -34,7 +35,6 @@ import {
   type RunBudgetExhaustion,
   type RunFailure,
 } from './run-events.js';
-import type { RunObserver } from './run-scheduler.js';
 import { describeShowQueued } from './screen-note.js';
 import { collectShowFacts } from './show-request.js';
 import type { ToolResultStore } from './tool-result-store.js';

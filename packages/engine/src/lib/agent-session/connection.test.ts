@@ -327,7 +327,7 @@ test('a UI-only Planner clarification fails its run with the skipReply Validatio
           question: 'Which calendar?',
         });
       },
-      observe: () => undefined,
+      diagnostics: { run: () => undefined, session: () => undefined },
       logger,
     },
   );

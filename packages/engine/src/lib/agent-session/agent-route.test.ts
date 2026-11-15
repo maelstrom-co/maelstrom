@@ -6,7 +6,6 @@ import {
   type AgentEvent,
   AgentEventSchema,
   type AgentUiChangeEvent,
-  type AgentUtteranceInput,
   CallId,
   ChangeId,
   type ChartRequest,
@@ -14,7 +13,6 @@ import {
   type DiagnosticEvent,
   InstanceId,
   isErr,
-  type JsonValue,
   MessageId,
   ok,
   RunId,
@@ -22,13 +20,10 @@ import {
   VariantName,
 } from '@maelstrom-co/protocol';
 import { EventType, type StreamChunk } from '@tanstack/ai';
-import { z } from 'zod';
 
 import {
   type ClarifyingPlanner,
   createEngine,
-  type PlanningInput,
-  serverTool,
   ToolError,
 } from '../../index.js';
 import { defer } from '../__test-helpers__/defer.js';
@@ -48,9 +43,20 @@ import type { PlannerCandidate } from '../planner/candidate.js';
 import { named } from '../planner/instrument.js';
 import { pipeline } from '../planner/pipeline.js';
 import {
-  createFakeAgentRunTime,
-  type FakeAgentRunTime,
-} from './__test-helpers__/fake-agent-run-time.js';
+  capturingAgentRunQueueModule,
+  capturingPlannerShowQueueModule,
+  LATEST_ORDER,
+  nothingToShowPlanner,
+  openAgentSession,
+  orderTool,
+  sessionInternals,
+  TEST_BUDGETS,
+  tilingLayoutOf,
+  TOKEN_SENTINEL,
+  USER_SENTINEL,
+  utterance,
+} from './__test-helpers__/agent-session-harness.js';
+import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import {
   type ScriptedModelCall,
   scriptedFailingTurn,
@@ -59,40 +65,15 @@ import {
   scriptedToolTurn,
   scriptedUsage,
 } from './__test-helpers__/scripted-text-adapter.js';
-import {
-  type AgentConfig,
-  type AgentModelFactory,
-  resolveAgentConfig,
-} from './agent-config.js';
+import { type AgentModelFactory, resolveAgentConfig } from './agent-config.js';
 import { NOT_RUN_TOOL_SUMMARY } from './agent-run-policy.js';
-import * as agentRunQueueModule from './agent-run-queue.js';
-import type { AgentRunQueue, AgentRunQueueOptions } from './agent-run-queue.js';
-import { type AgentRunBudgets, BUDGET_CLOSING_MESSAGE } from './agent-run.js';
-import * as plannerShowQueueModule from './planner-show-queue.js';
-import type { PlannerShowQueueOptions } from './planner-show-queue.js';
-import type { SessionPlanner } from './session-planner.js';
-import type { ToolResultStore } from './tool-result-store.js';
-import { toolCallRef, type Transcript } from './transcript.js';
+import { BUDGET_CLOSING_MESSAGE } from './agent-run.js';
+import { toolCallRef } from './transcript.js';
 
-const USER_SENTINEL = 'user-sentinel-7f3a';
-const TOKEN_SENTINEL = 'token-sentinel-91c2';
 const PLANNER_PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
 const PLANNER_ERROR_SENTINEL = 'planner-error-sentinel-3b8f';
 const QUESTION_SENTINEL = 'question-sentinel-5d1e';
 const CLARIFICATION_OPTION_SENTINEL = 'clarification-option-sentinel-a24c';
-
-const LATEST_ORDER = {
-  orderId: 'o-1',
-  total: 42,
-  items: ['squeaky bone', 'catnip mouse'],
-};
-
-const TEST_BUDGETS: AgentRunBudgets = {
-  maxTurns: 6,
-  maxElapsedMs: 60_000,
-  maxTokens: 10_000,
-  maxToolCalls: 6,
-};
 
 const SINGLE_TOOL_RUN_WIRE: readonly AgentEvent['type'][] = [
   'placeholder',
@@ -104,37 +85,8 @@ const SINGLE_TOOL_RUN_WIRE: readonly AgentEvent['type'][] = [
   'finished',
 ];
 
-const realCreateAgentRunQueue = agentRunQueueModule.createAgentRunQueue;
-const realCreatePlannerShowQueue =
-  plannerShowQueueModule.createPlannerShowQueue;
-const sessionInternals: SessionInternals[] = [];
-let lastShowPlanner: SessionPlanner | undefined;
-
-void mock.module('./planner-show-queue.js', () => ({
-  ...plannerShowQueueModule,
-  createPlannerShowQueue: (options: PlannerShowQueueOptions) => {
-    lastShowPlanner = options.planner;
-    return realCreatePlannerShowQueue(options);
-  },
-}));
-
-void mock.module('./agent-run-queue.js', () => ({
-  ...agentRunQueueModule,
-  createAgentRunQueue: (options: AgentRunQueueOptions): AgentRunQueue => {
-    const planner = lastShowPlanner;
-    if (planner === undefined)
-      throw new Error('the connection created no show queue');
-    lastShowPlanner = undefined;
-    const queue = realCreateAgentRunQueue(options);
-    sessionInternals.push({
-      queue,
-      transcript: options.transcript,
-      toolResults: options.toolResults,
-      planner,
-    });
-    return queue;
-  },
-}));
+void mock.module('./planner-show-queue.js', capturingPlannerShowQueueModule);
+void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('agent route through the Engine handle', () => {
   describe('a single utterance', () => {
@@ -690,6 +642,27 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).not.toContain('Screen updated');
+      const runId = runIdOf(session.received, 'input-1');
+      const rejected = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_applied.rejected',
+      );
+      expect(rejected).toHaveLength(2);
+      const [unknownChange, wrongCount] = rejected;
+      expect(unknownChange).not.toHaveProperty('runId');
+      expect(unknownChange).not.toHaveProperty('requestId');
+      expect(unknownChange?.metadata).toEqual({
+        changeId: 'stray-change',
+        code: 'unknown_change',
+      });
+      expect(wrongCount).not.toHaveProperty('requestId');
+      expect(wrongCount?.runId).toBe(runId);
+      expect(wrongCount?.metadata).toEqual({
+        changeId: firstChange.changeId,
+        code: 'invalid_action_outcomes',
+        inputId: 'input-1',
+        turnId: `${runId}:t1`,
+      });
 
       await session.connection.send(
         acknowledgementOf(firstChange, calendarChart()),
@@ -2438,160 +2411,15 @@ describe('agent route through the Engine handle', () => {
   });
 });
 
-interface SessionInternals {
-  readonly queue: AgentRunQueue;
-  readonly transcript: Transcript;
-  readonly toolResults: ToolResultStore;
-  readonly planner: SessionPlanner;
-}
-
 interface StalledCall {
   signal?: AbortSignal;
   closed: boolean;
 }
 
-function openAgentSession(
-  overrides: {
-    readonly time?: FakeAgentRunTime;
-    readonly model?: AgentConfig['model'];
-    readonly tools?: AgentConfig['tools'];
-    readonly budgets?: AgentConfig['budgets'];
-    readonly planner?: ClarifyingPlanner;
-    readonly acknowledgementTimeoutMs?: number;
-  } = {},
-) {
-  const time = overrides.time ?? createFakeAgentRunTime();
-  const received: AgentEvent[] = [];
-  const user = { id: USER_SENTINEL };
-  const plannerInputs: PlanningInput[] = [];
-  const planner = overrides.planner ?? nothingToShowPlanner;
-  const createdBefore = sessionInternals.length;
-  const engine = createEngine({
-    logger: silentLogger,
-    retry: false,
-    planner: (input, ctx) => {
-      plannerInputs.push(input);
-      return planner(input, ctx);
-    },
-    agent: {
-      model: overrides.model ?? scriptedTextAdapter([]).adapter,
-      instructions: 'You help pet shop customers.',
-      tools: overrides.tools ?? [],
-      budgets:
-        typeof overrides.budgets === 'function'
-          ? overrides.budgets
-          : { ...TEST_BUDGETS, ...overrides.budgets },
-    },
-  });
-  const diagnostics: DiagnosticEvent[] = [];
-  const diagnosticContents = new Map<DiagnosticEvent, () => unknown>();
-  engine.observeDiagnostics?.((event, readContent) => {
-    diagnostics.push(event);
-    if (readContent !== undefined) diagnosticContents.set(event, readContent);
-  });
-  const connection = engine.openConnection({
-    sessionId: SessionId('agent-route'),
-    user,
-    token: TOKEN_SENTINEL,
-    clock: time.clock.now,
-    scheduleTimeout: time.clock.scheduleTimeout,
-    ...(overrides.acknowledgementTimeoutMs === undefined
-      ? {}
-      : { acknowledgementTimeoutMs: overrides.acknowledgementTimeoutMs }),
-  });
-  connection.subscribe((event) => {
-    received.push(event);
-  });
-  const internals = sessionInternals[createdBefore];
-  if (internals === undefined || sessionInternals.length !== createdBefore + 1)
-    throw new Error('the connection did not create one agent run queue');
-  return {
-    engine,
-    connection,
-    received,
-    diagnostics,
-    readContentOf: (event: DiagnosticEvent) =>
-      diagnosticContents.get(event)?.(),
-    user,
-    send: (input: AgentUtteranceInput) => connection.send(input),
-    plannerCalls: () => plannerInputs.length,
-    plannerInputs: () => plannerInputs,
-    internals: () => internals,
-  };
-}
-
 const neverSettlingPlanner: ClarifyingPlanner = () => new Promise(() => {});
-
-const nothingToShowPlanner: ClarifyingPlanner = (input) =>
-  Promise.resolve(
-    ok({
-      type: 'plan',
-      rationale: 'Nothing to show.',
-      executionPlan: [],
-      layout: tilingLayoutOf(input.request),
-    }),
-  );
-
-function orderTool(
-  options: {
-    readonly latestOrder?: (
-      signal: AbortSignal,
-    ) => Promise<typeof LATEST_ORDER>;
-    readonly intentFacts?: (
-      order: typeof LATEST_ORDER,
-    ) => Readonly<Record<string, JsonValue>>;
-  } = {},
-) {
-  const contexts: { user: unknown; token?: string }[] = [];
-  const args: unknown[] = [];
-  const tool = serverTool({
-    name: 'latest_order',
-    description: 'Returns the latest order of the user',
-    input: z.object({}),
-    output: z.object({
-      orderId: z.string(),
-      total: z.number(),
-      items: z.array(z.string()),
-    }),
-    sideEffect: 'read_only',
-    execute: (input, ctx) => {
-      args.push(input);
-      contexts.push({ user: ctx.user, token: ctx.token });
-      return (options.latestOrder ?? (() => Promise.resolve(LATEST_ORDER)))(
-        ctx.signal,
-      );
-    },
-    summarize: (output) => `Order ${output.orderId} for ${output.total}`,
-    ...(options.intentFacts === undefined
-      ? {}
-      : { intentFacts: options.intentFacts }),
-  });
-  return { tool, contexts, args };
-}
 
 function orderFacts(order: typeof LATEST_ORDER) {
   return { orderId: order.orderId, itemCount: order.items.length };
-}
-
-function utterance(
-  inputId: string,
-  text: string,
-  chart: ChartRequest = makeTilingRequest(),
-): AgentUtteranceInput {
-  return {
-    type: 'utterance',
-    version: AGENT_WIRE_VERSION,
-    inputId: MessageId(inputId),
-    text,
-    source: 'text',
-    chart,
-  };
-}
-
-function tilingLayoutOf(request: ChartRequest) {
-  if (request.layout.type !== 'tiling')
-    throw new Error('agent route tests send tiling Charts');
-  return request.layout;
 }
 
 function calendarChart(): ChartRequest {

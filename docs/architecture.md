@@ -381,6 +381,15 @@ host can forward evidence over the protocol through a compatible connector.
 Forwarding requires explicit host opt-in and connection-bound session identity;
 it stays disabled in production. The Engine never imports a browser DevTools package.
 
+Agent Session diagnostics add two owners beside the request. A run-owned event
+carries a server-minted `runId` in place of `requestId`, with the originating
+`inputId` in metadata. A session-owned event carries neither id. It reports an
+ignored or rejected input or an acknowledgement for an unknown change. A refused
+acknowledgement for a known change, such as one with the wrong outcome count, is
+run-owned. A diagnostic connection forwards run-owned and session-owned events
+of its own session only. Both skip request ambiguity tracking and the in-flight
+request cap, which stay request-only. Forwarding stays disabled in production.
+
 The default DevTools production entrypoints are inert. Explicit `/production`
 imports enable browser tools in every build without changing server policy.
 See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for setup,

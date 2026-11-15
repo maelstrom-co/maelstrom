@@ -30,7 +30,7 @@ const acknowledgement = {
   actionOutcomes: [],
 };
 
-test('an utterance is admitted once and its repeat is ignored', () => {
+test('an utterance is admitted once and its repeat is ignored with the repeated input id', () => {
   const admission = createInputAdmission();
   expect(admission.admit(utterance('input-1'), 0)).toEqual({
     kind: 'utterance',
@@ -38,6 +38,7 @@ test('an utterance is admitted once and its repeat is ignored', () => {
   });
   expect(admission.admit(utterance('input-1'), 0)).toEqual({
     kind: 'ignored',
+    inputId: MessageId('input-1'),
   });
 });
 
@@ -113,6 +114,7 @@ test('the input-id bound rejects new utterances but never forgets admitted ones'
   });
   expect(admission.admit(utterance('remember-0'), maxPendingInputs)).toEqual({
     kind: 'ignored',
+    inputId: MessageId('remember-0'),
   });
   expect(admission.admit(utterance('over'), maxPendingInputs)).toMatchObject({
     kind: 'rejected',

@@ -20,6 +20,7 @@ import {
   operationalKinds,
 } from '@maelstrom-co/telemetry/integration';
 
+import { assertNever } from './assert-never.js';
 import type { Engine } from './engine.js';
 import { handleEnvelope } from './envelope-handler.js';
 import { operationalOutcome, thrownOutcome } from './operational-outcome.js';
@@ -44,7 +45,22 @@ export interface RunOwner {
   readonly turnId?: string;
 }
 
-type DiagnosticOwner = MessageId | RunOwner;
+/** The owner of Agent Session events that belong to no Agent Run and no request. */
+export interface SessionDiagnosticOwner {
+  /** Marks the session arm of the owner union. */
+  readonly session: true;
+}
+
+/**
+ * Owner marker for Agent Session events with neither `requestId` nor `runId`.
+ * A diagnostic connection forwards such events only for its own session.
+ */
+export const SESSION_DIAGNOSTIC_OWNER: SessionDiagnosticOwner = Object.freeze({
+  session: true,
+});
+
+/** Who owns an event: a legacy request id, an Agent Run, or the session. */
+type DiagnosticOwner = MessageId | RunOwner | SessionDiagnosticOwner;
 
 export class EngineDiagnosticEmitter {
   private readonly listeners = new Set<EngineDiagnosticObserver>();
@@ -89,7 +105,7 @@ export class EngineDiagnosticEmitter {
   }
   emit<Kind extends string>(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: Kind,
     ...args: [
       ...ObservationArguments<NoInfer<Kind>>,
@@ -98,12 +114,12 @@ export class EngineDiagnosticEmitter {
   ): void;
   emit(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
-    this.publish(sessionId, requestId, kind, metadata, readContent);
+    this.publish(sessionId, owner, kind, metadata, readContent);
   }
   emitMetadata<Kind extends string>(
     kind: Kind,
@@ -114,46 +130,39 @@ export class EngineDiagnosticEmitter {
   }
   private publish(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
     this.emitMetadata(kind, metadata);
-    this.publishDiagnostic(sessionId, requestId, kind, metadata, readContent);
+    this.publishDiagnostic(sessionId, owner, kind, metadata, readContent);
   }
   private publishDiagnostic(
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata,
     readContent?: () => unknown,
   ): void {
     if (
       !this.listeners.size ||
-      (typeof requestId === 'string' &&
+      (typeof owner === 'string' &&
         kind !== 'engine.request.finished' &&
-        this.requests.get(sessionId)?.get(requestId)?.ambiguous)
+        this.requests.get(sessionId)?.get(owner)?.ambiguous)
     )
       return;
+    const { metadata: ownedMetadata, ...ownerFields } = ownedFields(
+      owner,
+      metadata,
+    );
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
       sessionId,
-      ...(typeof requestId === 'string'
-        ? { requestId }
-        : { runId: requestId.runId }),
+      ...ownerFields,
       kind,
       at: Date.now(),
-      metadata:
-        typeof requestId === 'string'
-          ? metadata
-          : {
-              ...metadata,
-              inputId: requestId.inputId,
-              ...(requestId.turnId === undefined
-                ? {}
-                : { turnId: requestId.turnId }),
-            },
+      metadata: ownedMetadata,
     };
     for (const listener of this.listeners) {
       try {
@@ -172,19 +181,14 @@ export class EngineDiagnosticEmitter {
   instrument(
     base: Instrument,
     sessionId: SessionId,
-    requestId: DiagnosticOwner,
+    owner: DiagnosticOwner,
   ): Instrument {
     if (this.listeners.size === 0 && this.metadataListeners.size === 0)
       return base;
     return {
       event: (name, attributes) => {
         base.event(name, attributes);
-        this.publishDiagnostic(
-          sessionId,
-          requestId,
-          `engine.${name}`,
-          attributes,
-        );
+        this.publishDiagnostic(sessionId, owner, `engine.${name}`, attributes);
       },
       stage: (name, stage) => {
         const wrapped = base.stage(name, stage);
@@ -192,7 +196,7 @@ export class EngineDiagnosticEmitter {
           const start = performance.now();
           this.emit(
             sessionId,
-            requestId,
+            owner,
             operationalKinds.engineStageStarted,
             { stage: name },
             () => input,
@@ -201,7 +205,7 @@ export class EngineDiagnosticEmitter {
             const result = await wrapped(input, ctx);
             this.emit(
               sessionId,
-              requestId,
+              owner,
               operationalKinds.engineStageCompleted,
               {
                 stage: name,
@@ -214,7 +218,7 @@ export class EngineDiagnosticEmitter {
           } catch (error) {
             this.emit(
               sessionId,
-              requestId,
+              owner,
               operationalKinds.engineStageFailed,
               {
                 stage: name,
@@ -263,28 +267,15 @@ export function createDiagnosticConnection(
   let release: (() => void) | undefined;
   let disposed = false;
   const requests = new Map<string, symbol>();
-  const releaseSubscription = () => {
-    enabled = false;
-    content = false;
-  };
-  const dispose = () => {
-    disposed = true;
-    releaseSubscription();
-    try {
-      release?.();
-    } catch {
-      /* Optional observation cannot prevent connection cleanup. */
-    }
-    release = undefined;
-    requests.clear();
-  };
   if (options.enabled === true && process.env.NODE_ENV !== 'production') {
     try {
       release = engine.observeDiagnostics?.((event, readContent) => {
         if (event.sessionId !== options.sessionId) return;
+        // Run-owned and session-owned events carry no requestId. The session
+        // check above already limits them to this connection's session, so
+        // only request-owned events need a tracked request.
         const owned =
-          event.runId !== undefined ||
-          (event.requestId !== undefined && requests.has(event.requestId));
+          event.requestId === undefined || requests.has(event.requestId);
         if (event.kind === 'engine.request.finished' && event.requestId)
           requests.delete(event.requestId);
         if (!enabled || !owned) return;
@@ -354,4 +345,39 @@ export function createDiagnosticConnection(
       }
     },
   };
+
+  function releaseSubscription() {
+    enabled = false;
+    content = false;
+  }
+
+  function dispose() {
+    disposed = true;
+    releaseSubscription();
+    try {
+      release?.();
+    } catch {
+      /* Optional observation cannot prevent connection cleanup. */
+    }
+    release = undefined;
+    requests.clear();
+  }
+}
+
+function ownedFields(
+  owner: DiagnosticOwner,
+  metadata: DiagnosticMetadata,
+): Pick<DiagnosticEvent, 'requestId' | 'runId' | 'metadata'> {
+  if (typeof owner === 'string') return { requestId: owner, metadata };
+  if ('session' in owner) return { metadata };
+  if ('runId' in owner)
+    return {
+      runId: owner.runId,
+      metadata: {
+        ...metadata,
+        inputId: owner.inputId,
+        ...(owner.turnId === undefined ? {} : { turnId: owner.turnId }),
+      },
+    };
+  return assertNever(owner, 'diagnostic owner');
 }

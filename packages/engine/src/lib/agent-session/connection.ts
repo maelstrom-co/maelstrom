@@ -1,7 +1,9 @@
 import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
 
+import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
 import type { ResolvedAgentConfig } from './agent-config.js';
+import type { DiagnosticObservers } from './agent-diagnostics.js';
 import { type AgentRunQueue, createAgentRunQueue } from './agent-run-queue.js';
 import type { AgentRunClock } from './agent-run.js';
 import { createInputAdmission } from './input-admission.js';
@@ -10,11 +12,7 @@ import {
   type OrderedEmitter,
 } from './ordered-emitter.js';
 import { createPlannerShowQueue } from './planner-show-queue.js';
-import {
-  createRunScheduler,
-  type RunObserver,
-  type RunScheduler,
-} from './run-scheduler.js';
+import { createRunScheduler, type RunScheduler } from './run-scheduler.js';
 import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';
@@ -68,7 +66,11 @@ export interface OpenConnectionOptions {
  *   the next queued show start.
  */
 export interface AgentConnection {
-  /** Accepts untrusted input. Resolves after handling it, without waiting for a later UI acknowledgement. */
+  /**
+   * Accepts untrusted input. Resolves after handling it, without waiting for
+   * a later UI acknowledgement. Input sent after close() is dropped without an
+   * event or a diagnostic.
+   */
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
   subscribe(listener: (event: AgentEvent) => void): () => void;
@@ -80,8 +82,12 @@ export interface AgentConnection {
 export interface AgentConnectionDependencies {
   /** Plans every UI change of the connection, on either route. */
   readonly planner: SessionPlanner;
-  /** Receives diagnostic observations of each run and change. */
-  readonly observe: RunObserver;
+  /**
+   * Receives diagnostic observations of each run and change, and those that
+   * belong to no run: ignored and rejected inputs and acknowledgements for an
+   * unknown change.
+   */
+  readonly diagnostics: DiagnosticObservers;
   /** Receives delivered events and run failures. */
   readonly logger: Logger;
   /** The resolved agent slot. Without it every utterance takes the UI-only route. */
@@ -90,7 +96,7 @@ export interface AgentConnectionDependencies {
 
 export function createAgentConnection(
   options: OpenConnectionOptions,
-  { planner, observe, logger, agent }: AgentConnectionDependencies,
+  { planner, diagnostics, logger, agent }: AgentConnectionDependencies,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -115,7 +121,7 @@ export function createAgentConnection(
     agent === undefined
       ? createRunScheduler({
           planner,
-          observe,
+          diagnostics,
           logger,
           events,
           signal: controller.signal,
@@ -127,7 +133,7 @@ export function createAgentConnection(
             options,
             agent,
             planner,
-            observe,
+            diagnostics,
             logger,
             events,
             clock,
@@ -147,11 +153,31 @@ export function createAgentConnection(
     async send(raw) {
       if (controller.signal.aborted) return;
       const admitted = admission.admit(raw, runs.pendingRuns());
-      if (admitted.kind === 'rejected') runs.reject(admitted.event);
-      else if (admitted.kind === 'acknowledgement')
-        runs.acknowledge(admitted.input);
-      else if (admitted.kind === 'utterance')
-        await runs.enqueue(admitted.input);
+      switch (admitted.kind) {
+        case 'rejected': {
+          const { code, inputId } = admitted.event;
+          diagnostics.session('engine.agent.input.rejected', {
+            code,
+            ...(inputId === undefined ? {} : { inputId }),
+          });
+          runs.reject(admitted.event);
+          return;
+        }
+        case 'ignored':
+          diagnostics.session('engine.agent.input.ignored', {
+            inputId: admitted.inputId,
+            reason: 'duplicate_input',
+          });
+          return;
+        case 'acknowledgement':
+          runs.acknowledge(admitted.input);
+          return;
+        case 'utterance':
+          await runs.enqueue(admitted.input);
+          return;
+        default:
+          assertNever(admitted, 'agent input admission');
+      }
     },
   };
 }
@@ -160,7 +186,7 @@ function createAgentRoute({
   options,
   agent,
   planner,
-  observe,
+  diagnostics,
   logger,
   events,
   clock,
@@ -169,7 +195,7 @@ function createAgentRoute({
   readonly options: OpenConnectionOptions;
   readonly agent: ResolvedAgentConfig;
   readonly planner: SessionPlanner;
-  readonly observe: RunObserver;
+  readonly diagnostics: DiagnosticObservers;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly clock: () => number;
@@ -180,7 +206,7 @@ function createAgentRoute({
   const shows = createPlannerShowQueue({
     planner,
     events,
-    observe,
+    diagnostics,
     recordShowNote: (runId, turnId, text) =>
       transcript.recordShowNote(runId, turnId, text),
     logger,
@@ -194,7 +220,7 @@ function createAgentRoute({
       ...(options.token === undefined ? {} : { token: options.token }),
     },
     events,
-    observe,
+    observe: diagnostics.run,
     logger,
     clock,
     scheduleTimeout,

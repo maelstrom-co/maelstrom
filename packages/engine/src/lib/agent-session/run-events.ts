@@ -123,6 +123,8 @@ export function buildRunEnding(
       reason,
       outcome: ok ? 'succeeded' : 'failed',
       ...metrics,
+      // Devtools reads durationMs. It equals elapsedMs and comes from the same metrics object.
+      durationMs: metrics.elapsedMs,
       ...(failure ? { code: failure.code } : {}),
       ...(budget ? { limit: budget.limit } : {}),
       ...(counters

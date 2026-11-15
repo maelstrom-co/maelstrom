@@ -7,16 +7,18 @@ import {
   type AgentUtteranceInput,
   ChangeId,
   type ChartRequest,
-  type DiagnosticMetadata,
   isErr,
   type MaelstromResponse,
-  type MessageId,
   type Result,
   RunId,
 } from '@maelstrom-co/protocol';
 
 import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
+import {
+  type DiagnosticObservers,
+  observeUiChangeEmitted,
+} from './agent-diagnostics.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import {
   buildAcceptanceEvents,
@@ -26,17 +28,9 @@ import {
 import { requireResponse, type SessionPlanner } from './session-planner.js';
 import { userIntentRequest } from './show-request.js';
 
-export type RunObserver = (
-  runId: RunId,
-  inputId: MessageId,
-  kind: string,
-  metadata: DiagnosticMetadata,
-  readContent?: () => unknown,
-) => void;
-
 export interface RunSchedulerOptions {
   readonly planner: SessionPlanner;
-  readonly observe: RunObserver;
+  readonly diagnostics: DiagnosticObservers;
   readonly logger: Logger;
   readonly events: OrderedEmitter<AgentEvent>;
   readonly signal: AbortSignal;
@@ -72,7 +66,7 @@ type RunState =
 
 export function createRunScheduler({
   planner,
-  observe,
+  diagnostics,
   logger,
   events,
   signal,
@@ -82,28 +76,120 @@ export function createRunScheduler({
   const queue: UiRun[] = [];
   let state: RunState = { phase: 'idle' };
   let chart: ChartRequest | undefined;
-  const complete = (run: UiRun, reply?: string, failure?: RunFailure) => {
+  return {
+    pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
+    reject,
+    enqueue(input) {
+      const started = clock();
+      const run: UiRun = {
+        input,
+        runId: RunId(crypto.randomUUID()),
+        started,
+        ready: deferred(),
+      };
+      // A Chart sent while a change awaits acknowledgement can predate it.
+      if (state.phase !== 'awaiting_ack') chart = input.chart;
+      queue.push(run);
+      events.emit(...buildAcceptanceEvents(input.inputId, run.runId));
+      diagnostics.run(
+        run.runId,
+        input.inputId,
+        'engine.agent.input.accepted',
+        { source: input.source, disposition: 'ui_only' },
+        () => ({ text: input.text }),
+      );
+      void pump();
+      return run.ready.promise;
+    },
+    acknowledge(input) {
+      if (
+        state.phase !== 'awaiting_ack' ||
+        state.event.changeId !== input.changeId
+      ) {
+        refuseUnknownChange(input.changeId);
+        return;
+      }
+      const { run, event, cancelTimeout } = state;
+      if (input.actionOutcomes.length !== event.response.executionPlan.length) {
+        diagnostics.run(
+          run.runId,
+          run.input.inputId,
+          'engine.agent.ui_applied.rejected',
+          {
+            changeId: input.changeId,
+            code: 'invalid_action_outcomes',
+          },
+        );
+        reject(
+          changeError(
+            input.changeId,
+            'invalid_action_outcomes',
+            'Expected one outcome per Action.',
+          ),
+        );
+        return;
+      }
+      state = { phase: 'finishing', run };
+      cancelTimeout();
+      chart = input.chart;
+      diagnostics.run(
+        run.runId,
+        run.input.inputId,
+        'engine.agent.ui_change.applied',
+        {
+          changeId: input.changeId,
+          actions: input.actionOutcomes.length,
+          failed: input.actionOutcomes.filter((outcome) => !outcome.ok).length,
+        },
+        () => ({ chart: input.chart, actionOutcomes: input.actionOutcomes }),
+      );
+      complete(
+        run,
+        event.response.userMessage,
+        input.actionOutcomes.some((outcome) => !outcome.ok)
+          ? {
+              code: 'ui_apply_failed',
+              error: 'The UI change could not be fully applied.',
+            }
+          : undefined,
+      );
+      startNextRun();
+    },
+    close() {
+      if (state.phase === 'awaiting_ack') state.cancelTimeout();
+      if (state.phase !== 'idle') state.run.ready.resolve();
+      state = { phase: 'idle' };
+      for (const run of queue) run.ready.resolve();
+      queue.length = 0;
+      chart = undefined;
+    },
+  };
+
+  function complete(run: UiRun, reply?: string, failure?: RunFailure) {
     if (signal.aborted) return;
     const ending = buildRunEnding(run, clock(), reply, failure);
     events.emit(...ending.events);
-    observe(
+    diagnostics.run(
       run.runId,
       run.input.inputId,
       'engine.agent.run.finished',
       ending.metadata,
     );
-  };
-  const startNextRun = () => {
+  }
+
+  function startNextRun() {
     state = { phase: 'idle' };
     void pump();
-  };
-  const failPlanning = (run: UiRun, failure: RunFailure) => {
+  }
+
+  function failPlanning(run: UiRun, failure: RunFailure) {
     state = { phase: 'finishing', run };
     complete(run, undefined, failure);
     run.ready.resolve();
     startNextRun();
-  };
-  const expire = (run: UiRun) => {
+  }
+
+  function expire(run: UiRun) {
     state = { phase: 'finishing', run };
     chart = undefined;
     const abandoned = queue.splice(0);
@@ -120,8 +206,9 @@ export function createRunScheduler({
       queued.ready.resolve();
     }
     startNextRun();
-  };
-  const emitUiChange = (run: UiRun, response: MaelstromResponse) => {
+  }
+
+  function emitUiChange(run: UiRun, response: MaelstromResponse) {
     const event: AgentUiChangeEvent = {
       type: 'ui_change',
       version: AGENT_WIRE_VERSION,
@@ -139,14 +226,15 @@ export function createRunScheduler({
       cancelTimeout: () => clearTimeout(timeout),
     };
     events.emit(event);
-    observe(run.runId, run.input.inputId, 'engine.agent.ui_change.emitted', {
+    observeUiChangeEmitted(event, run.input.inputId, diagnostics, {
       changeId: event.changeId,
       actions: response.executionPlan.length,
     });
     run.ready.resolve();
     void pump();
-  };
-  const pump = async (): Promise<void> => {
+  }
+
+  async function pump(): Promise<void> {
     if (signal.aborted || events.isDelivering() || state.phase !== 'idle')
       return;
     const run = queue.shift();
@@ -179,92 +267,29 @@ export function createRunScheduler({
         code: result.error._tag,
       });
     else emitUiChange(run, result.value);
-  };
-  const reject = (event: AgentErrorEvent): void => {
+  }
+
+  function reject(event: AgentErrorEvent): void {
     events.emit(event);
     void pump();
-  };
-  return {
-    pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
-    reject,
-    enqueue(input) {
-      const started = clock();
-      const run: UiRun = {
-        input,
-        runId: RunId(crypto.randomUUID()),
-        started,
-        ready: deferred(),
-      };
-      // A Chart sent while a change awaits acknowledgement can predate it.
-      if (state.phase !== 'awaiting_ack') chart = input.chart;
-      queue.push(run);
-      events.emit(...buildAcceptanceEvents(input.inputId, run.runId));
-      observe(
-        run.runId,
-        input.inputId,
-        'engine.agent.input.accepted',
-        { source: input.source, disposition: 'ui_only' },
-        () => ({ text: input.text }),
-      );
-      void pump();
-      return run.ready.promise;
-    },
-    acknowledge(input) {
-      if (
-        state.phase !== 'awaiting_ack' ||
-        state.event.changeId !== input.changeId
-      ) {
-        reject(
-          changeError(input.changeId, 'unknown_change', 'Unknown UI change.'),
-        );
-        return;
-      }
-      const { run, event, cancelTimeout } = state;
-      if (input.actionOutcomes.length !== event.response.executionPlan.length) {
-        reject(
-          changeError(
-            input.changeId,
-            'invalid_action_outcomes',
-            'Expected one outcome per Action.',
-          ),
-        );
-        return;
-      }
-      state = { phase: 'finishing', run };
-      cancelTimeout();
-      chart = input.chart;
-      observe(
-        run.runId,
-        run.input.inputId,
-        'engine.agent.ui_change.applied',
-        {
-          changeId: input.changeId,
-          actions: input.actionOutcomes.length,
-          failed: input.actionOutcomes.filter((outcome) => !outcome.ok).length,
-        },
-        () => ({ chart: input.chart, actionOutcomes: input.actionOutcomes }),
-      );
-      complete(
-        run,
-        event.response.userMessage,
-        input.actionOutcomes.some((outcome) => !outcome.ok)
-          ? {
-              code: 'ui_apply_failed',
-              error: 'The UI change could not be fully applied.',
-            }
-          : undefined,
-      );
-      startNextRun();
-    },
-    close() {
-      if (state.phase === 'awaiting_ack') state.cancelTimeout();
-      if (state.phase !== 'idle') state.run.ready.resolve();
-      state = { phase: 'idle' };
-      for (const run of queue) run.ready.resolve();
-      queue.length = 0;
-      chart = undefined;
-    },
-  };
+  }
+
+  function refuseUnknownChange(changeId: ChangeId) {
+    diagnostics.session('engine.agent.ui_applied.rejected', {
+      changeId,
+      code: 'unknown_change',
+    });
+    reject(changeError(changeId, 'unknown_change', 'Unknown UI change.'));
+  }
+}
+
+/** Builds the agent `error` event that refuses a `ui_applied` input. */
+export function changeError(
+  changeId: ChangeId,
+  code: string,
+  error: string,
+): AgentErrorEvent {
+  return { type: 'error', version: AGENT_WIRE_VERSION, changeId, code, error };
 }
 
 interface Deferred {
@@ -278,13 +303,4 @@ function deferred(): Deferred {
     resolve = done;
   });
   return { promise, resolve };
-}
-
-/** Builds the agent `error` event that refuses a `ui_applied` input. */
-export function changeError(
-  changeId: ChangeId,
-  code: string,
-  error: string,
-): AgentErrorEvent {
-  return { type: 'error', version: AGENT_WIRE_VERSION, changeId, code, error };
 }

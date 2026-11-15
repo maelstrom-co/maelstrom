@@ -19,9 +19,15 @@ export interface DiagnosticEvent {
   readonly at: number;
   /** Session whose work produced this event. */
   readonly sessionId: string;
-  /** Originating request when the producer can prove the association. */
+  /**
+   * Originating request when the producer can prove the association. Engine
+   * events never carry it together with `runId`.
+   */
   readonly requestId?: string;
-  /** Server-minted Agent Run whose work produced this event. */
+  /**
+   * Server-minted Agent Run whose work produced this event. An Engine event
+   * with neither `requestId` nor `runId` belongs to the session as a whole.
+   */
   readonly runId?: string;
   /** Metadata that excludes transcripts, prompts, arguments, and credentials. */
   readonly metadata: DiagnosticMetadata;
