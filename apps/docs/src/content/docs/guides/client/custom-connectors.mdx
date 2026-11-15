@@ -98,7 +98,7 @@ Treat this as a test seam, not a production browser connector. It is useful beca
 
 ## Agent Session traffic
 
-Every connector implements two members for Agent Sessions. Keep them thin: they only carry agent frames and never interpret them.
+Every connector implements two members for Agent Sessions. The agent wire is not stable yet, and new event and input types are still expected, so keep these thin: they only carry agent frames and never interpret them.
 
 - `sendInput(input)` resolves once the transport has accepted the frame. It does not wait for an agent event. It rejects with a `ConnectorError` of kind `transport` when the connector is not connected.
 - `onEvent(handler)` delivers decoded Agent Session events to the handler and returns an unsubscribe function.
