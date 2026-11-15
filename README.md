@@ -269,13 +269,15 @@ for why a voice model never plans your UI.
 
 <div align="center">
   <h2>Sponsors</h2>
+  <br />
   <a href="https://coderabbit.link/maelstrom">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="media/sponsors/coderabbit-dark.png" />
-      <source media="(prefers-color-scheme: light)" srcset="media/sponsors/coderabbit-light.png" />
-      <img src="media/sponsors/coderabbit-light.png" alt="CodeRabbit" width="400" />
+      <source media="(prefers-color-scheme: dark)" srcset="media/sponsors/coderabbit-dark.svg" />
+      <source media="(prefers-color-scheme: light)" srcset="media/sponsors/coderabbit-light.svg" />
+      <img src="media/sponsors/coderabbit-light.svg" alt="CodeRabbit" width="360" />
     </picture>
   </a>
+  <br />
   <p>Code reviews powered by CodeRabbit</p>
 </div>
 
