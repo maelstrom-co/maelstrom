@@ -8,7 +8,7 @@ import {
   RunId,
 } from '@maelstrom-co/protocol';
 
-import { observeUiChangeEmitted } from './run-scheduler.js';
+import { observeUiChangeEmitted } from './agent-diagnostics.js';
 
 function uiChange(runId: RunId | null): AgentUiChangeEvent {
   return {

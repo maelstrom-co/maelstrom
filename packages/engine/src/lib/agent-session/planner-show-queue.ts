@@ -16,13 +16,13 @@ import {
 import { assertNever } from '../assert-never.js';
 import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { AgentRunClock } from './agent-run.js';
-import type { OrderedEmitter } from './ordered-emitter.js';
 import {
-  changeError,
   type DiagnosticObservers,
   observeUiChangeEmitted,
-} from './run-scheduler.js';
+} from './agent-diagnostics.js';
+import type { AgentRunClock } from './agent-run.js';
+import type { OrderedEmitter } from './ordered-emitter.js';
+import { changeError } from './run-scheduler.js';
 import {
   describeScreenUpdate,
   describeShowCancelled,

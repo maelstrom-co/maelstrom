@@ -3,6 +3,7 @@ import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
 import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
 import type { ResolvedAgentConfig } from './agent-config.js';
+import type { DiagnosticObservers } from './agent-diagnostics.js';
 import { type AgentRunQueue, createAgentRunQueue } from './agent-run-queue.js';
 import type { AgentRunClock } from './agent-run.js';
 import { createInputAdmission } from './input-admission.js';
@@ -11,11 +12,7 @@ import {
   type OrderedEmitter,
 } from './ordered-emitter.js';
 import { createPlannerShowQueue } from './planner-show-queue.js';
-import {
-  createRunScheduler,
-  type DiagnosticObservers,
-  type RunScheduler,
-} from './run-scheduler.js';
+import { createRunScheduler, type RunScheduler } from './run-scheduler.js';
 import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';

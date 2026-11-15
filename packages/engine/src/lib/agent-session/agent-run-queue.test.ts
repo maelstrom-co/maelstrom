@@ -31,6 +31,7 @@ import {
   scriptedUsage,
 } from './__test-helpers__/scripted-text-adapter.js';
 import { type AgentConfig, resolveAgentConfig } from './agent-config.js';
+import type { RunObserver } from './agent-diagnostics.js';
 import {
   type AgentRunStarter,
   createAgentRunQueue,
@@ -44,7 +45,6 @@ import {
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import { createPlannerShowQueue } from './planner-show-queue.js';
-import type { RunObserver } from './run-scheduler.js';
 import { serverTool, ToolError } from './server-tool.js';
 import type { SessionPlanInput, SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
