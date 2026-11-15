@@ -4,7 +4,11 @@ import type {
   VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  MessageId,
+  SessionId,
+  SidechannelEvent,
+} from '@maelstrom-co/protocol';
 import type {
   MaelstromExtension,
   MaelstromExtensionContext,
@@ -161,6 +165,19 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
+  /**
+   * Sends each voice `update_ui` intent to the agent instead of the intent
+   * scheduler, for example through `orchestrator.sendMessage`. It must
+   * resolve with the input's `MessageId`. The tool result then waits for the
+   * outcome of the Agent Run that handles the input, and speaks its reply
+   * when there is one. A rejection answers the tool call as not submitted.
+   * It is opt-in because `HttpConnector` and hosts that answer agent inputs
+   * with plain `handleEnvelope` cannot serve agent inputs.
+   */
+  readonly sendAgentMessage?: (
+    orchestrator: Orchestrator,
+    text: string,
+  ) => Promise<MessageId>;
 }
 
 /** Opening chosen per provider; excludes the fixed opening options. */
@@ -574,7 +591,7 @@ function buildSession<Provider>(
         : undefined;
     const session = new RealtimeSession({
       adapter,
-      instance: createRealtimeInstance(orchestrator),
+      instance: createRealtimeInstance(orchestrator, options),
       sessionId,
       memory,
       ...(generatedOpening ? { generatedOpening } : {}),
