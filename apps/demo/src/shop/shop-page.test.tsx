@@ -1,23 +1,20 @@
 // @vitest-environment happy-dom
 
-import {
-  type EngineConnector,
-  type IntentSubmission,
-  type Orchestrator,
-  WireEngineError,
-} from '@maelstrom-co/client';
+import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import { createTestConnector } from '@maelstrom-co/client/_testing';
-import type {
-  ChartRequestMessage,
-  MaelstromResponse,
-  TilingLayout,
+import {
+  AGENT_WIRE_VERSION,
+  type AgentEvent,
+  type AgentUtteranceInput,
+  type MessageId,
+  RunId,
+  type TilingLayout,
 } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
-import { Store } from '@tanstack/react-store';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -64,11 +61,6 @@ vi.doMock('./maelstrom', () => ({
 vi.doMock('../lib/connector', () => ({
   createDemoConnector: () => connector,
 }));
-vi.doMock('../lib/hosted-mode', () => ({
-  isHosted: () => false,
-  usesBrowserKey: () => true,
-  usesBrowserOpenAIVoice: () => true,
-}));
 vi.doMock('../lib/hosted-vad', () => ({
   preloadHostedVadAssets: async () => {},
 }));
@@ -84,7 +76,9 @@ vi.doMock('./shop-option-sync', () => ({
     return null;
   },
 }));
-vi.doMock('./shop-voice-corner', () => ({ ShopVoiceCorner: () => null }));
+vi.doMock('./shop-voice-corner', () => ({
+  ShopVoiceCorner: ({ reply }: { reply?: ReactNode }) => <>{reply}</>,
+}));
 vi.doMock('./shop-keyless-preview', () => ({
   ShopKeylessPreview: ({
     intent,
@@ -134,8 +128,17 @@ vi.doMock('../components/key-drawer', () => ({
 }));
 const { ShopPage } = await import('./shop-page');
 
-const INVALID_KEY = () =>
-  new WireEngineError('401 invalid API key', 'ProviderError');
+const INVALID_KEY = {
+  error: '401 invalid API key',
+  code: 'ProviderError',
+} as const;
+const NO_METRICS = {
+  turns: 0,
+  toolCalls: 0,
+  elapsedMs: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+};
 
 class MeasuredResizeObserver {
   constructor(private readonly callback: ResizeObserverCallback) {}
@@ -150,6 +153,9 @@ class MeasuredResizeObserver {
 }
 
 beforeEach(() => {
+  vi.stubEnv('VITE_HOSTED', '');
+  vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+  vi.stubEnv('VITE_VOICE_PROVIDER', '');
   vi.stubGlobal('ResizeObserver', MeasuredResizeObserver);
   chartHostWidth = 1024;
   seededLayouts.length = 0;
@@ -169,34 +175,130 @@ afterEach(() => {
   clearPlaygroundKey();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('ShopPage typed intents', () => {
-  it('restores an untouched draft and reopens the key drawer when the Engine rejects the key', async () => {
+  it('sends the trimmed draft through sendMessage as text input and clears the draft', async () => {
+    const h = await renderShop();
+    const client = mountedOrchestrator();
+    const sendMessage = vi.spyOn(client, 'sendMessage');
+    const enqueueIntent = vi.spyOn(client, 'enqueueIntent');
+
+    h.type('  show my orders  ');
+    await h.send();
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith('show my orders', {
+      source: 'text',
+    });
+    expect(h.engine.utterances()).toEqual([
+      { text: 'show my orders', source: 'text' },
+    ]);
+    expect(h.input().value).toBe('');
+    expect(enqueueIntent).not.toHaveBeenCalled();
+  });
+
+  it('restores the draft when the send is rejected', async () => {
+    const h = await renderShop();
+    h.engine.rejectNextInput(new Error('socket closed'));
+
+    h.type('restore me');
+    await h.send();
+
+    expect(h.input().value).toBe('restore me');
+    expect(h.view.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows the Agent Run reply and thinks while the run is open', async () => {
+    const h = await renderShop();
+    h.type('show my orders');
+    await h.send();
+    const [inputId] = h.engine.inputIds();
+    const runId = RunId('run-reply');
+
+    expect(h.thinking()).toBe(true);
+
+    await h.engine.emit(accepted(inputId, runId), {
+      type: 'message',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      turnId: 'turn-1',
+      delta: 'Here are your orders.',
+    });
+    expect(h.thinking()).toBe(true);
+    expect(h.view.getByTestId('shop-agent-reply').textContent).toBe(
+      'Here are your orders.',
+    );
+
+    await h.engine.emit({
+      type: 'finished',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      ok: true,
+      reason: 'completed',
+      reply: 'Here are your orders.',
+      metrics: NO_METRICS,
+    });
+    expect(h.thinking()).toBe(false);
+  });
+
+  it('restores the draft and reopens the key drawer when the run fails on a rejected key', async () => {
     const h = await renderShop();
     h.type('restore me');
     await h.send();
     expect(h.input().value).toBe('');
+    const [inputId] = h.engine.inputIds();
+    const runId = RunId('run-invalid-key');
 
-    await act(async () => {
-      h.engine.pending[0].reject(INVALID_KEY());
+    await h.engine.emit(accepted(inputId, runId), {
+      type: 'finished',
+      version: AGENT_WIRE_VERSION,
+      runId,
+      ok: false,
+      reason: 'error',
+      metrics: NO_METRICS,
+      ...INVALID_KEY,
     });
 
     expect(h.input().value).toBe('restore me');
     expect(h.view.getByTestId('key-error').textContent).toBe(
       'Invalid API key.',
     );
-    expect(h.engine.sent).toHaveLength(1);
+    expect(h.engine.utterances()).toHaveLength(1);
   });
 
-  it('keeps newer typing when an older submission fails on a rejected key', async () => {
+  it('restores the draft and reopens the key drawer when the input is rejected on a rejected key', async () => {
+    const h = await renderShop();
+    h.type('restore me');
+    await h.send();
+    const [inputId] = h.engine.inputIds();
+
+    await h.engine.emit({
+      type: 'error',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      ...INVALID_KEY,
+    });
+
+    expect(h.input().value).toBe('restore me');
+    expect(h.view.getByTestId('key-error').textContent).toBe(
+      'Invalid API key.',
+    );
+  });
+
+  it('keeps newer typing when an older run fails on a rejected key', async () => {
     const h = await renderShop();
     h.type('old');
     await h.send();
     h.type('newer');
+    const [inputId] = h.engine.inputIds();
 
-    await act(async () => {
-      h.engine.pending[0].reject(INVALID_KEY());
+    await h.engine.emit({
+      type: 'error',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      ...INVALID_KEY,
     });
 
     expect(h.input().value).toBe('newer');
@@ -205,36 +307,25 @@ describe('ShopPage typed intents', () => {
     );
   });
 
-  it('does not restore an older failed submission over a later accepted one', async () => {
-    const h = await renderShop();
-    h.type('old');
-    await h.send();
-    h.type('later accepted');
-    await h.send();
-
-    await act(async () => {
-      h.engine.pending[0].reject(INVALID_KEY());
-    });
-
-    expect(h.input().value).toBe('');
-  });
-
-  it('leaves the draft cleared and the drawer closed for an Engine failure unrelated to the key', async () => {
+  it('leaves the draft cleared and the drawer closed for a run failure unrelated to the key', async () => {
     const h = await renderShop();
     h.type('rate limited');
     await h.send();
+    const [inputId] = h.engine.inputIds();
 
-    await act(async () => {
-      h.engine.pending[0].reject(
-        new WireEngineError('429 rate limit reached', 'ProviderError'),
-      );
+    await h.engine.emit({
+      type: 'error',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      error: '429 rate limit reached',
+      code: 'ProviderError',
     });
 
     expect(h.input().value).toBe('');
     expect(h.view.queryByRole('dialog')).toBeNull();
   });
 
-  it('retries a resumed intent the queue refused once processing changes', async () => {
+  it('submits a resumed draft once when the new session connects', async () => {
     const engine = scriptedEngine({ gatedConnect: true });
     connector = engine.connector;
     let view!: ReturnType<typeof render>;
@@ -242,7 +333,7 @@ describe('ShopPage typed intents', () => {
       view = render(<ShopPage />);
     });
     fireEvent.change(view.getByRole('textbox', { name: 'Ask the pet shop' }), {
-      target: { value: 'resume me' },
+      target: { value: '  resume me ' },
     });
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: 'Send' }));
@@ -250,33 +341,47 @@ describe('ShopPage typed intents', () => {
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: 'Save key' }));
     });
-    const client = orchestrator;
-    if (!client) throw new Error('expected the shop Provider to mount');
-    const enqueue = vi
-      .spyOn(client, 'enqueueIntent')
-      .mockImplementationOnce(() => refusedTicket());
+    const input = () =>
+      view.getByRole('combobox', {
+        name: 'Ask the pet shop',
+      }) as HTMLInputElement;
+
+    expect(engine.utterances()).toEqual([]);
+    expect(input().value).toBe('  resume me ');
 
     await act(async () => {
       engine.openConnection();
     });
 
-    expect(enqueue).toHaveBeenCalledOnce();
-    expect(engine.sent).toHaveLength(0);
-    const input = () =>
-      view.getByRole('combobox', {
-        name: 'Ask the pet shop',
-      }) as HTMLInputElement;
-    expect(input().value).toBe('resume me');
-
-    await act(async () => {
-      client.enqueueIntent('show the catalog');
-    });
-    await act(async () => {
-      engine.finish(0);
-    });
-
+    expect(engine.utterances()).toEqual([
+      { text: 'resume me', source: 'text' },
+    ]);
     expect(input().value).toBe('');
-    expect(engine.sentIntents()).toEqual(['show the catalog', 'resume me']);
+  });
+});
+
+describe('ShopPage typed intents on a hosted build', () => {
+  it('sends the draft through sendMessage and never enqueues an intent', async () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '');
+    const h = await renderShop();
+    const client = mountedOrchestrator();
+    const sendMessage = vi.spyOn(client, 'sendMessage');
+    const enqueueIntent = vi.spyOn(client, 'enqueueIntent');
+
+    h.type('show my orders');
+    await h.send();
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith('show my orders', {
+      source: 'text',
+    });
+    expect(h.engine.utterances()).toEqual([
+      { text: 'show my orders', source: 'text' },
+    ]);
+    expect(h.input().value).toBe('');
+    expect(enqueueIntent).not.toHaveBeenCalled();
+    expect(h.engine.chartRequests).toBe(0);
   });
 });
 
@@ -416,15 +521,23 @@ async function renderShop() {
       act(async () => {
         fireEvent.click(view.getByRole('button', { name: 'Send' }));
       }),
+    thinking: () =>
+      view.container
+        .querySelector('.chart-wrapper')
+        ?.getAttribute('data-thinking') === 'true',
   };
 }
 
+function mountedOrchestrator(): Orchestrator {
+  if (!orchestrator) throw new Error('expected the shop Provider to mount');
+  return orchestrator;
+}
+
 function scriptedEngine({ gatedConnect = false } = {}) {
-  const sent: ChartRequestMessage[] = [];
-  const pending: Array<{
-    resolve: (response: MaelstromResponse) => void;
-    reject: (error: Error) => void;
-  }> = [];
+  const inputs: AgentUtteranceInput[] = [];
+  const handlers = new Set<(event: AgentEvent) => void>();
+  const inputRejections: Error[] = [];
+  let chartRequests = 0;
   let openConnection = () => {};
   const connected = gatedConnect
     ? new Promise<void>((resolve) => {
@@ -433,41 +546,50 @@ function scriptedEngine({ gatedConnect = false } = {}) {
     : Promise.resolve();
   const engineConnector = createTestConnector({
     connect: () => connected,
-    process: (request) => {
-      sent.push(request);
-      return new Promise((resolve, reject) =>
-        pending.push({ resolve, reject }),
-      );
+    process: () => {
+      chartRequests++;
+      return new Promise(() => {});
+    },
+    sendInput: async (input) => {
+      const rejection = inputRejections.shift();
+      if (rejection) throw rejection;
+      if (input.type === 'utterance') inputs.push(input);
+    },
+    onEvent: (handler) => {
+      handlers.add(handler);
+      return () => {
+        handlers.delete(handler);
+      };
     },
   });
   return {
     connector: engineConnector,
-    sent,
-    pending,
+    get chartRequests() {
+      return chartRequests;
+    },
     openConnection: () => openConnection(),
-    finish: (index: number) =>
-      pending[index].resolve({
-        type: 'maelstrom_response',
-        requestId: sent[index].id,
-        layout: { type: 'grid', positions: [] },
-        executionPlan: [],
-        rationale: '',
-        userMessage: `Reply ${index}`,
-      }),
-    sentIntents: () =>
-      sent.map((request) => {
-        const reason = request.request.context.updateReasons.at(-1);
-        return reason?.type === 'user_intent' ? reason.intent : reason?.type;
+    rejectNextInput: (error: Error) => {
+      inputRejections.push(error);
+    },
+    utterances: () => inputs.map(({ text, source }) => ({ text, source })),
+    inputIds: () => inputs.map((input) => input.inputId),
+    emit: (...events: AgentEvent[]) =>
+      act(async () => {
+        for (const event of events) {
+          for (const handler of handlers) handler(event);
+        }
       }),
   };
 }
 
-function refusedTicket(): IntentSubmission {
-  const refusal = { status: 'not_submitted', reason: 'queue_full' } as const;
-  return Object.freeze({
-    id: 'refused-intent',
-    accepted: false,
-    store: new Store(refusal),
-    result: Promise.resolve(refusal),
-  });
+function accepted(inputId: MessageId | undefined, runId: RunId): AgentEvent {
+  if (inputId === undefined) throw new Error('expected a sent input');
+  return {
+    type: 'accepted',
+    version: AGENT_WIRE_VERSION,
+    inputId,
+    runId,
+    disposition: 'ui_only',
+    ack: '',
+  };
 }

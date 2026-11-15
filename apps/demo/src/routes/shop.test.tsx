@@ -1,9 +1,17 @@
 // @vitest-environment happy-dom
 
+import type { EngineConnector } from '@maelstrom-co/client';
 import {
+  AGENT_WIRE_VERSION,
+  type AgentEvent,
+  type AgentUtteranceInput,
+  ChangeId,
   type ChartRequestMessage,
   InstanceId,
+  type GridLayout,
   type MaelstromResponse,
+  MessageId,
+  RunId,
   type TilingLayout,
   tilingLeafToken,
   VariantName,
@@ -69,22 +77,18 @@ vi.mock('../lib/hosted-vad', () => ({
   preloadHostedVadAssets: async () => {},
 }));
 
-// Stands in for the Engine and Planner at the connector boundary: every
-// ChartRequest is recorded, and a request whose user intent names a known
-// screen gets the layout a Planner would return for it.
+// Stands in for the Engine and Planner at the connector boundary, answering
+// agent inputs the way a server without the demo agent does: every utterance
+// is recorded, and one whose text names a known screen gets the layout a
+// Planner would return for it. ChartRequests are recorded too.
 const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
+  utterances: [] as AgentUtteranceInput[],
   layouts: new Map<RegExp, TilingLayout>(),
 }));
 
 vi.mock('../lib/connector', () => ({
-  createDemoConnector: () => ({
-    ...createMockConnector(),
-    process: async (message: ChartRequestMessage) => {
-      engine.requests.push(message);
-      return plannedResponse(message);
-    },
-  }),
+  createDemoConnector: () => uiOnlyEngineConnector(),
 }));
 
 const SHOP_VESSEL_IDS = ['cart', 'catalog', 'checkout', 'orders'];
@@ -167,6 +171,7 @@ beforeEach(() => {
   FakeRealtimeSession.instances = [];
   openAIAdapter.activations = 0;
   engine.requests = [];
+  engine.utterances = [];
   engine.layouts = new Map([
     [/catalog/i, CATALOG_LAYOUT],
     [/check ?out/i, CHECKOUT_LAYOUT],
@@ -226,6 +231,7 @@ describe('/shop without a key', () => {
     expect(screen.queryByText('Design review')).toBeNull();
     expect(screen.queryByText('Ship this sprint')).toBeNull();
     expect(engine.requests).toHaveLength(0);
+    expect(engine.utterances).toHaveLength(0);
   });
 
   it('opens the key drawer from the shop preview', async () => {
@@ -277,7 +283,7 @@ describe('/shop without a key', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Add key' }));
     expect(screen.getByLabelText('API key')).toBeTruthy();
-    expect(engine.requests).toHaveLength(0);
+    expect(engine.utterances).toHaveLength(0);
 
     fireEvent.change(screen.getByLabelText('API key'), {
       target: { value: 'sk-shop-held-intent-1234567890' },
@@ -287,7 +293,7 @@ describe('/shop without a key', () => {
     await waitFor(() => expect(instance(CATALOG)).not.toBeNull(), {
       timeout: 2000,
     });
-    expect(intentRequest('show the catalog')).toBeDefined();
+    expect(utterance('show the catalog')?.source).toBe('text');
   });
 });
 
@@ -426,16 +432,18 @@ describe('/shop with a key', () => {
     await waitFor(() => expect(instance(CATALOG)).not.toBeNull(), {
       timeout: 2000,
     });
-    const request = must(intentRequest('show the catalog'));
-    expect(request.request.vessels.map((vessel) => vessel.id).sort()).toEqual(
+    const input = must(utterance('show the catalog'));
+    expect(input.source).toBe('text');
+    expect(input.chart.vessels.map((vessel) => vessel.id).sort()).toEqual(
       SHOP_VESSEL_IDS,
     );
+    expect(engine.requests).toHaveLength(0);
     await waitFor(() =>
       expect(instance(CATALOG)?.textContent).toContain('Full catalog'),
     );
   });
 
-  it('sends a voice intent through the shop instance createIntentScope and offers voice only the shop Vessels', async () => {
+  it('sends a voice intent through the agent path and offers voice only the shop Vessels', async () => {
     setPlaygroundKey('sk-shop-voice-1234567890');
     const { ShopPage } = await import('../shop/shop-page');
     render(<ShopPage />);
@@ -452,18 +460,20 @@ describe('/shop with a key', () => {
         .sort(),
     ).toEqual(SHOP_VESSEL_IDS);
 
-    const scope = must(voice.createIntentScope?.());
+    const sendAgentMessage = must(voice.sendAgentMessage);
     await act(async () => {
-      await scope.enqueueIntent('show the catalog').result;
+      await sendAgentMessage('show the catalog');
     });
 
     await waitFor(() => expect(instance(CATALOG)).not.toBeNull(), {
       timeout: 2000,
     });
-    const request = must(intentRequest('show the catalog'));
-    expect(request.request.vessels.map((vessel) => vessel.id).sort()).toEqual(
+    const input = must(utterance('show the catalog'));
+    expect(input.source).toBe('voice');
+    expect(input.chart.vessels.map((vessel) => vessel.id).sort()).toEqual(
       SHOP_VESSEL_IDS,
     );
+    expect(engine.requests).toHaveLength(0);
   });
 
   it('adds a product to the cart and places the order by hand, ending on the confirmation', async () => {
@@ -594,20 +604,102 @@ describe('/shop with a key', () => {
   });
 });
 
-function plannedResponse(message: ChartRequestMessage): MaelstromResponse {
-  const intents = message.request.context.updateReasons.flatMap((reason) =>
-    reason.type === 'user_intent' ? [reason.intent] : [],
-  );
+function uiOnlyEngineConnector(): EngineConnector {
+  const handlers = new Set<(event: AgentEvent) => void>();
+  const runsByChange = new Map<ChangeId, RunId>();
+  const emit = (...events: AgentEvent[]) => {
+    for (const event of events) {
+      for (const handler of [...handlers]) handler(event);
+    }
+  };
+  return {
+    ...createMockConnector(),
+    process: async (message: ChartRequestMessage) => {
+      engine.requests.push(message);
+      return plannedResponse(
+        message.id,
+        message.request.context.updateReasons.flatMap((reason) =>
+          reason.type === 'user_intent' ? [reason.intent] : [],
+        ),
+        message.request.layout,
+      );
+    },
+    sendInput: async (input) => {
+      if (input.type === 'ui_applied') {
+        const runId = runsByChange.get(input.changeId);
+        if (runId === undefined) return;
+        queueMicrotask(() =>
+          emit({
+            type: 'finished',
+            version: AGENT_WIRE_VERSION,
+            runId,
+            ok: true,
+            reason: 'completed',
+            reply: '',
+            metrics: {
+              turns: 0,
+              toolCalls: 0,
+              elapsedMs: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+            },
+          }),
+        );
+        return;
+      }
+      engine.utterances.push(input);
+      const index = engine.utterances.length;
+      const runId = RunId(`run-${index}`);
+      const changeId = ChangeId(`change-${index}`);
+      runsByChange.set(changeId, runId);
+      queueMicrotask(() =>
+        emit(
+          {
+            type: 'accepted',
+            version: AGENT_WIRE_VERSION,
+            inputId: input.inputId,
+            runId,
+            disposition: 'ui_only',
+            ack: '',
+          },
+          {
+            type: 'ui_change',
+            version: AGENT_WIRE_VERSION,
+            runId,
+            changeId,
+            response: plannedResponse(
+              MessageId(`response-${index}`),
+              [input.text],
+              input.chart.layout,
+            ),
+          },
+        ),
+      );
+    },
+    onEvent: (handler) => {
+      handlers.add(handler);
+      return () => {
+        handlers.delete(handler);
+      };
+    },
+  };
+}
+
+function plannedResponse(
+  requestId: MessageId,
+  intents: readonly string[],
+  currentLayout: GridLayout | TilingLayout,
+): MaelstromResponse {
   const planned = [...engine.layouts].find(([pattern]) =>
     intents.some((intent) => pattern.test(intent)),
   )?.[1];
   return {
     type: 'maelstrom_response',
-    requestId: message.id,
+    requestId,
     userMessage: '',
     rationale: '',
     executionPlan: [],
-    layout: planned ?? message.request.layout,
+    layout: planned ?? currentLayout,
   };
 }
 
@@ -623,12 +715,8 @@ async function submitTypedIntent(intent: string): Promise<void> {
   });
 }
 
-function intentRequest(intent: string): ChartRequestMessage | undefined {
-  return engine.requests.find((message) =>
-    message.request.context.updateReasons.some(
-      (reason) => reason.type === 'user_intent' && reason.intent === intent,
-    ),
-  );
+function utterance(text: string): AgentUtteranceInput | undefined {
+  return engine.utterances.find((input) => input.text === text);
 }
 
 function instance(instanceId: InstanceId): HTMLElement | null {
