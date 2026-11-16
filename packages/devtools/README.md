@@ -71,6 +71,32 @@ does not remove their stages one at a time. A single request exceeding its limit
 keeps its latest stages and reports partial evidence. Selection stays fixed until
 you choose another request. If it expires, the panel asks you to select another.
 
+## Inspect Agent Runs
+
+The Agent tab groups run-owned Engine events by app lifetime and server-minted
+`runId`. It links client input and UI-application events through their `inputId`
+and `changeId` when a matching run is retained. Turns are grouped by `turnId`;
+run details show status, outcome, duration, tool-call counts, token usage, and
+the available run and turn events. Agent events with no run or request owner,
+such as ignored or rejected inputs and unlinked client events, appear in a
+per-client session timeline. Events with a `requestId` remain in Requests.
+
+The Agent tab retains metadata, not application content. Content appears only
+when an explicit recording or content subscription captured it.
+
+Configure its separate history limit with `maxRunEvents`:
+
+```ts
+const tools = createDevtools({ maxRunEvents: 2000 });
+const { runActivity, droppedRunEvents } = tools.getSnapshot();
+```
+
+The default is 1000 events. Retention evicts the oldest whole run groups,
+including linked client events; unlinked session events are evicted oldest first.
+If one run alone exceeds the limit, its latest events remain as partial evidence.
+`droppedRunEvents` counts removed events, and a run whose starting event was
+removed is marked as missing its start.
+
 Inspector projects layout geometry and registered capabilities. It labels its
 diagram as schematic because container pixels are not retained. The optional
 `setHighlightedInstance(clientId, instanceId)` capability highlights a live
