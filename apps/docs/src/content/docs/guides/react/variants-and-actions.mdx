@@ -12,7 +12,49 @@ A vessel becomes interactive when it has more than one variant and a set of acti
   **Before you start:** this guide builds directly on the `greetingVessel` defined in [Creating Vessels](/guides/react/creating-vessels/). Have that vessel, its component, and the `createMaelstrom()` setup in place first.
 </Aside>
 
-## What you'll wire up
+## SDK 0.2.1
+
+In SDK 0.2.1, mark a repeatable Action with `idempotent: true`. Register a handler even when a Variant switch has no other application effect. Here the handler returns success so the client can apply the transition:
+
+```tsx title="sdk-0.2.1/greeting.tsx"
+import { ok, type VesselActionDefinition } from '@maelstrom-co/protocol';
+import { createMaelstrom, defineVessel, vessel, type TypedVesselProps } from '@maelstrom-co/react';
+
+const expand = {
+  name: 'expand',
+  description: 'Show the expanded greeting.',
+  transitionsTo: 'expanded',
+  idempotent: true,
+} as const satisfies VesselActionDefinition;
+
+const greeting = defineVessel({
+  id: 'greeting',
+  name: 'Greeting',
+  description: 'Show a greeting.',
+  defaultVariant: 'card',
+  variants: {
+    card: { props: {}, minSize: { width: 2, height: 1 }, actions: [expand] },
+    expanded: { props: {}, minSize: { width: 4, height: 2 }, actions: [] },
+  },
+});
+
+const handlers = { expand: async () => ok(undefined) } satisfies Record<typeof expand.name, () => unknown>;
+
+function Greeting({ instanceId, variantProps, executeAction }: TypedVesselProps<typeof greeting>) {
+  m.useActions('greeting', instanceId, handlers);
+  return variantProps.variant === 'card'
+    ? <button onClick={() => executeAction('expand')}>Show more</button>
+    : <p>Hello from the expanded greeting.</p>;
+}
+
+export const m = createMaelstrom({ vessels: [vessel(greeting, Greeting)] });
+```
+
+## Development version
+
+The rest of this guide targets the unreleased Action API on `main`. It replaces the 0.2.1 `idempotent` flag with `effect`. On this API, a mounted runner can omit the handler for an Action with `effect: 'none'`.
+
+### What you'll wire up
 
 By the end of this guide your `greetingVessel` will:
 

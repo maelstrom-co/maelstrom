@@ -225,6 +225,18 @@ jobs:
             bunx nx run-many -t e2e
           fi
 
+      - name: Verify authored examples against published SDK packages
+        if: steps.scope.outputs.docs == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          audit=()
+          if [[ -z "$BASE_SHA" ]] || ! git diff --quiet "$BASE_SHA...$HEAD_SHA" -- apps/docs/tools/skills/published-examples/{package.json,bun.lock}.template; then
+            audit=(--audit)
+          fi
+          bun apps/docs/tools/skills/verify-authored-consumer.ts "$GITHUB_SHA" "${audit[@]}"
+
       - name: Verify the exported starter as a standalone consumer
         if: steps.scope.outputs.docs == 'true'
         run: bun apps/docs/tools/skills/verify-starter-consumer.ts "$GITHUB_SHA"

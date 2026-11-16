@@ -209,6 +209,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build independent preview artifacts
+        env:
+          DOCS_SOURCE_REF: ${{ needs.approve.outputs.head-sha }}
+          DOCS_SITE_URL: https://maelstrom-docs-alchemy-pr-${{ needs.approve.outputs.pr-number }}.${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
         working-directory: source
         timeout-minutes: 10
         run: |

@@ -578,3 +578,35 @@ private flag and remains blocked.
 Verify the deployed website, docs, live GitHub star count, and installation paths
 before announcing availability. The variable can remain true for normal
 deployments; removing the one-time launch gate is separate cleanup.
+
+## LLM-readable documentation
+
+The docs build exports each rendered documentation page to a sibling Markdown
+URL. For example, `/getting-started/quick-start/` also provides
+`/getting-started/quick-start.md`. The page export and Copy for AI use the same
+converter. Both include the source revision and core SDK manifest versions.
+The development server also serves these Markdown URLs.
+
+`llms-small.txt` contains the complete Getting Started section, including
+prerequisites and warnings. The build rejects output above 48,000 UTF-8 bytes.
+Curate the included pages before changing that budget. Keep the focused sets,
+workflow skills, standalone prompts, and starter discoverable from `llms.txt`.
+
+Run the authored-example consumer check from the repository root:
+
+```sh
+bun apps/docs/tools/skills/verify-authored-consumer.ts working-copy
+```
+
+The check compiles Quick Start, Vessel, Action, and Engine examples in a fresh
+consumer of the exact published versions in
+`apps/docs/tools/skills/published-examples/package.json.template`. Its separate
+frozen lockfile prevents workspace aliases from hiding release incompatibilities.
+The 0.2.1 Action example checks its literal fields against the published Action type and registers a handler for the transition. CI audits the frozen consumer when its dependencies change and on pushes to main.
+Compilation does not test a live Engine, provider, microphone, or browser.
+CI records its docs revision, installed package versions, and compiled files.
+
+Update the consumer manifest and lockfile together when changing the verified
+release baseline. If a page requires an unreleased API, label that requirement
+and keep its checks against the matching source revision. Do not claim that
+a current source manifest proves compatibility with an already published release.

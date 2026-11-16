@@ -329,6 +329,13 @@ describe('preview workflows', () => {
     expect(workflow).toContain(
       `ref: ${expression('needs.approve.outputs.head-sha')}`,
     );
+    const buildStep = step(workflow, 'Build independent preview artifacts');
+    expect(buildStep).toContain(
+      `DOCS_SOURCE_REF: ${expression('needs.approve.outputs.head-sha')}`,
+    );
+    expect(buildStep).toContain(
+      `DOCS_SITE_URL: https://maelstrom-docs-alchemy-pr-${expression('needs.approve.outputs.pr-number')}.${expression('vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX')}`,
+    );
     for (const name of [
       'Install source dependencies',
       'Build independent preview artifacts',
