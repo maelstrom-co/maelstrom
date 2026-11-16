@@ -20,7 +20,7 @@ export function buildWaitlistInvitationEmail() {
       '',
       COMMUNITY_DISCORD_URL,
       '',
-      'Maelstrom - AI-orchestrated UI',
+      'Maelstrom - intent-driven apps',
       WAITLIST_ORIGIN,
     ].join('\n'),
     html: `<!doctype html>
@@ -64,7 +64,7 @@ export function buildWaitlistInvitationEmail() {
               </tr>
               <tr>
                 <td style="padding:20px 8px 0;color:#737d8c;font-size:12px;line-height:1.6;text-align:center;">
-                  Maelstrom &middot; AI-orchestrated UI<br>
+                  Maelstrom &middot; intent-driven apps<br>
                   <a href="${WAITLIST_ORIGIN}" style="color:#9aa3b2;text-decoration:none;">maelstrom-ai.co</a>
                 </td>
               </tr>

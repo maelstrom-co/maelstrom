@@ -2,7 +2,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
-React bindings for Maelstrom — AI-orchestrated dynamic UIs.
+React bindings for building intent-driven apps with Maelstrom.
 
 📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/react/readme/>
 

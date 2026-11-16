@@ -16,14 +16,14 @@
 
 # Maelstrom
 
-**Maelstrom orchestrates the components you designed.** It hands your model your
-stateful components and a live layout surface — to arrange them, resize them, and
-trigger their actions by intent, in real time. It never invents new ones.
+**Maelstrom is an open-source framework for building intent-driven apps.**
+Users describe what they want through voice or text. Maelstrom coordinates the
+components and Actions your application defines to help them complete the task.
 
-Maelstrom is an open-source library for **AI-orchestrated UI**. You author your
-components as Vessels — typed state machines with discrete variants and size
-hints — and a model arranges, resizes, transitions, and invokes them on a spatial
-layout surface, from whatever the user is trying to do.
+You author components as Vessels: typed state machines with discrete Variants,
+Actions, and size hints. A model selects, arranges, resizes, and invokes those
+capabilities on a live Chart. You control the components, their data, and their
+effects.
 
 ## <a href="https://docs.maelstrom-ai.co">Read the docs -></a>
 

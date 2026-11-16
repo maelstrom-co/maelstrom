@@ -27,7 +27,7 @@ export function buildWaitlistConfirmationEmail(token: string) {
       'This link expires in 24 hours.',
       'If you did not request this, you can safely ignore this email.',
       '',
-      'Maelstrom - AI-orchestrated UI',
+      'Maelstrom - intent-driven apps',
       'https://maelstrom-ai.co',
     ].join('\n'),
     html: `<!doctype html>
@@ -73,7 +73,7 @@ export function buildWaitlistConfirmationEmail(token: string) {
               </tr>
               <tr>
                 <td style="padding:20px 8px 0;color:#737d8c;font-size:12px;line-height:1.6;text-align:center;">
-                  Maelstrom &middot; AI-orchestrated UI<br>
+                  Maelstrom &middot; intent-driven apps<br>
                   <a href="https://maelstrom-ai.co" style="color:#9aa3b2;text-decoration:none;">maelstrom-ai.co</a>
                 </td>
               </tr>
