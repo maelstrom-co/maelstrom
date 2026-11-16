@@ -1858,16 +1858,34 @@ if (process.argv.includes('--version')) {
   });
 
   test('cancellation terminates the owned child process', async () => {
+    const pidPath = join(root, 'child-cancel.pid');
+    const previousPidPath = process.env.EVALUATION_CHILD_CANCEL_PID;
+    process.env.EVALUATION_CHILD_CANCEL_PID = pidPath;
     await fake(
-      `if (process.argv.includes('--version')) { console.log('fake'); process.exit(0); } setInterval(() => {}, 1000);`,
+      `import { renameSync, writeFileSync } from 'node:fs'; if (process.argv.includes('--version')) { console.log('fake'); process.exit(0); } const marker = process.env.EVALUATION_CHILD_CANCEL_PID; writeFileSync(marker + '.tmp', String(process.pid)); renameSync(marker + '.tmp', marker); setInterval(() => {}, 1000);`,
     );
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 30);
-    const result = await evaluateModeling({
+    const evaluation = evaluateModeling({
       ...options(),
       signal: controller.signal,
     });
-    expect(result.cancelled).toBe(true);
-    expect(result.signal).not.toBeNull();
+    try {
+      const pid = await waitForGraderPid(pidPath, evaluation, controller);
+      expect(isProcessAlive(pid)).toBe(true);
+      controller.abort();
+      const result = await evaluation;
+      expect(result.cancelled).toBe(true);
+      expect(result.signal).not.toBeNull();
+      expect(isProcessAlive(pid)).toBe(false);
+    } finally {
+      controller.abort();
+      try {
+        await evaluation;
+      } finally {
+        if (previousPidPath === undefined)
+          delete process.env.EVALUATION_CHILD_CANCEL_PID;
+        else process.env.EVALUATION_CHILD_CANCEL_PID = previousPidPath;
+      }
+    }
   });
 });

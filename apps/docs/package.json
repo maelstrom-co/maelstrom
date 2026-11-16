@@ -23,7 +23,9 @@
     "astro": "catalog:",
     "jsonc-parser": "3.3.1",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "turndown": "7.2.5",
+    "turndown-plugin-gfm": "1.0.2"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:",
@@ -74,7 +76,9 @@
     "@tanstack/ai-openai": "catalog:",
     "@maelstrom-co/devtools-mcp-server": "workspace:*",
     "@maelstrom-co/devtools-protocol": "workspace:*",
-    "@alchemy.run/cloudflare": "2.0.0-beta.85"
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@types/turndown": "5.0.6",
+    "marked": "16.4.2"
   },
   "nx": {
     "implicitDependencies": [

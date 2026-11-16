@@ -1,7 +1,7 @@
 {
   "name": "@maelstrom-co/react",
   "version": "0.2.1",
-  "description": "React bindings for Maelstrom: Provider, Chart, connectors, vessel definitions, and hooks for AI-orchestrated dynamic UI.",
+  "description": "React bindings for Maelstrom: Provider, Chart, connectors, vessel definitions, and hooks for intent-driven apps.",
   "keywords": [
     "maelstrom",
     "ai",

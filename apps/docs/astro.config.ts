@@ -113,7 +113,7 @@ export default defineConfig({
     starlight({
       title: 'Maelstrom',
       description:
-        'AI-orchestrated dynamic UI framework. An LLM arranges, controls, and interacts with your components.',
+        'An open-source framework for building intent-driven apps. Users express goals through voice or text; Maelstrom coordinates your components and actions.',
       social: [
         {
           icon: 'github',
@@ -139,7 +139,7 @@ export default defineConfig({
         starlightLlmsTxt({
           projectName: 'Maelstrom',
           description:
-            'AI-orchestrated dynamic UI framework. An LLM arranges, controls, and interacts with your UI components (Vessels) based on user intent and available screen space.',
+            'Maelstrom is an open-source framework for building intent-driven apps. Users express goals through voice or text. Maelstrom coordinates developer-defined Vessels, their Actions, and the Chart layout to help users complete tasks.',
           details: `
 ## Key Concepts
 - **Vessels**: State machines representing UI components with variants and actions

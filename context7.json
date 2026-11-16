@@ -1,4 +1,6 @@
 {
   "url": "https://context7.com/maelstrom-co/maelstrom",
-  "public_key": "pk_K9ahmuaAPQU0hx0V8Nt3S"
+  "public_key": "pk_K9ahmuaAPQU0hx0V8Nt3S",
+  "projectTitle": "Maelstrom",
+  "description": "Maelstrom is an open-source framework for building intent-driven apps. Users express goals through voice or text; Maelstrom coordinates developer-defined components and actions."
 }

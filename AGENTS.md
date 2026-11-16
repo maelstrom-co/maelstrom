@@ -1,6 +1,6 @@
 # Maelstrom Agent Guide
 
-Maelstrom is an AI-orchestrated dynamic UI framework. An LLM arranges and controls UI components called Vessels from user intent and available chart space.
+Maelstrom is an open-source framework for building intent-driven apps. An LLM coordinates developer-defined components called Vessels and their Actions from user intent and available Chart space.
 
 <!-- intent-skills:start -->
 ## Skill Loading

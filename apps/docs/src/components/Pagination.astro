@@ -127,6 +127,7 @@ const isRtl = dir === 'rtl';
   import '../lib/page-feedback';
   import { initCopyForAi } from '../lib/copy-for-ai';
   initCopyForAi();
+  document.addEventListener('astro:page-load', initCopyForAi);
 </script>
 
 <style>
