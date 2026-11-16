@@ -104,17 +104,15 @@ jobs:
 
       - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      # Some docs unit tests launch Chromium: the browser grader in
-      # apps/docs/prompts/evaluation/graders/browser-case.mjs, exercised by
-      # browser-case.test.ts and index.test.ts. Playwright installs only when
-      # that project is in scope.
+      # Docs graders and the workspace prototype launch Chromium from test
+      # targets, so they need browser binaries independently of the e2e job.
       - name: Select browser need
         id: browser-need
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" = pull_request ]; then
-            browser=$(bunx nx show projects --affected --projects=@maelstrom-co/docs --json | jq 'length > 0')
+            browser=$(bunx nx show projects --affected --projects=@maelstrom-co/docs,@maelstrom-co/agui-workspace-poc --json | jq 'length > 0')
           else
             browser=true
           fi
@@ -152,8 +150,7 @@ jobs:
       # - run: bunx nx fix-ci
       #   if: always()
 
-  # The only job that needs a browser, so Playwright installs here and only
-  # when an e2e suite or the docs starter is in scope.
+  # Install Playwright when an e2e suite or the docs starter is in scope.
   e2e:
     runs-on: ${{ github.repository == 'maelstrom-co/maelstrom' && github.event.pull_request.head.repo.fork != true && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     timeout-minutes: 30
