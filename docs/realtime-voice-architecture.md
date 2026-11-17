@@ -212,6 +212,10 @@ submitted; it never polls or retries. Transport errors and partial application
 are unknown outcomes, not permission to replay a mutation. A successful ticket
 confirms its own application batch, not merely network completion or global idle.
 
+Instances that supply `sendAgentMessage` send voice intents to the agent
+instead. That path does not use the bounded FIFO, and it answers when the Agent
+Run ends without confirming the run's UI changes.
+
 ## Where the keys live
 
 Application-owned provider credentials stay in the server-side process that

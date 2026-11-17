@@ -41,6 +41,14 @@ Rationale for these lives in `docs/architecture.md`.
 
 Read `docs/realtime-voice-architecture.md` when the work touches realtime voice, including its provider package contracts, dependency boundaries, and runtime turn mode.
 
+## Voice Is the Primary Input
+
+Voice is the primary input in Maelstrom.
+
+- Voice and text always go through the same submit path. When a page moves typed input to a new path, its voice input moves with it.
+- Never scope voice out of a change or defer it to a follow-up.
+- The package split (`realtime`, `react-realtime` and the `realtime-*` provider packages), the `.with(maelstromRealtime(...))` attachment, the separate voice hooks and the separate voice test configs are transport layout, not a priority signal.
+
 ## Code Review Rules
 
 The Architecture Invariants above are review requirements, not only
