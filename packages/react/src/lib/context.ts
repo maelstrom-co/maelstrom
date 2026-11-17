@@ -3,6 +3,7 @@ import type { VesselId } from '@maelstrom-co/protocol';
 import type { ComponentType, MutableRefObject } from 'react';
 import { createContext, useContext } from 'react';
 
+import type { AgentRunStore } from './agent-run-store.js';
 import type { ResolvedMaelstromConfig } from './config-types.js';
 import type {
   LazyVesselComponentLoader,
@@ -11,6 +12,8 @@ import type {
 
 export interface MaelstromContextValue {
   orchestrator: Orchestrator;
+  /** Agent Run state of `orchestrator`, created and disposed together with it. */
+  agentRunStore: AgentRunStore;
   connector: EngineConnector;
   config: ResolvedMaelstromConfig;
   /** Ref to onError callback from Provider props — allows hook to call it without re-renders */

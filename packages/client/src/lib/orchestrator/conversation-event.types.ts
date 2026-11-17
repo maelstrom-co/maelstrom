@@ -140,9 +140,11 @@ export type AgentConversationEvents = {
   /** Fires when an Agent Run ends, whatever the reason. */
   finished: AgentFinishedEvent;
   /**
-   * Fires when the agent reports a failure outside any Agent Run, such as an
-   * admission rejection. It carries the `inputId` when the failure relates to
-   * an input.
+   * Fires when the agent reports a failure that is not an Agent Run's own
+   * ending, such as an admission rejection. It carries the `inputId` when the
+   * failure relates to an input. It also reports a failed loop-driven UI change
+   * of an Agent Run, named by `runId` and `changeId`, which can arrive mid-run
+   * or after that run's `finished`.
    */
   error: AgentErrorEvent;
   /**
