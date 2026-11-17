@@ -1,5 +1,9 @@
-import type { MessageId } from '@maelstrom-co/client';
-import type { AgentRunState } from '@maelstrom-co/react';
+import type {
+  AgentRunError,
+  AgentRunState,
+  MessageId,
+  SettledAgentRun,
+} from '@maelstrom-co/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { isProviderFailure } from '../lib/invalid-key-error';
@@ -30,8 +34,9 @@ export interface ShopAgentSubmit {
   /**
    * Sends the trimmed draft to the agent as `text` input and clears the
    * draft. Returns true once the draft was dispatched to `sendMessage` while
-   * connected, before the send settles, so the draft may still be restored
-   * when the send is rejected or the run fails on a model provider code.
+   * connected, before the input settles, so the draft may still be restored
+   * when the message was not sent, the transport refused it, or the run
+   * fails on a model provider code.
    * Returns false for a blank draft, a missing key or a connection that is
    * not up yet.
    */
@@ -40,8 +45,9 @@ export interface ShopAgentSubmit {
 }
 
 /**
- * Sends typed `/shop` input through the agent path. A rejected send, or in
- * browser-key mode a run that fails on a model provider code, puts the sent
+ * Sends typed `/shop` input through the agent path. A message that was not
+ * sent or that the transport refused, or in browser-key mode a run that
+ * fails on a model provider code, puts the sent
  * text back in the input when it is still the latest submission and the
  * visitor has not typed since. A provider failure also reports the mint
  * error.
@@ -69,8 +75,6 @@ export function useShopAgentSubmit({
       mounted.current = false;
     };
   }, []);
-  const [watched, setWatched] = useState<readonly WatchedSubmission[]>([]);
-
   const restoreDraft = (submission: Submission) => {
     if (
       latestSubmission.current === submission &&
@@ -81,25 +85,30 @@ export function useShopAgentSubmit({
     }
   };
 
+  const reportProviderFailure = (submission: Submission) => {
+    restoreDraft(submission);
+    current.current.onMintError(MODEL_FAILURE_MESSAGE);
+  };
+
+  // A stale loss settles the result, but the run can still fail on the
+  // provider afterwards, so it stays watched in the store.
+  const [staleWatched, setStaleWatched] = useState<readonly StaleSubmission[]>(
+    [],
+  );
   useEffect(() => {
-    if (watched.length === 0) return;
-    const remaining = watched.filter(({ submission, inputId }) => {
+    if (staleWatched.length === 0) return;
+    const remaining = staleWatched.filter(({ submission, inputId }) => {
       const run = runs.find((known) => known.inputId === inputId);
       if (run === undefined) return false;
-      if (
-        run.status === 'failed' &&
-        run.error !== null &&
-        isProviderFailure(run.error)
-      ) {
-        restoreDraft(submission);
-        current.current.onMintError(MODEL_FAILURE_MESSAGE);
+      if (isProviderFailureRun(run)) {
+        reportProviderFailure(submission);
         return false;
       }
-      return !isSettled(run);
+      return isStaleLost(run);
     });
-    if (remaining.length !== watched.length) setWatched(remaining);
-    // oxlint-disable-next-line react/exhaustive-deps -- restoreDraft reads only refs.
-  }, [runs, watched]);
+    if (remaining.length !== staleWatched.length) setStaleWatched(remaining);
+    // oxlint-disable-next-line react/exhaustive-deps -- reportProviderFailure reads only refs.
+  }, [runs, staleWatched]);
 
   const changeDraft = (value: string) => {
     draftRevision.current++;
@@ -115,22 +124,29 @@ export function useShopAgentSubmit({
     }
     if (connectionStatus !== 'connected') return false;
     changeDraft('');
-    // A submit outside a React event can see its send reject before the cleared draft commits.
+    // A submit outside a React event can see its message settle unsent before the cleared draft commits.
     current.current = { ...current.current, intent: '' };
     const submission: Submission = {
       text: intent,
       revision: draftRevision.current,
     };
     latestSubmission.current = submission;
-    sendShopInput(sendMessage, text, 'text').then(
-      (inputId) => {
-        if (!mounted.current || !browserKeyMode) return;
-        setWatched((known) => [...known, { submission, inputId }]);
-      },
-      () => {
-        if (mounted.current) restoreDraft(submission);
-      },
-    );
+    void sendShopInput(sendMessage, text, 'text').result.then((run) => {
+      if (!mounted.current) return;
+      if (wasNotSent(run)) {
+        restoreDraft(submission);
+        return;
+      }
+      if (!browserKeyMode) return;
+      if (isProviderFailureRun(run)) {
+        reportProviderFailure(submission);
+      } else if (isStaleLost(run)) {
+        setStaleWatched((known) => [
+          ...known,
+          { submission, inputId: run.inputId },
+        ]);
+      }
+    });
     return true;
   };
 
@@ -145,15 +161,24 @@ type Submission = {
   readonly revision: number;
 };
 
-type WatchedSubmission = {
+function wasNotSent(run: SettledAgentRun): boolean {
+  return (
+    run.status === 'not_submitted' ||
+    (run.status === 'lost' && run.lostReason === 'send_failed')
+  );
+}
+
+type StaleSubmission = {
   readonly submission: Submission;
   readonly inputId: MessageId;
 };
 
-function isSettled(run: AgentRunState): boolean {
-  return (
-    run.status === 'finished' ||
-    run.status === 'failed' ||
-    (run.status === 'lost' && run.lostReason !== 'stale_run')
-  );
+function isProviderFailureRun(
+  run: AgentRunState,
+): run is AgentRunState & { status: 'failed'; error: AgentRunError } {
+  return run.status === 'failed' && isProviderFailure(run.error);
+}
+
+function isStaleLost(run: AgentRunState): boolean {
+  return run.status === 'lost' && run.lostReason === 'stale_run';
 }

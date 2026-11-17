@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { MessageId as MessageIdType } from '@maelstrom-co/client';
+import type { AgentMessageSubmission } from '@maelstrom-co/client';
 import { MessageId, RunId } from '@maelstrom-co/protocol';
 import type {
+  AgentRunError,
+  AgentRunLostReason,
   AgentRunState,
-  AgentRunsSnapshot,
-  AgentRunStatus,
+  SettledAgentRun,
 } from '@maelstrom-co/react';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { useState, useSyncExternalStore } from 'react';
@@ -14,20 +15,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 let connectionStatus: ConnectionStatus;
-let agentRuns: AgentRunsSnapshot;
 const listeners = new Set<() => void>();
 const sendMessage =
-  vi.fn<(text: string, options?: object) => Promise<MessageIdType>>();
+  vi.fn<(text: string, options?: object) => AgentMessageSubmission>();
+let storeRuns: readonly AgentRunState[] = [];
 
 vi.doMock('./maelstrom', () => ({
   shopM: {
     useMaelstrom: () => ({
       connectionStatus: useSyncExternalStore(subscribe, () => connectionStatus),
     }),
-    useAgentRun: () => ({
-      ...useSyncExternalStore(subscribe, () => agentRuns),
-      sendMessage,
-    }),
+    useAgentRun: () => {
+      const runs = useSyncExternalStore(subscribe, () => storeRuns);
+      return { run: runs.at(-1) ?? null, runs, error: null, sendMessage };
+    },
   },
 }));
 
@@ -35,9 +36,12 @@ const { useShopAgentSubmit } = await import('./use-shop-agent-submit');
 
 beforeEach(() => {
   connectionStatus = 'connected';
-  agentRuns = { run: null, runs: [], error: null };
+  storeRuns = [];
   sendMessage.mockReset();
-  sendMessage.mockImplementation(async () => registerInput('input-1'));
+  sendMessage.mockImplementation(() => ({
+    inputId: MessageId('input-1'),
+    result: new Promise<SettledAgentRun>(() => undefined),
+  }));
 });
 
 afterEach(() => {
@@ -101,7 +105,7 @@ describe('useShopAgentSubmit', () => {
     expect(h.result.current.intent).toBe('show my orders');
   });
 
-  it('restores the draft when the send is rejected', async () => {
+  it('restores the draft when the message was not submitted', async () => {
     const send = deferredSend();
     const h = renderSubmit('restore me');
     await act(async () => {
@@ -109,28 +113,61 @@ describe('useShopAgentSubmit', () => {
     });
 
     await act(async () => {
-      send.reject(new Error('Orchestrator is not connected'));
+      send.settle(notSubmittedRun('input-1'));
     });
 
     expect(h.result.current.intent).toBe('restore me');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
-  it('restores the draft when the send rejects before the cleared draft commits', async () => {
-    const rejected = Promise.reject(new Error('Orchestrator is not connected'));
-    sendMessage.mockReturnValueOnce(rejected);
+  it('restores the draft when the transport refused the message', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('restore me');
+    await act(async () => {
+      h.result.current.submit();
+    });
+
+    await act(async () => {
+      send.settle(lostRun('input-1', 'send_failed'));
+    });
+
+    expect(h.result.current.intent).toBe('restore me');
+    expect(h.onMintError).not.toHaveBeenCalled();
+  });
+
+  it.each(['disconnected', 'connector_replaced', 'stale_run'] as const)(
+    'leaves the draft cleared when the run is lost to %s',
+    async (lostReason) => {
+      const send = deferredSend();
+      const h = renderSubmit('maybe seen', { browserKeyMode: true });
+      await act(async () => {
+        h.result.current.submit();
+      });
+
+      await act(async () => {
+        send.settle(lostRun('input-1', lostReason));
+      });
+
+      expect(h.result.current.intent).toBe('');
+      expect(h.onMintError).not.toHaveBeenCalled();
+    },
+  );
+
+  it('restores the draft when the message settles not submitted before the cleared draft commits', async () => {
+    const result = Promise.resolve(notSubmittedRun('input-1'));
+    sendMessage.mockReturnValueOnce({ inputId: MessageId('input-1'), result });
     const h = renderSubmit('restore me');
 
     await act(async () => {
       h.result.current.submit();
-      await rejected.catch(() => undefined);
+      await result;
       for (let tick = 0; tick < 5; tick++) await Promise.resolve();
     });
 
     expect(h.result.current.intent).toBe('restore me');
   });
 
-  it('keeps newer typing when a rejected send settles', async () => {
+  it('keeps newer typing when an unsent message settles', async () => {
     const send = deferredSend();
     const h = renderSubmit('old');
     await act(async () => {
@@ -139,13 +176,13 @@ describe('useShopAgentSubmit', () => {
     act(() => h.result.current.changeDraft('newer'));
 
     await act(async () => {
-      send.reject(new Error('socket closed'));
+      send.settle(lostRun('input-1', 'send_failed'));
     });
 
     expect(h.result.current.intent).toBe('newer');
   });
 
-  it('does not restore an older rejected send over a later submission', async () => {
+  it('does not restore an older unsent message over a later submission', async () => {
     const first = deferredSend();
     const h = renderSubmit('old');
     await act(async () => {
@@ -157,7 +194,7 @@ describe('useShopAgentSubmit', () => {
     });
 
     await act(async () => {
-      first.reject(new Error('socket closed'));
+      first.settle(notSubmittedRun('input-1'));
     });
 
     expect(h.result.current.intent).toBe('');
@@ -169,128 +206,144 @@ describe('useShopAgentSubmit', () => {
   ])(
     'restores the draft and reports the model failure when the run fails on the %s provider code',
     async (_route, failure) => {
+      const send = deferredSend();
       const h = renderSubmit('restore me', { browserKeyMode: true });
       await act(async () => {
         h.result.current.submit();
       });
 
-      act(() => publishRun(failedRun('input-1', failure)));
+      await act(async () => {
+        send.settle(failedRun('input-1', failure));
+      });
 
       expect(h.result.current.intent).toBe('restore me');
       expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
     },
   );
 
-  it('restores and reports a provider failure after a recoverable stale loss', async () => {
-    const h = renderSubmit('restore me', { browserKeyMode: true });
-    await act(async () => {
-      h.result.current.submit();
-    });
-    act(() => publishRun(lostRun('input-1', 'stale_run')));
-    expect(h.onMintError).not.toHaveBeenCalled();
-
-    act(() => publishRun(failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)));
-
-    expect(h.result.current.intent).toBe('restore me');
-    expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
-  });
-
-  it('stops watching a run once it finished', async () => {
+  it('leaves the draft cleared when the run finished', async () => {
+    const send = deferredSend();
     const h = renderSubmit('done', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
-    act(() => publishRun(run('input-1', 'finished')));
-
-    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
-
-    expect(h.result.current.intent).toBe('');
-    expect(h.onMintError).not.toHaveBeenCalled();
-  });
-
-  it('stops watching a run that is no longer tracked', async () => {
-    const h = renderSubmit('evicted', { browserKeyMode: true });
-    await act(async () => {
-      h.result.current.submit();
-    });
-    act(() => publishRuns([]));
-
-    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
-
-    expect(h.result.current.intent).toBe('');
-    expect(h.onMintError).not.toHaveBeenCalled();
-  });
-
-  it('reports a provider failure that failed the run before the send resolved', async () => {
-    const send = deferredSend();
-    const h = renderSubmit('restore me', { browserKeyMode: true });
-    await act(async () => {
-      h.result.current.submit();
-    });
-    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
 
     await act(async () => {
-      send.resolve(MessageId('input-1'));
+      send.settle(finishedRun('input-1'));
     });
-
-    expect(h.result.current.intent).toBe('restore me');
-    expect(h.onMintError).toHaveBeenCalledOnce();
-  });
-
-  it('ignores a provider failure reported for another input', async () => {
-    const h = renderSubmit('keep cleared', { browserKeyMode: true });
-    await act(async () => {
-      h.result.current.submit();
-    });
-
-    act(() => publishRun(failedRun('voice-input', UI_ROUTE_PROVIDER_FAILURE)));
 
     expect(h.result.current.intent).toBe('');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
   it('leaves the draft cleared for a failure other than the model provider', async () => {
+    const send = deferredSend();
     const h = renderSubmit('timed out', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
 
-    act(() =>
-      publishRun(
+    await act(async () => {
+      send.settle(
         failedRun('input-1', {
           message: 'The UI acknowledgement did not arrive.',
           code: 'ui_ack_timeout',
         }),
-      ),
-    );
+      );
+    });
 
     expect(h.result.current.intent).toBe('');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
   it('does not treat a provider failure as a key problem outside browser-key mode', async () => {
+    const send = deferredSend();
     const h = renderSubmit('server key', { browserKeyMode: false });
     await act(async () => {
       h.result.current.submit();
     });
 
-    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
+    await act(async () => {
+      send.settle(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE));
+    });
 
     expect(h.result.current.intent).toBe('');
     expect(h.onMintError).not.toHaveBeenCalled();
   });
 
   it('reports the model failure but keeps newer typing when an older run fails on a provider code', async () => {
+    const send = deferredSend();
     const h = renderSubmit('old', { browserKeyMode: true });
     await act(async () => {
       h.result.current.submit();
     });
     act(() => h.result.current.changeDraft('newer'));
 
-    act(() => publishRun(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE)));
+    await act(async () => {
+      send.settle(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE));
+    });
 
     expect(h.result.current.intent).toBe('newer');
     expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
+  });
+
+  it('keeps watching a stale-lost run and reports a later provider failure in browser-key mode', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('restore me', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+
+    const stale = lostRun('input-1', 'stale_run');
+    await act(async () => {
+      publishRuns([stale]);
+      send.settle(stale);
+    });
+    expect(h.result.current.intent).toBe('');
+    expect(h.onMintError).not.toHaveBeenCalled();
+
+    act(() => {
+      publishRuns([failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)]);
+    });
+
+    expect(h.result.current.intent).toBe('restore me');
+    expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
+  });
+
+  it('stops watching a stale-lost run once it finishes', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('keep cleared', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    const stale = lostRun('input-1', 'stale_run');
+    await act(async () => {
+      publishRuns([stale]);
+      send.settle(stale);
+    });
+
+    act(() => publishRuns([finishedRun('input-1')]));
+    act(() =>
+      publishRuns([failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)]),
+    );
+
+    expect(h.result.current.intent).toBe('');
+    expect(h.onMintError).not.toHaveBeenCalled();
+  });
+
+  it('ignores a result that settles after unmount', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('restore me', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    h.unmount();
+
+    await act(async () => {
+      send.settle(failedRun('input-1', UI_ROUTE_PROVIDER_FAILURE));
+    });
+
+    expect(h.onMintError).not.toHaveBeenCalled();
   });
 });
 
@@ -330,78 +383,86 @@ function renderSubmit(
 }
 
 function deferredSend() {
-  let resolve!: (inputId: MessageIdType) => void;
-  let reject!: (error: Error) => void;
-  sendMessage.mockImplementationOnce(
-    () =>
-      new Promise<MessageIdType>((onResolve, onReject) => {
-        resolve = onResolve;
-        reject = onReject;
-      }),
-  );
-  return {
-    resolve: (inputId: MessageIdType) => {
-      registerInput(inputId);
-      resolve(inputId);
-    },
-    reject: (error: Error) => reject(error),
-  };
+  let settle!: (run: SettledAgentRun) => void;
+  sendMessage.mockImplementationOnce(() => ({
+    inputId: MessageId('input-1'),
+    result: new Promise<SettledAgentRun>((resolve) => {
+      settle = resolve;
+    }),
+  }));
+  return { settle: (run: SettledAgentRun) => settle(run) };
 }
 
-function failedRun(
-  inputId: string,
-  error: { message: string; code?: string },
-): AgentRunState {
-  return run(inputId, 'failed', error);
-}
-
-function run(
-  inputId: string,
-  status: AgentRunStatus,
-  error: { message: string; code?: string } | null = null,
-): AgentRunState {
+function base(inputId: string) {
   return {
     inputId: MessageId(inputId),
-    runId: RunId(`run-${inputId}`),
-    status,
     placeholder: null,
     reply: '',
     turnId: null,
     changes: [],
     changeErrors: [],
+  };
+}
+
+function accepted(inputId: string) {
+  return {
+    runId: RunId(`run-${inputId}`),
+    disposition: 'agent' as const,
+    ack: 'On it.',
+  };
+}
+
+const NOT_ACCEPTED = { runId: null, disposition: null, ack: null };
+
+const OUTCOME = {
+  reason: 'completed' as const,
+  metrics: {
+    turns: 1,
+    toolCalls: { requested: 0, admitted: 0 },
+    elapsedMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+  },
+};
+
+function failedRun(inputId: string, error: AgentRunError): SettledAgentRun {
+  return {
+    ...base(inputId),
+    ...accepted(inputId),
+    status: 'failed',
     error,
-    lostReason: null,
-    finished: null,
+    outcome: null,
+  };
+}
+
+function finishedRun(inputId: string): SettledAgentRun {
+  return {
+    ...base(inputId),
+    ...accepted(inputId),
+    status: 'finished',
+    outcome: OUTCOME,
   };
 }
 
 function lostRun(
   inputId: string,
-  lostReason: NonNullable<AgentRunState['lostReason']>,
-): AgentRunState {
-  return { ...run(inputId, 'lost'), lostReason };
+  lostReason: AgentRunLostReason,
+): SettledAgentRun {
+  return { ...base(inputId), ...NOT_ACCEPTED, status: 'lost', lostReason };
 }
 
-// Mirrors the agent run store, which registers the input before `sendMessage`
-// resolves.
-function registerInput(inputId: string): MessageIdType {
-  const id = MessageId(inputId);
-  if (!agentRuns.runs.some((known) => known.inputId === id)) {
-    publishRun(run(inputId, 'pending'));
-  }
-  return id;
-}
-
-function publishRun(next: AgentRunState): void {
-  publishRuns([
-    ...agentRuns.runs.filter((known) => known.inputId !== next.inputId),
-    next,
-  ]);
+function notSubmittedRun(inputId: string): SettledAgentRun {
+  return {
+    ...base(inputId),
+    ...NOT_ACCEPTED,
+    status: 'not_submitted',
+    error: { message: 'Orchestrator is not connected' },
+  };
 }
 
 function publishRuns(runs: readonly AgentRunState[]): void {
-  agentRuns = { ...agentRuns, runs, run: runs.at(-1) ?? null };
-  for (const listener of listeners) listener();
+  storeRuns = runs;
+  for (const listener of [...listeners]) listener();
 }
 
 function subscribe(listener: () => void): () => void {
