@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import {
   ChangeId,
+  type ChartRequest,
   type MaelstromResponse,
   MessageId,
   RunId,
@@ -63,6 +64,44 @@ describe('AgentConversation', () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off('unhandledRejection', onUnhandled);
+      conversation.dispose();
+    }
+  });
+
+  it('answers not_sent without sending, stops the stale watch and keeps no conversation when onSending throws', async () => {
+    const agent = createMockAgentConnector();
+    const conversation = new AgentConversation({
+      currentConnector: () => agent.connector,
+      buildChart: () => ({}) as ChartRequest,
+      dispatchChange: () => Promise.reject(new Error('unused')),
+      captureFence: () => () => null,
+      logger: { warn: () => {} } as unknown as Logger,
+      agentRunStaleTimeoutMs: 5,
+      diagnostics: { emit: () => {} },
+      now: () => 0,
+    });
+    conversation.attach();
+    const losses: AgentConversationEvents['conversation_lost'][] = [];
+    conversation.events.on('conversation_lost', (event) => losses.push(event));
+    try {
+      const outcome = await conversation.sendMessage(
+        MessageId('input-1'),
+        'hello',
+        undefined,
+        () => {
+          throw new Error('observer failed');
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      conversation.reportDisconnected();
+
+      expect(outcome).toMatchObject({
+        status: 'not_sent',
+        error: { message: 'observer failed' },
+      });
+      expect(agent.inputs).toEqual([]);
+      expect(losses).toEqual([]);
+    } finally {
       conversation.dispose();
     }
   });

@@ -1423,6 +1423,47 @@ describe('Orchestrator agent path', () => {
     });
   });
 
+  describe('store subscriber that throws', () => {
+    it('sends the utterance and settles its result without throwing or an unhandled rejection', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        agentRunStaleTimeoutMs: Number.POSITIVE_INFINITY,
+      });
+      const consoleError = spyOn(console, 'error').mockImplementation(() => {});
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        throw new Error('subscriber failed');
+      });
+      try {
+        const submission = orchestrator.sendMessage('hello');
+        await settleBriefly();
+        const sent = agent.inputs.map((input) =>
+          input.type === 'utterance' ? input.text : input.type,
+        );
+        await orchestrator.disconnect();
+        const afterDisconnect = orchestrator.sendMessage('again');
+
+        expect(sent).toEqual(['hello']);
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'lost',
+          lostReason: 'disconnected',
+        });
+        expect(await afterDisconnect.result).toMatchObject({
+          status: 'not_submitted',
+        });
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+        releaseSubscriber.unsubscribe();
+        consoleError.mockRestore();
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('client diagnostics', () => {
     it('emits one input sent event with only the input id before the utterance is sent', async () => {
       const agent = createMockAgentConnector();

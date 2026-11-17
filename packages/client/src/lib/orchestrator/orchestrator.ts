@@ -355,7 +355,10 @@ export class Orchestrator {
       diagnostics: this.diagnostics,
       now: () => performance.now(),
     });
-    this.#agentRuns = new AgentRunTracker(this.#agentConversation.events);
+    this.#agentRuns = new AgentRunTracker(
+      this.#agentConversation.events,
+      this.#logger,
+    );
     this.#agent = Object.freeze({
       events: this.#agentConversation.events,
       store: this.#agentRuns.store,
@@ -396,7 +399,8 @@ export class Orchestrator {
    * {@link sendMessage}, capped at the 20 latest inputs. It is folded from the
    * same events, so it never misses one that arrived before a component
    * subscribed. Events for inputs not sent through {@link sendMessage} are
-   * ignored by the store.
+   * ignored by the store. An error thrown by a store subscriber is logged and
+   * affects neither the send nor the settlement of any `result`.
    *
    * `events` delivers the raw events. Every payload is the protocol object
    * the agent sent, unchanged,

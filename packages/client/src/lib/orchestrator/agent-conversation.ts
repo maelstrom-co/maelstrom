@@ -180,8 +180,8 @@ export class AgentConversation {
    * with `sent` once the connector accepted the frame, `not_sent` when the
    * frame never left the client, or `failed` when the transport refused it.
    * Calls `onSending` synchronously right before the frame is handed to the
-   * connector. When `onSending` ends the conversation, the frame is not sent
-   * and the outcome is `not_sent`. Never rejects.
+   * connector. When `onSending` ends the conversation or throws, the frame is
+   * not sent and the outcome is `not_sent`. Never rejects.
    */
   async sendMessage(
     inputId: MessageId,
@@ -222,7 +222,14 @@ export class AgentConversation {
     };
     const endedByObserver = endedBeforeSend();
     if (endedByObserver !== null) return endedByObserver;
-    onSending();
+    try {
+      onSending();
+    } catch (error) {
+      if (sessionGeneration === this.#sessionGeneration)
+        this.#pendingUtterances--;
+      this.#staleRunWatch.stopInput(inputId);
+      return notSent(toError(error));
+    }
     const endedByCaller = endedBeforeSend();
     if (endedByCaller !== null) return endedByCaller;
     try {

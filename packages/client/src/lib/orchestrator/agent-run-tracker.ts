@@ -1,6 +1,7 @@
 import type { MessageId } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
+import type { Logger } from '../utils/logger.js';
 import type { EventSubscriber } from '../utils/typed-emitter.js';
 import {
   AGENT_RUNS_CAP,
@@ -27,12 +28,19 @@ export class AgentRunTracker {
   #entries: AgentRunEntries = EMPTY_AGENT_RUN_ENTRIES;
   readonly #openResults = new Map<MessageId, (run: SettledAgentRun) => void>();
   readonly #handingOff = new Set<MessageId>();
+  readonly #logger: Pick<Logger, 'error'>;
 
   /**
    * Follows every event of `events` for the emitter's lifetime. The store
-   * keeps its last state once the emitter is disposed.
+   * keeps its last state once the emitter is disposed. An error thrown by a
+   * store subscriber is reported to `logger` and never reaches the caller of
+   * a tracker method.
    */
-  constructor(events: EventSubscriber<AgentConversationEvents>) {
+  constructor(
+    events: EventSubscriber<AgentConversationEvents>,
+    logger: Pick<Logger, 'error'>,
+  ) {
+    this.#logger = logger;
     for (const type of AGENT_EVENT_TYPES)
       events.on(type, (event) => this.#dispatch(event));
   }
@@ -103,11 +111,17 @@ export class AgentRunTracker {
       runs.length === previous.runs.length &&
       runs.every((run, index) => run === previous.runs[index]);
     if (sameRuns && this.#entries.error === previous.error) return;
-    this.store.setState(() => ({
-      run: runs[runs.length - 1] ?? null,
-      runs: sameRuns ? previous.runs : runs,
-      error: this.#entries.error,
-    }));
+    // The store takes the new state before it notifies, so a subscriber that
+    // throws leaves the state applied and only its error has to be contained.
+    try {
+      this.store.setState(() => ({
+        run: runs[runs.length - 1] ?? null,
+        runs: sameRuns ? previous.runs : runs,
+        error: this.#entries.error,
+      }));
+    } catch (error) {
+      this.#logger.error('Agent run store subscriber threw', error);
+    }
   }
 }
 

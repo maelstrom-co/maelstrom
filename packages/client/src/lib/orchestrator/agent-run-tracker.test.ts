@@ -168,6 +168,30 @@ describe('AgentRunTracker', () => {
     ]);
   });
 
+  it('applies and settles every change, reporting the error, when a store subscriber throws', async () => {
+    const reported: unknown[] = [];
+    const { tracker } = setup((_message, error) => reported.push(error));
+    const failure = new Error('subscriber failed');
+    tracker.store.subscribe(() => {
+      throw failure;
+    });
+
+    const first = tracker.track(MessageId('input-1'));
+    tracker.sending(MessageId('input-1'));
+    const pendingStatus = tracker.store.state.run?.status;
+    tracker.sendFailed(MessageId('input-1'));
+    const second = tracker.track(MessageId('input-2'));
+    tracker.notSubmitted(MessageId('input-2'), { message: 'never sent' });
+
+    expect(pendingStatus).toBe('pending');
+    expect(await first).toMatchObject({
+      status: 'lost',
+      lostReason: 'send_failed',
+    });
+    expect(await second).toMatchObject({ status: 'not_submitted' });
+    expect(reported).toEqual([failure, failure, failure]);
+  });
+
   it('loses an input to a loss reported after it registered', async () => {
     const { tracker, events } = setup();
     const result = register(tracker, MessageId('input-1'));
@@ -194,9 +218,11 @@ function register(
   return result;
 }
 
-function setup() {
+function setup(
+  reportError: (message: string, error: unknown) => void = () => {},
+) {
   const events = new TypedEmitter<AgentConversationEvents>();
-  const tracker = new AgentRunTracker(events);
+  const tracker = new AgentRunTracker(events, { error: reportError });
   return { events, tracker };
 }
 
