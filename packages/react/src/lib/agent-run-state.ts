@@ -117,7 +117,7 @@ export type AgentRunsSnapshot = {
    * resolves or on its first event, whichever comes first.
    */
   readonly run: AgentRunState | null;
-  /** Known runs, oldest first, capped at {@link AGENT_RUNS_CAP}. */
+  /** Known runs, oldest first, capped at the 20 most recent. */
   readonly runs: readonly AgentRunState[];
   /**
    * The latest failure not tied to any input or run. Cleared when the next
