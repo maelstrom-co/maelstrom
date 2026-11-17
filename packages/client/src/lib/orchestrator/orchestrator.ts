@@ -45,7 +45,6 @@ import { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
-import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
   type CapabilityOptionOmission,
@@ -60,10 +59,12 @@ import {
   AgentConversation,
   type SettledAgentChange,
 } from './agent-conversation.js';
+import { AgentRunTracker } from './agent-run-tracker.js';
 import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
 import type {
-  AgentConversationEvents,
+  AgentMessageSubmission,
+  OrchestratorAgent,
   SendMessageOptions,
 } from './conversation-event.types.js';
 import { IntentScheduler } from './intent-scheduler.js';
@@ -163,6 +164,8 @@ export class Orchestrator {
   readonly #chartManager: ChartManager;
   readonly #requestCoordinator: RequestCoordinator;
   readonly #agentConversation: AgentConversation;
+  readonly #agentRuns: AgentRunTracker;
+  readonly #agent: OrchestratorAgent;
 
   readonly #intentScheduler: IntentScheduler;
   #automaticPending = false;
@@ -352,6 +355,11 @@ export class Orchestrator {
       diagnostics: this.diagnostics,
       now: () => performance.now(),
     });
+    this.#agentRuns = new AgentRunTracker(this.#agentConversation.events);
+    this.#agent = Object.freeze({
+      events: this.#agentConversation.events,
+      store: this.#agentRuns.store,
+    });
 
     this.#setupSubscriptions();
     this.#setupDiagnostics();
@@ -382,14 +390,22 @@ export class Orchestrator {
   }
 
   /**
-   * Subscribe to the Agent Session conversation carried by the current
-   * connector. Every payload is the protocol object the agent sent, unchanged,
+   * The Agent Session conversation carried by the current connector.
+   *
+   * `store` holds the Agent Run state of every input sent through
+   * {@link sendMessage}, capped at the 20 latest inputs. It is folded from the
+   * same events, so it never misses one that arrived before a component
+   * subscribed. Events for inputs not sent through {@link sendMessage} are
+   * ignored by the store.
+   *
+   * `events` delivers the raw events. Every payload is the protocol object
+   * the agent sent, unchanged,
    * except `accepted`, `ui_change` and `conversation_lost`, which the
    * Orchestrator builds itself.
    *
    * - `accepted`: the agent accepts an input. It carries the `inputId` that
-   *   {@link sendMessage} resolved to and the `runId` of the Agent Run that
-   *   handles it, which is `null` for the `noise` disposition.
+   *   {@link sendMessage} returned, the `runId` of the Agent Run that handles
+   *   it, which is `null` for the `noise` disposition, and the agent's `ack`.
    * - `ui_change`: the Orchestrator finished applying a UI change the agent
    *   sent. It carries the `runId`, the `changeId` and the outcome of each
    *   Action, the same outcomes the `ui_applied` acknowledgement carries.
@@ -418,10 +434,12 @@ export class Orchestrator {
    * its acknowledgement could be sent. A change still applying when the
    * conversation is lost to `disconnected` or `connector_replaced` is applied
    * but reports no `ui_change`. Listeners cannot alter the apply or the
-   * acknowledgement. Subscribing after {@link dispose} throws.
+   * acknowledgement. Subscribing to `events` after {@link dispose} throws.
+   * {@link dispose} reports `conversation_lost` with reason `disconnected`
+   * first, so pending results settle.
    */
-  get agent(): EventSubscriber<AgentConversationEvents> {
-    return this.#agentConversation.events;
+  get agent(): OrchestratorAgent {
+    return this.#agent;
   }
 
   // ==========================================================================
@@ -638,47 +656,67 @@ export class Orchestrator {
    * Send a message the user typed or said to the agent, with a Chart snapshot
    * of the board as it stands now.
    *
-   * Resolves with the message's input id once the connector accepted the
-   * frame, without waiting for any agent event. The agent answers through
-   * {@link agent}, and UI changes it plans are applied as they arrive, Layout
-   * first, then Actions.
+   * Returns at once with the message's `inputId` and a `result` promise. The
+   * input appears in `agent.store` as `pending` right before the frame is
+   * handed to the connector. The agent answers through {@link agent}, and UI
+   * changes it plans are applied as they arrive, Layout first, then Actions.
    *
-   * REJECTS WITH:
-   * - `AgentWireUnsupportedError`: the connector cannot carry agent inputs,
-   *   as with `HttpConnector`.
-   * - `Error('Orchestrator is not connected')`: the transport is not
-   *   connected. Nothing was sent.
-   * - the connector's own error: the transport refused the frame. Whether the
-   *   agent saw the message is unknown, so do not automatically resend it.
-   * - `Error('Orchestrator is disposed')`: called after {@link dispose}.
+   * `result` settles exactly once and never rejects. It carries the input's
+   * Agent Run state at the moment it settled, which later events may still
+   * change in `agent.store`:
+   * - `finished`, `ignored` or `failed`: the agent handled the input.
+   * - `lost`: the outcome is unknown and the agent may have acted, so do not
+   *   automatically resend it. Any `conversation_lost` settles every open
+   *   input, and `send_failed` reports that the transport refused the frame.
+   * - `not_submitted`: the message never left the client, because the
+   *   Orchestrator is disposed or not connected, or the connector cannot carry
+   *   agent inputs, as with `HttpConnector`.
    *
    * INVARIANTS:
-   * - Never reports busy. It never rejects with `RequestInFlightError` and
-   *   does not wait for an intent, a flush, or command application.
+   * - Never throws and never reports busy. It does not wait for an intent, a
+   *   flush, or command application.
    * - Does not touch updates buffered for the next engine request. They stay
    *   queued for {@link processIntent} or {@link flushUpdates}.
-   * - The returned input id is the one the agent's `placeholder` and `error`
-   *   events for this message carry.
+   * - The returned `inputId` is the one the agent's `placeholder`,
+   *   `accepted` and `error` events for this message carry.
+   * - Tracks `result` independently of the store's cap, so it settles even
+   *   after newer inputs evicted the run from `agent.store`.
    * - Starts the `agentRunStaleTimeoutMs` silence window for the message.
    *   If the agent neither accepts nor answers it in time, or the accepted
    *   Agent Run goes silent before `finished`, {@link agent} emits
    *   `conversation_lost` with reason `stale_run`. Pass `Infinity` for the
    *   option to disable this.
    */
-  async sendMessage(
+  sendMessage(
     text: string,
     options?: SendMessageOptions,
-  ): Promise<MessageId> {
-    if (this.#isDisposed) {
-      throw new Error('Orchestrator is disposed');
-    }
+  ): AgentMessageSubmission {
+    const inputId = MessageId();
+    const result = this.#agentRuns.track(inputId);
+    const notSubmitted = (message: string): AgentMessageSubmission => {
+      this.#agentRuns.notSubmitted(inputId, { message });
+      return { inputId, result };
+    };
+    if (this.#isDisposed) return notSubmitted('Orchestrator is disposed');
     if (
       this.#pendingDisconnects > 0 ||
       this.#connectionManager.store.state.connectionStatus !== 'connected'
     ) {
-      throw new Error('Orchestrator is not connected');
+      return notSubmitted('Orchestrator is not connected');
     }
-    return this.#agentConversation.sendMessage(text, options);
+    void this.#agentConversation
+      .sendMessage(inputId, text, options, () =>
+        this.#agentRuns.sending(inputId),
+      )
+      .then((outcome) => {
+        if (outcome.status === 'not_sent')
+          this.#agentRuns.notSubmitted(inputId, {
+            message: outcome.error.message,
+          });
+        else if (outcome.status === 'failed')
+          this.#agentRuns.sendFailed(inputId);
+      });
+    return { inputId, result };
   }
 
   /** Shared admission state; network telemetry alone does not imply readiness. */

@@ -149,15 +149,40 @@ export type {
   IntentSubmission,
 } from './lib/orchestrator/intent-scheduler.types.js';
 export type {
+  AgentRunAccepted,
+  AgentRunBase,
+  AgentRunChange,
+  AgentRunChangeError,
+  AgentRunError,
+  AgentRunFailed,
+  AgentRunFinished,
+  AgentRunIgnored,
+  AgentRunLost,
+  AgentRunLostReason,
+  AgentRunNotAccepted,
+  AgentRunNotSubmitted,
+  AgentRunOutcome,
+  AgentRunPending,
+  AgentRunsSnapshot,
+  AgentRunState,
+  AgentRunStatus,
+  AgentRunStreaming,
+  AgentRunWorking,
+  SettledAgentRun,
+} from './lib/orchestrator/agent-run-state.js';
+export { isSettled } from './lib/orchestrator/agent-run-state.js';
+export type {
   AgentConversationEvents,
+  AgentInputAcceptedEvent,
+  AgentMessageSubmission,
+  AgentUiChangeAppliedEvent,
   ConversationEndedEvent,
   ConversationLostEvent,
   ConversationLostReason,
-  InputAcceptedEvent,
+  OrchestratorAgent,
   StaleInputLostEvent,
   StaleRunLostEvent,
   SendMessageOptions,
-  UiChangeAppliedEvent,
 } from './lib/orchestrator/conversation-event.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {

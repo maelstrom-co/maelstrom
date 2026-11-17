@@ -10,15 +10,19 @@ import type {
   MessageId,
   RunId,
 } from '@maelstrom-co/protocol';
+import type { Store } from '@tanstack/store';
+
+import type { EventSubscriber } from '../utils/typed-emitter.js';
+import type { AgentRunsSnapshot, SettledAgentRun } from './agent-run-state.js';
 
 /**
  * Emitted when the agent accepts an input. It is the only link from the
- * `inputId` that `sendMessage` resolved to the Agent Run that handles it.
+ * `inputId` that `sendMessage` returned to the Agent Run that handles it.
  */
-export type InputAcceptedEvent = {
+export type AgentInputAcceptedEvent = {
   /** Discriminant, always `'accepted'`. */
   type: 'accepted';
-  /** The input the agent accepted, as resolved by `sendMessage`. */
+  /** The input the agent accepted, as returned by `sendMessage`. */
   inputId: MessageId;
   /**
    * The Agent Run that handles the input. It is `null` exactly when the
@@ -27,6 +31,8 @@ export type InputAcceptedEvent = {
   runId: RunId | null;
   /** How the agent decided to handle the input. */
   disposition: AgentDisposition;
+  /** A short acknowledgement of the input the client may show or speak. */
+  ack: string;
 };
 
 /**
@@ -37,7 +43,7 @@ export type InputAcceptedEvent = {
  * Actions. A change still applying when the conversation is lost to
  * `disconnected` or `connector_replaced` is applied but reports no event.
  */
-export type UiChangeAppliedEvent = {
+export type AgentUiChangeAppliedEvent = {
   /** Discriminant, always `'ui_change'`. */
   type: 'ui_change';
   /** The Agent Run that caused the change, or `null` outside any run. */
@@ -126,13 +132,13 @@ export type StaleInputLostEvent = {
 
 /**
  * Events the Orchestrator emits for the Agent Session conversation.
- * Subscribe through `orchestrator.agent.on(...)`.
+ * Subscribe through `orchestrator.agent.events.on(...)`.
  */
 export type AgentConversationEvents = {
   /** Fires when the agent accepts an input, naming the run that handles it. */
-  accepted: InputAcceptedEvent;
+  accepted: AgentInputAcceptedEvent;
   /** Fires once for each UI change after the Orchestrator applied it. */
-  ui_change: UiChangeAppliedEvent;
+  ui_change: AgentUiChangeAppliedEvent;
   /** Fires when the agent sends a placeholder to show while it works. */
   placeholder: AgentPlaceholderEvent;
   /** Fires when the agent sends a conversational message for the user. */
@@ -163,4 +169,27 @@ export type AgentConversationEvents = {
 export type SendMessageOptions = {
   /** How the user produced the message. Defaults to `'text'`. */
   source?: AgentInputSource;
+};
+
+/** The Orchestrator's view of its Agent Session conversation. */
+export type OrchestratorAgent = {
+  /** Raw agent events, subscribed through `events.on(type, handler)`. */
+  readonly events: EventSubscriber<AgentConversationEvents>;
+  /**
+   * Agent Run state of every input sent through `sendMessage`, capped at the
+   * 20 latest inputs.
+   */
+  readonly store: Store<AgentRunsSnapshot>;
+};
+
+/** What `orchestrator.sendMessage` returns. */
+export type AgentMessageSubmission = {
+  /** The input id the agent's events for this message carry. */
+  readonly inputId: MessageId;
+  /**
+   * The input's Agent Run state at the moment it settled. Settles exactly
+   * once and never rejects. Later events may still change the run in the
+   * store, for example after a `stale_run` loss.
+   */
+  readonly result: Promise<SettledAgentRun>;
 };

@@ -6,15 +6,16 @@ import {
   type AgentUiChangeEvent,
   type ChartRequest,
   type MaelstromResponse,
-  MessageId,
+  type MessageId,
   toError,
 } from '@maelstrom-co/protocol';
 
 import type { ActionRecord } from '../command-processor/action-runner.types.js';
 import type { CommandBatchResult } from '../command-processor/command-batch-result.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
+import {
+  AgentWireUnsupportedError,
+  type ConnectorEvent,
+  type EngineConnector,
 } from '../connection-manager/connector.types.js';
 import type { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
@@ -75,6 +76,25 @@ export type AgentConversationDependencies = {
   /** Reads a monotonic clock in milliseconds to time UI change acknowledgements. */
   readonly now: () => number;
 };
+
+/** How sending one utterance ended. */
+export type AgentSendOutcome =
+  | {
+      /** The connector accepted the frame. */
+      readonly status: 'sent';
+    }
+  | {
+      /** The frame never left the client, so it had no side effect. */
+      readonly status: 'not_sent';
+      /** Why the frame was not sent. */
+      readonly error: Error;
+    }
+  | {
+      /** The transport refused the frame. Whether the agent saw it is unknown. */
+      readonly status: 'failed';
+      /** The transport's error. */
+      readonly error: Error;
+    };
 
 type Attachment = {
   readonly connector: EngineConnector;
@@ -156,18 +176,28 @@ export class AgentConversation {
   }
 
   /**
-   * Sends one utterance with a fresh Chart snapshot and resolves its input id
-   * once the connector accepted it.
+   * Sends one utterance under `inputId` with a fresh Chart snapshot. Settles
+   * with `sent` once the connector accepted the frame, `not_sent` when the
+   * frame never left the client, or `failed` when the transport refused it.
+   * Calls `onSending` synchronously right before the frame is handed to the
+   * connector. Never rejects.
    */
   async sendMessage(
+    inputId: MessageId,
     text: string,
-    options?: SendMessageOptions,
-  ): Promise<MessageId> {
+    options: SendMessageOptions | undefined,
+    onSending: () => void,
+  ): Promise<AgentSendOutcome> {
     const attachment = this.#attachment;
-    if (attachment === null) throw new Error('Agent conversation is detached');
-    const inputId = MessageId();
+    if (attachment === null)
+      return notSent(new Error('Agent conversation is detached'));
     const sessionGeneration = this.#sessionGeneration;
-    const chart = this.#dependencies.buildChart();
+    let chart: ChartRequest;
+    try {
+      chart = this.#dependencies.buildChart();
+    } catch (error) {
+      return notSent(toError(error));
+    }
     // The connector may deliver the reply before its send resolves, so the
     // input must be watched before the await or that reply finds no watch.
     this.#staleRunWatch.inputSent(inputId);
@@ -182,8 +212,11 @@ export class AgentConversation {
       if (sessionGeneration === this.#sessionGeneration)
         this.#pendingUtterances--;
       this.#staleRunWatch.stopInput(inputId);
-      throw new Error('Agent conversation ended before the utterance was sent');
+      return notSent(
+        new Error('Agent conversation ended before the utterance was sent'),
+      );
     }
+    onSending();
     try {
       await attachment.connector.sendInput({
         type: 'utterance',
@@ -197,7 +230,9 @@ export class AgentConversation {
       if (sessionGeneration === this.#sessionGeneration)
         this.#pendingUtterances--;
       this.#staleRunWatch.stopInput(inputId);
-      throw error;
+      return error instanceof AgentWireUnsupportedError
+        ? notSent(error)
+        : { status: 'failed', error: toError(error) };
     }
     if (sessionGeneration === this.#sessionGeneration) {
       this.#pendingUtterances--;
@@ -205,7 +240,7 @@ export class AgentConversation {
     } else {
       this.#staleRunWatch.stopInput(inputId);
     }
-    return inputId;
+    return { status: 'sent' };
   }
 
   /**
@@ -216,8 +251,13 @@ export class AgentConversation {
     this.#reportLoss('disconnected');
   }
 
-  /** Detaches from the connector and disposes the emitter without reporting a loss. */
+  /**
+   * Reports the conversation as lost with reason `disconnected`, as
+   * {@link reportDisconnected} does, then detaches from the connector and
+   * disposes the emitter.
+   */
   dispose(): void {
+    this.#reportLoss('disconnected');
     this.#detach();
     this.#conversationExists = false;
     this.#events.dispose();
@@ -288,6 +328,7 @@ export class AgentConversation {
           inputId: event.inputId,
           runId: event.runId,
           disposition: event.disposition,
+          ack: event.ack,
         });
         return;
       case 'started':
@@ -419,6 +460,10 @@ type AppliedUiChange = {
   readonly endedSessions: number;
   readonly receivedAt: number;
 };
+
+function notSent(error: Error): AgentSendOutcome {
+  return { status: 'not_sent', error };
+}
 
 function toActionOutcomes(
   response: MaelstromResponse,

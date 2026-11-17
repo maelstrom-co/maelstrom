@@ -18,7 +18,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/pr
 
 - **Orchestrator** — applies layout then executes actions, in two modes — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
   - Request and reply: `processIntent` sends one intent and resolves with the engine response. It throws `RequestInFlightError` while another request is in flight.
-  - Agent conversation: `sendMessage` sends what the user typed or said to the engine agent and returns an input id. It never reports busy. The Orchestrator applies the UI changes the agent plans.
+  - Agent conversation: `sendMessage` sends what the user typed or said to the engine agent and returns an input id with a `result` promise. It never reports busy and never throws. The Orchestrator applies the UI changes the agent plans and tracks each input's Agent Run in `orchestrator.agent.store`.
 - **Vessel registry** — registers vessel definitions so the engine knows what components are available
 - **Chart Manager** — tracks grid dimensions and applies engine layout directives as CSS positioning
 - **Connectors** — transport-agnostic contract:
@@ -61,33 +61,44 @@ Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 ## Agent conversation
 
 ```ts
-const inputId = await orchestrator.sendMessage('show me a greeting');
+const { inputId, result } = orchestrator.sendMessage('show me a greeting');
+const run = await result;
+if (run.status === 'finished') console.log(run.reply);
 ```
 
-`sendMessage` resolves as soon as the message is sent. The agent answers over time, and the Orchestrator applies each UI change it plans, Layout first, then Actions.
+`sendMessage` returns at once. The agent answers over time, and the Orchestrator applies each UI change it plans, Layout first, then Actions. `result` settles exactly once and never rejects, with the input's Agent Run state at that moment. Its `status` is `finished`, `ignored` (the agent treated the input as noise), `failed`, `lost` (the outcome is unknown, so do not resend automatically) or `not_submitted` (the message never left the client, for example because the Orchestrator is not connected).
 
-To render the agent's replies in your own UI, subscribe to the lower-level event stream on `orchestrator.agent`:
+`orchestrator.agent.store` is a TanStack Store with the state of the latest 20 inputs, oldest first, and the latest one as `run`. Open runs are `pending` (sent, not accepted yet), `working` and `streaming`. Fields belong to their status: `outcome` only on `finished`, `error` only on `failed` and `not_submitted`, `lostReason` only on `lost`, and `runId`, `disposition` and `ack` once the agent accepted the input. `isSettled(run)` tells settled runs from open ones.
 
 ```ts
-const offPlaceholder = orchestrator.agent.on('placeholder', (event) => {
+const subscription = orchestrator.agent.store.subscribe(() => {
+  const { run } = orchestrator.agent.store.state;
+  if (run?.status === 'streaming') console.log(run.reply);
+});
+```
+
+To follow the raw event stream instead, subscribe on `orchestrator.agent.events`:
+
+```ts
+const offPlaceholder = orchestrator.agent.events.on('placeholder', (event) => {
   // Show a pending state
 });
-const offMessage = orchestrator.agent.on('message', (event) => {
+const offMessage = orchestrator.agent.events.on('message', (event) => {
   // Append the streamed text delta
 });
-const offFinished = orchestrator.agent.on('finished', (event) => {
+const offFinished = orchestrator.agent.events.on('finished', (event) => {
   // The run is done
 });
-const offLost = orchestrator.agent.on('conversation_lost', (event) => {
+const offLost = orchestrator.agent.events.on('conversation_lost', (event) => {
   // event.reason is 'disconnected', 'connector_replaced' or 'stale_run'
 });
 ```
 
-Each `on` call returns an unsubscribe function. On each `ui_change` the Orchestrator applies the layout, runs the actions, then reports the result to the engine. Two more events report what already happened. `accepted` links the `inputId` that `sendMessage` returned to the Agent Run that handles it, with the agent's disposition. `ui_change` fires once the Orchestrator finished applying a change, with its `runId`, `changeId` and one outcome per Action. It fires even when the report could not be sent, and a change still applying when the conversation is lost reports no `ui_change`. Listeners can alter neither the apply nor the report. The agent session ends with the socket, so `conversation_lost` fires on every disconnect after agent activity. An `error` event reports a failure outside any Agent Run, such as an admission rejection, and carries the `inputId` when the failure relates to an input.
+Each `on` call returns an unsubscribe function. On each `ui_change` the Orchestrator applies the layout, runs the actions, then reports the result to the engine. Two more events report what already happened. `accepted` links the `inputId` that `sendMessage` returned to the Agent Run that handles it, with the agent's disposition and its short `ack`. `ui_change` fires once the Orchestrator finished applying a change, with its `runId`, `changeId` and one outcome per Action. It fires even when the report could not be sent, and a change still applying when the conversation is lost reports no `ui_change`. Listeners can alter neither the apply nor the report. The agent session ends with the socket, so `conversation_lost` fires on every disconnect after agent activity, and also when the Orchestrator is disposed. An `error` event reports a failure outside any Agent Run, such as an admission rejection, and carries the `inputId` when the failure relates to an input.
 
-`agentRunStaleTimeoutMs` (default 150000, `Infinity` disables) is a rolling silence window for each pending message and each Agent Run. Any event for it restarts the window. If the window runs out before `finished`, `conversation_lost` fires with reason `stale_run`, so the UI can stop waiting on a run that looks stale. This does not prove the server failed. Late events for that run can still arrive and are delivered.
+`agentRunStaleTimeoutMs` (default 150000, `Infinity` disables) is a rolling silence window for each pending message and each Agent Run. Any event for it restarts the window. If the window runs out before `finished`, `conversation_lost` fires with reason `stale_run`, so the UI can stop waiting on a run that looks stale. This does not prove the server failed. Any `stale_run` settles the `result` of every open input `lost`. Late events can still arrive, are delivered, and still update the store.
 
-`HttpConnector` cannot carry the agent conversation. `sendMessage` rejects with `AgentWireUnsupportedError` there, so use `WebSocketConnector`.
+`HttpConnector` cannot carry the agent conversation. `sendMessage` settles `not_submitted` there, with the `AgentWireUnsupportedError` message, so use `WebSocketConnector`.
 
 ## Operational telemetry
 
