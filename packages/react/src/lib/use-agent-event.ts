@@ -23,7 +23,7 @@ export function createUseAgentEvent(contextPair: MaelstromContextPair) {
 
     useEffect(
       () =>
-        orchestrator.agent.on(type, (event) => {
+        orchestrator.agent.events.on(type, (event) => {
           if (committedRef.current.type !== type) return;
           return committedRef.current.handler(event);
         }),

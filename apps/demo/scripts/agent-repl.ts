@@ -116,8 +116,11 @@ async function handleLine(line: string): Promise<void> {
   try {
     if (line === '') return;
     if (!line.startsWith('/')) {
-      const inputId = await orchestrator.sendMessage(line);
+      const { inputId, result } = orchestrator.sendMessage(line);
       log('sent', `inputId=${inputId}`);
+      void result.then((run) =>
+        log('settled', `inputId=${inputId} status=${run.status}`),
+      );
       return;
     }
     const [command, ...rest] = line.split(/\s+/);
@@ -200,28 +203,28 @@ function buildOrchestrator(agentRunStaleTimeoutMs: number | undefined) {
     initialLayout: SHOP_LAYOUT,
     ...(agentRunStaleTimeoutMs === undefined ? {} : { agentRunStaleTimeoutMs }),
   });
-  next.agent.on('placeholder', (event) =>
+  next.agent.events.on('placeholder', (event) =>
     log(
       'placeholder',
       `inputId=${event.inputId} ${JSON.stringify(event.text)}`,
     ),
   );
-  next.agent.on('message', (event) =>
+  next.agent.events.on('message', (event) =>
     log('message', `runId=${event.runId} ${JSON.stringify(event.delta)}`),
   );
-  next.agent.on('finished', (event) =>
+  next.agent.events.on('finished', (event) =>
     log(
       'finished',
       `runId=${event.runId} ok=${event.ok} reason=${event.reason}${event.code ? ` code=${event.code}` : ''}${event.error ? ` error=${JSON.stringify(event.error)}` : ''} reply=${JSON.stringify(event.reply)}`,
     ),
   );
-  next.agent.on('error', (event) =>
+  next.agent.events.on('error', (event) =>
     log(
       'error',
       `${event.inputId ? `inputId=${event.inputId} ` : ''}${event.code ? `code=${event.code} ` : ''}${JSON.stringify(event.error)}`,
     ),
   );
-  next.agent.on('conversation_lost', (event) =>
+  next.agent.events.on('conversation_lost', (event) =>
     log(
       'conversation_lost',
       `reason=${event.reason}${event.runId ? ` runId=${event.runId}` : ''}${event.inputId ? ` inputId=${event.inputId}` : ''}`,

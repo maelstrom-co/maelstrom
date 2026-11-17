@@ -5,7 +5,7 @@ import { shopM } from './maelstrom';
 /**
  * Shows the latest Agent Run of the shop, typed or voice, on one line.
  * Renders nothing until there is text to show. A conversation-level error
- * takes precedence until the next input registers.
+ * takes precedence until the next input is sent.
  */
 export function ShopAgentReply() {
   const reply = describeReply(shopM.useAgentRun());
@@ -63,18 +63,18 @@ function describeReply({
         ? null
         : { status: run.status, text: run.reply };
     }
+    case 'ignored':
+      return null;
     case 'lost':
       return {
         status: run.status,
         text: run.lostReason === 'stale_run' ? STALE_COPY : DROPPED_COPY,
       };
     case 'failed':
-      return {
-        status: run.status,
-        text: errorCopy(run.error?.message ?? 'the agent stopped'),
-      };
+    case 'not_submitted':
+      return { status: run.status, text: errorCopy(run.error.message) };
     default:
-      return assertNever(run.status);
+      return assertNever(run);
   }
 }
 

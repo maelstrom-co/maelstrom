@@ -1,27 +1,31 @@
-import type { Orchestrator } from '@maelstrom-co/client';
+import type {
+  AgentMessageSubmission,
+  Orchestrator,
+  SettledAgentRun,
+} from '@maelstrom-co/client';
 import { MessageId } from '@maelstrom-co/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import { sendShopInput } from './send-shop-input';
 
 describe('sendShopInput', () => {
-  it('sends trimmed typed text with the text source', async () => {
+  it('sends trimmed typed text with the text source', () => {
     const send = vi.fn<Orchestrator['sendMessage']>(() =>
-      Promise.resolve(MessageId('message-1')),
+      submission('message-1'),
     );
 
-    await sendShopInput(send, '  show my last order  ', 'text');
+    sendShopInput(send, '  show my last order  ', 'text');
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('show my last order', { source: 'text' });
   });
 
-  it('sends trimmed spoken text with the voice source', async () => {
+  it('sends trimmed spoken text with the voice source', () => {
     const send = vi.fn<Orchestrator['sendMessage']>(() =>
-      Promise.resolve(MessageId('message-1')),
+      submission('message-1'),
     );
 
-    await sendShopInput(send, '\tshow my last order\n', 'voice');
+    sendShopInput(send, '\tshow my last order\n', 'voice');
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('show my last order', {
@@ -29,49 +33,55 @@ describe('sendShopInput', () => {
     });
   });
 
-  it('resolves with the message id the send resolved to', async () => {
-    const send = vi.fn<Orchestrator['sendMessage']>(() =>
-      Promise.resolve(MessageId('message-7')),
-    );
+  it('returns the submission the send returned', () => {
+    const sent = submission('message-7');
+    const send = vi.fn<Orchestrator['sendMessage']>(() => sent);
 
-    await expect(sendShopInput(send, 'show my orders', 'text')).resolves.toBe(
-      MessageId('message-7'),
-    );
+    expect(sendShopInput(send, 'show my orders', 'text')).toBe(sent);
   });
 
   it.each(['', '   ', '\n\t '])(
-    'rejects empty text %j without sending',
-    async (text) => {
+    'throws on empty text %j without sending',
+    (text) => {
       const send = vi.fn<Orchestrator['sendMessage']>(() =>
-        Promise.resolve(MessageId('message-1')),
+        submission('message-1'),
       );
 
-      await expect(sendShopInput(send, text, 'voice')).rejects.toThrow(
+      expect(() => sendShopInput(send, text, 'voice')).toThrow(
         'Shop input is empty',
       );
       expect(send).not.toHaveBeenCalled();
     },
   );
 
-  it('passes a send rejection through unchanged', async () => {
-    const failure = new Error('Orchestrator is not connected');
-    const send = vi.fn<Orchestrator['sendMessage']>(() =>
-      Promise.reject(failure),
-    );
+  it('passes a not submitted result through unchanged', async () => {
+    const notSubmitted: SettledAgentRun = {
+      inputId: MessageId('message-1'),
+      status: 'not_submitted',
+      error: { message: 'Orchestrator is not connected' },
+      runId: null,
+      disposition: null,
+      ack: null,
+      placeholder: null,
+      reply: '',
+      turnId: null,
+      changes: [],
+      changeErrors: [],
+    };
+    const send = vi.fn<Orchestrator['sendMessage']>(() => ({
+      inputId: MessageId('message-1'),
+      result: Promise.resolve(notSubmitted),
+    }));
 
-    await expect(sendShopInput(send, 'show my orders', 'text')).rejects.toBe(
-      failure,
-    );
-  });
-
-  it('passes a synchronous send throw through as a rejection', async () => {
-    const failure = new Error('Orchestrator is disposed');
-    const send = vi.fn<Orchestrator['sendMessage']>(() => {
-      throw failure;
-    });
-
-    await expect(sendShopInput(send, 'show my orders', 'text')).rejects.toBe(
-      failure,
-    );
+    await expect(
+      sendShopInput(send, 'show my orders', 'text').result,
+    ).resolves.toBe(notSubmitted);
   });
 });
+
+function submission(inputId: string): AgentMessageSubmission {
+  return {
+    inputId: MessageId(inputId),
+    result: new Promise<SettledAgentRun>(() => undefined),
+  };
+}

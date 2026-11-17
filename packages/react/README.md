@@ -66,36 +66,28 @@ export function App() {
 
 ## Rendering an Agent Run
 
-`m.useAgentRun()` returns the run of the most recently registered input and a stable `sendMessage`. Branch on `run.status` to render each stage.
+`m.useAgentRun()` returns the Agent Run state of the Provider's Orchestrator, read from `orchestrator.agent.store`, and a stable `sendMessage`. `run` is the run of the most recently sent input. Branch on `run.status` to render each stage.
 
 ```tsx
-import { useState } from 'react';
-
 function AgentReply() {
   const { run, sendMessage } = m.useAgentRun();
-  const [sendError, setSendError] = useState<string | null>(null);
-
-  const ask = () => {
-    setSendError(null);
-    sendMessage('show my last order').catch((error: unknown) => {
-      setSendError(error instanceof Error ? error.message : String(error));
-    });
-  };
 
   return (
     <section>
-      <button onClick={ask}>Ask</button>
-      {sendError && <p role="alert">{sendError}</p>}
-      {run?.status === 'working' && <p>{run.placeholder ?? 'Working...'}</p>}
+      <button onClick={() => sendMessage('show my last order')}>Ask</button>
+      {run?.status === 'pending' && <p>{run.placeholder ?? 'Sending...'}</p>}
+      {run?.status === 'working' && <p>{run.placeholder ?? run.ack}</p>}
       {(run?.status === 'streaming' || run?.status === 'finished') && <p>{run.reply}</p>}
       {run?.status === 'lost' && <p>Lost contact with the agent.</p>}
-      {run?.status === 'failed' && <p role="alert">{run.error?.message}</p>}
+      {(run?.status === 'failed' || run?.status === 'not_submitted') && (
+        <p role="alert">{run.error.message}</p>
+      )}
     </section>
   );
 }
 ```
 
-A rejected send does not register a run or set `error` by itself, so handle the promise `sendMessage` returns. Agent events for that input can still register a run. A rejection does not prove the agent missed the text, and a loss never proves the input went unprocessed, so do not resend automatically. A `stale_run` loss can recover when later events arrive. See `run.lostReason`.
+`sendMessage` returns `{ inputId, result }` at once and never throws. The input shows as `pending` right away. `result` settles once with the run state at that moment and never rejects. A message that never left the client settles `not_submitted`. A `lost` result does not prove the agent missed the text, so do not resend it automatically. A `stale_run` loss can recover in the snapshot when later events arrive, see `run.lostReason`. An input the agent treats as noise ends `ignored`. `isSettled(run)` tells settled runs from open ones.
 
 To follow raw agent events such as `ui_change` or `finished`, call `m.useAgentEvent(type, handler)`.
 

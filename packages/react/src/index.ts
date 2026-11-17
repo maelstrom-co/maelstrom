@@ -12,10 +12,34 @@ export type {
 export { HttpConnector, WebSocketConnector } from '@maelstrom-co/client';
 export type {
   AgentConversationEvents,
+  AgentInputAcceptedEvent,
+  AgentMessageSubmission,
+  AgentRunAccepted,
+  AgentRunBase,
+  AgentRunChange,
+  AgentRunChangeError,
+  AgentRunError,
+  AgentRunFailed,
+  AgentRunFinished,
+  AgentRunIgnored,
+  AgentRunLost,
+  AgentRunLostReason,
+  AgentRunNotAccepted,
+  AgentRunNotSubmitted,
+  AgentRunOutcome,
+  AgentRunPending,
+  AgentRunsSnapshot,
+  AgentRunState,
+  AgentRunStatus,
+  AgentRunStreaming,
+  AgentRunWorking,
+  AgentUiChangeAppliedEvent,
   ConversationLostReason,
   MessageId,
   SendMessageOptions,
+  SettledAgentRun,
 } from '@maelstrom-co/client';
+export { isSettled } from '@maelstrom-co/client';
 
 export type {
   AgentFinishReason,
@@ -24,16 +48,6 @@ export type {
   RunId,
 } from '@maelstrom-co/protocol';
 export { defineVessel } from '@maelstrom-co/protocol';
-// Types — Agent Run
-export type {
-  AgentRunChange,
-  AgentRunChangeError,
-  AgentRunError,
-  AgentRunOutcome,
-  AgentRunState,
-  AgentRunStatus,
-  AgentRunsSnapshot,
-} from './lib/agent-run-state.js';
 export type { ChartProps } from './lib/chart/chart.js';
 export type { ChartMotionConfig } from './lib/chart/motion/motion-config.js';
 export type { CreateMaelstromConfig } from './lib/create-maelstrom.js';

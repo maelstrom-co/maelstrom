@@ -10,7 +10,7 @@ import {
   createMockAgentConnector,
   type MockAgentConnector,
 } from '@maelstrom-co/client/_testing';
-import { ChangeId, MessageId, RunId } from '@maelstrom-co/protocol';
+import { ChangeId, type MessageId, RunId } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -51,7 +51,7 @@ describe('ShopAgentReply', () => {
         view.agent.emit(agentPlaceholderEvent(inputId, 'Looking it up'));
       });
       expect(view.text()).toBe('Looking it up');
-      expect(view.reply()?.dataset['status']).toBe('working');
+      expect(view.reply()?.dataset['status']).toBe('pending');
 
       act(() => {
         view.agent.emit(agentAcceptedEvent(inputId, RUN));
@@ -242,6 +242,35 @@ describe('ShopAgentReply', () => {
     expect(view.text()).toBe('Something went wrong: Too many requests');
   });
 
+  it('renders nothing once the agent ignores the input as noise', async () => {
+    const view = await renderReply();
+    const inputId = await view.send('hmm', 'voice');
+    expect(view.text()).toBe('Working on it…');
+
+    act(() => {
+      view.agent.emit(agentAcceptedEvent(inputId, null));
+    });
+
+    expect(view.reply()).toBeNull();
+  });
+
+  it('shows an error notice when the input was not submitted', async () => {
+    const view = await renderReply();
+    act(() => {
+      view.agent.close({ clean: false });
+    });
+    await waitFor(() => {
+      expect(view.connectionStatus()).not.toBe('connected');
+    });
+
+    await view.send('show my last order', 'text');
+
+    expect(view.reply()?.dataset['status']).toBe('not_submitted');
+    expect(view.text()).toBe(
+      'Something went wrong: Orchestrator is not connected',
+    );
+  });
+
   it('shows an error notice for a failure tied to no input', async () => {
     const view = await renderReply();
 
@@ -260,11 +289,11 @@ describe('ShopAgentReply', () => {
     });
     expect(view.text()).toBe('Something went wrong: Unknown change');
 
-    const voiceInput = MessageId('voice-input-1');
+    const voiceInput = await view.send('show my last order', 'voice');
     act(() => {
       view.agent.emit(agentPlaceholderEvent(voiceInput, 'Looking it up'));
     });
-    expect(view.reply()?.dataset['status']).toBe('working');
+    expect(view.reply()?.dataset['status']).toBe('pending');
     expect(view.text()).toBe('Looking it up');
 
     act(() => {
@@ -331,6 +360,8 @@ async function renderReply(agent: MockAgentConnector = createAgent()) {
     agent,
     reply,
     text: () => reply()?.textContent ?? null,
+    connectionStatus: () =>
+      view.getByTestId('connection').dataset['status'] ?? null,
     replaceConnector(connector: EngineConnector) {
       view.rerender(<Harness connector={connector} />);
     },
@@ -338,7 +369,7 @@ async function renderReply(agent: MockAgentConnector = createAgent()) {
       let inputId: MessageId | undefined;
       await act(async () => {
         if (sendMessage === null) throw new Error('expected sendMessage');
-        inputId = await sendMessage(text, { source });
+        inputId = sendMessage(text, { source }).inputId;
       });
       if (inputId === undefined) throw new Error('expected an input id');
       return inputId;

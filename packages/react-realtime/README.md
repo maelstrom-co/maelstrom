@@ -103,8 +103,8 @@ on another.
 
 By default each voice `update_ui` intent goes to the intent scheduler. Pass
 `sendAgentMessage(orchestrator, text)` to send it to the agent instead, so voice
-takes the same path as typed text sent with `sendMessage`. It must resolve with
-the input's `MessageId`:
+takes the same path as typed text sent with `sendMessage`. It returns the
+submission that `orchestrator.sendMessage` returns:
 
 ```ts
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
@@ -119,14 +119,15 @@ maelstromRealtime({
 });
 ```
 
-The tool call is answered when the Agent Run that handles the input ends,
-speaking its reply when there is one. The run can end before its UI changes are
-applied, so the answer does not confirm them. A rejection may follow a send that
-reached the agent, so it is reported as unconfirmed and never resent, unless it
-is an `AgentWireUnsupportedError`. While the engine connection is down the
-option is not called and the tool call is answered as not submitted. The option
-is opt-in because `HttpConnector` and hosts that answer agent inputs with plain
-`handleEnvelope` cannot serve them.
+The tool call is answered from the submission's `result` once the input
+settled. A finished run with the `ui_only` disposition finishes after its change
+was applied, so the answer carries the screen summary with the reply. Other
+finished runs answer with the reply alone and stay unconfirmed, because their UI
+changes can still be applying. An ignored input is answered as not acted on, a
+failed run with its error, a lost input as unconfirmed and never resent, and a
+message that never left the client, for example while the engine is
+disconnected, as not submitted. The option is opt-in because `HttpConnector` and
+hosts that answer agent inputs with plain `handleEnvelope` cannot serve them.
 
 ## Session contract
 

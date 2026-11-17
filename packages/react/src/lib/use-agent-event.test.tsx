@@ -77,6 +77,7 @@ describe('m.useAgentEvent()', () => {
       inputId,
       runId: RUN,
       disposition: 'agent',
+      ack: 'On it',
     });
     expect(onMessage).toHaveBeenCalledTimes(1);
     expect(onMessage).toHaveBeenCalledWith(message);
@@ -471,7 +472,8 @@ async function renderWithAgent(
     async send(text: string): Promise<MessageId> {
       let inputId: MessageId | undefined;
       await act(async () => {
-        inputId = await live().orchestrator.sendMessage(text);
+        inputId = live().orchestrator.sendMessage(text).inputId;
+        await Promise.resolve();
       });
       assertDefined(inputId);
       return inputId;
@@ -488,7 +490,7 @@ function createInstance(tracked: TrackedOrchestrator[] = []) {
         disposal: null,
       };
       tracked.push(record);
-      const events = orchestrator.agent;
+      const events = orchestrator.agent.events;
       const on = events.on.bind(events);
       events.on = (type, listener) => {
         record.subscriptions.set(

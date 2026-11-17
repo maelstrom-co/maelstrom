@@ -39,6 +39,7 @@ import { HttpConnector } from '../connection-manager/connectors/http-connector.j
 import type { DiagnosticObservation } from '../diagnostic-channel.js';
 import type {
   AgentConversationEvents,
+  AgentMessageSubmission,
   ConversationLostEvent,
 } from './conversation-event.types.js';
 import { Orchestrator } from './orchestrator.js';
@@ -100,12 +101,12 @@ describe('Orchestrator agent path', () => {
       initialLayout: seed,
     });
     try {
-      const firstId = await orchestrator.sendMessage('show the board');
-      const secondId = await orchestrator.sendMessage('and expand it', {
+      const firstId = orchestrator.sendMessage('show the board').inputId;
+      const secondId = orchestrator.sendMessage('and expand it', {
         source: 'voice',
-      });
+      }).inputId;
       const intent = orchestrator.processIntent('rearrange');
-      const duringIntentId = await orchestrator.sendMessage('while busy');
+      const duringIntentId = orchestrator.sendMessage('while busy').inputId;
 
       const utterances = agent.inputs.filter(
         (input) => input.type === 'utterance',
@@ -472,7 +473,7 @@ describe('Orchestrator agent path', () => {
         conversation_lost: [],
       };
       const arrivalOrder: string[] = [];
-      const unsubscribePlaceholder = orchestrator.agent.on(
+      const unsubscribePlaceholder = orchestrator.agent.events.on(
         'placeholder',
         (event) => {
           arrivalOrder.push('placeholder');
@@ -483,22 +484,22 @@ describe('Orchestrator agent path', () => {
         arrivalOrder.push('message');
         received.message.push(event);
       };
-      orchestrator.agent.on('message', onMessage);
-      orchestrator.agent.on('finished', (event) => {
+      orchestrator.agent.events.on('message', onMessage);
+      orchestrator.agent.events.on('finished', (event) => {
         arrivalOrder.push('finished');
         received.finished.push(event);
       });
-      orchestrator.agent.on('error', (event) => {
+      orchestrator.agent.events.on('error', (event) => {
         arrivalOrder.push('error');
         received.error.push(event);
       });
-      orchestrator.agent.on('conversation_lost', (event) => {
+      orchestrator.agent.events.on('conversation_lost', (event) => {
         arrivalOrder.push('conversation_lost');
         received.conversation_lost.push(event);
       });
       const subscribeToInternalEvent = () => {
         // @ts-expect-error started is consumed internally and cannot be subscribed to
-        orchestrator.agent.on('started', () => {});
+        orchestrator.agent.events.on('started', () => {});
       };
       void subscribeToInternalEvent;
 
@@ -564,7 +565,7 @@ describe('Orchestrator agent path', () => {
       expect(received.conversation_lost).toEqual([]);
 
       unsubscribePlaceholder();
-      orchestrator.agent.off('message', onMessage);
+      orchestrator.agent.events.off('message', onMessage);
       agent.emit(placeholderEvent('input-2'));
       agent.emit(messageEvent('ignored'));
 
@@ -581,7 +582,9 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const accepted: AgentConversationEvents['accepted'][] = [];
-        orchestrator.agent.on('accepted', (event) => accepted.push(event));
+        orchestrator.agent.events.on('accepted', (event) =>
+          accepted.push(event),
+        );
 
         agent.emit(
           agentAcceptedEvent(MessageId('input-agent'), RunId('run-1')),
@@ -594,12 +597,14 @@ describe('Orchestrator agent path', () => {
             inputId: MessageId('input-agent'),
             runId: RunId('run-1'),
             disposition: 'agent',
+            ack: 'On it',
           },
           {
             type: 'accepted',
             inputId: MessageId('input-noise'),
             runId: null,
             disposition: 'noise',
+            ack: '',
           },
         ]);
       } finally {
@@ -624,7 +629,7 @@ describe('Orchestrator agent path', () => {
         });
         const changes: AgentConversationEvents['ui_change'][] = [];
         const instanceVisibleAtEvent: boolean[] = [];
-        orchestrator.agent.on('ui_change', (event) => {
+        orchestrator.agent.events.on('ui_change', (event) => {
           sequence.push('ui_change');
           changes.push(event);
           instanceVisibleAtEvent.push(
@@ -669,8 +674,10 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const changes: AgentConversationEvents['ui_change'][] = [];
-        orchestrator.agent.on('ui_change', (event) => changes.push(event));
-        const inputId = await orchestrator.sendMessage('show the board');
+        orchestrator.agent.events.on('ui_change', (event) =>
+          changes.push(event),
+        );
+        const inputId = orchestrator.sendMessage('show the board').inputId;
         agent.emit(agentAcceptedEvent(inputId, RunId('run-1')));
         agent.emit(finishedEvent());
 
@@ -704,7 +711,7 @@ describe('Orchestrator agent path', () => {
       const consoleError = spyOn(console, 'error').mockImplementation(() => {});
       try {
         let throwingListenerCalls = 0;
-        orchestrator.agent.on('ui_change', () => {
+        orchestrator.agent.events.on('ui_change', () => {
           throwingListenerCalls++;
           throw new Error('listener failed');
         });
@@ -737,7 +744,7 @@ describe('Orchestrator agent path', () => {
         orchestrator.commandProcessor.registerRunner(newBoard, {
           step: () => Promise.resolve<ActionResult>(ok(undefined)),
         });
-        orchestrator.agent.on('ui_change', (event) => {
+        orchestrator.agent.events.on('ui_change', (event) => {
           const outcome = event.actionOutcomes[0] as {
             ok: boolean;
             error?: string;
@@ -774,7 +781,7 @@ describe('Orchestrator agent path', () => {
       try {
         const changed = Promise.withResolvers<void>();
         const changes: AgentConversationEvents['ui_change'][] = [];
-        orchestrator.agent.on('ui_change', (event) => {
+        orchestrator.agent.events.on('ui_change', (event) => {
           changes.push(event);
           changed.resolve();
         });
@@ -812,7 +819,9 @@ describe('Orchestrator agent path', () => {
       });
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
-        orchestrator.agent.on('ui_change', () => sequence.push('ui_change'));
+        orchestrator.agent.events.on('ui_change', () =>
+          sequence.push('ui_change'),
+        );
 
         agent.emit(
           uiChange(
@@ -840,7 +849,7 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const changes: ChangeId[] = [];
-        orchestrator.agent.on('ui_change', (event) =>
+        orchestrator.agent.events.on('ui_change', (event) =>
           changes.push(event.changeId),
         );
         const layout = boardLayout([
@@ -869,9 +878,11 @@ describe('Orchestrator agent path', () => {
       try {
         const losses = recordConversationLosses(orchestrator);
         const changes: AgentConversationEvents['ui_change'][] = [];
-        orchestrator.agent.on('ui_change', (event) => changes.push(event));
+        orchestrator.agent.events.on('ui_change', (event) =>
+          changes.push(event),
+        );
         const action = holdNextAction(orchestrator, slowBoard, 'step');
-        await orchestrator.sendMessage('hello');
+        orchestrator.sendMessage('hello');
         oldAgent.emit(
           uiChange(
             'change-before-swap',
@@ -904,7 +915,7 @@ describe('Orchestrator agent path', () => {
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
         const losses = recordConversationLosses(orchestrator);
-        await orchestrator.sendMessage('hello');
+        orchestrator.sendMessage('hello');
 
         agent.close({ clean: false });
         expect(losses).toEqual([
@@ -918,7 +929,7 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('emits one disconnected loss for a clean close after an agent event, and rejects utterances while disconnected', async () => {
+    it('emits one disconnected loss for a clean close after an agent event, and settles utterances while disconnected as not submitted', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
@@ -929,9 +940,12 @@ describe('Orchestrator agent path', () => {
         expect(losses).toEqual([
           { type: 'conversation_lost', reason: 'disconnected' },
         ]);
-        await expect(
-          orchestrator.sendMessage('anyone there'),
-        ).rejects.toThrow();
+        const submission = orchestrator.sendMessage('anyone there');
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+          error: { message: 'Orchestrator is not connected' },
+        });
         expect(
           agent.inputs.filter((input) => input.type === 'utterance'),
         ).toEqual([]);
@@ -953,9 +967,11 @@ describe('Orchestrator agent path', () => {
       try {
         const losses = recordConversationLosses(orchestrator);
         const changes: AgentConversationEvents['ui_change'][] = [];
-        orchestrator.agent.on('ui_change', (event) => changes.push(event));
+        orchestrator.agent.events.on('ui_change', (event) =>
+          changes.push(event),
+        );
         const action = holdNextAction(orchestrator, slowBoard, 'step');
-        await orchestrator.sendMessage('hello');
+        orchestrator.sendMessage('hello');
         agent.emit(
           uiChange(
             'change-from-lost-session',
@@ -1004,7 +1020,7 @@ describe('Orchestrator agent path', () => {
             return ok(undefined);
           },
         });
-        await orchestrator.sendMessage('hello');
+        orchestrator.sendMessage('hello');
         agent.emit(
           uiChange(
             'change-before-disconnect',
@@ -1030,20 +1046,23 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('rejects an utterance sent from a loss listener while an explicit disconnect is closing the connection', async () => {
+    it('settles an utterance sent from a loss listener as not submitted while an explicit disconnect is closing the connection', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
-        await orchestrator.sendMessage('hello');
-        let lateSend: Promise<MessageId> | undefined;
-        orchestrator.agent.on('conversation_lost', () => {
+        orchestrator.sendMessage('hello');
+        let lateSend: AgentMessageSubmission | undefined;
+        orchestrator.agent.events.on('conversation_lost', () => {
           lateSend ??= orchestrator.sendMessage('are you still there');
         });
 
         await orchestrator.disconnect();
 
         expect(lateSend).toBeDefined();
-        await expect(lateSend).rejects.toThrow();
+        expect(await lateSend?.result).toMatchObject({
+          status: 'not_submitted',
+          error: { message: 'Orchestrator is not connected' },
+        });
         expect(
           agent.inputs.filter((input) => input.type === 'utterance'),
         ).toHaveLength(1);
@@ -1062,7 +1081,12 @@ describe('Orchestrator agent path', () => {
         const sent = orchestrator.sendMessage('hello');
         agent.close({ clean: false });
         send.release();
-        await sent;
+        await drainMicrotasks();
+        expect(await sent.result).toMatchObject({
+          inputId: sent.inputId,
+          status: 'lost',
+          lostReason: 'disconnected',
+        });
 
         expect(losses).toEqual([
           { type: 'conversation_lost', reason: 'disconnected' },
@@ -1078,7 +1102,7 @@ describe('Orchestrator agent path', () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       try {
-        await orchestrator.sendMessage('hello');
+        orchestrator.sendMessage('hello');
         let closed = false;
         orchestrator.commandProcessor.events.on('command_start', () => {
           if (closed) return;
@@ -1130,7 +1154,12 @@ describe('Orchestrator agent path', () => {
       const sent = orchestrator.sendMessage('hello');
       orchestrator.setConnector(newAgent.connector);
       send.release();
-      await sent;
+      await drainMicrotasks();
+      expect(await sent.result).toMatchObject({
+        inputId: sent.inputId,
+        status: 'lost',
+        lostReason: 'connector_replaced',
+      });
       newAgent.close({ clean: false });
 
       expect(losses).toEqual([
@@ -1154,7 +1183,7 @@ describe('Orchestrator agent path', () => {
           return Promise.resolve<ActionResult>(ok(undefined));
         },
       });
-      await orchestrator.sendMessage('hello');
+      orchestrator.sendMessage('hello');
 
       orchestrator.setConnector(newAgent.connector);
       expect(losses).toEqual([
@@ -1182,16 +1211,40 @@ describe('Orchestrator agent path', () => {
   });
 
   describe('dispose', () => {
-    it('rejects an utterance sent after dispose', async () => {
+    it('settles an utterance sent after dispose as not submitted', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       await orchestrator.dispose();
 
-      await expect(orchestrator.sendMessage('too late')).rejects.toThrow();
+      const submission = orchestrator.sendMessage('too late');
+      expect(await submission.result).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+        error: { message: 'Orchestrator is disposed' },
+      });
       expect(agent.inputs).toEqual([]);
     });
 
-    it('sends no acknowledgement and no conversation loss for a change still applying at dispose', async () => {
+    it('emits a disconnected loss and settles the open input lost when disposed after an utterance', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      const losses = recordConversationLosses(orchestrator);
+      const submission = orchestrator.sendMessage('hello');
+      await drainMicrotasks();
+
+      await orchestrator.dispose();
+
+      expect(losses).toEqual([
+        { type: 'conversation_lost', reason: 'disconnected' },
+      ]);
+      expect(await submission.result).toMatchObject({
+        inputId: submission.inputId,
+        status: 'lost',
+        lostReason: 'disconnected',
+      });
+    });
+
+    it('sends no acknowledgement for a change still applying at dispose and reports the conversation lost once', async () => {
       const agent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(agent.connector);
       const losses = recordConversationLosses(orchestrator);
@@ -1218,19 +1271,27 @@ describe('Orchestrator agent path', () => {
       await settleBriefly();
 
       expect(uiAppliedInputs(agent)).toEqual([]);
-      expect(losses).toEqual([]);
+      expect(losses).toEqual([
+        { type: 'conversation_lost', reason: 'disconnected' },
+      ]);
     });
   });
 
-  it('constructs over HttpConnector and rejects utterances as unsupported', async () => {
-    const orchestrator = new Orchestrator(
-      new HttpConnector({ baseUrl: 'http://localhost:0' }),
-    );
+  it('constructs over HttpConnector and settles utterances as not submitted because the agent wire is unsupported', async () => {
+    const connector = new HttpConnector({ baseUrl: 'http://localhost:0' });
+    const unsupported: unknown = await connector
+      .sendInput({} as Parameters<HttpConnector['sendInput']>[0])
+      .catch((error: unknown) => error);
+    expect(unsupported).toBeInstanceOf(AgentWireUnsupportedError);
+    const orchestrator = new Orchestrator(connector);
     try {
       await orchestrator.connect();
-      await expect(orchestrator.sendMessage('hello')).rejects.toBeInstanceOf(
-        AgentWireUnsupportedError,
-      );
+      const submission = orchestrator.sendMessage('hello');
+      expect(await submission.result).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+        error: { message: (unsupported as Error).message },
+      });
     } finally {
       await orchestrator.dispose();
     }
@@ -1249,11 +1310,11 @@ describe('Orchestrator agent path', () => {
     };
     const orchestrator = await connectedOrchestrator(connector);
     try {
-      orchestrator.agent.on('placeholder', () => {});
-      orchestrator.agent.on('message', () => {});
-      orchestrator.agent.on('finished', () => {});
-      orchestrator.agent.on('error', () => {});
-      orchestrator.agent.on('conversation_lost', () => {});
+      orchestrator.agent.events.on('placeholder', () => {});
+      orchestrator.agent.events.on('message', () => {});
+      orchestrator.agent.events.on('finished', () => {});
+      orchestrator.agent.events.on('error', () => {});
+      orchestrator.agent.events.on('conversation_lost', () => {});
 
       const first = orchestrator.processIntent('first');
       await expect(orchestrator.processIntent('second')).rejects.toThrow(
@@ -1269,6 +1330,140 @@ describe('Orchestrator agent path', () => {
     }
   });
 
+  describe('conversation ended by a store subscriber during the send', () => {
+    it('settles the utterance as not submitted and sends it on neither connector when a store subscriber replaces the connector as the input turns pending', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          orchestrator.setConnector(newAgent.connector);
+      });
+      try {
+        const submission = orchestrator.sendMessage('hello');
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+          error: {
+            message: 'Agent conversation ended before the utterance was sent',
+          },
+        });
+        await settleBriefly();
+
+        expect(oldAgent.inputs).toEqual([]);
+        expect(newAgent.inputs).toEqual([]);
+        expect(orchestrator.agent.store.state.run).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+        });
+      } finally {
+        releaseSubscriber.unsubscribe();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('settles the utterance as not submitted and never sends it when a store subscriber disposes the Orchestrator as the input turns pending', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      let disposal: Promise<void> | undefined;
+      orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          disposal ??= orchestrator.dispose();
+      });
+
+      const submission = orchestrator.sendMessage('hello');
+      expect(await submission.result).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+        error: {
+          message: 'Agent conversation ended before the utterance was sent',
+        },
+      });
+      await disposal;
+      await settleBriefly();
+
+      expect(agent.inputs).toEqual([]);
+      expect(orchestrator.agent.store.state.run).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+      });
+    });
+
+    it('still settles an earlier open input lost when a store subscriber replaces the connector as a later input turns pending', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const earlier = orchestrator.sendMessage('first');
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          orchestrator.setConnector(newAgent.connector);
+      });
+      try {
+        const later = orchestrator.sendMessage('second');
+
+        expect(await earlier.result).toMatchObject({
+          inputId: earlier.inputId,
+          status: 'lost',
+          lostReason: 'connector_replaced',
+        });
+        expect(await later.result).toMatchObject({
+          inputId: later.inputId,
+          status: 'not_submitted',
+        });
+        expect(
+          oldAgent.inputs.map((input) =>
+            input.type === 'utterance' ? input.text : input.type,
+          ),
+        ).toEqual(['first']);
+        expect(newAgent.inputs).toEqual([]);
+      } finally {
+        releaseSubscriber.unsubscribe();
+        await orchestrator.dispose();
+      }
+    });
+  });
+
+  describe('store subscriber that throws', () => {
+    it('sends the utterance and settles its result without throwing or an unhandled rejection', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        agentRunStaleTimeoutMs: Number.POSITIVE_INFINITY,
+      });
+      const consoleError = spyOn(console, 'error').mockImplementation(() => {});
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        throw new Error('subscriber failed');
+      });
+      try {
+        const submission = orchestrator.sendMessage('hello');
+        await settleBriefly();
+        const sent = agent.inputs.map((input) =>
+          input.type === 'utterance' ? input.text : input.type,
+        );
+        await orchestrator.disconnect();
+        const afterDisconnect = orchestrator.sendMessage('again');
+
+        expect(sent).toEqual(['hello']);
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'lost',
+          lostReason: 'disconnected',
+        });
+        expect(await afterDisconnect.result).toMatchObject({
+          status: 'not_submitted',
+        });
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+        releaseSubscriber.unsubscribe();
+        consoleError.mockRestore();
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('client diagnostics', () => {
     it('emits one input sent event with only the input id before the utterance is sent', async () => {
       const agent = createMockAgentConnector();
@@ -1276,7 +1471,7 @@ describe('Orchestrator agent path', () => {
       const log = recordSendOrder(agent.connector);
       const observations = recordDiagnostics(orchestrator, log);
       try {
-        const inputId = await orchestrator.sendMessage('CANARY_utterance');
+        const inputId = orchestrator.sendMessage('CANARY_utterance').inputId;
 
         const sent = observationsOfKind(
           observations,
@@ -1406,16 +1601,19 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('keeps exactly one input sent event when the utterance send fails and rethrows the failure', async () => {
+    it('keeps exactly one input sent event when the utterance send fails and settles the input lost', async () => {
       const agent = createMockAgentConnector();
       const sendFailure = new Error('transport refused the utterance');
       agent.connector.sendInput = () => Promise.reject(sendFailure);
       const orchestrator = await connectedOrchestrator(agent.connector);
       const observations = recordDiagnostics(orchestrator);
       try {
-        await expect(orchestrator.sendMessage('hello')).rejects.toBe(
-          sendFailure,
-        );
+        const submission = orchestrator.sendMessage('hello');
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'lost',
+          lostReason: 'send_failed',
+        });
 
         const sent = observationsOfKind(
           observations,
@@ -1475,7 +1673,7 @@ describe('Orchestrator agent path', () => {
       }
     });
 
-    it('rejects the utterance and sends it on neither connector when a diagnostic observer replaces the connector during the input sent event', async () => {
+    it('settles the utterance as not submitted and sends it on neither connector when a diagnostic observer replaces the connector during the input sent event', async () => {
       const oldAgent = createMockAgentConnector();
       const newAgent = createMockAgentConnector();
       const orchestrator = await connectedOrchestrator(oldAgent.connector);
@@ -1486,9 +1684,14 @@ describe('Orchestrator agent path', () => {
         },
       );
       try {
-        await expect(orchestrator.sendMessage('hello')).rejects.toThrow(
-          'Agent conversation ended before the utterance was sent',
-        );
+        const submission = orchestrator.sendMessage('hello');
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+          error: {
+            message: 'Agent conversation ended before the utterance was sent',
+          },
+        });
         await settleBriefly();
 
         expect(oldAgent.inputs).toEqual([]);
@@ -1560,7 +1763,7 @@ describe('Orchestrator agent path', () => {
           record: () => Promise.resolve<ActionResult>(ok(undefined)),
         });
 
-        const firstInputId = await orchestrator.sendMessage('first');
+        const firstInputId = orchestrator.sendMessage('first').inputId;
         expect(
           observationsOfKind(observations, 'client.agent.input.sent'),
         ).toHaveLength(1);
@@ -1574,7 +1777,7 @@ describe('Orchestrator agent path', () => {
         const observedCount = observations.length;
         const metadataCount = metadataKinds.length;
 
-        const secondInputId = await orchestrator.sendMessage('second');
+        const secondInputId = orchestrator.sendMessage('second').inputId;
         const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
@@ -1624,7 +1827,7 @@ describe('Orchestrator agent path', () => {
           record: () => Promise.resolve<ActionResult>(ok(undefined)),
         });
 
-        await orchestrator.sendMessage('CANARY_utterance');
+        orchestrator.sendMessage('CANARY_utterance');
         const applied = agent.nextInput('ui_applied');
         agent.emit(
           uiChange(
@@ -1835,7 +2038,9 @@ function recordConversationLosses(
   orchestrator: Orchestrator,
 ): ConversationLostEvent[] {
   const losses: ConversationLostEvent[] = [];
-  orchestrator.agent.on('conversation_lost', (event) => losses.push(event));
+  orchestrator.agent.events.on('conversation_lost', (event) =>
+    losses.push(event),
+  );
   return losses;
 }
 

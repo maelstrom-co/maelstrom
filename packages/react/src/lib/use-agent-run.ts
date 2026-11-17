@@ -1,25 +1,28 @@
-import type { MessageId, SendMessageOptions } from '@maelstrom-co/client';
-import { useMemo, useSyncExternalStore } from 'react';
+import type {
+  AgentMessageSubmission,
+  AgentRunsSnapshot,
+  SendMessageOptions,
+} from '@maelstrom-co/client';
+import { useStore } from '@tanstack/react-store';
+import { useCallback, useMemo } from 'react';
 
-import type { AgentRunsSnapshot } from './agent-run-state.js';
 import type { MaelstromContextPair } from './context.js';
 
 /** What `useAgentRun()` returns: the Agent Run snapshot plus a way to send input. */
 export type UseAgentRunResult = AgentRunsSnapshot & {
   /**
-   * Sends text to the agent and resolves to the input id that its events carry.
-   * Keeps its identity for the life of the Provider. Rejects as
-   * `Orchestrator.sendMessage` does: when the Orchestrator is disposed or not
-   * connected, when its connector cannot carry agent inputs, or with the
-   * connector's own error when the transport refused the frame. After a
-   * transport refusal the agent may still have received the text, so do not
-   * resend it automatically. A rejected send does not register a run itself,
-   * but agent events for the input can still register one.
+   * Sends text to the agent through `Orchestrator.sendMessage` and returns
+   * the input id and a `result` promise at once. The input appears in the
+   * snapshot as `pending` before the frame is sent. `result` settles once
+   * with the run state at that moment and never rejects, and a message that
+   * never left the client settles `not_submitted`. A `lost` result may have
+   * reached the agent, so do not resend it automatically. Keeps its identity
+   * for the life of the Provider's Orchestrator.
    */
   readonly sendMessage: (
     text: string,
     options?: SendMessageOptions,
-  ) => Promise<MessageId>;
+  ) => AgentMessageSubmission;
 };
 
 /**
@@ -30,13 +33,13 @@ export function createUseAgentRun(contextPair: MaelstromContextPair) {
   const { useMaelstromContext } = contextPair;
 
   return function useAgentRun(): UseAgentRunResult {
-    const { agentRunStore } = useMaelstromContext();
-    const snapshot = useSyncExternalStore(
-      agentRunStore.subscribe,
-      agentRunStore.getSnapshot,
-      agentRunStore.getSnapshot,
+    const { orchestrator } = useMaelstromContext();
+    const snapshot = useStore(orchestrator.agent.store, (state) => state);
+    const sendMessage = useCallback(
+      (text: string, options?: SendMessageOptions) =>
+        orchestrator.sendMessage(text, options),
+      [orchestrator],
     );
-    const sendMessage = agentRunStore.sendMessage;
 
     return useMemo(
       () => ({ ...snapshot, sendMessage }),

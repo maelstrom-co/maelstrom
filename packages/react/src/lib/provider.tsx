@@ -13,7 +13,6 @@ import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type AgentRunStore, createAgentRunStore } from './agent-run-store.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';
 import { resolveConfig } from './config-types.js';
@@ -272,7 +271,6 @@ export function createProvider(
     const previousDisposal = useRef(Promise.resolve());
     const [runtime, setRuntime] = useState<{
       orchestrator: Orchestrator;
-      agentRunStore: AgentRunStore;
     } | null>(null);
     const orchestrator = runtime?.orchestrator ?? null;
 
@@ -321,8 +319,7 @@ export function createProvider(
           }
         },
       );
-      const agentRunStore = createAgentRunStore(instance);
-      setRuntime({ orchestrator: instance, agentRunStore });
+      setRuntime({ orchestrator: instance });
 
       // A refused command — a `set_layout` naming the same instance in two
       // tiling leaves is the only one today — is otherwise invisible to the
@@ -366,7 +363,6 @@ export function createProvider(
 
       return () => {
         active = false;
-        agentRunStore.dispose();
         previousDisposal.current = Promise.all([
           previousDisposal.current,
           instance.dispose().catch((err) => {
@@ -412,7 +408,6 @@ export function createProvider(
       if (!runtime) return null;
       return {
         orchestrator: runtime.orchestrator,
-        agentRunStore: runtime.agentRunStore,
         connector,
         config,
         onErrorRef,
