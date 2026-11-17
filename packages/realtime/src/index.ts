@@ -55,6 +55,7 @@ export type {
 export { isRealtimeGreetingAdapter } from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 export type {
+  AgentMessageOutcome,
   ContinuousTranscriptOptions,
   GreetingState,
   RealtimeInstance,

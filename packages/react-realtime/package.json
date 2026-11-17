@@ -58,6 +58,7 @@
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@sinonjs/fake-timers": "catalog:",
     "@testing-library/react": "catalog:",
     "happy-dom": "catalog:"
   },

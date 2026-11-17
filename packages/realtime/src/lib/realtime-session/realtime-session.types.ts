@@ -34,6 +34,60 @@ export interface SubmitIntentResult {
 }
 
 /**
+ * Settled outcome of one voice intent sent as an agent message through
+ * {@link RealtimeInstance.sendAgentMessage}. `RealtimeSession` answers the
+ * `update_ui` tool call from it when the run ends, and reports the run's UI
+ * changes as unconfirmed, because they can still be applying.
+ *
+ * A `lost` outcome is unknown: the agent run may already have changed the
+ * UI, so the session reports it as unconfirmed and never sends the message
+ * again.
+ */
+export type AgentMessageOutcome =
+  /**
+   * The agent handled the input to its end: an agent run ended, or the agent
+   * rejected or ignored the input. `ok` reports how the run ended. It does not
+   * confirm that the run's UI changes were applied, which can happen after the
+   * run ended.
+   */
+  | {
+      readonly status: 'finished';
+      /** The run ended successfully. */
+      readonly ok: true;
+      /** The agent's reply, spoken as the tool result when non-empty. */
+      readonly reply?: string;
+    }
+  /**
+   * The agent handled the input to its end, and the run failed, or the agent
+   * rejected or ignored the input.
+   */
+  | {
+      readonly status: 'finished';
+      /** The run did not end successfully. */
+      readonly ok: false;
+      /** Why the run failed, spoken as the failure summary when non-empty. */
+      readonly error: string;
+    }
+  /** The run's outcome is unknown, and its side effects may have happened. */
+  | {
+      readonly status: 'lost';
+      /**
+       * Why the run was lost, such as `stale_run`, `disconnected` or
+       * `connector_replaced`. Open-ended so new reasons need no type change.
+       */
+      readonly reason: string;
+    }
+  /**
+   * The message never reached the agent, so it had no side effect. Producers
+   * resolve this only when they know no input was sent.
+   */
+  | {
+      readonly status: 'not_submitted';
+      /** Why the message was not submitted. */
+      readonly error: string;
+    };
+
+/**
  * The minimal bridge `RealtimeSession` needs from a Maelstrom instance.
  * `Orchestrator` maps onto this via a small wrapper (`submitIntent` ->
  * `processIntent`, `createIntentScope` -> the shared scheduler scope, and idle
@@ -61,6 +115,15 @@ export interface RealtimeInstance {
    * Queue capacity, wait and connection-loss bounds belong to the client policy.
    */
   createIntentScope?(): IntentScope;
+  /**
+   * Sends one `update_ui` intent as an agent message and resolves once its
+   * agent run ends, which can be before the run's UI changes are applied.
+   * Preferred over `createIntentScope` and `submitIntent` when present. Must
+   * never reject: a send known not to have left resolves `not_submitted`, any
+   * other failure resolves `lost`. A `lost` outcome is unknown and is never
+   * replayed.
+   */
+  sendAgentMessage?(text: string): Promise<AgentMessageOutcome>;
   /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */
   submitIntent(intent: string): Promise<SubmitIntentResult>;
   /** Legacy global settle wait, unused for scoped ticket results. */
