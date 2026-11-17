@@ -90,8 +90,9 @@ export function useShopAgentSubmit({
     current.current.onMintError(MODEL_FAILURE_MESSAGE);
   };
 
-  // A stale loss settles the result, but the run can still fail on the
-  // provider afterwards, so it stays watched in the store.
+  // A stale loss settles the result, but the run can still resume and fail
+  // on the provider afterwards, so it stays watched in the store until it
+  // ends, is lost for good or leaves the store.
   const [staleWatched, setStaleWatched] = useState<readonly StaleSubmission[]>(
     [],
   );
@@ -104,7 +105,7 @@ export function useShopAgentSubmit({
         reportProviderFailure(submission);
         return false;
       }
-      return isStaleLost(run);
+      return isStaleLost(run) || isActive(run);
     });
     if (remaining.length !== staleWatched.length) setStaleWatched(remaining);
     // oxlint-disable-next-line react/exhaustive-deps -- reportProviderFailure reads only refs.
@@ -181,4 +182,12 @@ function isProviderFailureRun(
 
 function isStaleLost(run: AgentRunState): boolean {
   return run.status === 'lost' && run.lostReason === 'stale_run';
+}
+
+function isActive(run: AgentRunState): boolean {
+  return (
+    run.status === 'pending' ||
+    run.status === 'working' ||
+    run.status === 'streaming'
+  );
 }

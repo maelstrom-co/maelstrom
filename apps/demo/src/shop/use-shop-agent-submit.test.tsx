@@ -310,6 +310,50 @@ describe('useShopAgentSubmit', () => {
     expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
   });
 
+  it('keeps watching a stale-lost run that resumes streaming and reports its later provider failure', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('restore me', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    const stale = lostRun('input-1', 'stale_run');
+    await act(async () => {
+      publishRuns([stale]);
+      send.settle(stale);
+    });
+
+    act(() => publishRuns([streamingRun('input-1')]));
+    expect(h.onMintError).not.toHaveBeenCalled();
+    act(() =>
+      publishRuns([failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)]),
+    );
+
+    expect(h.result.current.intent).toBe('restore me');
+    expect(h.onMintError).toHaveBeenCalledWith(MODEL_FAILURE_COPY);
+  });
+
+  it('stops watching a resumed stale-lost run once the connection loses it for good', async () => {
+    const send = deferredSend();
+    const h = renderSubmit('keep cleared', { browserKeyMode: true });
+    await act(async () => {
+      h.result.current.submit();
+    });
+    const stale = lostRun('input-1', 'stale_run');
+    await act(async () => {
+      publishRuns([stale]);
+      send.settle(stale);
+    });
+
+    act(() => publishRuns([streamingRun('input-1')]));
+    act(() => publishRuns([lostRun('input-1', 'disconnected')]));
+    act(() =>
+      publishRuns([failedRun('input-1', AGENT_ROUTE_PROVIDER_FAILURE)]),
+    );
+
+    expect(h.result.current.intent).toBe('');
+    expect(h.onMintError).not.toHaveBeenCalled();
+  });
+
   it('stops watching a stale-lost run once it finishes', async () => {
     const send = deferredSend();
     const h = renderSubmit('keep cleared', { browserKeyMode: true });
@@ -432,6 +476,16 @@ function failedRun(inputId: string, error: AgentRunError): SettledAgentRun {
     status: 'failed',
     error,
     outcome: null,
+  };
+}
+
+function streamingRun(inputId: string): AgentRunState {
+  return {
+    ...base(inputId),
+    ...accepted(inputId),
+    status: 'streaming',
+    reply: 'Looking',
+    turnId: 'turn-1',
   };
 }
 
