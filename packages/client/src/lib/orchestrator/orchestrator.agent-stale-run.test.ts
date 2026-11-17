@@ -30,7 +30,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 import {
   createMockAgentConnector,
   type MockAgentConnector,
-} from '../../../test-utils/agent-connector-mock.js';
+} from '../__test-helpers__/agent-connector-mock.js';
 import type { EngineConnector } from '../connection-manager/connector.types.js';
 import type {
   AgentConversationEvents,
@@ -60,6 +60,7 @@ const farPastWindowMs = defaultStaleWindowMs * 10;
 // Below the Orchestrator's fixed 30 s Action execution timeout, so an Action
 // can outlast the window and still succeed.
 const shortStaleWindowMs = 10_000;
+const connectionStabilityThresholdMs = 5000;
 const runA = RunId('run-a');
 const runB = RunId('run-b');
 
@@ -233,6 +234,8 @@ describe('Orchestrator agent stale run safety net', () => {
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
         record: async () => {
@@ -303,6 +306,8 @@ describe('Orchestrator agent stale run safety net', () => {
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
         record: async () => {
@@ -522,13 +527,15 @@ describe('Orchestrator agent stale run safety net', () => {
     }
   });
 
-  it('sends no ui_applied for a change still applying when another run is reported stale', async () => {
+  it('still reports ui_change but sends no ui_applied for a change still applying when another run is reported stale', async () => {
     const agent = createMockAgentConnector();
     const orchestrator = await connectedOrchestrator(agent.connector, {
       agentRunStaleTimeoutMs: shortStaleWindowMs,
     });
     try {
       const losses = recordConversationLosses(orchestrator);
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      orchestrator.agent.on('ui_change', (event) => changes.push(event));
       let lossesWhileActionRan: ConversationLostEvent[] | undefined;
       let actionFinished = false;
       orchestrator.commandProcessor.registerRunner(mainBoard, {
@@ -557,31 +564,69 @@ describe('Orchestrator agent stale run safety net', () => {
       expect(agent.inputs.map((input) => input.type)).not.toContain(
         'ui_applied',
       );
+      expect(changes).toEqual([
+        {
+          type: 'ui_change',
+          runId: runB,
+          changeId: ChangeId('change-slow'),
+          actionOutcomes: [{ ok: true }],
+        },
+      ]);
     } finally {
       await orchestrator.dispose();
     }
   });
 
   describe('applies and acknowledges a change of a run that already finished', () => {
+    // Connecting arms the connection stability timer, which would otherwise
+    // still be pending when the zero timer assertions run.
+    const passConnectionStabilityWindow = () =>
+      clock.tickAsync(connectionStabilityThresholdMs);
+
     it('when the change arrives after finished', async () => {
       const agent = createMockAgentConnector();
-      const orchestrator = await connectedOrchestrator(agent.connector);
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        connection: { stabilityThresholdMs: connectionStabilityThresholdMs },
+      });
       try {
+        await passConnectionStabilityWindow();
         const losses = recordConversationLosses(orchestrator);
+        orchestrator.commandProcessor.registerRunner(mainBoard, {
+          record: () => Promise.resolve(ok(undefined)),
+        });
         const inputId = await orchestrator.sendMessage('show the board');
         agent.emit(acceptedEvent(inputId, runA));
         agent.emit(startedEvent(runA));
         agent.emit(finishedEvent(runA));
 
         const applied = agent.nextInput('ui_applied');
-        agent.emit(uiChangeEvent(runA, 'change-late', []));
+        agent.emit(
+          uiChangeEvent(runA, 'change-late', [
+            step(mainBoard),
+            step(mainBoard),
+          ]),
+        );
         const acknowledgement = await applied;
-        await clock.tickAsync(farPastWindowMs);
 
+        expect(clock.countTimers()).toBe(0);
         expect(acknowledgement.changeId).toBe(ChangeId('change-late'));
+        expect(acknowledgement.chart.layout).toEqual(boardLayout());
+        expect(acknowledgement.chart.instances).toEqual([
+          {
+            instanceId: mainBoard,
+            vesselId: VesselId('board'),
+            variant: VariantName('collapsed'),
+          },
+        ]);
+        expect(acknowledgement.actionOutcomes).toEqual([
+          { ok: true },
+          { ok: true },
+        ]);
         expect(
           orchestrator.commandProcessor.store.state.instances.has(mainBoard),
         ).toBe(true);
+
+        await clock.tickAsync(farPastWindowMs);
         expect(losses).toEqual([]);
       } finally {
         await orchestrator.dispose();
@@ -590,8 +635,11 @@ describe('Orchestrator agent stale run safety net', () => {
 
     it('when finished arrives while the change is still applying', async () => {
       const agent = createMockAgentConnector();
-      const orchestrator = await connectedOrchestrator(agent.connector);
+      const orchestrator = await connectedOrchestrator(agent.connector, {
+        connection: { stabilityThresholdMs: connectionStabilityThresholdMs },
+      });
       try {
+        await passConnectionStabilityWindow();
         const losses = recordConversationLosses(orchestrator);
         const release = Promise.withResolvers<void>();
         orchestrator.commandProcessor.registerRunner(mainBoard, {
@@ -610,6 +658,8 @@ describe('Orchestrator agent stale run safety net', () => {
         agent.emit(finishedEvent(runA));
         release.resolve();
         const acknowledgement = await applied;
+
+        expect(clock.countTimers()).toBe(0);
         await clock.tickAsync(farPastWindowMs);
 
         expect(acknowledgement.changeId).toBe(ChangeId('change-slow'));
