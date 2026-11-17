@@ -43,14 +43,37 @@
   align-items: center;
 }
 
-.shop-app .shop-caption {
+/* The voice caption and the Agent Run reply share one fixed band. Alone,
+   either takes both lines. Together they stack one line each. */
+.shop-app .shop-voice-text {
   display: flex;
+  min-width: 0;
   height: 36px;
   overflow: hidden;
   grid-column: 2;
   grid-row: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.shop-app .shop-caption,
+.shop-app .shop-agent-reply {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
   align-items: flex-end;
   justify-content: flex-start;
+}
+
+.shop-app .shop-caption:empty {
+  display: none;
+}
+
+.shop-app
+  .shop-voice-text:has(> .shop-caption:not(:empty)):has(> .shop-agent-reply)
+  .shop-caption-line {
+  -webkit-line-clamp: 1;
 }
 
 .shop-app .shop-caption-line {
@@ -155,7 +178,7 @@
     grid-template-rows: 36px 44px;
   }
 
-  .shop-app .shop-caption {
+  .shop-app .shop-voice-text {
     grid-column: 1 / -1;
   }
 

@@ -3,7 +3,12 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
 import { describe, expect, it } from 'vitest';
 
-import { isInvalidKeyError, isLiveInvalidKeyError } from './invalid-key-error';
+import {
+  isInvalidKeyError,
+  isInvalidKeyFailure,
+  isLiveInvalidKeyError,
+  isProviderFailure,
+} from './invalid-key-error';
 
 describe('isInvalidKeyError', () => {
   it.each([
@@ -27,6 +32,60 @@ describe('isInvalidKeyError', () => {
     expect(
       isInvalidKeyError(new WireEngineError('401 invalid API key', 'Timeout')),
     ).toBe(false);
+  });
+});
+
+describe('isInvalidKeyFailure', () => {
+  it('recognises an agent failure report of a rejected key', () => {
+    expect(
+      isInvalidKeyFailure({
+        message: '401 invalid API key',
+        code: 'ProviderError',
+      }),
+    ).toBe(true);
+  });
+
+  it('ignores a key-shaped report without the provider code', () => {
+    expect(isInvalidKeyFailure({ message: '401 invalid API key' })).toBe(false);
+    expect(
+      isInvalidKeyFailure({
+        message: '401 invalid API key',
+        code: 'provider_error',
+      }),
+    ).toBe(false);
+  });
+
+  it('ignores a provider report unrelated to the key', () => {
+    expect(
+      isInvalidKeyFailure({ message: '429 rate limit', code: 'ProviderError' }),
+    ).toBe(false);
+  });
+});
+
+type RunFailure = { message: string; code?: string };
+
+describe('isProviderFailure', () => {
+  it.each([
+    [
+      'UI-only route',
+      { message: 'The UI request failed.', code: 'ProviderError' },
+    ],
+    [
+      'agent route',
+      { message: 'The model could not respond.', code: 'provider_error' },
+    ],
+  ])('recognises a model provider failure on the %s', (_route, failure) => {
+    expect(isProviderFailure(failure)).toBe(true);
+  });
+
+  it('ignores failures with another code or none', () => {
+    const otherCode: RunFailure = {
+      message: 'The UI acknowledgement did not arrive.',
+      code: 'ui_ack_timeout',
+    };
+    const noCode: RunFailure = { message: '401 invalid API key' };
+    expect(isProviderFailure(otherCode)).toBe(false);
+    expect(isProviderFailure(noCode)).toBe(false);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
-import type { MouseEvent } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
@@ -29,9 +29,11 @@ export function voicePillLabel(state: VoiceSessionState): string {
 export function ShopVoiceCorner({
   needsKey,
   onRequireKey,
+  reply,
 }: {
   readonly needsKey: boolean;
   readonly onRequireKey: () => void;
+  readonly reply?: ReactNode;
 }) {
   const { state, provider, session, switching } = shopM.useVoice();
   const playbackBlocked = useLivePlaybackBlocked(session);
@@ -55,7 +57,10 @@ export function ShopVoiceCorner({
 
   return (
     <div className="shop-voice-corner">
-      <ShopCaption />
+      <div className="shop-voice-text">
+        <ShopCaption />
+        {reply}
+      </div>
       <div className="shop-voice-status">
         {showEnablePlayback ? (
           <EnablePlaybackButton

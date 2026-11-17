@@ -121,7 +121,8 @@ export type AgentRunsSnapshot = {
   readonly runs: readonly AgentRunState[];
   /**
    * The latest failure not tied to any input or run. Cleared when the next
-   * input is sent.
+   * input registers, whether through `sendMessage` or through the first agent
+   * event of an input sent another way, such as a voice input.
    */
   readonly error: AgentRunError | null;
 };
@@ -291,7 +292,7 @@ function upsertByInput(
   if (indexOfInput(snapshot, inputId) >= 0) return snapshot;
   const runs = [...snapshot.runs, createRun(inputId, lostReason)];
   return withRuns(
-    snapshot,
+    { ...snapshot, error: null },
     runs.length > AGENT_RUNS_CAP ? runs.slice(-AGENT_RUNS_CAP) : runs,
   );
 }

@@ -7,6 +7,7 @@ import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
+import { sendShopInput } from './send-shop-input';
 import { cartEntry } from './vessels/cart.vessel';
 import { catalogEntry } from './vessels/catalog.vessel';
 import { checkoutEntry } from './vessels/checkout.vessel';
@@ -31,6 +32,12 @@ export const shopM = createMaelstrom({
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
       onSession: registerDemoVoice,
+      sendAgentMessage: (orchestrator, text) =>
+        sendShopInput(
+          orchestrator.sendMessage.bind(orchestrator),
+          text,
+          'voice',
+        ),
     }),
   )
   .with(shopTelemetry.extension)

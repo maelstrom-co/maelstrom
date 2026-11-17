@@ -1,15 +1,8 @@
-import type { IntentSubmission } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
+import type { AgentRunState } from '@maelstrom-co/react';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
@@ -23,10 +16,7 @@ import {
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
 import { preloadHostedVadAssets } from '../lib/hosted-vad';
-import {
-  isInvalidKeyError,
-  isLiveInvalidKeyError,
-} from '../lib/invalid-key-error';
+import { isLiveInvalidKeyError } from '../lib/invalid-key-error';
 import { liveErrorMessage } from '../lib/live-exchange';
 import {
   clearPlaygroundKey,
@@ -37,11 +27,13 @@ import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { selectShopLayout } from './default-layout';
 import { shopM } from './maelstrom';
+import { ShopAgentReply } from './shop-agent-reply';
 import { ShopHeader } from './shop-header';
 import { ShopIntentForm } from './shop-intent-form';
 import { ShopKeylessPreview } from './shop-keyless-preview';
 import { ShopOptionSync } from './shop-option-sync';
 import { ShopVoiceCorner } from './shop-voice-corner';
+import { useShopAgentSubmit } from './use-shop-agent-submit';
 import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
 
 import './shop.css';
@@ -210,14 +202,15 @@ function ShopWorkspace({
   autoStartVoice,
   onAutoStartVoiceHandled,
 }: ShopWorkspaceProps) {
-  const { enqueueIntent, connectionStatus, isProcessing } =
-    shopM.useMaelstrom();
+  const { connectionStatus, isProcessing } = shopM.useMaelstrom();
+  const { run: agentRun } = shopM.useAgentRun();
   const {
     state: voiceState,
     error: voiceError,
     connect: connectVoice,
   } = shopM.useVoice();
-  const thinking = isProcessing || voiceState === 'thinking';
+  const thinking =
+    isProcessing || voiceState === 'thinking' || isAgentRunOpen(agentRun);
   const browserKeyMode = usesBrowserKey();
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -252,60 +245,17 @@ function ShopWorkspace({
     );
   }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
-  const draftRevision = useRef(0);
-  const latestSubmission = useRef<IntentSubmission | null>(null);
-  const current = useRef({ intent, onIntentChange, onMintError });
-  useLayoutEffect(() => {
-    current.current = { intent, onIntentChange, onMintError };
+  const { submit, changeDraft } = useShopAgentSubmit({
+    intent,
+    onIntentChange,
+    needsKey,
+    browserKeyMode,
+    onBlockedSubmit,
+    onMintError,
   });
-  const lifetime = useRef({ active: true });
 
-  useEffect(() => {
-    const owner = { active: true };
-    lifetime.current = owner;
-    return () => {
-      owner.active = false;
-    };
-  }, [enqueueIntent]);
-
-  const changeDraft = (value: string) => {
-    draftRevision.current++;
-    onIntentChange(value);
-  };
-
-  const submit = (): boolean => {
-    const text = intent.trim();
-    if (!text) return false;
-    if (needsKey) {
-      onBlockedSubmit();
-      return false;
-    }
-    const ticket = enqueueIntent(text);
-    const owner = lifetime.current;
-    latestSubmission.current = ticket;
-    if (ticket.accepted) changeDraft('');
-    const revision = draftRevision.current;
-    void ticket.result.then((result) => {
-      if (!owner.active) return;
-      if (
-        browserKeyMode &&
-        (result.status === 'failed' || result.status === 'unknown') &&
-        isInvalidKeyError(result.error)
-      ) {
-        if (
-          latestSubmission.current === ticket &&
-          draftRevision.current === revision &&
-          !current.current.intent
-        )
-          current.current.onIntentChange(intent);
-        current.current.onMintError('Invalid API key.');
-      }
-    });
-    return ticket.accepted;
-  };
-
-  // A refused resume stays pending and retries only when processing changes,
-  // so a full queue is retried as it drains rather than in a tight loop.
+  // The resume waits for a connected session. A refusal while a key is still
+  // needed stays pending until the next connection change.
   useEffect(() => {
     if (!resumeIntent || connectionStatus !== 'connected') return;
     let live = true;
@@ -316,8 +266,8 @@ function ShopWorkspace({
     return () => {
       live = false;
     };
-    // oxlint-disable-next-line react/exhaustive-deps -- Session epochs and queued-resume transitions are the intentional triggers.
-  }, [resumeIntent, connectionStatus, isProcessing]);
+    // oxlint-disable-next-line react/exhaustive-deps -- A new resume request and connection changes are the intentional triggers.
+  }, [resumeIntent, connectionStatus]);
 
   return (
     <div className="demo-shell shop-shell relative z-[2]">
@@ -348,7 +298,11 @@ function ShopWorkspace({
       </main>
 
       <footer className="shop-dock border-t bg-bg-1">
-        <ShopVoiceCorner needsKey={needsKey} onRequireKey={onBlockedSubmit} />
+        <ShopVoiceCorner
+          needsKey={needsKey}
+          onRequireKey={onBlockedSubmit}
+          reply={<ShopAgentReply />}
+        />
         <ShopIntentForm
           intent={intent}
           onIntentChange={changeDraft}
@@ -381,5 +335,13 @@ function ConnectionStatus() {
       />
       {connectionStatus === 'error' ? 'Error: reload' : connectionStatus}
     </div>
+  );
+}
+
+function isAgentRunOpen(run: AgentRunState | null): boolean {
+  return (
+    run?.status === 'pending' ||
+    run?.status === 'working' ||
+    run?.status === 'streaming'
   );
 }

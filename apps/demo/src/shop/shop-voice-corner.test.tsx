@@ -136,6 +136,24 @@ describe('ShopVoiceCorner', () => {
     expect(getByTestId('shop-caption')).toBeTruthy();
   });
 
+  it('stacks the agent reply under the caption in the same band', () => {
+    voiceResult = makeVoiceResult('listening');
+    const { getByTestId } = render(
+      <ShopVoiceCorner
+        needsKey={false}
+        onRequireKey={vi.fn()}
+        reply={<div data-testid="agent-reply-slot" />}
+      />,
+    );
+
+    const band = getByTestId('shop-caption').parentElement;
+    expect(band?.className).toBe('shop-voice-text');
+    expect([...(band?.children ?? [])]).toEqual([
+      getByTestId('shop-caption'),
+      getByTestId('agent-reply-slot'),
+    ]);
+  });
+
   it('always shows the AI voice disclosure', () => {
     const { getByTestId } = renderCorner('idle');
     expect(getByTestId('ai-voice-disclosure').textContent).toBe(
