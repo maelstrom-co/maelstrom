@@ -217,9 +217,11 @@ instead and answer from the settled Agent Run state that
 `Orchestrator.sendMessage` returns as `result`. That path does not use the
 bounded FIFO. A finished run with the `ui_only` disposition finishes after the
 client acknowledged its change, so its answer carries the screen summary and
-counts as confirmed. Other finished runs answer with the reply only and stay
-unconfirmed, because their UI changes can still be applying. An ignored input
-is answered as not acted on, a lost input as unconfirmed and never replayed.
+counts as confirmed. When that run carries a change error, the answer is a
+failure with the error text and never describes the screen. Other finished
+runs answer with the reply only and stay unconfirmed, because their UI changes
+can still be applying. An ignored input is answered as not acted on, a lost
+input as unconfirmed and never replayed.
 
 ## Where the keys live
 

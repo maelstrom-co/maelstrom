@@ -281,6 +281,40 @@ describe('RealtimeSession agent message submission', () => {
     expect(state.reads).toEqual({ snapshot: 1, summarize: 1 });
   });
 
+  it('answers a finished UI-only run whose change was refused as a failure carrying the change error, without reading the screen', async () => {
+    const state = await setup();
+
+    state.provider.call('call-1', 'show my last order');
+    await clock.tickAsync(250);
+    await state.settle({
+      ...finishedRun('Here is your last order.', 'ui_only'),
+      changeErrors: [
+        { changeId: null, message: '  The order vessel is unavailable.  ' },
+      ],
+    });
+
+    expect(state.provider.results).toEqual([
+      {
+        callId: ToolCallId('call-1'),
+        result: { ok: false, summary: 'The order vessel is unavailable.' },
+      },
+    ]);
+    expect(updateEvents(state.events)).toEqual([
+      { type: 'tool.submitted', intent: 'show my last order', retry: false },
+      { type: 'timing', label: 'update_ui.error', ms: 250 },
+      {
+        type: 'tool.failed',
+        intent: 'show my last order',
+        summary: 'The order vessel is unavailable.',
+      },
+      { type: 'tool.result', ok: false },
+    ]);
+    expect(
+      state.session.memory.getSnapshot().outcomes.map((value) => value.status),
+    ).toEqual(['failed']);
+    expect(state.reads).toEqual({ snapshot: 0, summarize: 0 });
+  });
+
   it('answers an ignored input truthfully that nothing was done, not as a failure', async () => {
     const state = await setup();
 

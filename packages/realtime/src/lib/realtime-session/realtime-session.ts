@@ -197,7 +197,8 @@ function defaultSummarize(
  * `submitIntent`. Instances with `sendAgentMessage` hand each intent to an
  * agent run and answer when the run settles. Only a run with the `ui_only`
  * disposition confirms its UI change, because it finishes after the client
- * acknowledged the change. Other runs answer with the reply alone and leave
+ * acknowledged the change. A `ui_only` run that reports a failed change
+ * answers as a failure. Other runs answer with the reply alone and leave
  * the outcome unconfirmed. An ignored input answers that nothing was done.
  * The message is sent once and never replayed when its outcome is lost. Instances with `createIntentScope` share the application's bounded
  * FIFO with typed input. Each connection owns only its pending work;
@@ -1436,7 +1437,13 @@ export class RealtimeSession implements VoiceSession {
       // whether the agent run already changed the UI.
       this.#logger.warn('update_ui: sendAgentMessage rejected', error);
     }
-    const succeeded = run?.status === 'finished' || run?.status === 'ignored';
+    const refusedChange =
+      run?.status === 'finished' && run.disposition === 'ui_only'
+        ? run.changeErrors[0]
+        : undefined;
+    const succeeded =
+      (run?.status === 'finished' && refusedChange === undefined) ||
+      run?.status === 'ignored';
     this.#publishTiming(
       succeeded ? 'update_ui.agent_run' : 'update_ui.error',
       started,
@@ -1448,6 +1455,13 @@ export class RealtimeSession implements VoiceSession {
         // A UI-only run finishes after the client acknowledged its change, so
         // the screen already shows it. Other runs can finish before their
         // changes are applied, so the answer never describes the screen.
+        if (refusedChange !== undefined)
+          return this.#answerApplyFailed(
+            epoch,
+            callId,
+            invocation,
+            refusedChange.message,
+          );
         if (run.disposition === 'ui_only') {
           await this.#sendUpdateUIResult(
             epoch,
@@ -1474,12 +1488,12 @@ export class RealtimeSession implements VoiceSession {
         });
         return true;
       case 'failed':
-        invocation.result = { outcome: 'failed', errorCategory: 'application' };
-        await this.#sendUpdateUIResult(epoch, callId, {
-          ok: false,
-          summary: run.error.message.trim() || APPLY_FAILED_SUMMARY,
-        });
-        return false;
+        return this.#answerApplyFailed(
+          epoch,
+          callId,
+          invocation,
+          run.error.message,
+        );
       case 'lost':
         return this.#answerUnconfirmed(epoch, callId, invocation);
       case 'not_submitted':
@@ -1497,6 +1511,20 @@ export class RealtimeSession implements VoiceSession {
       default:
         return assertNever(run, 'settled agent run');
     }
+  }
+
+  async #answerApplyFailed(
+    epoch: number,
+    callId: ToolCallId,
+    invocation: ToolInvocation,
+    message: string,
+  ): Promise<boolean> {
+    invocation.result = { outcome: 'failed', errorCategory: 'application' };
+    await this.#sendUpdateUIResult(epoch, callId, {
+      ok: false,
+      summary: message.trim() || APPLY_FAILED_SUMMARY,
+    });
+    return false;
   }
 
   async #answerUnconfirmed(
