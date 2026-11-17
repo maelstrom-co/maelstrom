@@ -12,6 +12,7 @@ import {
   EMPTY_AGENT_RUNS,
   isSettled,
   reduceAgentRuns,
+  reduceConversationLost,
   type SettledAgentRun,
 } from './agent-run-state.js';
 import type { AgentConversationEvents } from './conversation-event.types.js';
@@ -25,6 +26,7 @@ export class AgentRunTracker {
   readonly store = new Store<AgentRunsSnapshot>(EMPTY_AGENT_RUNS);
   #entries: AgentRunEntries = EMPTY_AGENT_RUN_ENTRIES;
   readonly #openResults = new Map<MessageId, (run: SettledAgentRun) => void>();
+  readonly #handingOff = new Set<MessageId>();
 
   /**
    * Follows every event of `events` for the emitter's lifetime. The store
@@ -48,9 +50,19 @@ export class AgentRunTracker {
   /**
    * Registers the input as pending. Call it right before the input is handed
    * to the connector, so events that arrive before the send resolves find it.
+   *
+   * Store subscribers run during this call and may end the conversation. A
+   * `conversation_lost` reported before the call returns leaves the input
+   * pending, because it was not handed to the connector yet. The caller must
+   * then skip the send and report the input through {@link notSubmitted}.
    */
   sending(inputId: MessageId): void {
-    this.#dispatch({ type: 'input_sent', inputId });
+    this.#handingOff.add(inputId);
+    try {
+      this.#dispatch({ type: 'input_sent', inputId });
+    } finally {
+      this.#handingOff.delete(inputId);
+    }
   }
 
   /** Records that the input never left the client. */
@@ -64,7 +76,10 @@ export class AgentRunTracker {
   }
 
   #dispatch(event: AgentRunEvent): void {
-    const next = reduceAgentRuns(this.#entries, event);
+    const next =
+      event.type === 'conversation_lost'
+        ? reduceConversationLost(this.#entries, event, this.#handingOff)
+        : reduceAgentRuns(this.#entries, event);
     if (next === this.#entries) return;
     this.#settleResults(next);
     this.#entries = prune(next, this.#openResults);

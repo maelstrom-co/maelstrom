@@ -1330,6 +1330,99 @@ describe('Orchestrator agent path', () => {
     }
   });
 
+  describe('conversation ended by a store subscriber during the send', () => {
+    it('settles the utterance as not submitted and sends it on neither connector when a store subscriber replaces the connector as the input turns pending', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          orchestrator.setConnector(newAgent.connector);
+      });
+      try {
+        const submission = orchestrator.sendMessage('hello');
+        expect(await submission.result).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+          error: {
+            message: 'Agent conversation ended before the utterance was sent',
+          },
+        });
+        await settleBriefly();
+
+        expect(oldAgent.inputs).toEqual([]);
+        expect(newAgent.inputs).toEqual([]);
+        expect(orchestrator.agent.store.state.run).toMatchObject({
+          inputId: submission.inputId,
+          status: 'not_submitted',
+        });
+      } finally {
+        releaseSubscriber.unsubscribe();
+        await orchestrator.dispose();
+      }
+    });
+
+    it('settles the utterance as not submitted and never sends it when a store subscriber disposes the Orchestrator as the input turns pending', async () => {
+      const agent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(agent.connector);
+      let disposal: Promise<void> | undefined;
+      orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          disposal ??= orchestrator.dispose();
+      });
+
+      const submission = orchestrator.sendMessage('hello');
+      expect(await submission.result).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+        error: {
+          message: 'Agent conversation ended before the utterance was sent',
+        },
+      });
+      await disposal;
+      await settleBriefly();
+
+      expect(agent.inputs).toEqual([]);
+      expect(orchestrator.agent.store.state.run).toMatchObject({
+        inputId: submission.inputId,
+        status: 'not_submitted',
+      });
+    });
+
+    it('still settles an earlier open input lost when a store subscriber replaces the connector as a later input turns pending', async () => {
+      const oldAgent = createMockAgentConnector();
+      const newAgent = createMockAgentConnector();
+      const orchestrator = await connectedOrchestrator(oldAgent.connector);
+      const earlier = orchestrator.sendMessage('first');
+      const releaseSubscriber = orchestrator.agent.store.subscribe(() => {
+        if (orchestrator.agent.store.state.run?.status === 'pending')
+          orchestrator.setConnector(newAgent.connector);
+      });
+      try {
+        const later = orchestrator.sendMessage('second');
+
+        expect(await earlier.result).toMatchObject({
+          inputId: earlier.inputId,
+          status: 'lost',
+          lostReason: 'connector_replaced',
+        });
+        expect(await later.result).toMatchObject({
+          inputId: later.inputId,
+          status: 'not_submitted',
+        });
+        expect(
+          oldAgent.inputs.map((input) =>
+            input.type === 'utterance' ? input.text : input.type,
+          ),
+        ).toEqual(['first']);
+        expect(newAgent.inputs).toEqual([]);
+      } finally {
+        releaseSubscriber.unsubscribe();
+        await orchestrator.dispose();
+      }
+    });
+  });
+
   describe('client diagnostics', () => {
     it('emits one input sent event with only the input id before the utterance is sent', async () => {
       const agent = createMockAgentConnector();

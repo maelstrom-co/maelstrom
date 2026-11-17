@@ -134,6 +134,55 @@ describe('AgentRunTracker', () => {
       'lost',
     ]);
   });
+
+  it('keeps an input pending through a loss reported while it registers, loses the other open inputs and settles it once as not submitted', async () => {
+    const { tracker, events } = setup();
+    const earlier = register(tracker, MessageId('input-1'));
+    const statusesDuringLoss: string[][] = [];
+    tracker.store.subscribe(() => {
+      if (tracker.store.state.run?.inputId !== MessageId('input-2')) return;
+      if (statusesDuringLoss.length > 0) return;
+      statusesDuringLoss.push([]);
+      events.emit('conversation_lost', {
+        type: 'conversation_lost',
+        reason: 'connector_replaced',
+      });
+      statusesDuringLoss[0] = tracker.store.state.runs.map((run) => run.status);
+    });
+
+    const later = register(tracker, MessageId('input-2'));
+    tracker.notSubmitted(MessageId('input-2'), { message: 'never sent' });
+
+    expect(statusesDuringLoss).toEqual([['lost', 'pending']]);
+    expect(await earlier).toMatchObject({
+      status: 'lost',
+      lostReason: 'connector_replaced',
+    });
+    expect(await later).toMatchObject({
+      status: 'not_submitted',
+      error: { message: 'never sent' },
+    });
+    expect(tracker.store.state.runs.map((run) => run.status)).toEqual([
+      'lost',
+      'not_submitted',
+    ]);
+  });
+
+  it('loses an input to a loss reported after it registered', async () => {
+    const { tracker, events } = setup();
+    const result = register(tracker, MessageId('input-1'));
+
+    events.emit('conversation_lost', {
+      type: 'conversation_lost',
+      reason: 'connector_replaced',
+    });
+    tracker.notSubmitted(MessageId('input-1'), { message: 'too late' });
+
+    expect(await result).toMatchObject({
+      status: 'lost',
+      lostReason: 'connector_replaced',
+    });
+  });
 });
 
 function register(

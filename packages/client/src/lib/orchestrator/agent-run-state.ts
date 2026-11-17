@@ -460,11 +460,13 @@ export function reduceAgentRuns(
       return { ...entries, error: toError(event.error, event.code) };
     }
     case 'conversation_lost':
-      return applyConversationLost(entries, event);
+      return reduceConversationLost(entries, event, NO_INPUTS);
     default:
       return assertNever(event, 'Unhandled agent run event');
   }
 }
+
+const NO_INPUTS: ReadonlySet<MessageId> = new Set();
 
 const NOT_ACCEPTED: AgentRunNotAccepted = {
   runId: null,
@@ -472,9 +474,16 @@ const NOT_ACCEPTED: AgentRunNotAccepted = {
   ack: null,
 };
 
-function applyConversationLost(
+/**
+ * Folds a `conversation_lost` into the entries, as {@link reduceAgentRuns}
+ * does, except that the inputs in `handingOff` stay untouched. They are
+ * registered but not yet handed to the connector, so the agent cannot have
+ * seen them and the sender reports them as not submitted instead.
+ */
+export function reduceConversationLost(
   entries: AgentRunEntries,
   event: ConversationLostEvent,
+  handingOff: ReadonlySet<MessageId>,
 ): AgentRunEntries {
   const reason = event.reason;
   const shouldMark =
@@ -483,7 +492,7 @@ function applyConversationLost(
       : (run: AgentRunState) => isOpen(run) || isRecoverablyLost(run);
   let changed = false;
   const runs = entries.runs.map((run): AgentRunState => {
-    if (!shouldMark(run)) return run;
+    if (handingOff.has(run.inputId) || !shouldMark(run)) return run;
     changed = true;
     return run.runId === null
       ? { ...baseOf(run), ...NOT_ACCEPTED, status: 'lost', lostReason: reason }

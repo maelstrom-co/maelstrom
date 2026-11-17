@@ -180,7 +180,8 @@ export class AgentConversation {
    * with `sent` once the connector accepted the frame, `not_sent` when the
    * frame never left the client, or `failed` when the transport refused it.
    * Calls `onSending` synchronously right before the frame is handed to the
-   * connector. Never rejects.
+   * connector. When `onSending` ends the conversation, the frame is not sent
+   * and the outcome is `not_sent`. Never rejects.
    */
   async sendMessage(
     inputId: MessageId,
@@ -203,20 +204,27 @@ export class AgentConversation {
     this.#staleRunWatch.inputSent(inputId);
     this.#pendingUtterances++;
     this.#dependencies.diagnostics.emit('client.agent.input.sent', { inputId });
-    // Diagnostic observers run synchronously and may swap the connector,
-    // disconnect or dispose, which would leave this send on a stale session.
-    if (
-      this.#attachment !== attachment ||
-      sessionGeneration !== this.#sessionGeneration
-    ) {
+    // Diagnostic observers and `onSending` run caller code synchronously,
+    // which may swap the connector, disconnect or dispose and would leave
+    // this send on a stale session.
+    const endedBeforeSend = (): AgentSendOutcome | null => {
+      if (
+        this.#attachment === attachment &&
+        sessionGeneration === this.#sessionGeneration
+      )
+        return null;
       if (sessionGeneration === this.#sessionGeneration)
         this.#pendingUtterances--;
       this.#staleRunWatch.stopInput(inputId);
       return notSent(
         new Error('Agent conversation ended before the utterance was sent'),
       );
-    }
+    };
+    const endedByObserver = endedBeforeSend();
+    if (endedByObserver !== null) return endedByObserver;
     onSending();
+    const endedByCaller = endedBeforeSend();
+    if (endedByCaller !== null) return endedByCaller;
     try {
       await attachment.connector.sendInput({
         type: 'utterance',
