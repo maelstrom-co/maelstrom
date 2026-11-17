@@ -638,7 +638,7 @@ function uiOnlyEngineConnector(): EngineConnector {
             reply: '',
             metrics: {
               turns: 0,
-              toolCalls: 0,
+              toolCalls: { requested: 0, admitted: 0 },
               elapsedMs: 0,
               inputTokens: 0,
               outputTokens: 0,
