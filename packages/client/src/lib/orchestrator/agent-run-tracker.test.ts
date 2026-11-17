@@ -192,6 +192,44 @@ describe('AgentRunTracker', () => {
     expect(reported).toEqual([failure, failure, failure]);
   });
 
+  it('notifies a healthy subscriber of the same change after an earlier subscriber throws', () => {
+    const reported: unknown[] = [];
+    const { tracker } = setup((_message, error) => reported.push(error));
+    const failure = new Error('subscriber failed');
+    tracker.store.subscribe(() => {
+      throw failure;
+    });
+    const seen: (string | undefined)[] = [];
+    tracker.store.subscribe((snapshot) => seen.push(snapshot.run?.status));
+
+    tracker.notSubmitted(MessageId('input-1'), { message: 'never sent' });
+
+    expect(seen).toEqual(['not_submitted']);
+    expect(reported).toEqual([failure]);
+  });
+
+  it('contains a throwing observer object and keeps its other handlers', () => {
+    const reported: unknown[] = [];
+    const { tracker } = setup((_message, error) => reported.push(error));
+    const failure = new Error('observer failed');
+    tracker.store.subscribe({
+      next: () => {
+        throw failure;
+      },
+    });
+    const seen: (string | undefined)[] = [];
+    const subscription = tracker.store.subscribe({
+      next: (snapshot) => seen.push(snapshot.run?.status),
+    });
+
+    tracker.notSubmitted(MessageId('input-1'), { message: 'never sent' });
+    subscription.unsubscribe();
+    tracker.notSubmitted(MessageId('input-2'), { message: 'never sent' });
+
+    expect(seen).toEqual(['not_submitted']);
+    expect(reported).toEqual([failure, failure]);
+  });
+
   it('loses an input to a loss reported after it registered', async () => {
     const { tracker, events } = setup();
     const result = register(tracker, MessageId('input-1'));

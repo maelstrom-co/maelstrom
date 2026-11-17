@@ -1,5 +1,5 @@
 import type { MessageId } from '@maelstrom-co/protocol';
-import { Store } from '@tanstack/store';
+import { type Observer, Store, type Subscription } from '@tanstack/store';
 
 import type { Logger } from '../utils/logger.js';
 import type { EventSubscriber } from '../utils/typed-emitter.js';
@@ -23,8 +23,12 @@ import type { AgentConversationEvents } from './conversation-event.types.js';
  * through {@link AgentRunTracker.store}, and settles one result per sent input.
  */
 export class AgentRunTracker {
-  /** Agent Run state of the conversation, capped at the 20 latest inputs. */
-  readonly store = new Store<AgentRunsSnapshot>(EMPTY_AGENT_RUNS);
+  /**
+   * Agent Run state of the conversation, capped at the 20 latest inputs. A
+   * subscriber that throws is reported to the logger and does not keep the
+   * other subscribers from the same change.
+   */
+  readonly store: Store<AgentRunsSnapshot>;
   #entries: AgentRunEntries = EMPTY_AGENT_RUN_ENTRIES;
   readonly #openResults = new Map<MessageId, (run: SettledAgentRun) => void>();
   readonly #handingOff = new Set<MessageId>();
@@ -33,14 +37,17 @@ export class AgentRunTracker {
   /**
    * Follows every event of `events` for the emitter's lifetime. The store
    * keeps its last state once the emitter is disposed. An error thrown by a
-   * store subscriber is reported to `logger` and never reaches the caller of
-   * a tracker method.
+   * store subscriber is reported to `logger`, never reaches the caller of a
+   * tracker method and never costs another subscriber its notification.
    */
   constructor(
     events: EventSubscriber<AgentConversationEvents>,
     logger: Pick<Logger, 'error'>,
   ) {
     this.#logger = logger;
+    this.store = new GuardedStore(EMPTY_AGENT_RUNS, (error) =>
+      this.#reportSubscriberError(error),
+    );
     for (const type of AGENT_EVENT_TYPES)
       events.on(type, (event) => this.#dispatch(event));
   }
@@ -111,8 +118,8 @@ export class AgentRunTracker {
       runs.length === previous.runs.length &&
       runs.every((run, index) => run === previous.runs[index]);
     if (sameRuns && this.#entries.error === previous.error) return;
-    // The store takes the new state before it notifies, so a subscriber that
-    // throws leaves the state applied and only its error has to be contained.
+    // Subscribers are guarded one by one. This catch is the fallback for a
+    // throw the store raises itself, which arrives after the state is applied.
     try {
       this.store.setState(() => ({
         run: runs[runs.length - 1] ?? null,
@@ -120,8 +127,43 @@ export class AgentRunTracker {
         error: this.#entries.error,
       }));
     } catch (error) {
-      this.#logger.error('Agent run store subscriber threw', error);
+      this.#reportSubscriberError(error);
     }
+  }
+
+  #reportSubscriberError(error: unknown): void {
+    this.#logger.error('Agent run store subscriber threw', error);
+  }
+}
+
+// TanStack stops notifying at the first subscriber that throws, so each
+// subscriber is guarded before the store sees it.
+class GuardedStore<T> extends Store<T> {
+  readonly #onSubscriberError: (error: unknown) => void;
+
+  constructor(initialValue: T, onSubscriberError: (error: unknown) => void) {
+    super(initialValue);
+    this.#onSubscriberError = onSubscriberError;
+  }
+
+  override subscribe(
+    observerOrFn: Observer<T> | ((value: T) => void),
+  ): Subscription {
+    const observer =
+      typeof observerOrFn === 'function'
+        ? { next: observerOrFn }
+        : observerOrFn;
+    return super.subscribe({
+      error: (error) => observer.error?.(error),
+      complete: () => observer.complete?.(),
+      next: (value) => {
+        try {
+          observer.next?.(value);
+        } catch (error) {
+          this.#onSubscriberError(error);
+        }
+      },
+    });
   }
 }
 
