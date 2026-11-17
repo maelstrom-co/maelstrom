@@ -851,9 +851,12 @@ test('sendAgentMessage routes provider update_ui intents to the agent instead of
   const sent: Array<{ orchestrator: Orchestrator; text: string }> = [];
   const extension = maelstromRealtime({
     createAdapter: () => adapter,
-    sendAgentMessage: async (orchestrator, text) => {
+    sendAgentMessage: (orchestrator, text) => {
       sent.push({ orchestrator, text });
-      return MessageId('voice-input');
+      return {
+        inputId: MessageId('voice-input'),
+        result: new Promise<never>(() => {}),
+      };
     },
   })(diagnosticContext(client));
   let voice!: UseVoiceResult<undefined>;

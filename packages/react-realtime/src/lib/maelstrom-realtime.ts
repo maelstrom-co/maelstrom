@@ -1,14 +1,11 @@
 import type {
+  AgentMessageSubmission,
   Orchestrator,
   TranscriptEntry,
   VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
-import type {
-  MessageId,
-  SessionId,
-  SidechannelEvent,
-} from '@maelstrom-co/protocol';
+import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
 import type {
   MaelstromExtension,
   MaelstromExtensionContext,
@@ -167,21 +164,22 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly debug?: boolean;
   /**
    * Sends each voice `update_ui` intent to the agent instead of the intent
-   * scheduler, for example through `orchestrator.sendMessage`. It must
-   * resolve with the input's `MessageId`. The tool call is answered when the
-   * Agent Run that handles the input ends, speaking its reply when there is
-   * one. The run can end before its UI changes are applied, so the answer
-   * does not confirm them. A rejection may follow a send that reached the
-   * agent, so it is reported as unconfirmed and never resent, unless it is an
-   * `AgentWireUnsupportedError`. The option is not called while the engine
-   * connection is down, and the tool call is then answered as not submitted.
-   * It is opt-in because `HttpConnector` and hosts that answer agent inputs
-   * with plain `handleEnvelope` cannot serve agent inputs.
+   * scheduler, normally by returning `orchestrator.sendMessage(text, {
+   * source: 'voice' })` from the app's own submit path. The tool call is
+   * answered from the submission's `result` once the input settled. A
+   * finished run with the `ui_only` disposition is answered with the screen
+   * summary and its reply. Other finished runs answer with the reply alone,
+   * because their UI changes can still be applying. An ignored input is
+   * answered as not acted on, a failure with its message, a lost input as
+   * unconfirmed and never resent, and a message that never left the client as
+   * not submitted. A throw is reported as unconfirmed. It is opt-in because
+   * `HttpConnector` and hosts that answer agent inputs with plain
+   * `handleEnvelope` cannot serve agent inputs.
    */
   readonly sendAgentMessage?: (
     orchestrator: Orchestrator,
     text: string,
-  ) => Promise<MessageId>;
+  ) => AgentMessageSubmission;
 }
 
 /** Opening chosen per provider; excludes the fixed opening options. */

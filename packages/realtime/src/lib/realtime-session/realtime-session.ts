@@ -1,6 +1,7 @@
 import type {
   IntentResult,
   IntentScope,
+  SettledAgentRun,
   TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
@@ -38,7 +39,6 @@ import {
   type VoiceRecoveryOutcome,
 } from './realtime-session-memory.js';
 import type {
-  AgentMessageOutcome,
   GreetingState,
   RealtimeInstance,
   RealtimeSessionOptions,
@@ -121,6 +121,9 @@ const UNCONFIRMED_SUMMARY =
 const AGENT_RUN_FINISHED_SUMMARY =
   'The request was handled. The screen may still be updating.';
 
+const AGENT_INPUT_IGNORED_SUMMARY =
+  'The request was not acted on, so nothing on the screen changed.';
+
 // ~100 tokens — the design budget for a grounding push. injectGrounding is a
 // realtime-voice sidechannel, not a chat turn; an unbounded summary would
 // blow that budget silently since `summarize` is caller-injectable.
@@ -192,9 +195,11 @@ function defaultSummarize(
  *
  * Submission prefers `sendAgentMessage`, then `createIntentScope`, then
  * `submitIntent`. Instances with `sendAgentMessage` hand each intent to an
- * agent run and answer when the run ends, without confirming the run's UI
- * changes. The message is sent once and never replayed when its outcome is
- * lost. Instances with `createIntentScope` share the application's bounded
+ * agent run and answer when the run settles. Only a run with the `ui_only`
+ * disposition confirms its UI change, because it finishes after the client
+ * acknowledged the change. Other runs answer with the reply alone and leave
+ * the outcome unconfirmed. An ignored input answers that nothing was done.
+ * The message is sent once and never replayed when its outcome is lost. Instances with `createIntentScope` share the application's bounded
  * FIFO with typed input. Each connection owns only its pending work;
  * disconnect retires that work without cancelling a submitted turn. Tickets
  * provide exact batch outcomes, so no global idle wait or busy retry is added
@@ -1408,7 +1413,7 @@ export class RealtimeSession implements VoiceSession {
     epoch: number,
     callId: ToolCallId,
     intent: string,
-    sendAgentMessage: (text: string) => Promise<AgentMessageOutcome>,
+    sendAgentMessage: (text: string) => Promise<SettledAgentRun>,
     invocation: ToolInvocation,
   ): Promise<boolean> {
     this.#events.publish({
@@ -1423,51 +1428,60 @@ export class RealtimeSession implements VoiceSession {
       return false;
     }
     const started = Date.now();
-    let outcome: AgentMessageOutcome;
+    let run: SettledAgentRun | undefined;
     try {
-      outcome = await sendAgentMessage(intent);
+      run = await sendAgentMessage(intent);
     } catch (error) {
       // The contract forbids rejection, so a rejection proves nothing about
       // whether the agent run already changed the UI.
       this.#logger.warn('update_ui: sendAgentMessage rejected', error);
-      outcome = { status: 'lost', reason: 'rejected' };
     }
-    const succeeded = outcome.status === 'finished' && outcome.ok;
+    const succeeded = run?.status === 'finished' || run?.status === 'ignored';
     this.#publishTiming(
       succeeded ? 'update_ui.agent_run' : 'update_ui.error',
       started,
     );
-    switch (outcome.status) {
-      case 'finished':
-        if (outcome.ok) {
-          // A run ends before its UI changes are applied, so the answer
-          // never describes the screen and the outcome stays unconfirmed.
-          const reply = outcome.reply?.trim();
+    if (run === undefined)
+      return this.#answerUnconfirmed(epoch, callId, invocation);
+    switch (run.status) {
+      case 'finished': {
+        // A UI-only run finishes after the client acknowledged its change, so
+        // the screen already shows it. Other runs can finish before their
+        // changes are applied, so the answer never describes the screen.
+        if (run.disposition === 'ui_only') {
           await this.#sendUpdateUIResult(
             epoch,
             callId,
-            reply
-              ? { ok: true, userMessage: reply }
-              : { ok: true, summary: AGENT_RUN_FINISHED_SUMMARY },
-            'unknown',
+            this.#settledUpdateResult(run.reply),
           );
           return true;
         }
-        invocation.result = { outcome: 'failed', errorCategory: 'application' };
-        await this.#sendUpdateUIResult(epoch, callId, {
-          ok: false,
-          summary: outcome.error.trim() || APPLY_FAILED_SUMMARY,
-        });
-        return false;
-      case 'lost':
-        invocation.result = { outcome: 'unknown' };
+        const reply = run.reply.trim();
         await this.#sendUpdateUIResult(
           epoch,
           callId,
-          { ok: false, summary: UNCONFIRMED_SUMMARY },
+          reply
+            ? { ok: true, userMessage: reply }
+            : { ok: true, summary: AGENT_RUN_FINISHED_SUMMARY },
           'unknown',
         );
+        return true;
+      }
+      case 'ignored':
+        await this.#sendUpdateUIResult(epoch, callId, {
+          ok: true,
+          summary: AGENT_INPUT_IGNORED_SUMMARY,
+        });
+        return true;
+      case 'failed':
+        invocation.result = { outcome: 'failed', errorCategory: 'application' };
+        await this.#sendUpdateUIResult(epoch, callId, {
+          ok: false,
+          summary: run.error.message.trim() || APPLY_FAILED_SUMMARY,
+        });
         return false;
+      case 'lost':
+        return this.#answerUnconfirmed(epoch, callId, invocation);
       case 'not_submitted':
         invocation.result = { outcome: 'skipped', errorCategory: 'readiness' };
         await this.#sendUpdateUIResult(
@@ -1475,14 +1489,29 @@ export class RealtimeSession implements VoiceSession {
           callId,
           {
             ok: false,
-            summary: `This request was not submitted (${outcome.error}).`,
+            summary: `This request was not submitted (${run.error.message}).`,
           },
           'not_submitted',
         );
         return false;
       default:
-        return assertNever(outcome, 'agent message outcome');
+        return assertNever(run, 'settled agent run');
     }
+  }
+
+  async #answerUnconfirmed(
+    epoch: number,
+    callId: ToolCallId,
+    invocation: ToolInvocation,
+  ): Promise<boolean> {
+    invocation.result = { outcome: 'unknown' };
+    await this.#sendUpdateUIResult(
+      epoch,
+      callId,
+      { ok: false, summary: UNCONFIRMED_SUMMARY },
+      'unknown',
+    );
+    return false;
   }
 
   async #handleGetUIState(epoch: number, callId: ToolCallId): Promise<boolean> {

@@ -1,33 +1,29 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  AgentWireUnsupportedError,
   Orchestrator,
   type OrchestratorOptions,
+  type SettledAgentRun,
 } from '@maelstrom-co/client';
 import {
   agentAcceptedEvent,
-  agentErrorEvent,
   agentFinishedEvent,
-  agentMessageEvent,
   createMockAgentConnector,
   type MockAgentConnector,
 } from '@maelstrom-co/client/_testing';
 import {
-  ChangeId,
   type ChartRequestMessage,
   type MaelstromResponse,
-  MessageId,
+  type MessageId,
   RunId,
 } from '@maelstrom-co/protocol';
-import type {
-  AgentMessageOutcome,
-  RealtimeInstance,
-} from '@maelstrom-co/realtime';
-import FakeTimers from '@sinonjs/fake-timers';
+import type { RealtimeInstance } from '@maelstrom-co/realtime';
 
 import { createMockConnector } from './__tests__/mock-connector.js';
-import { createRealtimeInstance } from './realtime-instance.js';
+import {
+  createRealtimeInstance,
+  type RealtimeInstanceOptions,
+} from './realtime-instance.js';
 
 async function flush() {
   for (let count = 0; count < 20; count++) await Promise.resolve();
@@ -99,14 +95,11 @@ test('createRealtimeInstance shares FIFO admission and retires only its pending 
   }
 });
 
-type SendAgentMessageOption = (
-  orchestrator: Orchestrator,
-  text: string,
-) => Promise<MessageId>;
+type SendAgentMessageOption = NonNullable<
+  RealtimeInstanceOptions['sendAgentMessage']
+>;
 
 const runA = RunId('run-a');
-const runB = RunId('run-b');
-const staleWindowMs = 10_000;
 
 describe('createRealtimeInstance sendAgentMessage', () => {
   test('is absent when the option is not set', async () => {
@@ -120,299 +113,30 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     });
   });
 
-  test('calls the option with the orchestrator and text, then resolves the reply of the accepted run', async () => {
+  test('calls the option with the orchestrator and text, then resolves the settled run of its submission', async () => {
     await withAgentOrchestrator(async ({ orchestrator, agent }) => {
       const send = sendThroughOrchestrator();
       const instance = createRealtimeInstance(orchestrator, {
         sendAgentMessage: send.option,
       });
 
-      const outcome = track(
-        requireSendAgentMessage(instance)('show the board'),
-      );
-      await flush();
+      const outcome = requireSendAgentMessage(instance)('show the board');
       expect(send.calls).toEqual([{ orchestrator, text: 'show the board' }]);
       const inputId = send.inputIds[0];
+      await flush();
       expect(agent.inputs).toMatchObject([
         { type: 'utterance', inputId, text: 'show the board', source: 'voice' },
       ]);
 
-      agent.emit(agentAcceptedEvent(inputId, runA));
-      await flush();
-      expect(outcome.settled).toBe(false);
-
+      agent.emit(agentAcceptedEvent(inputId, runA, 'ui_only'));
       agent.emit(agentFinishedEvent(runA, { reply: 'Board is up' }));
-      expect(await outcome.promise).toEqual({
+
+      expect(await outcome).toMatchObject({
+        inputId,
         status: 'finished',
-        ok: true,
+        disposition: 'ui_only',
         reply: 'Board is up',
       });
-    });
-  });
-
-  test('links an accepted event that arrives before the option resolves', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const inputId = MessageId('input-early');
-      const pending = deferred<MessageId>();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: () => pending.promise,
-      });
-
-      const outcome = track(
-        requireSendAgentMessage(instance)('show the board'),
-      );
-      agent.emit(agentAcceptedEvent(inputId, runA));
-      pending.resolve(inputId);
-      await flush();
-      expect(outcome.settled).toBe(false);
-
-      agent.emit(agentFinishedEvent(runA, { reply: 'Board is up' }));
-      expect(await outcome.promise).toEqual({
-        status: 'finished',
-        ok: true,
-        reply: 'Board is up',
-      });
-    });
-  });
-
-  test('ignores finished events of other runs', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = track(
-        requireSendAgentMessage(instance)('show the board'),
-      );
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(agentFinishedEvent(runB, { reply: 'Other run' }));
-      await flush();
-      expect(outcome.settled).toBe(false);
-
-      agent.emit(agentFinishedEvent(runA, { reply: 'Mine' }));
-      expect(await outcome.promise).toEqual({
-        status: 'finished',
-        ok: true,
-        reply: 'Mine',
-      });
-    });
-  });
-
-  test('resolves a failed run with its error', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(
-        agentFinishedEvent(runA, {
-          ok: false,
-          reason: 'error',
-          reply: undefined,
-          error: 'planner crashed',
-        }),
-      );
-
-      expect(await outcome).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'planner crashed',
-      });
-    });
-  });
-
-  test('falls back to the finish reason when a failed run carries no error', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(
-        agentFinishedEvent(runA, {
-          ok: false,
-          reason: 'budget',
-          reply: undefined,
-        }),
-      );
-
-      expect(await outcome).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'budget',
-      });
-    });
-  });
-
-  test('resolves a failed run with its error and drops its reply', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(
-        agentFinishedEvent(runA, {
-          ok: false,
-          reason: 'error',
-          reply: 'Partial answer',
-          error: 'planner crashed',
-        }),
-      );
-
-      const settled = await outcome;
-      expect(settled).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'planner crashed',
-      });
-      expect(settled).not.toHaveProperty('reply');
-    });
-  });
-
-  test('speaks the closing reply of a run that ran out of budget', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(
-        agentFinishedEvent(runA, {
-          ok: false,
-          reason: 'budget',
-          reply: 'I ran out of steps before finishing the board.',
-        }),
-      );
-
-      const settled = await outcome;
-      expect(settled).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'I ran out of steps before finishing the board.',
-      });
-      expect(settled).not.toHaveProperty('reply');
-    });
-  });
-
-  test('resolves a noise input as not applied without waiting for a finished event', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('um');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], null));
-
-      expect(await outcome).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'The agent ignored the request.',
-      });
-    });
-  });
-
-  test('resolves lost when the accepted run goes stale', async () => {
-    await withFakeClock(async (clock) => {
-      await withAgentOrchestrator(
-        async ({ orchestrator, agent }) => {
-          const send = sendThroughOrchestrator();
-          const instance = createRealtimeInstance(orchestrator, {
-            sendAgentMessage: send.option,
-          });
-
-          const outcome = track(
-            requireSendAgentMessage(instance)('show the board'),
-          );
-          await flush();
-          agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-          await clock.tickAsync(staleWindowMs - 1);
-          expect(outcome.settled).toBe(false);
-
-          await clock.tickAsync(1);
-          expect(await outcome.promise).toEqual({
-            status: 'lost',
-            reason: 'stale_run',
-          });
-        },
-        { agentRunStaleTimeoutMs: staleWindowMs },
-      );
-    });
-  });
-
-  test('resolves lost when the input goes stale before it is accepted', async () => {
-    await withFakeClock(async (clock) => {
-      await withAgentOrchestrator(
-        async ({ orchestrator }) => {
-          const send = sendThroughOrchestrator();
-          const instance = createRealtimeInstance(orchestrator, {
-            sendAgentMessage: send.option,
-          });
-
-          const outcome = requireSendAgentMessage(instance)('show the board');
-          await flush();
-          await clock.tickAsync(staleWindowMs);
-
-          expect(await outcome).toEqual({
-            status: 'lost',
-            reason: 'stale_run',
-          });
-        },
-        { agentRunStaleTimeoutMs: staleWindowMs },
-      );
-    });
-  });
-
-  test('resolves lost when another run goes stale, because a stale run clears every watch', async () => {
-    await withFakeClock(async (clock) => {
-      await withAgentOrchestrator(
-        async ({ orchestrator, agent }) => {
-          const send = sendThroughOrchestrator();
-          const instance = createRealtimeInstance(orchestrator, {
-            sendAgentMessage: send.option,
-          });
-
-          const otherInputId = await orchestrator.sendMessage('typed request');
-          agent.emit(agentAcceptedEvent(otherInputId, runB));
-          // A run with its own activity is no longer re-armed by traffic of
-          // other runs, so runB's window keeps running from here.
-          agent.emit(agentMessageEvent(runB, 'other work'));
-          const outcome = track(
-            requireSendAgentMessage(instance)('show the board'),
-          );
-          await flush();
-          agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-
-          await clock.tickAsync(staleWindowMs - 1);
-          agent.emit(agentMessageEvent(runA, 'still working'));
-          await flush();
-          expect(outcome.settled).toBe(false);
-
-          await clock.tickAsync(1);
-          expect(await outcome.promise).toEqual({
-            status: 'lost',
-            reason: 'stale_run',
-          });
-        },
-        { agentRunStaleTimeoutMs: staleWindowMs },
-      );
     });
   });
 
@@ -428,250 +152,45 @@ describe('createRealtimeInstance sendAgentMessage', () => {
       agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
       agent.close({ clean: false });
 
-      expect(await outcome).toEqual({ status: 'lost', reason: 'disconnected' });
-    });
-  });
-
-  test('resolves lost when the connector is replaced while the input is open', async () => {
-    await withAgentOrchestrator(async ({ orchestrator }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      orchestrator.setConnector(createMockAgentConnector().connector);
-
-      expect(await outcome).toEqual({
+      expect(await outcome).toMatchObject({
         status: 'lost',
-        reason: 'connector_replaced',
+        lostReason: 'disconnected',
       });
     });
   });
 
-  test('resolves lost on a conversation loss that arrives before the option resolves', async () => {
-    await withAgentOrchestrator(async ({ orchestrator }) => {
-      const pending = deferred<MessageId>();
-      const sentInputIds: MessageId[] = [];
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: async (orchestrator, text) => {
-          sentInputIds.push(
-            await orchestrator.sendMessage(text, { source: 'voice' }),
-          );
-          return pending.promise;
-        },
-      });
-
-      const outcome = track(
-        requireSendAgentMessage(instance)('show the board'),
-      );
-      await flush();
-      orchestrator.setConnector(createMockAgentConnector().connector);
-      await flush();
-
-      expect(outcome.settled).toBe(true);
-      expect(await outcome.promise).toEqual({
-        status: 'lost',
-        reason: 'connector_replaced',
-      });
-
-      pending.resolve(sentInputIds[0] ?? MessageId('input-late'));
-      await flush();
-      expect(await outcome.promise).toEqual({
-        status: 'lost',
-        reason: 'connector_replaced',
-      });
-    });
-  });
-
-  test('resolves lost when the orchestrator is disposed while the run is open', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      await orchestrator.dispose();
-
-      expect(await outcome).toEqual({ status: 'lost', reason: 'disconnected' });
-    });
-  });
-
-  test('resolves a failed outcome on an error for its input', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      agent.emit(
-        agentErrorEvent({
-          inputId: send.inputIds[0],
-          error: 'input rejected',
-        }),
-      );
-
-      expect(await outcome).toEqual({
-        status: 'finished',
-        ok: false,
-        error: 'input rejected',
-      });
-    });
-  });
-
-  test('keeps waiting through a run-scoped error of its run', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const send = sendThroughOrchestrator();
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      const outcome = track(
-        requireSendAgentMessage(instance)('show the board'),
-      );
-      await flush();
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(
-        agentErrorEvent({
-          runId: runA,
-          changeId: ChangeId('change-1'),
-          error: 'loop change failed',
-        }),
-      );
-      await flush();
-      expect(outcome.settled).toBe(false);
-
-      agent.emit(agentFinishedEvent(runA, { reply: 'Recovered' }));
-      expect(await outcome.promise).toEqual({
-        status: 'finished',
-        ok: true,
-        reply: 'Recovered',
-      });
-    });
-  });
-
-  test('resolves lost when the option rejects, because the input may have been sent', async () => {
-    await withAgentOrchestrator(async ({ orchestrator }) => {
-      const subscriptions = trackAgentSubscriptions(orchestrator);
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: () => Promise.reject(new Error('socket closed')),
-      });
-
-      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'lost', reason: 'send_failed' },
-      );
-      expect(subscriptions.active()).toBe(0);
-    });
-  });
-
-  test('resolves lost when the option throws synchronously', async () => {
-    await withAgentOrchestrator(async ({ orchestrator }) => {
-      const subscriptions = trackAgentSubscriptions(orchestrator);
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: () => {
-          throw new Error('no session');
-        },
-      });
-
-      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'lost', reason: 'send_failed' },
-      );
-      expect(subscriptions.active()).toBe(0);
-    });
-  });
-
-  test('resolves not_submitted when the transport cannot carry agent inputs', async () => {
-    await withAgentOrchestrator(async ({ orchestrator }) => {
-      const subscriptions = trackAgentSubscriptions(orchestrator);
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: () =>
-          Promise.reject(
-            new AgentWireUnsupportedError('Agent inputs are not supported'),
-          ),
-      });
-
-      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'not_submitted', error: 'Agent inputs are not supported' },
-      );
-      expect(subscriptions.active()).toBe(0);
-    });
-  });
-
-  test('resolves not_submitted without calling the option while the engine is not connected', async () => {
+  test('resolves not_submitted while the engine is not connected', async () => {
     const agent = createMockAgentConnector();
     const orchestrator = new Orchestrator(agent.connector);
     try {
-      const subscriptions = trackAgentSubscriptions(orchestrator);
-      const send = sendThroughOrchestrator();
       const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
+        sendAgentMessage: sendThroughOrchestrator().option,
       });
 
-      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'not_submitted', error: 'the engine is not connected' },
-      );
-      expect(send.calls).toEqual([]);
-      expect(subscriptions.active()).toBe(0);
+      expect(
+        await requireSendAgentMessage(instance)('show the board'),
+      ).toMatchObject({
+        status: 'not_submitted',
+        error: { message: 'Orchestrator is not connected' },
+      });
+      expect(agent.inputs).toEqual([]);
     } finally {
       await orchestrator.dispose();
     }
   });
 
-  test('resolves not_submitted without calling the option when subscribing to agent events throws', async () => {
+  test('rejects when the option throws, so the session reports the outcome as unconfirmed', async () => {
     await withAgentOrchestrator(async ({ orchestrator }) => {
-      const send = sendThroughOrchestrator();
-      orchestrator.agent.on = (() => {
-        throw new Error('emitter disposed');
-      }) as typeof orchestrator.agent.on;
+      const failure = new Error('submit path broke');
       const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: send.option,
-      });
-
-      expect(await requireSendAgentMessage(instance)('show the board')).toEqual(
-        { status: 'not_submitted', error: 'emitter disposed' },
-      );
-      expect(send.calls).toEqual([]);
-    });
-  });
-
-  test('subscribes before calling the option and removes its listeners once settled', async () => {
-    await withAgentOrchestrator(async ({ orchestrator, agent }) => {
-      const subscriptions = trackAgentSubscriptions(orchestrator);
-      const connection = trackConnectionSubscriptions(orchestrator);
-      const send = sendThroughOrchestrator();
-      let activeWhenCalled = 0;
-      const instance = createRealtimeInstance(orchestrator, {
-        sendAgentMessage: (client: Orchestrator, text: string) => {
-          activeWhenCalled = subscriptions.active();
-          return send.option(client, text);
+        sendAgentMessage: () => {
+          throw failure;
         },
       });
 
-      const outcome = requireSendAgentMessage(instance)('show the board');
-      await flush();
-      expect(activeWhenCalled).toBeGreaterThan(0);
-      expect(subscriptions.active()).toBeGreaterThan(0);
-      expect(connection.active()).toBe(1);
-
-      agent.emit(agentAcceptedEvent(send.inputIds[0], runA));
-      agent.emit(agentFinishedEvent(runA, { reply: 'Board is up' }));
-      expect(await outcome).toEqual({
-        status: 'finished',
-        ok: true,
-        reply: 'Board is up',
-      });
-      expect(subscriptions.active()).toBe(0);
-      expect(connection.active()).toBe(0);
-
-      agent.emit(agentFinishedEvent(runA, { ok: false, reason: 'error' }));
-      agent.close({ clean: false });
-      expect(subscriptions.active()).toBe(0);
+      await expect(
+        requireSendAgentMessage(instance)('show the board'),
+      ).rejects.toBe(failure);
     });
   });
 });
@@ -693,25 +212,6 @@ async function withAgentOrchestrator(
   }
 }
 
-async function withFakeClock(
-  body: (clock: ReturnType<typeof FakeTimers.install>) => Promise<void>,
-): Promise<void> {
-  const clock = FakeTimers.install({
-    toFake: [
-      'setTimeout',
-      'clearTimeout',
-      'setInterval',
-      'clearInterval',
-      'Date',
-    ],
-  });
-  try {
-    await body(clock);
-  } finally {
-    clock.uninstall();
-  }
-}
-
 function sendThroughOrchestrator(): {
   option: SendAgentMessageOption;
   calls: Array<{ orchestrator: Orchestrator; text: string }>;
@@ -722,101 +222,19 @@ function sendThroughOrchestrator(): {
   return {
     calls,
     inputIds,
-    option: async (orchestrator, text) => {
+    option: (orchestrator, text) => {
       calls.push({ orchestrator, text });
-      const inputId = await orchestrator.sendMessage(text, { source: 'voice' });
-      inputIds.push(inputId);
-      return inputId;
+      const submission = orchestrator.sendMessage(text, { source: 'voice' });
+      inputIds.push(submission.inputId);
+      return submission;
     },
   };
 }
 
 function requireSendAgentMessage(
   instance: RealtimeInstance,
-): (text: string) => Promise<AgentMessageOutcome> {
+): (text: string) => Promise<SettledAgentRun> {
   const send = instance.sendAgentMessage;
   if (!send) throw new Error('instance has no sendAgentMessage');
   return (text) => send.call(instance, text);
-}
-
-function track<T>(promise: Promise<T>): {
-  promise: Promise<T>;
-  readonly settled: boolean;
-} {
-  let settled = false;
-  const tracked = promise.finally(() => {
-    settled = true;
-  });
-  return {
-    promise: tracked,
-    get settled() {
-      return settled;
-    },
-  };
-}
-
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((settle) => {
-    resolve = settle;
-  });
-  return { promise, resolve };
-}
-
-function trackAgentSubscriptions(orchestrator: Orchestrator): {
-  active: () => number;
-} {
-  const events = orchestrator.agent;
-  const active = new Set<{ event: string; callback: unknown }>();
-  const on = events.on.bind(events);
-  const off = events.off.bind(events);
-  const remove = (event: string, callback: unknown) => {
-    for (const entry of active) {
-      if (entry.event === event && entry.callback === callback) {
-        active.delete(entry);
-        return;
-      }
-    }
-  };
-  events.on = ((event: string, callback: never) => {
-    const entry = { event, callback };
-    active.add(entry);
-    const unsubscribe = on(event as never, callback);
-    return () => {
-      active.delete(entry);
-      unsubscribe();
-    };
-  }) as typeof events.on;
-  events.off = ((event: string, callback: never) => {
-    remove(event, callback);
-    off(event as never, callback);
-  }) as typeof events.off;
-  return { active: () => active.size };
-}
-
-function trackConnectionSubscriptions(orchestrator: Orchestrator): {
-  active: () => number;
-} {
-  const store = orchestrator.connectionManager.store;
-  const subscribe = store.subscribe.bind(store);
-  let active = 0;
-  store.subscribe = ((listener: never) => {
-    active++;
-    const subscription = subscribe(listener);
-    let released = false;
-    return {
-      ...subscription,
-      unsubscribe: () => {
-        if (!released) {
-          released = true;
-          active--;
-        }
-        subscription.unsubscribe();
-      },
-    };
-  }) as typeof store.subscribe;
-  return { active: () => active };
 }
