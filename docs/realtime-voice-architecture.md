@@ -213,8 +213,13 @@ are unknown outcomes, not permission to replay a mutation. A successful ticket
 confirms its own application batch, not merely network completion or global idle.
 
 Instances that supply `sendAgentMessage` send voice intents to the agent
-instead. That path does not use the bounded FIFO, and it answers when the Agent
-Run ends without confirming the run's UI changes.
+instead and answer from the settled Agent Run state that
+`Orchestrator.sendMessage` returns as `result`. That path does not use the
+bounded FIFO. A finished run with the `ui_only` disposition finishes after the
+client acknowledged its change, so its answer carries the screen summary and
+counts as confirmed. Other finished runs answer with the reply only and stay
+unconfirmed, because their UI changes can still be applying. An ignored input
+is answered as not acted on, a lost input as unconfirmed and never replayed.
 
 ## Where the keys live
 
