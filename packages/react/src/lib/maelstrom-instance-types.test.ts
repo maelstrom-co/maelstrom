@@ -11,10 +11,13 @@
 import { describe, expectTypeOf, it } from 'bun:test';
 
 import type {
+  AgentInputAcceptedEvent,
+  AgentMessageSubmission,
+  AgentRunError,
+  AgentRunState,
+  AgentRunStatus,
+  AgentUiChangeAppliedEvent,
   ConversationLostEvent,
-  InputAcceptedEvent,
-  MessageId,
-  UiChangeAppliedEvent,
 } from '@maelstrom-co/client';
 import {
   type AgentErrorEvent,
@@ -29,11 +32,6 @@ import {
   type TestVessel,
   testVessel,
 } from './__tests__/test-vessel.fixture.js';
-import type {
-  AgentRunError,
-  AgentRunState,
-  AgentRunStatus,
-} from './agent-run-state.js';
 import type { DynamicVesselHandle } from './dynamic-vessel-types.js';
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { vessel } from './vessel.js';
@@ -307,9 +305,9 @@ describe('MaelstromInstance.useAgentRun inference', () => {
       expectTypeOf(error).toEqualTypeOf<AgentRunError | null>();
       const status: AgentRunStatus | undefined = run?.status;
       void status;
-      expectTypeOf(sendMessage('show my last order')).toEqualTypeOf<
-        Promise<MessageId>
-      >();
+      expectTypeOf(
+        sendMessage('show my last order'),
+      ).toEqualTypeOf<AgentMessageSubmission>();
       void sendMessage('show my last order', { source: 'voice' });
       // @ts-expect-error - 'email' is not an agent input source
       void sendMessage('show my last order', { source: 'email' });
@@ -326,7 +324,7 @@ describe('MaelstromInstance.useAgentEvent inference', () => {
       });
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
       m.useAgentEvent('accepted', (event) => {
-        expectTypeOf(event).toEqualTypeOf<InputAcceptedEvent>();
+        expectTypeOf(event).toEqualTypeOf<AgentInputAcceptedEvent>();
       });
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
       m.useAgentEvent('message', (event) => {
@@ -334,7 +332,7 @@ describe('MaelstromInstance.useAgentEvent inference', () => {
       });
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
       m.useAgentEvent('ui_change', (event) => {
-        expectTypeOf(event).toEqualTypeOf<UiChangeAppliedEvent>();
+        expectTypeOf(event).toEqualTypeOf<AgentUiChangeAppliedEvent>();
       });
       // oxlint-disable-next-line react/rules-of-hooks -- type-level assertion only, never executes at runtime, see comment above the first test in this file.
       m.useAgentEvent('finished', (event) => {

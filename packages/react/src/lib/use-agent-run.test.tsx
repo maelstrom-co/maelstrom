@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import {
   AgentWireUnsupportedError,
   type MessageId,
+  type SettledAgentRun,
 } from '@maelstrom-co/client';
 import {
   agentAcceptedEvent,
@@ -37,7 +38,7 @@ describe('m.useAgentRun()', () => {
     act(() => {
       view.agent.emit(agentPlaceholderEvent(inputId, 'Looking it up'));
     });
-    expect(view.text()).toBe('working|Looking it up|');
+    expect(view.text()).toBe('pending|Looking it up|');
 
     act(() => {
       view.agent.emit(agentAcceptedEvent(inputId, RUN));
@@ -60,7 +61,11 @@ describe('m.useAgentRun()', () => {
     expect(view.text()).toBe(
       'finished|Looking it up|Your last order is ORD-10455.',
     );
-    expect(view.latest().run?.finished?.ok).toBe(true);
+    expect(view.latest().run).toMatchObject({
+      status: 'finished',
+      ack: 'On it',
+      outcome: { reason: 'completed' },
+    });
   });
 
   it('shows the run lost after the transport disconnects', async () => {
@@ -76,7 +81,7 @@ describe('m.useAgentRun()', () => {
     });
 
     expect(view.text()).toBe('lost||Your last');
-    expect(view.latest().run?.lostReason).toBe('disconnected');
+    expect(view.latest().run).toMatchObject({ lostReason: 'disconnected' });
   });
 
   it('shows the run failed with the message after an error for its input', async () => {
@@ -94,9 +99,8 @@ describe('m.useAgentRun()', () => {
     });
 
     expect(view.text()).toBe('failed||');
-    expect(view.latest().run?.error).toEqual({
-      message: 'Too many requests',
-      code: 'rate_limited',
+    expect(view.latest().run).toMatchObject({
+      error: { message: 'Too many requests', code: 'rate_limited' },
     });
   });
 
@@ -118,9 +122,8 @@ describe('m.useAgentRun()', () => {
     });
 
     expect(view.text()).toBe('failed||');
-    expect(view.latest().run?.error).toEqual({
-      message: 'Model unavailable',
-      code: 'model_error',
+    expect(view.latest().run).toMatchObject({
+      error: { message: 'Model unavailable', code: 'model_error' },
     });
   });
 
@@ -139,11 +142,11 @@ describe('m.useAgentRun()', () => {
     expect(view.text()).toBe('working||');
     const run = view.latest().run;
     assertDefined(run);
-    expect(run.error).toBeNull();
+    expect(run).not.toHaveProperty('error');
     expect(run.changeErrors).toEqual([{ changeId, message: 'Planner failed' }]);
   });
 
-  it('settles a noise input as finished with no outcome', async () => {
+  it('settles a noise input as ignored with no run', async () => {
     const view = await renderAgentRun();
     const inputId = await view.send('uh');
 
@@ -151,9 +154,11 @@ describe('m.useAgentRun()', () => {
       view.agent.emit(agentAcceptedEvent(inputId, null));
     });
 
-    expect(view.text()).toBe('finished||');
-    expect(view.latest().run?.runId).toBeNull();
-    expect(view.latest().run?.finished).toBeNull();
+    expect(view.text()).toBe('ignored||');
+    expect(view.latest().run).toMatchObject({
+      runId: null,
+      disposition: 'noise',
+    });
   });
 
   it('exposes a failure tied to no input or run and clears it on the next send', async () => {
@@ -184,7 +189,7 @@ describe('m.useAgentRun()', () => {
     expect(run?.inputId).toBe(second);
   });
 
-  it('sends the text with its source and resolves to the input id the agent saw', async () => {
+  it('sends the text with its source under the input id the agent saw', async () => {
     const view = await renderAgentRun();
 
     const inputId = await view.send('show my last order', 'voice');
@@ -215,7 +220,7 @@ describe('m.useAgentRun()', () => {
     expect(view.latest().sendMessage).toBe(initial);
   });
 
-  it('rejects to the caller when the connector cannot carry agent inputs, and registers no run', async () => {
+  it('shows not_submitted and settles the result when the connector cannot carry agent inputs', async () => {
     const unsupported = new AgentWireUnsupportedError(
       'This connector cannot carry agent inputs',
     );
@@ -225,18 +230,16 @@ describe('m.useAgentRun()', () => {
       }),
     );
 
-    let rejection: unknown;
+    let settled: SettledAgentRun | undefined;
     await act(async () => {
-      try {
-        await view.latest().sendMessage('show my last order');
-      } catch (error) {
-        rejection = error;
-      }
+      settled = await view.latest().sendMessage('show my last order').result;
     });
 
-    expect(rejection).toBe(unsupported);
-    expect(view.latest().run).toBeNull();
-    expect(view.latest().runs).toEqual([]);
+    expect(settled).toMatchObject({
+      status: 'not_submitted',
+      error: { message: 'This connector cannot carry agent inputs' },
+    });
+    expect(view.text()).toBe('not_submitted||');
   });
 
   it('throws outside a Provider', () => {
@@ -304,10 +307,11 @@ async function renderAgentRun(
     async send(text: string, source?: 'text' | 'voice'): Promise<MessageId> {
       let inputId: MessageId | undefined;
       await act(async () => {
-        inputId = await current().sendMessage(
+        inputId = current().sendMessage(
           text,
           source === undefined ? undefined : { source },
-        );
+        ).inputId;
+        await view.findByRole('status');
       });
       assertDefined(inputId);
       return inputId;
