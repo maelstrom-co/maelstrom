@@ -13,7 +13,7 @@ const webServer = process.env.BASE_URL
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
-  testIgnore: '**/voice/**',
+  testIgnore: ['**/voice/**', '**/agent-live/**'],
   outputDir: './dist/.playwright',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

@@ -96,6 +96,21 @@
           "command": "bun apps/demo/e2e/voice/run-tests.ts"
         }
       },
+      "agent-live-e2e": {
+        "executor": "nx:run-commands",
+        "cache": false,
+        "parallelism": false,
+        "dependsOn": [
+          "^build"
+        ],
+        "metadata": {
+          "description": "Runs the live /shop agent check against a real model, a local ws-server and the Vite dev client"
+        },
+        "options": {
+          "cwd": "apps/demo",
+          "command": "playwright test --config playwright.agent-live.config.ts"
+        }
+      },
       "voice-benchmark": {
         "executor": "nx:run-commands",
         "cache": false,
