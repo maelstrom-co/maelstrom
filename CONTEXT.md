@@ -64,6 +64,19 @@ _Avoid_: frontend tool
 **Vessel Query**:
 A read-only request a Vessel declares alongside its Actions, answered from the Vessel's current state in the browser. Each Vessel Query becomes a Client Tool.
 
+**Screen Change**:
+A request from an Agent Run's loop model to change what is on screen. The loop states a goal and its Referents and never names Vessels or Actions, because the Planner decides those. The loop normally waits for the result before it continues.
+_Avoid_: show, UI update
+
+**Ambient**:
+A mode of a Screen Change that the loop does not wait for. Its outcome reaches the loop later as a Screen Note.
+
+**Screen Note**:
+An outcome of a Screen Change that reaches the loop later instead of as a tool result. It covers Ambient Screen Changes and outcomes that arrive late or after cancellation.
+
+**Referents**:
+Exact values the loop already knows, such as ids and quantities, passed to the Planner with a goal so it never has to guess them.
+
 **Execution Plan**:
 The ordered list of Actions the client runs after applying an accepted Layout.
 _Avoid_: action list, plan (unqualified)
