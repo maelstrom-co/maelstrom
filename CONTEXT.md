@@ -29,12 +29,53 @@ A tiling split whose positive integer weights define child regions and their rel
 _Avoid_: ratio node, proportional split, n-ary split
 
 **Engine**:
-The component that coordinates planning and validates a Planner's proposed Layout and Execution Plan. It can retain conversation history when configured.
+The component that coordinates planning and validates a Planner's proposed Layout and Execution Plan. It hosts Agent Sessions and can retain conversation history when configured.
 _Avoid_: brain, orchestrator (that names a client-side module)
 
 **Planner**:
-The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons, and available history.
+The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons such as a Screen Change's goal and Referents, and available history.
 _Avoid_: engine (that names the component that coordinates and validates planning)
+
+**Agent Session**:
+A per-user conversation, hosted by the Engine, in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Planner, it holds state.
+_Avoid_: runtime, brain, orchestrator, harness
+
+**Agent Run**:
+One pass of an Agent Session's loop pursuing the user's goals, from the input that starts it to its finish. Interruptions can amend its goals or add to them mid-run. An Agent Session holds many Agent Runs.
+_Avoid_: run (unqualified), request, turn
+
+**Interruption**:
+Input from the user that arrives while an Agent Run is in progress. It amends the run, adds an independent goal to it, answers its open question, or supersedes it.
+_Avoid_: barge-in (that is speech playback being cut, not an Agent Run)
+
+**Atomic Step**:
+A step of an Agent Run that an Interruption never cuts mid-way, such as a tool call with side effects or a UI change being applied. An Interruption takes effect only when no Atomic Step is in flight.
+
+**Tool**:
+A capability the Agent Session's loop model can call during an Agent Run. A Tool is either a Server Tool or a Client Tool. The model sees one list of Tools and never knows where a Tool runs.
+
+**Server Tool**:
+A Tool the app developer defines that runs where the Agent Session runs. Server Tools reach the app's backend data.
+
+**Client Tool**:
+A Tool that runs in the user's browser. Only the framework defines Client Tools: asking the user (ask_user) and the Vessel Queries.
+_Avoid_: frontend tool
+
+**Vessel Query**:
+A read-only request a Vessel declares alongside its Actions, answered from the Vessel's current state in the browser. Each Vessel Query becomes a Client Tool.
+
+**Screen Change**:
+A request from an Agent Run's loop model to change what is on screen. The loop states a goal and its Referents and never names Vessels or Actions, because the Planner decides those. The loop normally waits for the result before it continues.
+_Avoid_: show, UI update
+
+**Ambient**:
+A mode of a Screen Change that the loop does not wait for. Its outcome reaches the loop later as a Screen Note.
+
+**Screen Note**:
+An outcome of a Screen Change that reaches the loop later instead of as a tool result. It covers Ambient Screen Changes and outcomes that arrive late or after cancellation.
+
+**Referents**:
+Exact values the loop already knows, such as ids and quantities, passed to the Planner with a goal so it never has to guess them.
 
 **Execution Plan**:
 The ordered list of Actions the client runs after applying an accepted Layout.
