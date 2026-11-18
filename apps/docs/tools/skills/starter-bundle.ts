@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { zipSync } from 'fflate';
 
@@ -46,6 +46,16 @@ export async function createReactStarter(
   );
   return zipSync({
     ...Object.fromEntries(entries),
+    'scripts/audit-dependencies.ts': new Uint8Array(
+      await readFile(
+        join(dirname(licensePath), 'scripts/audit-dependencies.ts'),
+      ),
+    ),
+    'patches/picomatch@4.0.7.patch': new Uint8Array(
+      await readFile(
+        join(dirname(licensePath), 'patches/picomatch@4.0.7.patch'),
+      ),
+    ),
     LICENSE: new Uint8Array(await readFile(licensePath)),
   });
 }

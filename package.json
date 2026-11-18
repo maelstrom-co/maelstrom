@@ -283,6 +283,10 @@
     "@effect/platform-node-shared": "4.1.0"
   },
   "patchedDependencies": {
+    "picomatch@2.3.2": "patches/picomatch@2.3.2.patch",
+    "picomatch@4.0.4": "patches/picomatch@4.0.4.patch",
+    "picomatch@4.0.5": "patches/picomatch@4.0.5.patch",
+    "picomatch@4.0.7": "patches/picomatch@4.0.7.patch",
     "typedoc@0.28.20": "patches/typedoc@0.28.20.patch",
     "nx@24.0.2": "patches/nx@24.0.2.patch",
     "@verdaccio/core@8.2.1": "patches/@verdaccio%2Fcore@8.2.1.patch",

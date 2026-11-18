@@ -425,7 +425,7 @@ That check is a backstop, not a replacement for protected tags — it constrains
 SDK release notes to `.github/releases/vVERSION.md`. It does not stage files,
 commit, tag, push, create a GitHub release, or publish packages.
 
-CI and release builds audit the complete lockfile.
+CI and release builds audit the complete lockfile through `bun scripts/audit-dependencies.ts`.
 [Temporary audit exceptions](docs/dependency-audit-exceptions.md) record the
 affected paths and review dates.
 

@@ -136,6 +136,7 @@
           "production",
           "^production",
           "{projectRoot}/starters/**/*",
+          "{workspaceRoot}/scripts/audit-dependencies.ts",
           "{workspaceRoot}/LICENSE"
         ]
       },
@@ -225,6 +226,7 @@
           "{workspaceRoot}/docs/architecture.md",
           "^default",
           "toolchain",
+          "{workspaceRoot}/scripts/audit-dependencies.ts",
           "{workspaceRoot}/LICENSE",
           "{workspaceRoot}/.oxlintrc.json",
           "{workspaceRoot}/packages/evals/cases/**/*"

@@ -17,7 +17,7 @@ try {
   }
   for (const args of [
     ['install', '--frozen-lockfile', '--ignore-scripts'],
-    ['audit'],
+    ['scripts/audit-dependencies.ts'],
     ['run', 'lint'],
     ['run', 'format:check'],
     ['run', 'typecheck'],

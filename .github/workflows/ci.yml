@@ -68,7 +68,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -Eq '(^|/)(package\.json|bun\.lock)$'; then
+          git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/audit-paths"
+          if grep -Eq '(^|/)(package\.json|bun\.lock)$|^patches/|^scripts/audit-dependencies\.ts$' "$RUNNER_TEMP/audit-paths"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -76,7 +77,7 @@ jobs:
 
       - name: Audit dependency advisories
         if: github.event_name != 'pull_request' || steps.dependency-changes.outputs.changed == 'true'
-        run: bun audit
+        run: bun scripts/audit-dependencies.ts
 
       - name: Validate canonical prompt sources and versions
         if: github.event_name == 'pull_request'

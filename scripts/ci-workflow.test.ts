@@ -168,7 +168,9 @@ test('pull requests audit dependencies only when they change a manifest or the l
   const workflow = await readCi();
   const steps = workflow.jobs.verify!.steps;
   const detect = steps.find((step) => step.id === 'dependency-changes');
-  const audit = steps.find((step) => step.run === 'bun audit');
+  const audit = steps.find(
+    (step) => step.run === 'bun scripts/audit-dependencies.ts',
+  );
   expect(detect?.if).toBe(`github.event_name == 'pull_request'`);
   expect(audit?.if).toBe(
     `github.event_name != 'pull_request' || steps.dependency-changes.outputs.changed == 'true'`,
@@ -178,6 +180,8 @@ test('pull requests audit dependencies only when they change a manifest or the l
   if (!pattern) throw new Error('Missing dependency path pattern');
   const matches = (path: string) => new RegExp(pattern).test(path);
   expect(matches('bun.lock')).toBe(true);
+  expect(matches('patches/picomatch@4.0.7.patch')).toBe(true);
+  expect(matches('scripts/audit-dependencies.ts')).toBe(true);
   expect(matches('package.json')).toBe(true);
   expect(matches('apps/www/package.json')).toBe(true);
   expect(matches('packages/client/src/index.ts')).toBe(false);

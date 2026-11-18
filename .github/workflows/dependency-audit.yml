@@ -30,7 +30,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          bun audit 2>&1 | tee audit-report.txt
+          bun scripts/audit-dependencies.ts 2>&1 | tee audit-report.txt
 
       # One open issue collects every failing day, so a new advisory is
       # reported once instead of on each pull request.

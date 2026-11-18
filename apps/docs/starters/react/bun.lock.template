@@ -26,6 +26,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "picomatch@4.0.7": "patches/picomatch@4.0.7.patch",
+  },
   "packages": {
     "@ag-ui/core": ["@ag-ui/core@1.0.0", "", { "peerDependencies": { "zod": "^3.25.18 || ^4.0.0" }, "optionalPeers": ["zod"] }, "sha512-yCRhsQvb4+lmGMrDsi4TOJxqKpm/kb3H64wwL+Z90jNVrkhy17RErfzsNgybfbjNKLM0nenEDYDVJsZHJJSigQ=="],
 

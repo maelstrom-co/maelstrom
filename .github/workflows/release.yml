@@ -161,7 +161,7 @@ jobs:
         run: bun scripts/assert-registry-metadata.ts
 
       - name: Audit dependency advisories
-        run: bun audit
+        run: bun scripts/audit-dependencies.ts
 
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
