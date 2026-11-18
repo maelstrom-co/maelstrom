@@ -29,11 +29,11 @@ A tiling split whose positive integer weights define child regions and their rel
 _Avoid_: ratio node, proportional split, n-ary split
 
 **Engine**:
-The component that coordinates planning and validates a Planner's proposed Layout and Execution Plan. It can retain conversation history when configured.
+The component that coordinates planning and validates a Planner's proposed Layout and Execution Plan. It hosts Agent Sessions and can retain conversation history when configured.
 _Avoid_: brain, orchestrator (that names a client-side module)
 
 **Planner**:
-The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons, and available history.
+The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons such as a Screen Change's goal and Referents, and available history.
 _Avoid_: engine (that names the component that coordinates and validates planning)
 
 **Agent Session**:
