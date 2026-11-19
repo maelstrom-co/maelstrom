@@ -53,10 +53,14 @@ const methods = [
   >
     <h3 id="setup-prompt-heading">Build with your coding agent</h3>
     <p>
-      Paste the prompt into your coding agent. It asks what you want to build
-      and whether this is a new or existing app.
+      Paste the prompt into your coding agent. It instructs the agent to ask
+      what you want to build and whether this is a new or existing app, unless
+      that is already clear.
     </p>
-    <p class="setup-hint">Review the plan before making changes.</p>
+    <p class="setup-hint">
+      The prompt instructs the agent to plan first. Review the plan before it
+      makes changes.
+    </p>
     <div class="setup-copy-row">
       <CopyButton
         text={prompt}
@@ -102,9 +106,15 @@ const methods = [
   >
     <h3 id="setup-starter-heading">Run a working React app</h3>
     <p>
-      The starter includes a React workspace and a local Engine. Rearrange tasks
-      and notes, edit the note, and run an add-task action without a model API
-      key.
+      The starter includes a React workspace and a local Engine with a
+      deterministic planner. It answers a set of predefined requests with no
+      model call. Rearrange tasks and notes, edit the note, and run an add-task
+      action without a model API key.
+    </p>
+    <p class="setup-hint">
+      The starter takes text intents. Voice needs the optional voice
+      integration, <code class="inline-code">@maelstrom-co/react-realtime</code>
+      .
     </p>
     <a class="setup-download" href={reactStarterRepository}>
       Open React starter on GitHub
