@@ -37,7 +37,11 @@ export function distTagForVersion(version: string): string {
   if (dashIndex === -1) return 'latest';
   const preid = core.slice(dashIndex + 1);
   const identifier = preid.split('.')[0];
-  if (!identifier || !DIST_TAG_PATTERN.test(identifier)) {
+  if (
+    !identifier ||
+    identifier === 'latest' ||
+    !DIST_TAG_PATTERN.test(identifier)
+  ) {
     throw new ReleaseTargetError(
       `Cannot derive a usable dist-tag from prerelease version "${version}"`,
     );

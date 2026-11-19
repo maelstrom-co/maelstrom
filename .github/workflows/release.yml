@@ -313,3 +313,14 @@ jobs:
           --version "$VERSION"
           --manifest "$TARBALL_DIR/packed.json"
           --registry "$RELEASE_REGISTRY"
+
+  refresh-released-docs:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.dist_tag == 'latest'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/context7-refresh.yml
+    with:
+      verified_version: ${{ needs.prepare.outputs.version }}
+    secrets:
+      CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
