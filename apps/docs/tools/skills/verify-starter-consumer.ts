@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import { runConsumerCommand } from './consumer-command';
 import { createPublicDistributions } from './distribution';
 
 const revision = process.argv[2];
@@ -25,13 +26,7 @@ try {
     ['run', 'build'],
     ['run', 'e2e'],
   ]) {
-    const child = Bun.spawn([process.execPath, ...args], {
-      cwd: directory,
-      stdout: 'inherit',
-      stderr: 'inherit',
-    });
-    if ((await child.exited) !== 0)
-      throw new Error(`Standalone starter failed: bun ${args.join(' ')}`);
+    await runConsumerCommand(directory, args);
   }
   for (const [name, expected] of Object.entries(starter)) {
     const actual = new Uint8Array(

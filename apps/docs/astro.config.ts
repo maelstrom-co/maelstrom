@@ -9,9 +9,15 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 
 import {
+  docsRevision,
+  docsSourceRef,
+  sdkVersions,
+} from './src/lib/docs-build-info';
+import {
   createGitHubSourceLinkTemplate,
   resolveDocsSourceRef,
 } from './src/lib/docs-source-links.js';
+import { llmDocs } from './src/lib/llm-docs-integration';
 
 const [devtoolsTypeDoc, devtoolsTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -91,8 +97,10 @@ const multiEntryTypeDocOptions = {
 // that to the project directory. So the pages had always shipped, and nothing
 // was broken until the resolution was corrected.
 
+const docsSite = process.env.DOCS_SITE_URL ?? 'https://docs.maelstrom-ai.co';
+
 export default defineConfig({
-  site: 'https://docs.maelstrom-ai.co',
+  site: docsSite,
   output: 'static',
   // Pinned to Astro 6's behaviour — see the matching note in apps/www. Markdown
   // is immune to the 'jsx' rule, but the architecture page is hand-authored HTML
@@ -107,6 +115,7 @@ export default defineConfig({
     },
   },
   integrations: [
+    llmDocs(),
     mermaid({
       autoTheme: true,
     }),
@@ -141,6 +150,15 @@ export default defineConfig({
           description:
             'Maelstrom is an open-source framework for building intent-driven apps. Users express goals through voice or text. Maelstrom coordinates developer-defined Vessels, their Actions, and the Chart layout to help users complete tasks.',
           details: `
+## Choose context for your task
+- Start a project or plan an integration with [Build with an agent](${docsSite}/agents/skills/).
+- Use [standalone prompts](${docsSite}/agents/prompts/) for a single task without installing skills.
+- Run the [React starter](${docsSite}/getting-started/starter/) to check the local client-to-Engine path without a provider key.
+- Inspect [SDK guide coverage](https://github.com/maelstrom-co/maelstrom/blob/${docsSourceRef}/apps/docs/skills/README.md#sdk-guide-coverage) before loading an installed package guide.
+- Prefer the Getting Started set or one page over the complete API corpus. Each HTML page links to a Markdown sibling: replace its trailing slash with .md.
+- This documentation follows source revision ${docsRevision}. Core SDK manifests: ${sdkVersions}. The installed package manifest and exported API are the authority for your application; main can contain unreleased changes.
+- The abridged corpus contains complete Getting Started pages, with a 48,000-byte build budget. Use the focused sets below for other topics.
+
 ## Key Concepts
 - **Vessels**: State machines representing UI components with variants and actions
 - **Chart**: Layout surface in one of two modes — tiling (default: a preorder H/V split tree) or grid (integer cell coordinates)
@@ -168,7 +186,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           optionalLinks: [
             {
               label: 'Architecture Overview',
-              url: 'https://docs.maelstrom-ai.co/understanding/architecture/',
+              url: `${docsSite}/understanding/architecture/`,
               description:
                 'Interactive walkthrough of the browser, protocol, and Engine request loop, the layout-before-actions order, and optional DevTools evidence paths.',
             },
@@ -204,6 +222,15 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             'getting-started/core-concepts',
           ],
           demote: ['community/changelog'],
+          exclude: ['!getting-started/**'],
+          minify: {
+            note: false,
+            tip: false,
+            caution: false,
+            danger: false,
+            details: false,
+            whitespace: false,
+          },
         }),
         telemetryTypeDoc({
           entryPoints: [

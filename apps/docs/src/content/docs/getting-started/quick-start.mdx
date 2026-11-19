@@ -93,11 +93,11 @@ existing React app and a running Engine.
          },
        },
      }),
-     Greeting,
+     ({ variantProps }) => <Greeting message={variantProps.message} />,
    );
    ```
 
-   `defineVessel(...)` declares the framework-agnostic state machine; `vessel(...)` pairs that definition with a React component.
+   `defineVessel(...)` declares the framework-agnostic state machine. `vessel(...)` supplies the active Variant through `variantProps`; the adapter passes its `message` to the existing React component.
 
 4. ## Wire the Provider
 

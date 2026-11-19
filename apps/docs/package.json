@@ -123,6 +123,9 @@
             ]
           },
           {
+            "env": "DOCS_SITE_URL"
+          },
+          {
             "env": "DOCS_SOURCE_REF"
           },
           {

@@ -2,6 +2,8 @@
 import { Font } from 'astro:assets';
 import { ClientRouter } from 'astro:transitions';
 
+import { docsRevision, sdkVersions } from '../lib/docs-build-info';
+import { markdownPath } from '../lib/markdown-path';
 import PostHog from './PostHog.astro';
 
 const { head } = Astro.locals.starlightRoute;
@@ -10,6 +12,22 @@ const { head } = Astro.locals.starlightRoute;
 {head.map(({ tag: Tag, attrs, content }) => (
   <Tag {...attrs} set:html={content} />
 ))}
+{(Astro.response.status ?? 200) < 400 && Astro.url.pathname !== '/404.html' && (
+  <link
+    rel="alternate"
+    type="text/markdown"
+    href={markdownPath(Astro.url.pathname)}
+    title="Markdown"
+  />
+)}
+<link
+  rel="alternate"
+  type="text/plain"
+  href="/llms.txt"
+  title="LLM documentation index"
+/>
+<meta name="maelstrom-docs-revision" content={docsRevision} />
+<meta name="maelstrom-sdk-versions" content={sdkVersions} />
 {/* Runs before first paint so focus mode never flashes open. Inline scripts
     cannot import, so the key and attribute are repeated here; a unit test in
     sidebar-collapse.test.ts fails if they drift. */}
