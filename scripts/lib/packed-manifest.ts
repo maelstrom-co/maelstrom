@@ -8,6 +8,9 @@ import { gunzipSync } from 'node:zlib';
  * deliberately independent of both artifact metadata and workspace discovery.
  */
 export const PACKED_PACKAGE_NAMES = Object.freeze([
+  '@maelstrom-co/agui',
+  '@maelstrom-co/agui-protocol',
+  '@maelstrom-co/agui-server',
   '@maelstrom-co/client',
   '@maelstrom-co/connectors',
   '@maelstrom-co/devtools',
