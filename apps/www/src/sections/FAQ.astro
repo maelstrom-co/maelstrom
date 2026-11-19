@@ -1,4 +1,6 @@
 ---
+import { MAELSTROM_PACKAGE_VERSION } from '../data/package-version';
+
 const FAQS = [
   {
     q: 'Does Maelstrom replace my UI components?',
@@ -6,7 +8,7 @@ const FAQS = [
   },
   {
     q: 'What do I need to get started?',
-    a: 'The React starter needs Bun and runs locally without a provider key. It uses a deterministic planner to verify the integration. For a live model, configure a server-side planner and any credentials your provider requires.',
+    a: 'The React starter needs Bun and runs locally without a provider key. Its deterministic planner answers predefined requests with no model call, which verifies the local Engine and client integration. It does not test live model behavior. For a live model, configure a server-side planner and any credentials your provider requires.',
   },
   {
     q: 'Which frameworks can I use?',
@@ -18,7 +20,7 @@ const FAQS = [
   },
   {
     q: 'How stable is the API?',
-    a: 'The first public release is 0.1.0. The API is still in the 0.x series and may change in later releases. Use the same version for all Maelstrom packages and read the release notes before upgrading.',
+    a: `Current packages: ${MAELSTROM_PACKAGE_VERSION}, still 0.x and subject to change. Use the same version for all Maelstrom packages and read the release notes before upgrading.`,
   },
   {
     q: 'What is the license?',
