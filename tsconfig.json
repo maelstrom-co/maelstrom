@@ -83,6 +83,15 @@
     },
     {
       "path": "./packages/devtools-mcp-server"
+    },
+    {
+      "path": "./packages/agui-protocol"
+    },
+    {
+      "path": "./packages/agui-server"
+    },
+    {
+      "path": "./packages/agui"
     }
   ],
   "compilerOptions": {}

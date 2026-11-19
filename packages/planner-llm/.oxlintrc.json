@@ -5,6 +5,11 @@
       "error",
       {
         "paths": [
+          { "name": "@maelstrom-co/demo-vessels" },
+          {
+            "name": "@maelstrom-co/agui",
+            "message": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+          },
           {
             "name": "@maelstrom-co/client",
             "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
@@ -54,6 +59,8 @@
         "patterns": [
           {
             "group": [
+              "@maelstrom-co/demo-vessels/**",
+              "@maelstrom-co/agui/**",
               "@maelstrom-co/client/**",
               "@maelstrom-co/react/**",
               "@maelstrom-co/react-realtime/**",
@@ -79,6 +86,11 @@
           "error",
           {
             "paths": [
+              { "name": "@maelstrom-co/demo-vessels" },
+              {
+                "name": "@maelstrom-co/agui",
+                "message": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+              },
               {
                 "name": "@maelstrom-co/client",
                 "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
@@ -123,6 +135,8 @@
             "patterns": [
               {
                 "group": [
+                  "@maelstrom-co/demo-vessels/**",
+                  "@maelstrom-co/agui/**",
                   "@maelstrom-co/client/**",
                   "@maelstrom-co/react/**",
                   "@maelstrom-co/react-realtime/**",

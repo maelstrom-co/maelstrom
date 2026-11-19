@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -125,6 +126,8 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
  * reach the browser.
  */
 const BROWSER_PACKAGES = new Set([
+  '@maelstrom-co/agui',
+  '@maelstrom-co/demo-vessels',
   '@maelstrom-co/client',
   '@maelstrom-co/devtools',
   '@maelstrom-co/react-devtools',
@@ -148,6 +151,7 @@ const BROWSER_PACKAGES = new Set([
 function classify(name: string): Layer {
   if (
     name === '@maelstrom-co/protocol' ||
+    name === '@maelstrom-co/agui-protocol' ||
     name === '@maelstrom-co/realtime-protocol' ||
     name === '@maelstrom-co/devtools-protocol' ||
     name === '@maelstrom-co/telemetry' ||
@@ -533,6 +537,14 @@ function resolveWorkspaceImport(
 describe('package layering — Node-only code must stay unreachable from "."', () => {
   const forbiddenRootEdges = [
     {
+      origin: '@maelstrom-co/agui',
+      destination: '@maelstrom-co/agui-server',
+    },
+    {
+      origin: '@maelstrom-co/agui-protocol',
+      destination: '@maelstrom-co/agui-server',
+    },
+    {
       origin: '@maelstrom-co/realtime-openai',
       destination: '@maelstrom-co/realtime-openai-server',
     },
@@ -744,6 +756,69 @@ function browserImportSpecifiers(): string[] {
 }
 
 describe('server and worker lint import boundaries', () => {
+  for (const [name, filename] of [
+    ['planner-jev', 'src/lib/llm-call.ts'],
+    ['planner-llm', 'src/lib/call-llm.ts'],
+  ] as const) {
+    test(`${name} keeps browser imports forbidden inside its model-call override`, () => {
+      const directory = join(repoRoot, 'packages', name);
+      const config = JSON.parse(
+        readFileSync(join(directory, '.oxlintrc.json'), 'utf8'),
+      ) as { extends: string[] };
+      const knownSpecifiers = browserImportSpecifiers();
+      const specifiers = [
+        ...knownSpecifiers,
+        ...knownSpecifiers
+          .filter((specifier) => specifier.split('/').length === 2)
+          .map((root) => `${root}/__boundary_probe__/nested`),
+      ];
+      const scratch = mkdtempSync(
+        join(tmpdir(), 'maelstrom-override-boundary-'),
+      );
+      try {
+        const configPath = join(scratch, '.oxlintrc.json');
+        writeFileSync(
+          configPath,
+          JSON.stringify({
+            ...config,
+            extends: config.extends.map((path) => resolve(directory, path)),
+          }),
+        );
+        const fixture = join(scratch, filename);
+        mkdirSync(dirname(fixture), { recursive: true });
+        writeFileSync(
+          fixture,
+          specifiers
+            .map((specifier) => `import ${JSON.stringify(specifier)};`)
+            .join('\n'),
+        );
+        const command = [
+          process.execPath,
+          join(repoRoot, 'node_modules/oxlint/bin/oxlint'),
+          '--config',
+          configPath,
+          '--format',
+          'json',
+          fixture,
+        ];
+        const run = Bun.spawnSync(command, { cwd: scratch });
+        expect(run.exitCode).toBe(1);
+        const report = JSON.parse(run.stdout.toString()) as {
+          diagnostics: { code: string }[];
+        };
+        expect(
+          report.diagnostics.filter((item) =>
+            item.code.includes('no-restricted-imports'),
+          ),
+        ).toHaveLength(specifiers.length);
+        writeFileSync(fixture, "import '@tanstack/ai';\n");
+        expect(Bun.spawnSync(command, { cwd: scratch }).exitCode).toBe(0);
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    });
+  }
+
   for (const pkg of packages) {
     const layer = classify(pkg.name);
     if (layer !== 'server' && layer !== 'worker') continue;
