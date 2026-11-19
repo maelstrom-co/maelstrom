@@ -90,7 +90,11 @@ test('platform beta.85 cannot authorize a separately installed beta.83 app calle
   }
 });
 
-for (const stale of ['infra/platform', 'apps/demo'] as const) {
+for (const stale of [
+  'infra/platform',
+  'apps/demo',
+  'apps/agui-demo',
+] as const) {
   test(`refuses mixed imports before a deployment can leave its state lookup broken (${stale})`, async () => {
     const root = await mkdtemp('/tmp/alchemy-cross-project-');
     try {
@@ -126,6 +130,16 @@ test('an older beta.85 revision cannot use the default store after preview cutov
     );
     await writeFile(
       join(root, 'package.json'),
+      JSON.stringify({ maelstromPreviewStateStore: worker }),
+    );
+    // The root marker predates the AG-UI preview and cannot vouch for it.
+    await mkdir(join(root, 'apps/agui-demo'), { recursive: true });
+    await writeFile(join(root, 'apps/agui-demo/package.json'), '{}');
+    expect(() => assertPreviewStateStore(root, worker)).toThrow(
+      'CAPABILITY_REQUIRED',
+    );
+    await writeFile(
+      join(root, 'apps/agui-demo/package.json'),
       JSON.stringify({ maelstromPreviewStateStore: worker }),
     );
     expect(() => assertPreviewStateStore(root, worker)).not.toThrow();

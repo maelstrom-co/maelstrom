@@ -85,6 +85,7 @@ test('the starter consumer check in e2e stays gated on docs', async () => {
 test.each([
   ['pull_request', ['@maelstrom-co/docs'], true],
   ['pull_request', ['@maelstrom-co/agui-workspace-poc'], true],
+  ['pull_request', ['@maelstrom-co/agui-demo'], true],
   ['pull_request', ['@maelstrom-co/protocol'], false],
   ['pull_request', [], false],
   ['push', [], true],

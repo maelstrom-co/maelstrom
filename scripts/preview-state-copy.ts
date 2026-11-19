@@ -206,7 +206,7 @@ function workerStages(manifest: PreviewCopyManifest) {
       const match = name.match(
         new RegExp(`^${entry.workerPrefix}(-alchemy)?-(pr-[1-9]\\d*)$`),
       );
-      if (!match?.[2]) continue;
+      if (!match?.[2] || (!match[1] && !entry.legacy)) continue;
       result.get(entry.stack)?.add(match[2]);
       if (match[1]) current.set(`${entry.stack}/${match[2]}`, name);
       else legacy++;
