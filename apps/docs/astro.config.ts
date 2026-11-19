@@ -54,6 +54,11 @@ const [telemetryTypeDoc, telemetryTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [aguiTypeDoc, aguiTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
+const [aguiServerTypeDoc, aguiServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [aguiProtocolTypeDoc, aguiProtocolTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [plannerLlmTypeDoc, plannerLlmTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
@@ -224,6 +229,15 @@ const generatedApiReference: SidebarItem[] = [
   protocolTypeDocSidebarGroup,
   telemetryTypeDocSidebarGroup,
   engineTypeDocSidebarGroup,
+  {
+    label: 'AG-UI (experimental)',
+    collapsed: true,
+    items: [
+      aguiTypeDocSidebarGroup,
+      aguiServerTypeDocSidebarGroup,
+      aguiProtocolTypeDocSidebarGroup,
+    ],
+  },
   plannerLlmTypeDocSidebarGroup,
   {
     label: 'Voice',
@@ -635,6 +649,48 @@ export default defineConfig({
           tsconfig: '../../packages/engine/tsconfig.lib.json',
           output: 'dev/reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        aguiTypeDoc({
+          entryPoints: ['../../packages/agui/src/browser.ts'],
+          tsconfig: '../../packages/agui/tsconfig.lib.json',
+          output: 'dev/reference/agui',
+          sidebar: {
+            label: '@maelstrom-co/agui (experimental)',
+            collapsed: true,
+          },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        aguiServerTypeDoc({
+          entryPoints: ['../../packages/agui-server/src/server.ts'],
+          tsconfig: '../../packages/agui-server/tsconfig.lib.json',
+          output: 'dev/reference/agui-server',
+          sidebar: {
+            label: '@maelstrom-co/agui-server (experimental)',
+            collapsed: true,
+          },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        aguiProtocolTypeDoc({
+          entryPoints: ['../../packages/agui-protocol/src/contract.ts'],
+          tsconfig: '../../packages/agui-protocol/tsconfig.lib.json',
+          output: 'dev/reference/agui-protocol',
+          sidebar: {
+            label: '@maelstrom-co/agui-protocol (experimental)',
+            collapsed: true,
+          },
           typeDoc: {
             excludeInternal: true,
             basePath: repoRoot,

@@ -1,0 +1,57 @@
+{
+  "engine": "phonon",
+  "clips": [
+    {
+      "id": "architecture",
+      "text": "The experiment adds this host beside Maelstrom's existing engine. TanStack runs the agent. The engine checks proposed workspace changes. Across the HTTP boundary, the browser applies those changes through its orchestrator and React Chart. The application still owns the record. All the new integration code lives in one private app. We haven't changed the published packages."
+    },
+    {
+      "id": "planner",
+      "text": "Start with the proposed layout. It names the Notes vessel, the list variant, and one instance. The execution plan targets that same instance with create. Planner passes this proposal through the real engine, using the registered vessel catalog. If validation drops the required action, the fixture refuses the response. A scripted model makes the choices repeatable."
+    },
+    {
+      "id": "wire",
+      "text": "Run one sends an apply workspace tool call over server sent events. Arguments arrive before the call ends. The consumer waits for both the completed arguments and the successful run terminal before dispatching anything. This matters on disconnect: a partial JSON argument must never become a workspace action. The protocol schemas check every event we receive."
+    },
+    {
+      "id": "mount",
+      "text": "These lines are existing Maelstrom code. Set layout enters the batch first. Execute actions follows it. The layout creates the Notes instance, and React mounts its component. The use actions hook registers the component's handlers. That lets create run against an instance introduced by the very same response. The browser test exercises that mount, rather than registering a headless substitute."
+    },
+    {
+      "id": "settlement",
+      "text": "Workspace subscribes to action completion before pushing the response. Then it waits for the command processor to become idle. The acknowledgment contains each action's outcome and a structural snapshot. Create returns success, but its action result contains no record identifier. That's why the next step needs an explicit application read. Layout settlement alone can't answer that business question."
+    },
+    {
+      "id": "correlation",
+      "text": "Back in Host, the acknowledgment has to match the pending call. These checks compare its call identifier, request identifier, and revision. The action list must also match the original plan. A delayed handler keeps the parent waiting. A stale acknowledgment gets rejected. If the reported outcome is unknown, the parent stops. It doesn't try create again and risk a duplicate."
+    },
+    {
+      "id": "child",
+      "text": "The new experiment uses a native TanStack subagent. I put approval on the read so we can pause between the two workspace changes and inspect the state. Needs approval stops execution before the read touches storage. When it resumes, the child forwards its context into chat, including its identity and resume information. We check that the identity stays the same."
+    },
+    {
+      "id": "browser",
+      "text": "This is the actual Chromium test at the pause. The record already exists. Focus is still waiting. Allow read sends a resume item for the pending interrupt, with the original conversation and parent run identifier. Deny read ends the goal without focusing. The created record remains in either case. Approval controls this next read; it does not roll back the earlier action."
+    },
+    {
+      "id": "resume",
+      "text": "Originally, Host rejected every resume field. The new mode accepts one only while an approval is pending. It compares the saved conversation and requires the exact interrupt identifier and a boolean answer. TanStack then validates the bound approval and resumes the child. A duplicate request cannot advance the run again. A fresh host rejects the old continuation because it has no saved state."
+    },
+    {
+      "id": "envelope",
+      "text": "Combining the flows exposed a wire detail. During child resumption, TanStack can emit child events before its run start. Our host now emits the outer start before draining that stream. It also collects child state with Stream Processor and serializes the final snapshot with UI messages to wire. We still buffer terminals, and we preserve the known child approval instead of translating it into success."
+    },
+    {
+      "id": "dependent",
+      "text": "After approval, the parent reads the child's actual tool result. It parses the record identifier and version, then passes them into the next engine plan. That plan emits focus through the same workspace tool. Run four reports completion after focus settles. The entire sequence still has one user goal. The extra run exists because the child paused for an answer."
+    },
+    {
+      "id": "failures",
+      "text": "The tests check more than the completed path. Denial performs zero reads. Stale or edited approval requests are rejected. We also disconnect while the approved read is waiting. The abort reaches the child, focus never runs, and replay is refused. These checks preserve the earlier create. They don't claim that cancellation can undo a business operation that already finished."
+    },
+    {
+      "id": "verdict",
+      "text": "We now have a browser proof that combines workspace actions with a child approval pause. The gain is a concrete integration path: an external agent can use Maelstrom's validation and execution rules, then continue from observed results. Model choices are still scripted. Durable restart recovery and concurrent writers need further work. The next useful experiment is reconciliation after a lost acknowledgment, without repeating the mutation."
+    }
+  ]
+}
