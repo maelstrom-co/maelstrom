@@ -17,6 +17,7 @@ test('supplies public GitHub metadata without giving application builds an ident
     env?: Record<string, string>;
     jobs: {
       deploy: {
+        strategy: { matrix: { include: Record<string, string>[] } };
         env?: Record<string, string>;
         permissions?: Record<string, string>;
         steps: {
@@ -30,6 +31,16 @@ test('supplies public GitHub metadata without giving application builds an ident
     };
   };
   const job = workflow.jobs.deploy;
+  expect(
+    job.strategy.matrix.include.find(({ app }) => app === 'agui-demo'),
+  ).toEqual({
+    app: 'agui-demo',
+    project: '@maelstrom-co/agui-demo',
+    'build-target': 'build-hosted',
+    directory: 'apps/agui-demo',
+    url: 'https://agui.maelstrom-ai.co',
+    alias: '',
+  });
   const metadataIndex = job.steps.findIndex(
     (step) => step.id === 'github-stars',
   );

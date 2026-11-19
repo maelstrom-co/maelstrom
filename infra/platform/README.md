@@ -1,7 +1,7 @@
 # Alchemy infrastructure
 
 This monorepo uses independent Alchemy stacks because the retained platform and
-the three applications have different deploy and destroy lifecycles.
+the applications have different deploy and destroy lifecycles.
 
 | Package | Stack | Current role |
 | --- | --- | --- |
@@ -9,12 +9,13 @@ the three applications have different deploy and destroy lifecycles.
 | `apps/www` | `MaelstromWww` | Owns the prebuilt Astro Worker |
 | `apps/docs` | `MaelstromDocs` | Owns the prebuilt static Astro Worker |
 | `apps/demo` | `MaelstromDemo` | Models the prebuilt hosted Worker and `SessionDO` |
+| `apps/agui-demo` | `MaelstromAgui` | Owns the AG-UI demo Worker and `WorkspaceDO` |
 
 Every package has a conventional `alchemy.run.ts` composition root. Resource
 configuration lives beside the resource under `src/` or `infra/`. Shared names
 and cross-stack references are exported by `@maelstrom-co/platform-infra`.
 
-Alchemy is authoritative for the platform, all three production applications,
+Alchemy is authoritative for the platform, all four production applications,
 and all PR previews. A direct Cloudflare API deletion remains as a safety net
 for exact known Worker names.
 
@@ -22,7 +23,8 @@ Four event-specific workflows call `scripts/preview-lifecycle.ts` for preview
 policy and mutations:
 
 - `deploy-preview.yml` records a human label approval, builds the approved
-  same-repository source without credentials, and deploys the three apps.
+  same-repository source without credentials, and deploys the website, documentation,
+  and playground. It also builds, deploys, and links AG-UI when the approved tree contains it.
 - `invalidate-preview-approval.yml` removes an approval after a source push
   only when the recorded approval still belongs to the previous SHA.
 - `teardown-preview.yml` handles label removal, closure, and default-branch
@@ -58,7 +60,9 @@ disabled. These checks preserve reviewed identities; they do not sandbox
 approved PR code. Failed replacement deployments leave the last per-application
 state intact. Fixed-name stacks have no safe explicit rollback. Remove and
 re-add the label to retry, or remove it once to request complete serialized
-teardown. A successful replacement retires only the three legacy Worker names.
+teardown. A successful replacement retires the three legacy Worker names.
+If the approved tree lacks AG-UI, replacement also destroys its prior PR stack in
+the isolated store before publishing the three links.
 
 Fallback Worker deletion runs six ordered passes with at most six concurrent
 requests per pass. Provider `Retry-After` delays are honored when the next full
@@ -479,7 +483,7 @@ Cloudflare's Worker list cannot reveal PR-only resources, detached Alchemy state
 without a remaining Worker script, or resources whose names do not match the
 strict allowlist. Scheduled reconciliation is only a bounded backstop for
 discoverable exact Workers. A targeted manual dispatch can reconcile a known PR
-number. Full teardown attempts the three trusted default-branch Alchemy stacks
+number. Full teardown attempts all four trusted default-branch Alchemy stacks
 before direct exact-name Worker cleanup, and continues independent cleanup after
 an individual failure.
 
