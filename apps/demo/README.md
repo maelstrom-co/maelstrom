@@ -17,6 +17,10 @@ Before starting, install or confirm the following:
 
 The baseline does not require microphone permission, a LiveKit server, Deepgram, or Cartesia.
 
+Typed input and native voice use the Maelstrom WebSocket connector. Application data remains in this tab's memory.
+
+AG-UI now has a [dedicated demo](../agui-demo/). The original demo's two AG-UI modes have been removed. Their [integration notes](./AGUI.md) and [Journal experiment](./EXPERIMENTAL-AGUI.md) remain as historical references.
+
 ## Start the typed demo
 
 Clone the repository from its public Git URL, then change into the clone directory:
