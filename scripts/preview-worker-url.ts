@@ -1,5 +1,5 @@
 const WORKER_NAME_PATTERN =
-  /^maelstrom-(?:www|docs|playground)-alchemy-pr-[1-9]\d*$/;
+  /^maelstrom-(?:www|docs|playground|agui)-alchemy-pr-[1-9]\d*$/;
 const WORKERS_DEV_SUFFIX_PATTERN =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.workers\.dev$/;
 

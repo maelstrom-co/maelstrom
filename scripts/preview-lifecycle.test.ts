@@ -220,6 +220,7 @@ describe('preview comment persistence', () => {
       deployedSha: SHA_A,
       demoUrl:
         'https://maelstrom-playground-alchemy-pr-42.preview.workers.dev/',
+      aguiUrl: 'https://maelstrom-agui-alchemy-pr-42.preview.workers.dev/',
       docsUrl: 'https://maelstrom-docs-alchemy-pr-42.preview.workers.dev/',
       wwwUrl: 'https://maelstrom-www-alchemy-pr-42.preview.workers.dev/',
     });
@@ -1700,6 +1701,7 @@ describe('expected account boundary', () => {
         ...baseOptions,
         app: 'demo',
         approvedSha: SHA_A,
+        hasAgui: true,
         sourceRoot: '/workspace/source',
         workersDevSuffix: 'preview.workers.dev',
       },
@@ -1746,6 +1748,7 @@ describe('expected account boundary', () => {
           accountId: 'wrong-account',
           app: 'demo',
           approvedSha: SHA_A,
+          hasAgui: true,
           sourceRoot: '/workspace/source',
           workersDevSuffix: 'preview.workers.dev',
         },
@@ -1784,7 +1787,7 @@ describe('expected account boundary', () => {
 });
 
 describe('deployPreviewApp', () => {
-  for (const app of ['demo', 'www', 'docs'] as const) {
+  for (const app of ['demo', 'agui-demo', 'www', 'docs'] as const) {
     test(`${app} validates live intent and invokes exact app metadata`, async () => {
       const state = baseState({
         comments: [
@@ -1808,6 +1811,11 @@ describe('deployPreviewApp', () => {
           stack: 'MaelstromDemoPreview',
           worker: 'maelstrom-playground-alchemy-pr-42',
         },
+        'agui-demo': {
+          directory: 'agui-demo',
+          stack: 'MaelstromAguiPreview',
+          worker: 'maelstrom-agui-alchemy-pr-42',
+        },
         docs: {
           directory: 'docs',
           stack: 'MaelstromDocsPreview',
@@ -1829,6 +1837,7 @@ describe('deployPreviewApp', () => {
           prNumber: '42',
           approvedSha: SHA_A,
           bunExecutable: '/trusted/bun',
+          hasAgui: true,
           sourceRoot: '/workspace/source',
           accountId: 'account',
           expectedAccountId: 'account',
@@ -1879,9 +1888,24 @@ describe('deployPreviewApp', () => {
       });
       expect(processes[3]!.env).not.toHaveProperty('GH_TOKEN');
       expect(processes.slice(0, 3).map(({ argv }) => argv)).toEqual([
-        ['/usr/bin/git', 'rev-parse', 'HEAD'],
-        ['/usr/bin/git', 'diff', '--quiet', 'HEAD', '--'],
-        ['/usr/bin/git', 'diff', '--cached', '--quiet', 'HEAD', '--'],
+        ['/usr/bin/git', '--no-replace-objects', 'rev-parse', 'HEAD'],
+        [
+          '/usr/bin/git',
+          '--no-replace-objects',
+          'diff',
+          '--quiet',
+          'HEAD',
+          '--',
+        ],
+        [
+          '/usr/bin/git',
+          '--no-replace-objects',
+          'diff',
+          '--cached',
+          '--quiet',
+          'HEAD',
+          '--',
+        ],
       ]);
       expect(output).toEqual([
         `deployment-url=https://${expected.worker}.${suffix}/`,
@@ -1908,6 +1932,7 @@ describe('deployPreviewApp', () => {
           prNumber: '42',
           approvedSha: SHA_A,
           bunExecutable: '/trusted/bun',
+          hasAgui: true,
           sourceRoot: '/source',
           accountId: 'account',
           expectedAccountId: 'account',
@@ -1951,6 +1976,7 @@ describe('deployPreviewApp', () => {
             prNumber: '42',
             approvedSha: SHA_A,
             bunExecutable: '/trusted/bun',
+            hasAgui: true,
             sourceRoot: '/source',
             accountId: 'account',
             expectedAccountId: 'account',
@@ -1991,6 +2017,7 @@ describe('deployPreviewApp', () => {
             prNumber: '42',
             approvedSha: SHA_A,
             bunExecutable,
+            hasAgui: true,
             sourceRoot: '/source',
             accountId: 'account',
             expectedAccountId: 'account',
@@ -2009,7 +2036,7 @@ describe('deployPreviewApp', () => {
     }
   });
 
-  test('deploys www and docs before legacy cleanup and publication', async () => {
+  test('deploys www, docs, and AG-UI before legacy cleanup and publication', async () => {
     const state = baseState({
       comments: [
         {
@@ -2029,6 +2056,7 @@ describe('deployPreviewApp', () => {
         prNumber: '42',
         approvedSha: SHA_A,
         bunExecutable: '/trusted/bun',
+        hasAgui: true,
         sourceRoot: '/source',
         accountId: 'account',
         expectedAccountId: 'account',
@@ -2044,7 +2072,9 @@ describe('deployPreviewApp', () => {
             return { stdout: `${SHA_A}\n` };
           }
           if (options.argv.includes('get')) {
-            const app = options.cwd.endsWith('/www') ? 'www' : 'docs';
+            const app = options.cwd.endsWith('/agui-demo')
+              ? 'agui'
+              : options.cwd.split('/').at(-1);
             return {
               stdout: JSON.stringify({
                 attr: {
@@ -2075,7 +2105,11 @@ describe('deployPreviewApp', () => {
       processes
         .filter(({ argv }) => argv.includes('deploy'))
         .map(({ cwd }) => cwd),
-    ).toEqual(['/source/apps/www', '/source/apps/docs']);
+    ).toEqual([
+      '/source/apps/www',
+      '/source/apps/docs',
+      '/source/apps/agui-demo',
+    ]);
     expect(parsePreviewComment(state.comments[0]!.body)).toEqual({
       approvedSha: SHA_A,
       deployedSha: SHA_A,
@@ -2083,7 +2117,208 @@ describe('deployPreviewApp', () => {
     expect(headlineLines(state.comments[0]!.body)).toEqual([
       `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
     ]);
+    expect(state.comments[0]!.body).toContain(
+      '| AG-UI demo | https://maelstrom-agui-alchemy-pr-42.preview.workers.dev/ |',
+    );
   });
+
+  for (const failure of ['deploy', 'url', 'revoked'] as const) {
+    test(`AG-UI ${failure} failure preserves the previous deployment marker and skips cleanup`, async () => {
+      const previous = markerBody(SHA_A, SHA_B);
+      const state = baseState({
+        comments: [
+          {
+            id: 1,
+            body: previous,
+            user: { login: BOT_LOGIN, type: 'Bot' },
+          },
+        ],
+      });
+      const deployed: string[] = [];
+      let cleanup = false;
+      await expect(
+        finishPreviewDeployment(
+          {
+            repository: REPOSITORY,
+            prNumber: '42',
+            approvedSha: SHA_A,
+            bunExecutable: '/trusted/bun',
+            hasAgui: true,
+            sourceRoot: '/source',
+            accountId: 'account',
+            expectedAccountId: 'account',
+            apiToken: 'secret',
+            workersDevSuffix: 'preview.workers.dev',
+            demoUrl:
+              'https://maelstrom-playground-alchemy-pr-42.preview.workers.dev/',
+          },
+          dependencies(githubFetch(state, []), {
+            runProcess: async ({ argv, cwd }) => {
+              if (argv.includes('rev-parse')) return { stdout: `${SHA_A}\n` };
+              const app = cwd.endsWith('/agui-demo')
+                ? 'agui'
+                : cwd.split('/').at(-1);
+              if (argv.includes('deploy')) {
+                deployed.push(app!);
+                if (app === 'agui' && failure === 'deploy')
+                  throw new Error('AG-UI deploy failed');
+              }
+              if (argv.includes('get')) {
+                if (app === 'docs' && failure === 'revoked')
+                  state.labeled = false;
+                return {
+                  stdout: JSON.stringify({
+                    attr: {
+                      url: `https://maelstrom-${app === 'agui' && failure === 'url' ? 'playground' : app}-alchemy-pr-42.preview.workers.dev/`,
+                    },
+                  }),
+                };
+              }
+              return { stdout: '' };
+            },
+            deleteWorkers: async () => {
+              cleanup = true;
+              return true;
+            },
+          }),
+        ),
+      ).rejects.toThrow(
+        failure === 'deploy'
+          ? 'AG-UI deploy failed'
+          : failure === 'url'
+            ? 'must be exactly'
+            : 'approval is no longer current',
+      );
+      expect(deployed).toEqual(
+        failure === 'revoked' ? ['www', 'docs'] : ['www', 'docs', 'agui'],
+      );
+      expect(cleanup).toBeFalse();
+      expect(state.comments[0]!.body).toBe(previous);
+    });
+  }
+
+  test.each([
+    ['first deployment', false, false],
+    ['previous AG-UI deployment', true, false],
+    ['failed retirement', true, true],
+  ] as const)(
+    'app-less revision publishes only when retirement succeeds: %s',
+    async (_, deployedBefore, failDestroy) => {
+      const sourceRoot = await mkdtemp('/tmp/app-less-preview-');
+      const previous = deployedBefore
+        ? markerBody(SHA_A, SHA_B) + '\n| AG-UI demo | old URL |'
+        : markerBody(SHA_A);
+      const state = baseState({
+        comments: [
+          { id: 1, body: previous, user: { login: BOT_LOGIN, type: 'Bot' } },
+        ],
+      });
+      const mutations: string[] = [];
+      const previousVersion = process.env.ALCHEMY_REQUIRED_VERSION;
+      const previousStore = process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER;
+      try {
+        const version = '2.0.0-beta.85';
+        const worker = 'alchemy-state-store-maelstrom-oss-preview';
+        process.env.ALCHEMY_REQUIRED_VERSION = version;
+        process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER = worker;
+        await writeFile(
+          join(sourceRoot, 'package.json'),
+          JSON.stringify({ maelstromPreviewStateStore: worker }),
+        );
+        for (const project of [
+          'apps/demo',
+          'apps/docs',
+          'apps/www',
+          'infra/platform',
+        ]) {
+          for (const name of ['alchemy', '@alchemy.run/cloudflare']) {
+            const path = join(sourceRoot, project, 'node_modules', name);
+            await mkdir(path, { recursive: true });
+            await writeFile(
+              join(path, 'package.json'),
+              JSON.stringify({ version }),
+            );
+          }
+        }
+        // An untracked directory after the build is not an approved caller.
+        await mkdir(join(sourceRoot, 'apps/agui-demo'));
+        const run = finishPreviewDeployment(
+          {
+            repository: REPOSITORY,
+            prNumber: '42',
+            approvedSha: SHA_A,
+            hasAgui: false,
+            bunExecutable: '/trusted/bun',
+            sourceRoot,
+            accountId: 'account',
+            expectedAccountId: 'account',
+            apiToken: 'secret',
+            workersDevSuffix: 'preview.workers.dev',
+            demoUrl:
+              'https://maelstrom-playground-alchemy-pr-42.preview.workers.dev/',
+          },
+          dependencies(githubFetch(state, []), {
+            runProcess: async ({ argv, cwd }) => {
+              if (argv.includes('rev-parse')) return { stdout: SHA_A };
+              const app = cwd.split('/').at(-1);
+              if (argv.includes('deploy')) mutations.push(`deploy ${app}`);
+              if (argv.includes('get'))
+                return {
+                  stdout: JSON.stringify({
+                    attr: {
+                      url: `https://maelstrom-${app}-alchemy-pr-42.preview.workers.dev/`,
+                    },
+                  }),
+                };
+              if (argv.includes('destroy')) {
+                mutations.push('retire AG-UI');
+                expect(cwd).toBe(join(sourceRoot, 'infra/platform'));
+                const config = await Bun.file(argv[3]!).text();
+                expect(config).toContain("'MaelstromAguiPreview'");
+                expect(config).toContain(
+                  'Cloudflare.state(previewStateStoreOptions())',
+                );
+                expect(argv).toContain('pr-42');
+                if (failDestroy) throw new Error('retirement failed');
+              }
+              return { stdout: '' };
+            },
+            deleteWorkers: async ({ workerScope }) => {
+              expect(workerScope).toBe('legacy-and-agui');
+              mutations.push('legacy cleanup');
+              return true;
+            },
+          }),
+        );
+        if (failDestroy) {
+          await expect(run).rejects.toThrow('retirement failed');
+          expect(state.comments[0]!.body).toBe(previous);
+        } else {
+          await run;
+          expect(state.comments[0]!.body).not.toContain('AG-UI');
+          for (const app of ['Website', 'Documentation', 'Demo'])
+            expect(state.comments[0]!.body).toContain(`| ${app} | https://`);
+          expect(parsePreviewComment(state.comments[0]!.body).deployedSha).toBe(
+            SHA_A,
+          );
+        }
+        expect(mutations).toEqual([
+          'deploy www',
+          'deploy docs',
+          'retire AG-UI',
+          ...(failDestroy ? [] : ['legacy cleanup']),
+        ]);
+      } finally {
+        if (previousVersion === undefined)
+          delete process.env.ALCHEMY_REQUIRED_VERSION;
+        else process.env.ALCHEMY_REQUIRED_VERSION = previousVersion;
+        if (previousStore === undefined)
+          delete process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER;
+        else process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER = previousStore;
+        await rm(sourceRoot, { recursive: true, force: true });
+      }
+    },
+  );
 
   test('finish rejects dirty approved source before GitHub or Worker cleanup', async () => {
     const githubCalls: Array<{ url: string; init?: RequestInit }> = [];
@@ -2095,6 +2330,7 @@ describe('deployPreviewApp', () => {
           prNumber: '42',
           approvedSha: SHA_A,
           bunExecutable: '/trusted/bun',
+          hasAgui: true,
           sourceRoot: '/source',
           accountId: 'account',
           expectedAccountId: 'account',
@@ -2266,6 +2502,7 @@ describe('teardown policy and execution', () => {
     expect(processApps).toEqual([
       '/trusted/apps/docs',
       '/trusted/apps/www',
+      '/trusted/apps/agui-demo',
       '/trusted/apps/demo',
     ]);
     expect(workerScopes).toEqual(['all']);

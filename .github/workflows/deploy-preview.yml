@@ -147,7 +147,7 @@ jobs:
     if: needs.approve.result == 'success' && needs.approve.outputs.pr-number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: ${{ github.event_name == 'workflow_run' && 'preview-auto' || 'preview' }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: deploy-preview-pr-${{ needs.approve.outputs.pr-number }}
       cancel-in-progress: false
@@ -222,6 +222,20 @@ jobs:
         with:
           node-version: 24
 
+      - name: Select approved preview apps
+        id: preview-apps
+        env:
+          APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
+        run: |
+          set -euo pipefail
+          test "$(/usr/bin/git -C source --no-replace-objects rev-parse HEAD)" = "$APPROVED_SHA"
+          entry="$(/usr/bin/git -C source --no-replace-objects ls-tree --format='%(objecttype)' "$APPROVED_SHA" -- apps/agui-demo)"
+          case "$entry" in
+            tree) echo 'agui=true' ;;
+            '') echo 'agui=false' ;;
+            *) exit 1 ;;
+          esac >> "$GITHUB_OUTPUT"
+
       - name: Install source dependencies
         working-directory: source
         run: bun install --frozen-lockfile
@@ -236,10 +250,17 @@ jobs:
           bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
           bunx nx run @maelstrom-co/docs:build --skip-nx-cache
 
+      - name: Build AG-UI preview
+        if: steps.preview-apps.outputs.agui == 'true'
+        working-directory: source
+        timeout-minutes: 10
+        run: bunx nx run @maelstrom-co/agui-demo:build-hosted --skip-nx-cache
+
       - name: Deploy demo preview
         id: deploy-demo
         timeout-minutes: 6
         env:
+          HAS_AGUI_PREVIEW: ${{ steps.preview-apps.outputs.agui }}
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           CI_RUN_ID: ${{ github.event.workflow_run.id || '' }}
           BASH_ENV: /dev/null
@@ -279,8 +300,9 @@ jobs:
         run: bunx nx run @maelstrom-co/www:build --skip-nx-cache
 
       - name: Deploy remaining previews
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
+          HAS_AGUI_PREVIEW: ${{ steps.preview-apps.outputs.agui }}
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           CI_RUN_ID: ${{ github.event.workflow_run.id || '' }}
           BASH_ENV: /dev/null
@@ -304,7 +326,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
-          for runtime_file in scripts/preview-lifecycle.ts scripts/alchemy-version.ts infra/platform/src/PreviewStateStoreContract.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+          for runtime_file in infra/platform/retire-agui-preview.run.ts scripts/preview-lifecycle.ts scripts/alchemy-version.ts infra/platform/src/PreviewStateStoreContract.ts scripts/preview-trust.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
             test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"

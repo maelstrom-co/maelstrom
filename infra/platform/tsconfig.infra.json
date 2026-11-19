@@ -13,6 +13,7 @@
     "alchemy.run.ts",
     "drizzle.config.ts",
     "state.run.ts",
+    "retire-agui-preview.run.ts",
     "src/**/*.ts",
     "test/**/*.ts"
   ]
