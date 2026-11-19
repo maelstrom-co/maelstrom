@@ -264,6 +264,7 @@
   "overrides": [
     {
       "files": [
+        "apps/agui-demo/src/server/goal-runtime.ts",
         "apps/agui-workspace-poc/src/host.ts",
         "apps/agui-workspace-poc/src/child.test.ts",
         "apps/agui-workspace-poc/src/poc.test.ts"

@@ -11,9 +11,22 @@ export const PREVIEW_ISOLATION_WORKFLOW =
 
 /** State namespaces owned by this repository's Alchemy PR previews. */
 export const OSS_PREVIEW_STACKS = [
-  { stack: 'MaelstromDemoPreview', workerPrefix: 'maelstrom-playground' },
-  { stack: 'MaelstromWwwPreview', workerPrefix: 'maelstrom-www' },
-  { stack: 'MaelstromDocsPreview', workerPrefix: 'maelstrom-docs' },
+  {
+    stack: 'MaelstromDemoPreview',
+    workerPrefix: 'maelstrom-playground',
+    legacy: true,
+  },
+  { stack: 'MaelstromWwwPreview', workerPrefix: 'maelstrom-www', legacy: true },
+  {
+    stack: 'MaelstromDocsPreview',
+    workerPrefix: 'maelstrom-docs',
+    legacy: true,
+  },
+  {
+    stack: 'MaelstromAguiPreview',
+    workerPrefix: 'maelstrom-agui',
+    legacy: false,
+  },
 ] as const;
 
 /** Canonical stage boundary accepted by the preview entrypoints. */

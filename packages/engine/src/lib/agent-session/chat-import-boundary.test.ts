@@ -26,6 +26,7 @@ import ts from 'typescript';
 const repoRoot = resolve(import.meta.dir, '../../../../..');
 
 const CHAT_ALLOWLIST = [
+  'apps/agui-demo/src/server/goal-runtime.ts',
   'apps/agui-workspace-poc/src/host.ts',
   'packages/engine/src/lib/agent-session/agent-run-chat.ts',
   'packages/planner-jev/src/lib/llm-call.ts',
