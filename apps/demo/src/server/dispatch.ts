@@ -6,6 +6,7 @@
  * implementation of the handshake/heartbeat/dispatch ordering instead of two
  * that are free to drift.
  */
+
 import {
   type Engine,
   handleEnvelope,
@@ -23,6 +24,8 @@ import {
   type PlaygroundHelloFrame,
   resolvePreHelloDispatch,
 } from './playground-frames';
+
+const MAX_FRAME_BYTES = 1_048_576;
 
 export interface DispatchContext {
   /** Optional development frame handler on the existing connection. */
@@ -84,6 +87,12 @@ export async function dispatchFrame(
   raw: unknown,
   ctx: DispatchContext,
 ): Promise<DispatchResult> {
+  if (
+    typeof raw === 'string' &&
+    new TextEncoder().encode(raw).byteLength > MAX_FRAME_BYTES
+  ) {
+    return { kind: 'close', code: 1009, reason: 'Workspace frame too large' };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(String(raw));

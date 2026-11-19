@@ -392,7 +392,10 @@ export class AgentConversation {
         chart: undefined,
       };
     }
-    const actionOutcomes = toActionOutcomes(event.response, settled);
+    const plan = event.response.executionPlan;
+    const { batch, actions } = settled;
+    const hasRecords = batch.status !== 'failed' && actions !== undefined;
+    const actionOutcomes = hasRecords ? orderActionOutcomes(plan, actions) : [];
     // The acknowledgement step runs synchronously up to handing its frame to
     // the connector, so emitting once it started keeps the ui_applied ahead of
     // the event and out of listeners' reach, while a slow or never settling
@@ -408,7 +411,16 @@ export class AgentConversation {
         type: 'ui_change',
         runId: event.runId,
         changeId: event.changeId,
-        actionOutcomes: actionOutcomes.map((outcome) => ({ ...outcome })),
+        status: batch.status,
+        actionOutcomes: hasRecords
+          ? actionOutcomes.map((outcome) => ({ ...outcome }))
+          : plan.map(() => ({
+              ok: false,
+              error:
+                batch.status === 'failed'
+                  ? `not run: layout could not be applied: ${batch.error.message}`
+                  : 'no result recorded',
+            })),
       });
     try {
       await acknowledgement;
@@ -432,6 +444,7 @@ export class AgentConversation {
       type: 'ui_applied',
       version: AGENT_WIRE_VERSION,
       changeId: event.changeId,
+      status: settled.batch.status,
       chart: settled.chart ?? this.#dependencies.buildChart(),
       actionOutcomes,
     };
@@ -478,15 +491,4 @@ type AppliedUiChange = {
 
 function notSent(error: Error): AgentSendOutcome {
   return { status: 'not_sent', error };
-}
-
-function toActionOutcomes(
-  response: MaelstromResponse,
-  settled: SettledAgentChange,
-): AgentActionOutcome[] {
-  if (settled.batch.status === 'failed' && settled.actions === undefined) {
-    const error = `not run: layout could not be applied: ${settled.batch.error.message}`;
-    return response.executionPlan.map(() => ({ ok: false, error }));
-  }
-  return orderActionOutcomes(response.executionPlan, settled.actions ?? []);
 }

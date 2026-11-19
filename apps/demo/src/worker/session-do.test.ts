@@ -9,6 +9,8 @@ import {
 } from '@maelstrom-co/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as dispatch from '../server/dispatch';
+
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of
 // 'cloudflare:workers' for the same reason. A minimal base class (ctx,
@@ -126,7 +128,7 @@ function fakeEngine() {
         },
       },
     })),
-    getHistory: vi.fn(),
+    getHistory: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
 }
 
@@ -172,6 +174,20 @@ const CHART_REQUEST = encodeEnvelope(
   }),
 );
 
+const HISTORY_REQUEST = JSON.stringify({
+  type: 'client.history.get',
+  id: 'history-1',
+  sessionId: 's-1',
+});
+
+function gate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('SessionDO', () => {
   // createEngineMock is module-scoped (vi.hoisted, above), so its call count
   // otherwise carries across tests. This does not replace the explicit
@@ -182,6 +198,151 @@ describe('SessionDO', () => {
   beforeEach(() => {
     createEngineMock.mockClear();
   });
+
+  it('fences lazy native planning at a protocol close before the close callback arrives', async () => {
+    const engine = fakeEngine();
+    createEngineMock.mockReturnValue(engine);
+    const ws = new FakeWs();
+    const host = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await host.webSocketMessage(ws as never, HELLO);
+    const entered = gate();
+    const release = gate();
+    const original = dispatch.dispatchFrame;
+    const delayed = vi
+      .spyOn(dispatch, 'dispatchFrame')
+      .mockImplementationOnce((raw, ctx) =>
+        original(raw, {
+          ...ctx,
+          getEngine: async () => {
+            const ready = await ctx.getEngine();
+            entered.resolve();
+            await release.promise;
+            return ready;
+          },
+        }),
+      );
+    const pending = host.webSocketMessage(ws as never, CHART_REQUEST);
+    try {
+      await entered.promise;
+      await host.webSocketMessage(ws as never, 'x'.repeat(1_048_577));
+      expect(ws.closes).toEqual([expect.objectContaining({ code: 1009 })]);
+      release.resolve();
+      await pending;
+      expect(engine.handle).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      delayed.mockRestore();
+    }
+  });
+
+  for (const finish of ['close', 'error'] as const) {
+    for (const frame of [CHART_REQUEST, HELLO]) {
+      it(`fences a suspended ${JSON.parse(frame).type} decision after ${finish}`, async () => {
+        const engine = fakeEngine();
+        createEngineMock.mockReturnValue(engine);
+        const ws = new FakeWs();
+        ws.attachment = { helloed: true, sessionId: 's-1' };
+        const attachmentWrites = vi.spyOn(ws, 'serializeAttachment');
+        const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+        const entered = gate();
+        const release = gate();
+        const original = dispatch.dispatchFrame;
+        const delayed = vi
+          .spyOn(dispatch, 'dispatchFrame')
+          .mockImplementationOnce(async (...args) => {
+            const result = await original(...args);
+            entered.resolve();
+            await release.promise;
+            return result;
+          });
+        try {
+          const pending = woken.webSocketMessage(ws as never, frame);
+          await entered.promise;
+          if (finish === 'close') await woken.webSocketClose(ws as never);
+          else await woken.webSocketError(ws as never);
+          release.resolve();
+          await pending;
+          expect(ws.sent).toEqual([]);
+          expect(attachmentWrites).not.toHaveBeenCalled();
+          await woken.webSocketMessage(ws as never, HELLO);
+          await woken.webSocketMessage(ws as never, CHART_REQUEST);
+          expect(ws.sent).toEqual([]);
+          expect(createEngineMock).not.toHaveBeenCalled();
+          expect(engine.handle).not.toHaveBeenCalled();
+        } finally {
+          release.resolve();
+          delayed.mockRestore();
+        }
+      });
+    }
+
+    it(`does not deliver resumed history after ${finish} during dispatch`, async () => {
+      const engine = fakeEngine();
+      const entered = gate();
+      const release = gate();
+      engine.getHistory.mockImplementationOnce(async () => {
+        entered.resolve();
+        await release.promise;
+        return { ok: true as const, value: [] };
+      });
+      createEngineMock.mockReturnValue(engine);
+      const ws = new FakeWs();
+      ws.attachment = { helloed: true, sessionId: 's-1' };
+      const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+      await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+      ws.sent.length = 0;
+      const pending = woken.webSocketMessage(ws as never, HELLO);
+      await entered.promise;
+      if (finish === 'close') await woken.webSocketClose(ws as never);
+      else await woken.webSocketError(ws as never);
+      release.resolve();
+      await pending;
+      expect(ws.sent).toEqual([]);
+      expect(engine.handle).not.toHaveBeenCalled();
+    });
+  }
+
+  it('bounds native history wake traffic without dispatching excess frames', async () => {
+    const engine = fakeEngine();
+    createEngineMock.mockReturnValue(engine);
+    const ws = new FakeWs();
+    ws.attachment = { helloed: true, sessionId: 's-1' };
+    const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+    await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+    expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+      'playground.rehello',
+      'engine.error',
+    ]);
+    await woken.webSocketMessage(ws as never, HELLO);
+    expect(engine.getHistory).toHaveBeenCalledTimes(1);
+    expect(engine.handle).not.toHaveBeenCalled();
+    expect(JSON.parse(ws.sent.at(-1) ?? '{}').type).toBe(
+      'engine.history.response',
+    );
+  });
+
+  for (const finish of ['decline', 'close', 'error'] as const) {
+    it(`clears the wake reservation on ${finish} without later replay`, async () => {
+      const engine = fakeEngine();
+      createEngineMock.mockReturnValue(engine);
+      const ws = new FakeWs();
+      ws.attachment = { helloed: true, sessionId: 's-1' };
+      const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+      await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+      ws.sent.length = 0;
+      if (finish === 'decline') {
+        await woken.webSocketMessage(ws as never, NOKEY);
+        expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+          'engine.error',
+        ]);
+      } else if (finish === 'close') await woken.webSocketClose(ws as never);
+      else await woken.webSocketError(ws as never);
+      await woken.webSocketMessage(ws as never, HELLO);
+      expect(engine.handle).not.toHaveBeenCalled();
+      expect(engine.getHistory).not.toHaveBeenCalled();
+    });
+  }
 
   it('marks the connection helloed in the attachment without storing the key', async () => {
     const ws = new FakeWs();

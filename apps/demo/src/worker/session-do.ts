@@ -21,7 +21,7 @@ import {
  * owned by the Effect services under `./session/`:
  *
  *   - `Connections` holds keys per connection, tracks rehello declines, and
- *     buffers at most one triggering frame per socket.
+ *     reserves one frame per socket during rehello.
  *   - `Engines` owns the object-scoped engine cache and its last-socket
  *     teardown rule.
  *   - `EngineFactory` is the typed-error boundary: a failed engine build can
@@ -189,7 +189,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const connections = yield* Connections;
       const engines = yield* Engines;
 
-      if (this.#closed.has(ws)) return;
+      if (this.#closed.has(ws) || connections.retired(ws)) return;
       const epoch = this.#epochs.get(ws) ?? {};
       this.#epochs.set(ws, epoch);
       const key = connections.keyOf(ws);
@@ -261,7 +261,12 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
               ),
       }).pipe(Effect.result);
 
-      if (this.#closed.has(ws) || this.#epochs.get(ws) !== epoch) return;
+      if (
+        this.#closed.has(ws) ||
+        this.#epochs.get(ws) !== epoch ||
+        connections.retired(ws)
+      )
+        return;
       if (Result.isFailure(dispatched)) {
         // Safe to log precisely because the factory redacted the message:
         // without a server-side line, a deployment where every visitor's
@@ -274,7 +279,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             ? 'engine construction failed'
             : 'frame dispatch failed';
         console.error(`[session-do] ${label}: ${failure.message}`);
-        this.#send(ws, encodeEngineErrorReply(raw, failure.message), key);
+        this.#replyError(ws, raw, failure.message, key);
         return;
       }
       const result = dispatched.success;
@@ -284,17 +289,20 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           this.#agents.get(ws)?.connection.close();
           this.#agents.delete(ws);
           this.#epochs.set(ws, {});
-          connections.markHello(
-            ws,
-            result.frame.apiKey,
-            result.frame.sessionId,
-          );
-          // Replay whatever triggered the rehello, so the visitor's request
-          // is answered rather than silently lost.
-          const pending = connections.takePending(ws);
-          if (pending !== undefined) {
-            yield* this.#onMessage(ws, pending);
+          try {
+            connections.markHello(
+              ws,
+              result.frame.apiKey,
+              result.frame.sessionId,
+            );
+          } catch {
+            this.#closeConnection(ws);
+            ws.close(1008, 'Session marker rejected');
+            yield* this.#teardown(ws);
+            return;
           }
+          const pending = connections.takePending(ws);
+          if (pending !== undefined) yield* this.#onMessage(ws, pending);
           return;
         }
         case 'hello-declined': {
@@ -313,27 +321,18 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           return;
         }
         case 'rehello': {
-          if (!connections.bufferPending(ws, raw)) {
-            // A rehello for this socket is already outstanding and this
-            // frame raced its answer. Only one frame can be buffered, so
-            // this one gets an immediate reply instead — an accurate
-            // "re-authenticating" error, not the key-drawer copy, which
-            // would be a lie while the client's hello is in flight. The
-            // ORIGINAL buffered frame stays put and is replayed when that
-            // hello lands.
-            this.#send(
-              ws,
-              encodeEngineErrorReply(raw, REAUTHENTICATING_ERROR),
-              key,
-            );
-            return;
+          const buffered = connections.bufferPending(ws, raw);
+          if (buffered === 'full') {
+            this.#replyError(ws, raw, REAUTHENTICATING_ERROR, key);
+          } else if (buffered === 'first') {
+            ws.send(JSON.stringify({ type: 'playground.rehello' }));
           }
-          ws.send(JSON.stringify({ type: 'playground.rehello' }));
           return;
         }
         case 'close':
           this.#closeConnection(ws);
           ws.close(result.code, result.reason);
+          yield* this.#teardown(ws);
           return;
         case 'reply':
           this.#send(ws, result.wire, key);
@@ -375,5 +374,9 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    */
   #send(ws: WebSocket, wire: string, key: string | null): void {
     if (!this.#closed.has(ws)) ws.send(redactSecrets(wire, key ?? undefined));
+  }
+
+  #replyError(ws: WebSocket, raw: string, message: string, key: string | null) {
+    this.#send(ws, encodeEngineErrorReply(raw, message), key);
   }
 }

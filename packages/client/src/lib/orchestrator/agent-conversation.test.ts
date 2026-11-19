@@ -1,8 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import {
+  ActionName,
   ChangeId,
   type ChartRequest,
+  InstanceId,
   type MaelstromResponse,
   MessageId,
   RunId,
@@ -25,6 +27,46 @@ const emptyResponse: MaelstromResponse = {
 };
 
 describe('AgentConversation', () => {
+  it('keeps missing Action evidence off the wire while notifying positional subscribers', async () => {
+    const agent = createMockAgentConnector();
+    const conversation = new AgentConversation({
+      currentConnector: () => agent.connector,
+      buildChart: () => ({}) as ChartRequest,
+      dispatchChange: () => Promise.reject(new Error('queue unavailable')),
+      captureFence: () => () => null,
+      logger: { warn: () => {} } as unknown as Logger,
+      agentRunStaleTimeoutMs: Number.POSITIVE_INFINITY,
+      diagnostics: { emit: () => {} },
+      now: () => 0,
+    });
+    try {
+      conversation.attach();
+      const changes: AgentConversationEvents['ui_change'][] = [];
+      conversation.events.on('ui_change', (event) => changes.push(event));
+      const applied = agent.nextInput('ui_applied');
+      agent.emit(
+        agentUiChangeEvent(RunId('run-1'), ChangeId('change-1'), {
+          ...emptyResponse,
+          executionPlan: [
+            { instanceId: InstanceId('board'), action: ActionName('record') },
+          ],
+        }),
+      );
+      expect(await applied).toMatchObject({
+        status: 'unknown',
+        actionOutcomes: [],
+      });
+      expect(changes).toMatchObject([
+        {
+          status: 'unknown',
+          actionOutcomes: [{ ok: false, error: 'no result recorded' }],
+        },
+      ]);
+    } finally {
+      conversation.dispose();
+    }
+  });
+
   it('emits ui_change and warns without an unhandled rejection when building the acknowledgement Chart throws', async () => {
     const agent = createMockAgentConnector();
     const warn = mock((..._args: unknown[]) => {});

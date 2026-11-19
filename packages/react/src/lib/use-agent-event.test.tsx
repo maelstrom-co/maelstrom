@@ -112,6 +112,7 @@ describe('m.useAgentEvent()', () => {
       type: 'ui_change',
       runId: RUN,
       changeId: CHANGE,
+      status: 'applied',
       actionOutcomes: [],
     });
   });
