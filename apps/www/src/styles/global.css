@@ -540,6 +540,9 @@ section {
   letter-spacing: 0;
   line-height: 0.98;
 }
+.hero-h1 .line {
+  display: block;
+}
 .hero-h1 .line.accent {
   background: linear-gradient(
     120deg,
@@ -724,26 +727,34 @@ section {
   }
 }
 
-.live-pill {
+.preview-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-transform: uppercase;
   font-size: 10px;
   font-family: var(--font-mono);
   letter-spacing: 0.15em;
-  color: #2bd46b;
+  color: var(--text-2);
   padding: 4px 10px;
-  border: 1px solid rgba(43, 212, 107, 0.3);
+  border: 1px solid var(--line-2);
   border-radius: 999px;
-  background: rgba(43, 212, 107, 0.08);
+  background: rgba(255, 255, 255, 0.03);
 }
-.live-dot {
+.preview-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #2bd46b;
-  box-shadow: 0 0 8px #2bd46b;
-  animation: pulse 1.4s ease-in-out infinite;
+  background: var(--text-3);
+}
+
+.hero-demo-note {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 .hero-grid {

@@ -38,9 +38,9 @@ function HeroChrome({ typedText, phase, Chart }: DemoRenderState) {
             {phase === 'typing' && <span className="caret" />}
           </span>
         </div>
-        <span className="live-pill">
-          <span className="live-dot" />
-          LIVE
+        <span className="preview-pill">
+          <span className="preview-dot" />
+          Scripted preview
         </span>
       </div>
       <div
