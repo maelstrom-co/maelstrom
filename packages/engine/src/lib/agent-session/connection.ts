@@ -1,4 +1,8 @@
-import type { AgentEvent, SessionId } from '@maelstrom-co/protocol';
+import {
+  AGENT_WIRE_VERSION,
+  type AgentEvent,
+  type SessionId,
+} from '@maelstrom-co/protocol';
 
 import { assertNever } from '../assert-never.js';
 import type { Logger } from '../logger.js';
@@ -45,7 +49,7 @@ export interface OpenConnectionOptions {
    * greater than 2,147,483,647, or opening the connection throws. On the
    * UI-only route, when it elapses, the run finishes with code
    * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
-   * next utterance plans against its own Chart. A `change_screen` change of
+   * connection permanently stops admission. A `change_screen` change of
    * an Agent Run waits as long, then its goals that depend on the change
    * answer `unknown`, a goal with a clarification verdict keeps
    * `needs_clarification`, and the next queued Screen Change starts on the
@@ -58,37 +62,46 @@ export interface OpenConnectionOptions {
  * One connection's ordered Agent Session event stream.
  *
  * Capacity is bounded per connection:
- * - At most 32 utterances are pending, including the one being planned or
+ * - At most 32 runs are pending, including the one being planned or
  *   awaiting acknowledgement. A further utterance receives an `error` event
  *   with code `queue_full` and is not remembered, so it can be sent again.
+ * - A client-dispatched {@link AgentChartRequestInput} requires no pending runs.
+ *   Otherwise it receives `connection_busy` before its ID is remembered. The
+ *   client owns its FIFO and captures a fresh request at each dispatch. The
+ *   supplied request is never replaced with a retained Chart or queued behind
+ *   another run. Utterances retain their server-owned queue.
  * - At most 4,096 input IDs are remembered, with no eviction, so a repeated
- *   input is always ignored. After that, a new utterance receives an `error`
+ *   input is always ignored. After that, a new planning input receives an `error`
  *   event with code `session_capacity`. The host must open a new connection
  *   to continue.
  * - Each UI change waits for acknowledgement for at most
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
- *   default. On the UI-only route a timeout fails the run and cancels queued
- *   work. On an agent connection a timeout of a `change_screen` change
- *   answers the goals that depend on it `unknown`, leaves a goal with a
- *   clarification verdict at `needs_clarification`, and lets the next queued
- *   Screen Change start.
+ *   default. On the UI-only route, a timeout or `unknown` status fails the run, cancels queued
+ *   work, and permanently stops admission. New inputs receive `session_stopped`.
+ *   A known Layout refusal (`failed`) fails only that run and permits later work.
+ *   On an agent connection a timeout answers dependent goals `unknown`, preserves
+ *   clarification verdicts and lets the next queued Screen Change start.
+ * Opening another connection does not reconcile prior effects or authorize replay.
  *
  * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentConnection {
   /**
-   * Accepts untrusted input. An utterance resolves according to its route:
-   * the UI-only route resolves when it emits `ui_change`, before the later
-   * `ui_applied`; an Agent Run route resolves when the run finishes, so a
-   * `change_screen` call can keep it pending until `ui_applied` or the
-   * acknowledgement timeout. Sends queued behind earlier work can also
-   * remain pending. Input sent after `close()` is dropped without an event or
-   * a diagnostic.
+   * Accepts untrusted input. UI-only planning inputs resolve after planning and
+   * advisory recording or on closure, without waiting for UI acknowledgement.
+   * An Agent Run resolves when it finishes; an awaited `change_screen` can keep
+   * it pending until acknowledgement or timeout. Queued sends may wait for
+   * earlier work. Refused and duplicate inputs resolve without planning.
+   * Input sent after `close()` is dropped without an event or diagnostic.
    */
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
   subscribe(listener: (event: AgentEvent) => void): () => void;
-  /** Aborts pending work and releases listeners. Idempotent; no later events are emitted. */
+  /**
+   * Aborts pending work and releases listeners. Idempotent; no later events are
+   * emitted. An already-started history write may finish because {@link HistoryStore}
+   * operations do not accept cancellation signals.
+   */
   close(): void;
 }
 
@@ -130,7 +143,7 @@ export function createAgentConnection(
         eventLogData(options.sessionId, event),
       ),
   });
-  const admission = createInputAdmission();
+  const admission = createInputAdmission(agent === undefined);
   const runs =
     agent === undefined
       ? createRunScheduler({
@@ -186,7 +199,7 @@ export function createAgentConnection(
         case 'acknowledgement':
           runs.acknowledge(admitted.input);
           return;
-        case 'utterance':
+        case 'run':
           await runs.enqueue(admitted.input);
           return;
         default:
@@ -251,7 +264,17 @@ function agentRuns(
   return {
     pendingRuns: () => queue.pendingRuns(),
     reject: (event) => events.emit(event),
-    enqueue: (input) => queue.enqueue(input),
+    enqueue(input) {
+      if (input.type === 'utterance') return queue.enqueue(input);
+      events.emit({
+        type: 'error',
+        version: AGENT_WIRE_VERSION,
+        inputId: input.inputId,
+        code: 'unsupported_input',
+        error: 'Client-dispatched Chart requests require a UI-only connection.',
+      });
+      return Promise.resolve();
+    },
     acknowledge: (input) => queue.acknowledge(input),
     close: () => queue.close(),
   };

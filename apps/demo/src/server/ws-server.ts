@@ -11,6 +11,7 @@
  * keep the handleEnvelope/encodeEnvelope path shared with the hosted transport
  * (`src/worker/session-do.ts`) through `dispatchFrame`.
  */
+
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   createDiagnosticConnection,

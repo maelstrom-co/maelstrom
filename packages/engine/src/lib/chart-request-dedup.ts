@@ -12,6 +12,7 @@ import type { EngineError } from './errors.js';
 import { cancellationError, historyError } from './errors.js';
 import type { HistoryManager } from './history/history-manager.js';
 import type { GetResponseByIdResult } from './history/history-store.js';
+import { recordPlannedTurn } from './history/record-planned-turn.js';
 import type { Logger } from './logger.js';
 
 type RunChartRequest = (
@@ -92,19 +93,8 @@ export function createChartRequestDedup(
     signal?: AbortSignal,
   ): Promise<Result<ChartResponseOutput, EngineError>> => {
     const result = await runChartRequest(message, signal);
-    if (isOk(result) && history !== undefined) {
-      // Advisory write: the user already has their response, so a
-      // history failure must not retroactively fail the turn.
-      try {
-        await history.recordTurn(message, result.value);
-      } catch (error) {
-        logger.error('Failed to record turn', error, {
-          op: 'record_turn',
-          messageId: message.id,
-          sessionId: message.sessionId,
-        });
-      }
-    }
+    if (isOk(result) && history !== undefined)
+      await recordPlannedTurn(history, message, result.value, logger);
     return result;
   };
 

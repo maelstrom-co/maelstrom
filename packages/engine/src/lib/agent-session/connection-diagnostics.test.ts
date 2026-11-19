@@ -62,6 +62,42 @@ void mock.module('./screen-change-queue.js', capturingScreenChangeQueueModule);
 void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('session-level input diagnostics', () => {
+  test('unknown application stops UI-only admission with a session-owned rejection and preserves the run outcome', async () => {
+    const session = openUiOnlySession();
+    await session.connection.send(utterance('input-1', 'show my calendar'));
+    const [change] = uiChangesOf(session.received);
+    if (!change) throw new Error('Missing UI change');
+
+    await session.connection.send({
+      ...acknowledgementOf(change, makeTilingRequest()),
+      status: 'unknown',
+      actionOutcomes: [],
+    });
+    await session.connection.send(utterance('input-2', 'try again'));
+
+    expect(
+      sessionEventsOfKind(
+        session.diagnostics,
+        'engine.agent.input.rejected',
+      ).map((event) => event.metadata),
+    ).toEqual([{ inputId: 'input-2', code: 'session_stopped' }]);
+    expect(uiChangesOf(session.received)).toHaveLength(1);
+    expect(
+      session.diagnostics.filter(
+        (event) => event.kind === 'engine.agent.ui_change.applied',
+      ),
+    ).toMatchObject([
+      {
+        runId: change.runId,
+        metadata: { inputId: 'input-1', status: 'unknown' },
+      },
+    ]);
+    expect(
+      session.received.filter((event) => event.type === 'finished'),
+    ).toHaveLength(1);
+    session.connection.close();
+  });
+
   test('a repeated input id yields one session-owned input.ignored, forwarded to a diagnostic connection of the session', async () => {
     const model = scriptedTextAdapter([
       scriptedTextTurn(['Hello.'], scriptedUsage(2, 1)),
@@ -224,6 +260,7 @@ describe('acknowledgement refusal diagnostics', () => {
 
     await session.connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: makeTilingRequest(),
@@ -274,6 +311,7 @@ describe('run.finished durationMs', () => {
 
     await session.connection.send({
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: change.changeId,
       chart: makeTilingRequest(),
@@ -1329,6 +1367,7 @@ function diagnosticsSubscription(sessionId: string, includeContent = false) {
 function strayAcknowledgement() {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('stray-change'),
     chart: makeTilingRequest(),
