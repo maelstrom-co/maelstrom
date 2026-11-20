@@ -704,7 +704,8 @@ section {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
-  min-width: 320px;
+  flex: 0 1 320px;
+  min-width: 0;
   max-width: 440px;
 }
 .hero-prompt-text {
@@ -780,7 +781,7 @@ section {
     transform: none;
   }
   .hero-prompt {
-    min-width: 0;
+    flex-basis: auto;
     max-width: 100%;
     font-size: 11px;
   }

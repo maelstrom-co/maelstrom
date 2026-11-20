@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 
 const HEADLINE_WIDTHS = [390, 360, 1280];
 
+// 981px and 1024px are the narrowest two-column layouts, where the bar is
+// tighter than on a phone.
+const BROWSER_BAR_WIDTHS = [390, 981, 1024, 1280];
+
 for (const width of HEADLINE_WIDTHS) {
   test(`hero headline reads as three unwrapped lines at ${width}px`, async ({
     page,
@@ -75,40 +79,42 @@ test('hero caption marks the health values as illustrative and is readable by as
   expect(hasHiddenAncestor).toBe(false);
 });
 
-test('hero badge and prompt both fit inside the browser bar at 390px', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
-  await page.evaluate(() => document.fonts.ready);
+for (const width of BROWSER_BAR_WIDTHS) {
+  test(`hero badge and prompt both fit inside the browser bar at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await page.evaluate(() => document.fonts.ready);
 
-  const bar = page.locator('.hero-right .hero-dash-bar:visible');
-  await expect(bar).toHaveCount(1);
-  await expect(bar).toBeVisible();
+    const bar = page.locator('.hero-right .hero-dash-bar:visible');
+    await expect(bar).toHaveCount(1);
+    await expect(bar).toBeVisible();
 
-  const fit = await bar.evaluate((element) => {
-    const barBox = element.getBoundingClientRect();
-    const inside = (selector: string) => {
-      const target = element.querySelector(selector);
-      if (!target) return false;
-      const box = target.getBoundingClientRect();
-      return (
-        box.width > 0 &&
-        box.left >= barBox.left - 0.5 &&
-        box.right <= barBox.right + 0.5
-      );
-    };
-    return {
-      overflows: element.scrollWidth > element.clientWidth,
-      pillInside: inside('.preview-pill'),
-      promptInside: inside('.hero-prompt'),
-    };
+    const fit = await bar.evaluate((element) => {
+      const barBox = element.getBoundingClientRect();
+      const inside = (selector: string) => {
+        const target = element.querySelector(selector);
+        if (!target) return false;
+        const box = target.getBoundingClientRect();
+        return (
+          box.width > 0 &&
+          box.left >= barBox.left - 0.5 &&
+          box.right <= barBox.right + 0.5
+        );
+      };
+      return {
+        overflows: element.scrollWidth > element.clientWidth,
+        pillInside: inside('.preview-pill'),
+        promptInside: inside('.hero-prompt'),
+      };
+    });
+
+    expect(fit.overflows, 'bar has no horizontal overflow').toBe(false);
+    expect(fit.pillInside, 'pill is fully inside the bar').toBe(true);
+    expect(fit.promptInside, 'prompt is fully inside the bar').toBe(true);
   });
-
-  expect(fit.overflows, 'bar has no horizontal overflow').toBe(false);
-  expect(fit.pillInside, 'pill is fully inside the bar').toBe(true);
-  expect(fit.promptInside, 'prompt is fully inside the bar').toBe(true);
-});
+}
 
 test('lower demo describes scripted planner responses honestly', async ({
   page,
