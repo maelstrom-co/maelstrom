@@ -124,6 +124,9 @@ inventory matches an older or newer release.
 | `@maelstrom-co/realtime-openai-server` | Shipped |
 | `@maelstrom-co/realtime-protocol` | Shipped |
 | `@maelstrom-co/realtime-vad` | Shipped |
+| `@maelstrom-co/agui` | Not shipped |
+| `@maelstrom-co/agui-protocol` | Not shipped |
+| `@maelstrom-co/agui-server` | Not shipped |
 | `@maelstrom-co/realtime-openai-live` | Not shipped |
 | `@maelstrom-co/realtime-openai-live-server` | Not shipped |
 | `@maelstrom-co/planner-llm` | Not shipped |
