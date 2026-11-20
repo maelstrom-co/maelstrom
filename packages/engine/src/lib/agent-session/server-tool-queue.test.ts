@@ -107,6 +107,32 @@ describe('createServerToolQueue', () => {
     expect(order).toEqual(['call-1', 'call-2']);
   });
 
+  test('reserving a call twice keeps its first slot', async () => {
+    const queue = createServerToolQueue(new AbortController().signal);
+    const order: string[] = [];
+    queue.reserve('call-1');
+    queue.reserve('call-1');
+    queue.reserve('call-2');
+    const idle = queue.whenIdle();
+
+    const second = queue.run('call-2', async () => {
+      order.push('call-2');
+    });
+    const first = queue.run('call-1', async () => {
+      order.push('call-1');
+    });
+    await first;
+    queue.finish('call-1');
+    await second;
+
+    expect(order).toEqual(['call-1', 'call-2']);
+    expect(await settledWithin(idle)).toBe(false);
+
+    queue.finish('call-2');
+
+    expect(await settledWithin(idle)).toBe(true);
+  });
+
   test('finish ignores a call with no slot', async () => {
     const queue = createServerToolQueue(new AbortController().signal);
 
