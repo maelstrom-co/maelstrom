@@ -1,7 +1,11 @@
 import { defineRouteMiddleware } from '@astrojs/starlight/route-data';
 import docs from 'virtual:maelstrom/docs-versions';
 
-import { sidebarNeighbors, withCurrentEntry } from './docs-version-sidebar';
+import {
+  sidebarNeighbors,
+  withCurrentEntry,
+  withFrontmatterLabel,
+} from './docs-version-sidebar';
 import { splitVersion } from './docs-versions';
 
 /**
@@ -27,9 +31,15 @@ export const onRequest = defineRouteMiddleware((context) => {
   // Starlight picked these from the first group that lists the page.
   const own = sidebarNeighbors(route.sidebar);
   if (otherVersion(route.pagination.prev?.href)) {
-    route.pagination.prev = own.prev;
+    route.pagination.prev = withFrontmatterLabel(
+      own.prev,
+      route.entry.data.prev,
+    );
   }
   if (otherVersion(route.pagination.next?.href)) {
-    route.pagination.next = own.next;
+    route.pagination.next = withFrontmatterLabel(
+      own.next,
+      route.entry.data.next,
+    );
   }
 });
