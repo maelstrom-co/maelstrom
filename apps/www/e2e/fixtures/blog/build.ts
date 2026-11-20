@@ -116,6 +116,7 @@ export async function withBlogBuild<T>(
     for (const path of [
       'prompts/library/maelstrom-project-onboarding.md',
       'src/lib/skill-onboarding.ts',
+      'tools/skills/published-examples/package.json.template',
     ]) {
       const target = resolve(root, '../docs', path);
       await mkdir(dirname(target), { recursive: true });

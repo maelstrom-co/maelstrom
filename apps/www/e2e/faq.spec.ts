@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
 import { expect, test } from '@playwright/test';
 
 for (const width of [390, 1280]) {
@@ -49,4 +52,37 @@ test('keyboard users can move between FAQ questions and close an answer', async 
   await expect(page.locator('#faq-q-5')).toBeFocused();
   await page.locator('#faq-q-5').press('Home');
   await expect(first).toBeFocused();
+});
+
+test('the starter answer bounds what the deterministic planner verifies', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('#faq-q-1').click();
+  const answer = page.locator('#faq-a-1');
+  await expect(answer).toBeVisible();
+  await expect(answer).toContainText('does not test live model behavior');
+  await expect(answer).toContainText('no model call');
+});
+
+test('the stability answer shows the version from the published version pin', async ({
+  page,
+}) => {
+  const pin = JSON.parse(
+    await readFile(
+      resolve(
+        import.meta.dirname,
+        '../../docs/tools/skills/published-examples/package.json.template',
+      ),
+      'utf8',
+    ),
+  ) as { dependencies: Record<string, string> };
+  const version = pin.dependencies['@maelstrom-co/react'];
+  await page.goto('/');
+  await page.locator('#faq-q-4').click();
+  const answer = page.locator('#faq-a-4');
+  await expect(answer).toBeVisible();
+  await expect(answer).toContainText(`Current packages: ${version}`);
+  await expect(answer).toContainText('still 0.x and subject to change');
+  await expect(answer).not.toContainText('0.1.0');
 });
