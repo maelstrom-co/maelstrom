@@ -181,12 +181,15 @@ jobs:
             affected=$(bunx nx show projects --affected --withTarget=e2e --json)
             e2e=$(jq 'length > 0' <<< "$affected")
             docs=$(bunx nx show projects --json --affected --projects=@maelstrom-co/docs | jq 'length > 0')
+            www=$(bunx nx show projects --json --affected --projects=@maelstrom-co/www | jq 'length > 0')
           else
             e2e=true
             docs=true
+            www=true
           fi
           echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
           echo "docs=$docs" >> "$GITHUB_OUTPUT"
+          echo "www=$www" >> "$GITHUB_OUTPUT"
           if [ "$e2e" = true ] || [ "$docs" = true ]; then
             echo "browser=true" >> "$GITHUB_OUTPUT"
           else
@@ -236,6 +239,12 @@ jobs:
             audit=(--audit)
           fi
           bun apps/docs/tools/skills/verify-authored-consumer.ts "$GITHUB_SHA" "${audit[@]}"
+
+      # www depends on docs in the project graph, so a bump of the shared
+      # published-examples pin also puts this check in scope.
+      - name: Verify How It Works examples against published SDK packages
+        if: steps.scope.outputs.www == 'true'
+        run: bunx nx run @maelstrom-co/www:published-examples-typecheck
 
       - name: Verify the exported starter as a standalone consumer
         if: steps.scope.outputs.docs == 'true'
