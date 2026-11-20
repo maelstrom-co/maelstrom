@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,10 +12,10 @@ import {
   docsEntryId,
   isVersionFolder,
   pickDefaultVersion,
-  rewriteMarkdownVersionLinks,
   sortVersions,
   splitVersion,
 } from './docs-versions';
+import { markdownPath } from './markdown-path';
 
 const VIRTUAL_MODULE_ID = 'virtual:maelstrom/docs-versions';
 const RESOLVED_VIRTUAL_MODULE_ID = `\0${VIRTUAL_MODULE_ID}`;
@@ -115,9 +115,11 @@ export function docsVersions(root: string): AstroIntegration {
             return next();
           }
           const url = new URL(request.url ?? '/', 'http://localhost');
-          const rest = url.pathname.replace(/^\/+|\/+$/g, '');
-          const last = rest.split('/').at(-1) ?? '';
-          if (!rest || last.includes('.')) return next();
+          const markdown = url.pathname.endsWith('.md');
+          const rest = (
+            markdown ? url.pathname.slice(0, -3) : url.pathname
+          ).replace(/^\/+|\/+$/g, '');
+          if (!rest || !isPageRest(rest)) return next();
           const { versions, defaultVersion } = readDocsVersions(root);
           if (splitVersion(rest, versions)) return next();
           const target = bareTarget(rest, versions, defaultVersion, (v, r) =>
@@ -125,7 +127,10 @@ export function docsVersions(root: string): AstroIntegration {
           );
           if (!target) return next();
           response.statusCode = 302;
-          response.setHeader('Location', `${target}${url.search}`);
+          response.setHeader(
+            'Location',
+            `${markdown ? markdownPath(target) : target}${url.search}`,
+          );
           response.end();
         });
       },
@@ -136,11 +141,14 @@ export function docsVersions(root: string): AstroIntegration {
         );
         for (const { pathname } of pages) {
           const located = splitVersion(pathname, versions);
-          if (located?.rest) built.get(located.version)?.add(located.rest);
+          if (located?.rest && isPageRest(located.rest)) {
+            built.get(located.version)?.add(located.rest);
+          }
         }
         const rests = new Set([...built.values()].flatMap((set) => [...set]));
         const outDir = fileURLToPath(dir);
         let count = 0;
+        let markdownCount = 0;
         for (const rest of rests) {
           const destination = join(outDir, rest, 'index.html');
           if (existsSync(destination)) continue;
@@ -154,37 +162,25 @@ export function docsVersions(root: string): AstroIntegration {
           await mkdir(dirname(destination), { recursive: true });
           await writeFile(destination, redirectPage(target, site));
           count++;
-        }
-        // starlight-llms-txt renders dev content with unversioned links.
-        const llmsFiles = [
-          ...readdirSync(outDir).filter((name) => /^llms.*\.txt$/.test(name)),
-          ...(existsSync(join(outDir, '_llms-txt'))
-            ? readdirSync(join(outDir, '_llms-txt')).map((name) =>
-                join('_llms-txt', name),
-              )
-            : []),
-        ];
-        const devPages = {
-          versions,
-          pages: { [DEV_VERSION]: [...(built.get(DEV_VERSION) ?? [])] },
-        };
-        for (const file of llmsFiles) {
-          const path = join(outDir, file);
-          await writeFile(
-            path,
-            rewriteMarkdownVersionLinks(
-              await readFile(path, 'utf8'),
-              DEV_VERSION,
-              devPages,
-            ),
-          );
+          // Machine readers need content rather than an HTML redirect.
+          const markdownSource = join(outDir, markdownPath(target));
+          const markdownCopy = join(outDir, markdownPath(`/${rest}/`));
+          if (existsSync(markdownSource) && !existsSync(markdownCopy)) {
+            await copyFile(markdownSource, markdownCopy);
+            markdownCount++;
+          }
         }
         logger.info(
-          `Docs versions: ${versions.join(', ')}; default ${defaultVersion}. Wrote ${count} unversioned redirects; pointed ${llmsFiles.length} llms text files at ${DEV_VERSION}.`,
+          `Docs versions: ${versions.join(', ')}; default ${defaultVersion}. Wrote ${count} unversioned redirects and ${markdownCount} unversioned Markdown copies.`,
         );
       },
     },
   };
+}
+
+// Pages have no extension in their last segment; endpoints like llms.txt do.
+function isPageRest(rest: string): boolean {
+  return !(rest.split('/').at(-1) ?? '').includes('.');
 }
 
 function listPages(directory: string): string[] {

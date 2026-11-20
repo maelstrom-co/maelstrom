@@ -25,6 +25,7 @@ import {
   readDocsVersions,
 } from './src/lib/docs-versions-integration';
 import { llmDocs } from './src/lib/llm-docs-integration';
+import { versionedLlmsTxt } from './src/lib/versioned-llms-integration';
 import { versionSidebar } from './src/lib/versioned-sidebar';
 
 const [devtoolsTypeDoc, devtoolsTypeDocSidebarGroup] =
@@ -110,6 +111,85 @@ const docsSite = process.env.DOCS_SITE_URL ?? 'https://docs.maelstrom-ai.co';
 const docsRoot = fileURLToPath(new URL('./src/content/docs/', import.meta.url));
 const versions = readDocsVersions(docsRoot);
 const defaultVersion = versions.defaultVersion;
+
+const llmsTitle = 'Maelstrom';
+const llmsDescription =
+  'Maelstrom is an open-source framework for building intent-driven apps. Users express goals through voice or text. Maelstrom coordinates developer-defined Vessels, their Actions, and the Chart layout to help users complete tasks.';
+// The Architecture Overview is an interactive Astro island living at a
+// src/pages route (outside the docs content collection, so the island
+// doesn't crash the llms-full.txt container render). Surface it here so
+// LLM consumers still get a pointer to the runtime-loop walkthrough.
+const llmsOptionalLinks = [
+  {
+    label: 'Architecture Overview',
+    url: `${docsSite}/understanding/architecture/`,
+    description:
+      'Interactive walkthrough of the browser, protocol, and Engine request loop, the layout-before-actions order, and optional DevTools evidence paths.',
+  },
+];
+const llmsSets = [
+  {
+    label: 'Getting Started',
+    directory: 'getting-started',
+    description: 'Introduction, quick start, core concepts, and installation',
+  },
+  {
+    label: 'Guides',
+    directory: 'guides',
+    description: 'Task-oriented how-tos for React, Engine, and Client',
+  },
+  {
+    label: 'Evals',
+    directory: 'evals',
+    description:
+      'Evaluation architecture, Langfuse workflow, cases, and coverage limits',
+  },
+  {
+    label: 'API Reference',
+    directory: 'reference',
+    description: 'Complete API documentation for all packages',
+  },
+];
+
+// Root-relative links stay inside the version that serves the llms.txt. The
+// overview sections describe main, so frozen versions leave them out.
+function llmsDetails(version: string): string {
+  const versionNote =
+    version === DEV_VERSION
+      ? `- This is the development documentation, built from main at source revision ${docsRevision}. Core SDK manifests: ${sdkVersions}. It can describe APIs that are not published to npm yet.${defaultVersion === DEV_VERSION ? '' : ` For the published packages, use the [${defaultVersion} documentation](/${defaultVersion}/llms.txt).`}`
+      : `- This is the documentation for Maelstrom ${version}, frozen at its latest release. Use it when the installed \`@maelstrom-co/*\` packages are ${version}.x. The installed package manifest and exported API are the authority for your application.`;
+  const overview = `
+## Key Concepts
+- **Vessels**: State machines representing UI components with variants and actions
+- **Chart**: Layout surface in one of two modes — tiling (default: a preorder H/V split tree) or grid (integer cell coordinates)
+- **Engine**: Coordinates the configured Planner and validates its proposed layout and Actions; history is optional
+- **Planner**: Proposes a layout and execution plan from Chart state, update reasons, and available history
+- **Protocol**: Shared types and message definitions between client and engine
+
+## Packages
+- \`@maelstrom-co/react\` — React bindings (createMaelstrom, vessel, Provider, Chart)
+- \`@maelstrom-co/client\` — Framework-agnostic client (Orchestrator, Connectors, ChartManager)
+- \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
+- \`@maelstrom-co/telemetry\` — Opt-in operational facts and bounded application-owned sink delivery
+- \`@maelstrom-co/engine\`: Planning coordination and validation (createEngine, Engine, Planner)
+- \`@maelstrom-co/planner-llm\`: Reference LLM Planner (llmPlanner, prompt construction, provider adapter calls)
+- \`@maelstrom-co/react-devtools\` — Optional React diagnostics extension (devtools, m.Devtools)
+- \`@maelstrom-co/devtools\` — Optional framework-independent collector, explicit capture, and shared browser panel
+
+## DevTools
+Use the DevTools guide for request, layout, voice, and recording inspection. Automatic activity contains metadata; content requires explicit recording. Default production entrypoints are inert. The /production entrypoints opt into browser tools in every build; Engine forwarding needs separate host authorization and stays disabled in production.
+`;
+  return `
+## Choose context for your task
+${versionNote}
+- Start a project or plan an integration with [Build with an agent](/agents/skills/).
+- Use [standalone prompts](/agents/prompts/) for a single task without installing skills.
+- Run the [React starter](/getting-started/starter/) to check the local client-to-Engine path without a provider key.
+- Inspect [SDK guide coverage](https://github.com/maelstrom-co/maelstrom/blob/${docsSourceRef}/apps/docs/skills/README.md#sdk-guide-coverage) before loading an installed package guide.
+- Prefer the Getting Started set or one page over the complete API corpus. Each HTML page links to a Markdown sibling: replace its trailing slash with .md.
+- The abridged corpus contains complete Getting Started pages, with a 48,000-byte build budget. Use the focused sets below for other topics.
+${version === DEV_VERSION ? overview : ''}`;
+}
 
 // Written with unversioned slugs; versionSidebar points it at each folder.
 // Frozen versions have no generated API reference yet.
@@ -296,8 +376,18 @@ export default defineConfig({
     ),
   },
   integrations: [
-    docsVersions(docsRoot),
+    // Markdown pages exist before docsVersions copies them to bare paths.
     llmDocs(),
+    docsVersions(docsRoot),
+    versionedLlmsTxt({
+      root: docsRoot,
+      title: llmsTitle,
+      description: llmsDescription,
+      abridgedDirectory: 'getting-started',
+      sets: llmsSets,
+      optionalLinks: llmsOptionalLinks,
+      details: llmsDetails,
+    }),
     mermaid({
       autoTheme: true,
     }),
@@ -327,84 +417,21 @@ export default defineConfig({
           'https://github.com/maelstrom-co/maelstrom/edit/main/apps/docs/',
       },
       plugins: [
+        // Renders the pages for versionedLlmsTxt, which serves each version's
+        // files and replaces this plugin's unprefixed ones at build end.
         starlightLlmsTxt({
-          projectName: 'Maelstrom',
-          description:
-            'Maelstrom is an open-source framework for building intent-driven apps. Users express goals through voice or text. Maelstrom coordinates developer-defined Vessels, their Actions, and the Chart layout to help users complete tasks.',
-          details: `
-## Choose context for your task
-- Start a project or plan an integration with [Build with an agent](${docsSite}/agents/skills/).
-- Use [standalone prompts](${docsSite}/agents/prompts/) for a single task without installing skills.
-- Run the [React starter](${docsSite}/getting-started/starter/) to check the local client-to-Engine path without a provider key.
-- Inspect [SDK guide coverage](https://github.com/maelstrom-co/maelstrom/blob/${docsSourceRef}/apps/docs/skills/README.md#sdk-guide-coverage) before loading an installed package guide.
-- Prefer the Getting Started set or one page over the complete API corpus. Each HTML page links to a Markdown sibling: replace its trailing slash with .md.
-- This documentation follows source revision ${docsRevision}. Core SDK manifests: ${sdkVersions}. The installed package manifest and exported API are the authority for your application; main can contain unreleased changes.
-- The abridged corpus contains complete Getting Started pages, with a 48,000-byte build budget. Use the focused sets below for other topics.
-
-## Key Concepts
-- **Vessels**: State machines representing UI components with variants and actions
-- **Chart**: Layout surface in one of two modes — tiling (default: a preorder H/V split tree) or grid (integer cell coordinates)
-- **Engine**: Coordinates the configured Planner and validates its proposed layout and Actions; history is optional
-- **Planner**: Proposes a layout and execution plan from Chart state, update reasons, and available history
-- **Protocol**: Shared types and message definitions between client and engine
-
-## Packages
-- \`@maelstrom-co/react\` — React bindings (createMaelstrom, vessel, Provider, Chart)
-- \`@maelstrom-co/client\` — Framework-agnostic client (Orchestrator, Connectors, ChartManager)
-- \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
-- \`@maelstrom-co/telemetry\` — Opt-in operational facts and bounded application-owned sink delivery
-- \`@maelstrom-co/engine\`: Planning coordination and validation (createEngine, Engine, Planner)
-- \`@maelstrom-co/planner-llm\`: Reference LLM Planner (llmPlanner, prompt construction, provider adapter calls)
-- \`@maelstrom-co/react-devtools\` — Optional React diagnostics extension (devtools, m.Devtools)
-- \`@maelstrom-co/devtools\` — Optional framework-independent collector, explicit capture, and shared browser panel
-
-## DevTools
-Use the DevTools guide for request, layout, voice, and recording inspection. Automatic activity contains metadata; content requires explicit recording. Default production entrypoints are inert. The /production entrypoints opt into browser tools in every build; Engine forwarding needs separate host authorization and stays disabled in production.
-`,
-          // The Architecture Overview is an interactive Astro island living at a
-          // src/pages route (outside the docs content collection, so the island
-          // doesn't crash the llms-full.txt container render). Surface it here so
-          // LLM consumers still get a pointer to the runtime-loop walkthrough.
-          optionalLinks: [
-            {
-              label: 'Architecture Overview',
-              url: `${docsSite}/understanding/architecture/`,
-              description:
-                'Interactive walkthrough of the browser, protocol, and Engine request loop, the layout-before-actions order, and optional DevTools evidence paths.',
-            },
-          ],
-          customSets: [
-            {
-              label: 'Getting Started',
-              paths: ['dev/getting-started/**'],
-              description:
-                'Introduction, quick start, core concepts, and installation',
-            },
-            {
-              label: 'Guides',
-              paths: ['dev/guides/**'],
-              description:
-                'Task-oriented how-tos for React, Engine, and Client',
-            },
-            {
-              label: 'Evals',
-              paths: ['dev/evals/**'],
-              description:
-                'Evaluation architecture, Langfuse workflow, cases, and coverage limits',
-            },
-            {
-              label: 'API Reference',
-              paths: ['dev/reference/**'],
-              description: 'Complete API documentation for all packages',
-            },
-          ],
+          projectName: llmsTitle,
+          description: llmsDescription,
+          details: llmsDetails(defaultVersion),
+          optionalLinks: llmsOptionalLinks,
+          customSets: [],
           promote: [
-            'dev/getting-started/introduction',
-            'dev/getting-started/quick-start',
-            'dev/getting-started/core-concepts',
+            '*/getting-started/introduction',
+            '*/getting-started/quick-start',
+            '*/getting-started/core-concepts',
           ],
-          demote: ['dev/community/changelog'],
-          exclude: ['!dev/getting-started/**'],
+          demote: ['*/community/changelog'],
+          exclude: [`!${defaultVersion}/getting-started/**`],
           minify: {
             note: false,
             tip: false,

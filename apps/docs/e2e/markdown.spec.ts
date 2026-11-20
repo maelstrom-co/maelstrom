@@ -29,8 +29,11 @@ for (const [path, expected] of [
     expect(body).toContain('Documentation revision:');
     expect(body).toContain('@maelstrom-co/react@');
     expect(body).not.toContain('<astro-island');
+    const version = /^\/(dev|\d+(?:\.\d+)?)\//.exec(path)?.[1];
     await expect(
-      page.locator('link[rel="alternate"][href="/llms.txt"]'),
+      page.locator(
+        `link[rel="alternate"][href="${version ? `/${version}` : ''}/llms.txt"]`,
+      ),
     ).toHaveCount(1);
     expect(errors).toEqual([]);
   });
@@ -84,4 +87,26 @@ test('missing Markdown pages retain a not-found response', async ({
   expect(
     (await request.get('/missing-page-for-markdown-test.md')).status(),
   ).toBe(404);
+});
+
+test('dev serves its own machine docs and bare Markdown serves the npm version', async ({
+  request,
+}) => {
+  const dev = await request.get('/dev/_llms-txt/guides.txt');
+  expect(dev.ok()).toBe(true);
+  expect(await dev.text()).toContain('sendInput');
+
+  const index = await (await request.get('/llms.txt')).text();
+  const defaultVersion = /^# Maelstrom (\S+)$/m.exec(index)?.[1];
+  expect(defaultVersion).toBeDefined();
+  expect(index).toContain(`/${defaultVersion}/llms-full.txt`);
+  expect(await (await request.get(`/${defaultVersion}/llms.txt`)).text()).toBe(
+    index,
+  );
+
+  const bare = await request.get('/guides/client/custom-connectors.md');
+  expect(bare.status()).toBe(200);
+  expect(await bare.text()).toContain(
+    `/${defaultVersion}/guides/client/custom-connectors/`,
+  );
 });
