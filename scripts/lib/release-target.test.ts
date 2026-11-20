@@ -14,6 +14,9 @@ describe('distTagForVersion', () => {
     expect(distTagForVersion('0.1.0-alpha.0')).toBe('alpha');
     expect(distTagForVersion('1.2.3-beta.12')).toBe('beta');
     expect(distTagForVersion('2.0.0-rc.1')).toBe('rc');
+    expect(() => distTagForVersion('0.3.0-latest.1+ci')).toThrow(
+      ReleaseTargetError,
+    );
   });
 
   it('publishes stable versions to latest', () => {

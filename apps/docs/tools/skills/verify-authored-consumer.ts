@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import { assertFixtureMatchesSelector } from '../../src/lib/docs-snapshot-target';
 import { collectAuthoredExamples } from './authored-examples';
 import { runConsumerCommand } from './consumer-command';
 
@@ -22,7 +23,11 @@ try {
       await readFile(join(fixture, `${name}.template`)),
     );
   }
-  const files = await collectAuthoredExamples(root);
+  const releaseFolder = assertFixtureMatchesSelector(
+    JSON.parse(manifest).dependencies['@maelstrom-co/react'],
+    await Bun.file(join(root, 'context7.json')).json(),
+  );
+  const files = await collectAuthoredExamples(root, releaseFolder);
   for (const [name, source] of files) {
     await mkdir(dirname(join(directory, name)), { recursive: true });
     await writeFile(join(directory, name), source);

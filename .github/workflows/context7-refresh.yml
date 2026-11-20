@@ -1,0 +1,83 @@
+name: Refresh released Context7 documentation
+
+on:
+  workflow_call:
+    inputs:
+      verified_version:
+        type: string
+        required: true
+    secrets:
+      CONTEXT7_API_KEY:
+        required: true
+  push:
+    branches: [main]
+    paths:
+      - context7.json
+      - 'apps/docs/src/content/docs/**'
+      - '!apps/docs/src/content/docs/dev/**'
+  pull_request:
+    paths: [context7.json]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  select:
+    if: github.repository == 'maelstrom-co/maelstrom' && (github.event_name == 'release' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      action: ${{ steps.select.outputs.action }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Read the existing selector for rollback protection
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/contents/context7.json?ref=${BASE_SHA}" --jq '.content' | base64 --decode > "$RUNNER_TEMP/context7-base.json"
+      - id: select
+        env:
+          VERIFIED_VERSION: ${{ inputs.verified_version }}
+        run: bun scripts/promote-context7-release.ts
+      - name: Prepare selector for maintainer review
+        if: github.event_name != 'pull_request' && steps.select.outputs.action == 'propose'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: context7-selector
+          path: ${{ runner.temp }}/context7.json
+          if-no-files-found: error
+
+  refresh:
+    needs: select
+    if: github.event_name != 'pull_request' && needs.select.outputs.action == 'refresh'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    concurrency:
+      group: context7-refresh-released
+      cancel-in-progress: false
+    steps:
+      - name: Request library refresh
+        env:
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        run: |
+          : "${CONTEXT7_API_KEY:?Set the CONTEXT7_API_KEY Actions secret}"
+          status=$(curl --silent --show-error --max-time 60 --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $CONTEXT7_API_KEY" \
+            --header 'Content-Type: application/json' \
+            --data '{"libraryName":"/maelstrom-co/maelstrom"}' \
+            https://context7.com/api/v1/refresh)
+          if [[ "$status" != 2?? ]]; then
+            echo "::error::Context7 refresh returned HTTP $status"
+            exit 1
+          fi
+          echo "Context7 accepted the refresh request."
