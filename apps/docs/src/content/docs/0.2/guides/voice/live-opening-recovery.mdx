@@ -1,0 +1,293 @@
+---
+title: Add a Live opening and explicit reconnect
+description: Connect OpenAI Live through a browser/server exchange, request an introduction, and preserve evidence across explicit reconnects.
+---
+
+Connect OpenAI Live to an existing Maelstrom UI, then configure a natural
+introduction and explicit reconnect. Keep the
+[Maelstrom session](/understanding/voice-architecture/) alive when voice ends so a
+later connection can recover application evidence. Live is the demo's initial
+provider; it is a different API from OpenAI Realtime.
+
+## Before you start
+
+Start with a working Maelstrom Provider, Chart, Vessel registry, and Engine
+connector. Your browser needs a secure context and microphone permission. The
+OpenAI project needs access to both the Live voice model and managed Responses
+backend; the examples use `gpt-live-1` and `gpt-6-luna`.
+
+## Connect the browser and server
+
+1. Install matching versions in the browser application:
+
+   ```sh
+   bun add @maelstrom-co/react @maelstrom-co/react-realtime @maelstrom-co/realtime @maelstrom-co/realtime-openai-live @maelstrom-co/realtime-protocol
+   ```
+
+   In the server application, install `@maelstrom-co/realtime-openai-live-server`
+   and `@maelstrom-co/realtime-protocol`. Never import the server package into the
+   browser bundle.
+2. Mount the [server route example](#server-route)
+   at `POST /api/live-session`. Supply server-held credentials, an exact trusted
+   origin, authenticated authorization, and session-configuration approval. Apply
+   body/read limits, rate limits, HTTPS, and CSRF protection at the host boundary.
+   The example deliberately does not invent your authentication or spending policy.
+3. Add the [browser exchange and adapter example](#browser-adapter)
+   to your existing `createMaelstrom()` configuration. Replace its empty Vessel
+   registry with yours. The callback posts an SDP offer and approved session
+   configuration; the server makes one upstream `/v1/live/sessions` request and
+   returns HTTP 201 with a validated SDP answer. This is **not**
+   `/api/realtime-token` or a Realtime client-secret flow.
+4. Under your existing `m.Provider`, render `m.VoiceOrb`, or read `connect` from
+   `m.useVoice()` during render and call it from a user gesture. Observe `state` and `error`, and
+   use `m.useVoiceObservations()` for timestamped transcript/media evidence.
+   Keep provider errors out of user-visible text and logs.
+5. Verify one UI request settles before the backend reports success. A successful
+   exchange or connection alone does not prove Engine readiness, tool application,
+   audible delivery, or device acoustics. Do not retry paid session creation
+   automatically after an ambiguous failure.
+
+For the repository demo, [local server-key Live](https://github.com/maelstrom-co/maelstrom/blob/main/apps/demo/README.md#optional-gpt-live-with-a-local-server-key)
+requires `DEMO_LOCAL_SERVER_KEY=1`, a separate 24-character-or-longer password,
+and an authenticated loopback Vite listener. Hosted/visitor-key voice instead
+exchanges directly with OpenAI; that demo also supplies the key separately to its
+Engine for planning. Neither path is a substitute for your production host's
+security policy.
+
+## Server route
+
+Mount the returned handler as `POST /api/live-session`. Load the key from server
+configuration and supply an exact trusted `origin`, not the request's Host header.
+`authorize` must authenticate the caller, check voice entitlement, and enforce
+spending limits. `approveSession` must reject or replace caller-controlled models,
+tools, instructions, recording settings, and startup context under your app's
+policy. Preserve the approved Maelstrom tool/backend contract; do not simply
+return the caller's session. Enforce HTTPS, body/read limits, CSRF protection,
+and rate limits in middleware before this handler.
+
+```ts
+import { createLiveSessionExchange } from '@maelstrom-co/realtime-openai-live-server';
+import {
+  LiveExchangeRequestSchema,
+  type LiveSessionConfig,
+} from '@maelstrom-co/realtime-protocol/openai-live';
+
+export function createLiveRoute(options: {
+  apiKey: string;
+  origin: string;
+  authorize: (request: Request) => Promise<boolean>;
+  approveSession: (
+    session: LiveSessionConfig,
+    request: Request,
+  ) => Promise<LiveSessionConfig | null>;
+}) {
+  const exchange = createLiveSessionExchange({ apiKey: options.apiKey });
+  const headers = { 'Cache-Control': 'private, no-store' };
+  return async function POST(request: Request): Promise<Response> {
+    try {
+      if (request.method !== 'POST')
+        return Response.json({ error: 'method-not-allowed' }, { status: 405, headers });
+      if (request.headers.get('Origin') !== options.origin ||
+          !(await options.authorize(request)))
+        return Response.json({ error: 'forbidden' }, { status: 403, headers });
+      const offer = LiveExchangeRequestSchema.safeParse(
+        await request.json().catch(() => null),
+      );
+      if (!offer.success)
+        return Response.json({ error: 'invalid-offer' }, { status: 400, headers });
+      const session = await options.approveSession(offer.data.session, request);
+      if (!session)
+        return Response.json({ error: 'forbidden' }, { status: 403, headers });
+      const answer = await exchange(
+        { session, transport: offer.data.transport }, request.signal,
+      );
+      return Response.json(answer, { status: 201, headers });
+    } catch {
+      return Response.json({ error: 'live-unavailable' }, { status: 502, headers });
+    }
+  };
+}
+```
+
+This fragment requires real application policies; it is not a complete
+authentication or abuse-protection implementation. Never log offers, credentials,
+raw provider failures, or transcript context.
+
+## Browser adapter
+
+Replace the empty registry with your Vessel entries. Keep your existing Provider,
+Engine connector, and Chart. The callback sends no provider key; a successful
+HTTP 201 returns an SDP answer, not proof of audible speech.
+
+```ts
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
+import {
+  LiveExchangeResponseSchema,
+  type LiveSessionExchange,
+} from '@maelstrom-co/realtime-protocol/openai-live';
+
+const exchange: LiveSessionExchange = async (offer, signal) => {
+  const response = await fetch('/api/live-session', {
+    method: 'POST',
+    credentials: 'same-origin',
+    redirect: 'error',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(offer),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+  });
+  if (response.status !== 201) throw new Error('Live exchange failed');
+  return LiveExchangeResponseSchema.parse(await response.json());
+};
+
+export const m = createMaelstrom({ vessels: [] }).with(
+  maelstromRealtime({
+    createAdapter: () => new OpenAILiveAdapter({
+      model: 'gpt-live-1',
+      responses: { model: 'gpt-6-luna' },
+      exchange,
+    }),
+    generatedOpening: { instructions: 'In English, introduce yourself.' },
+  }),
+);
+```
+
+## Configure the introduction
+
+Pass `generatedOpening` to your existing React extension configuration. This
+factory accepts your application's existing adapter factory:
+
+```ts title="src/voice.ts"
+import {
+  maelstromRealtime,
+  type MaelstromRealtimeOptions,
+} from '@maelstrom-co/react-realtime';
+
+export function configureVoice(
+  createAdapter: MaelstromRealtimeOptions['createAdapter'],
+) {
+  return maelstromRealtime({
+    createAdapter,
+    generatedOpening: {
+      instructions:
+        'In English, introduce yourself as the UI assistant and ask how you can help.',
+    },
+  });
+}
+```
+
+Specify the language and keep the instructions short. The Live adapter limits the
+complete append, including its fixed opening instruction, to 500 UTF-8 bytes.
+The `contextTimeoutMs` adapter option bounds acknowledgment waits and defaults to
+30 seconds. An invalid or rejected request consumes the attempt too.
+
+The extension makes one automatic attempt per Orchestrator session. Its shared
+memory survives provider and hook recreation under that Orchestrator. Creating a
+new application session starts independent memory. Do not configure both
+`greeting` and `generatedOpening`; the constructor rejects that combination.
+OpenAI Realtime and LiveKit retain their fixed, verbatim `greeting` behavior.
+
+## Switch providers without a second introduction
+
+To offer Live next to a fixed-greeting provider, list the providers and choose
+the opening per provider with `opening`. It replaces `greeting` and
+`generatedOpening`, which cannot be combined with it:
+
+```ts title="src/voice.ts"
+export const voice = maelstromRealtime({
+  providers: ['live', 'realtime'],
+  createAdapter: ({ provider, sessionId }) =>
+    provider === 'live'
+      ? createLiveAdapter()
+      : createRealtimeAdapter(sessionId),
+  opening: ({ provider }) =>
+    provider === 'live'
+      ? { generatedOpening: { instructions: 'In English, introduce yourself.' } }
+      : { greeting: { text: 'Hello! How can I help?' } },
+});
+```
+
+Call `useVoice().switchProvider(provider)` to change provider at runtime. The
+extension disconnects the current session and builds the next one with the same
+memory, so the introduction happens once per application session in either
+direction: a fixed greeting claims the memory before it speaks, and a Live
+introduction settles a later fixed greeting without speaking. `switching` is
+true while the switch runs, and `connect()` does nothing until it ends. Attach
+per-session wiring, such as diagnostics, with `onSession`; it runs synchronously
+while the session is built, potentially during render, so do not update React
+state there. Its cleanup runs after disconnect when the session is replaced or
+retired. Repeated switches to the pending target share a promise; a different
+target supersedes it. A superseded promise resolves without building, so read
+`provider` for the committed outcome. Switching does not connect the replacement
+automatically; connect explicitly after it settles.
+
+## How the Live adapter opens
+
+The Live adapter sends a native `session.instructions.append` after readiness.
+It keeps microphone input active while waiting, including silence. It does not
+use separate speech synthesis or wait for an opening-completed event.
+
+## End voice and reconnect deliberately
+
+Use the existing `useVoice().disconnect()` control to end voice. Connect again
+only from a user action with `useVoice().connect()`. A terminal Live loss exposes
+an error state; the library does not start a replacement paid session, select a
+different provider, or fork a recording automatically.
+
+End voice releases local participation before waiting for bounded provider
+finalization. It retires that connection's pending requests in the client's shared
+bounded FIFO as not submitted; pending typed requests remain. Already-submitted
+Engine requests and Actions continue. Their application outcomes remain
+observable even if the provider cannot receive the result. Voice stop does not
+change the Engine socket's reconnect policy or cancel Engine work.
+
+Read `useVoice().session.memory.getSnapshot()` for bounded recovery evidence.
+Subscribe with `session.memory.subscribe()` to receive later changes, including
+application results that arrive after voice ends. Snapshots are detached copies;
+they are not a stable-identity React external-store snapshot.
+
+Memory retains the latest eight voice UI requests and eight observed speech
+fragments. Intent and result summaries retain at most 128 characters each;
+fragment excerpts retain at most 256. Older evidence can be omitted. A fragment
+is not a final turn, and a transcript is not proof that audio was heard.
+
+Reconnect supplies bounded reference data in startup `input`, separate from
+trusted behavior instructions. It samples structural context before connection
+setup, then refreshes it after readiness. Later application results use quiet
+appends. Neither an append acknowledgment nor a timeout proves that the model
+consumed the update. Original function calls and provider commands are never
+replayed. A `submitted` or `unknown` outcome does not authorize an automatic retry.
+
+## Retain memory outside React
+
+Create one [RealtimeSessionMemory](/reference/realtime/classes/realtimesessionmemory/) with the application session ID. Pass
+that same object through `RealtimeSessionOptions.memory` when replacing a
+provider or recreating `RealtimeSession`. A mismatched session ID throws before
+connecting. Without supplied memory, each new `RealtimeSession` owns fresh memory.
+
+For an explicit introduction request, call
+`session.requestGeneratedOpening(instructions)` after connecting. It shares the
+same one-attempt marker as the configured introduction. There is no force-reset
+control. A result of `true` confirms request acceptance, not audible delivery.
+A result of `false` means no opening was requested. Rejection may follow a send,
+so the attempt can have an unknown delivery outcome.
+Intended wording never becomes a caption or an Engine history entry.
+
+## Verify
+
+1. Connect once and observe the native opening command and its correlated acknowledgment.
+2. Interrupt the opening. Confirm captions contain only received transcript fragments, including overlapping speech.
+3. End voice during an Action. Confirm the Action can finish and its outcome remains observable.
+4. Reconnect explicitly. Confirm startup context contains observed evidence and the current UI, without another introduction or function replay.
+5. Repeat after unmounting and remounting voice consumers under the same Orchestrator. The introduction must remain suppressed.
+
+Local peer tests verify transport, lifecycle, and application ordering. They do
+not establish paid-provider acceptance, audible delivery, or device acoustics.
+Verify those with your provider account and target devices before relying on them.
+
+## Next steps
+
+- [Voice architecture](/understanding/voice-architecture/)
+- [OpenAI's Live conversation guide](https://developers.openai.com/api/docs/guides/live-conversations)
+- [OpenAI Realtime fixed greetings](/guides/voice/openai-realtime/)

@@ -1,0 +1,15 @@
+---
+editUrl: false
+next: false
+prev: false
+title: "ClientEnvelopeSchema"
+---
+
+> `const` **ClientEnvelopeSchema**: `ZodDiscriminatedUnion`\<\[`ZodObject`\<\{ `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `request`: `ZodObject`\<\{ `context`: `ZodObject`\<\{ `chartDimensions`: `ZodObject`\<\{ `columns`: `ZodNumber`; `rows`: `ZodNumber`; \}, `$strip`\>; `layoutMode`: `ZodEnum`\<\{ `grid`: `"grid"`; `tiling`: `"tiling"`; \}\>; `updateReasons`: `ZodArray`\<`ZodDiscriminatedUnion`\<\[..., ..., ...\], `"type"`\>\>; \}, `$strip`\>; `instances`: `ZodArray`\<`ZodObject`\<\{ `instanceId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `variant`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `vesselId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; \}, `$strip`\>\>; `intentFacts`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodType`\<`Mutable`\<[`JsonValue`](/reference/protocol/type-aliases/jsonvalue/)\>, `unknown`, `$ZodTypeInternals`\<`Mutable`\<...\>, `unknown`\>\>\>\>; `layout`: `ZodDiscriminatedUnion`\<\[`ZodObject`\<\{ `positions`: `ZodArray`\<...\>; `type`: `ZodLiteral`\<...\>; \}, `$strip`\>, `ZodObject`\<\{ `instances`: `ZodArray`\<...\>; `tree`: `ZodArray`\<...\>; `type`: `ZodLiteral`\<...\>; \}, `$strip`\>\], `"type"`\>; `skipReply`: `ZodOptional`\<`ZodBoolean`\>; `type`: `ZodLiteral`\<`"chart_request"`\>; `vessels`: `ZodArray`\<`ZodObject`\<\{ `defaultVariant`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `description`: `ZodString`; `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `name`: `ZodString`; `variants`: `ZodRecord`\<`ZodPipe`\<..., ...\>, `ZodObject`\<..., ...\>\>; \}, `$strip`\>\>; \}, `$strip`\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`SessionId`](/reference/protocol/type-aliases/sessionid/), `string`\>\>; `timestamp`: `ZodNumber`; `type`: `ZodLiteral`\<`"chart_request"`\>; \}, `$strip`\>, `ZodObject`\<\{ `content`: `ZodString`; `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`SessionId`](/reference/protocol/type-aliases/sessionid/), `string`\>\>; `timestamp`: `ZodNumber`; `type`: `ZodLiteral`\<`"assistant_message"`\>; \}, `$strip`\>, `ZodObject`\<\{ `content`: `ZodString`; `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`SessionId`](/reference/protocol/type-aliases/sessionid/), `string`\>\>; `timestamp`: `ZodNumber`; `type`: `ZodLiteral`\<`"client.assistant_message.acknowledged"`\>; \}, `$strip`\>\], `"type"`\>
+
+Defined in: packages/protocol/src/lib/envelope.ts:202
+
+Wire-format Zod parser for the [ClientEnvelope](/reference/protocol/type-aliases/clientenvelope/) union. Reuses
+[EngineMessageSchema](/reference/protocol/variables/enginemessageschema/)'s members by reference and adds the transport
+arms, so the `chart_request` / `assistant_message` contracts stay defined in
+exactly one place.
