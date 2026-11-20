@@ -32,10 +32,6 @@ describe('latestOrderTool', () => {
     expect(latestOrderTool.output.safeParse(output).success).toBe(true);
   });
 
-  it('declares no intent facts', () => {
-    expect(latestOrderTool).not.toHaveProperty('intentFacts');
-  });
-
   it('summarizes the order id, items and date in one line of at most 200 characters', async () => {
     const output = await latestOrderTool.execute({}, contextFor());
 

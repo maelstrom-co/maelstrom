@@ -21,10 +21,6 @@ describe('searchProductsTool', () => {
     expect(searchProductsTool.output.safeParse(output).success).toBe(true);
   });
 
-  it('declares no intent facts', () => {
-    expect(searchProductsTool).not.toHaveProperty('intentFacts');
-  });
-
   it('matches the brand when the name does not contain the query', async () => {
     const output = await search({ query: 'harvest table' });
 

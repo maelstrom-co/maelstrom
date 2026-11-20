@@ -763,6 +763,7 @@ function shipPlanOutcome(
     case 'needs_clarification':
       return ok({ type: 'needs_clarification', question: outcome.question });
     case 'maelstrom_response': {
+      // Widened so `reasons` destructures on both members of the union.
       const replyless: FullValidatedReplylessCandidate = outcome;
       const {
         userMessage,

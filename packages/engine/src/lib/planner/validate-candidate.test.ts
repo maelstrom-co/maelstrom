@@ -25,11 +25,13 @@ import {
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import type { PlannerCandidate, ReplylessCandidate } from './candidate.js';
+import type { PlanValidationInput, PlanValidator } from './plan-validator.js';
 import { createCandidateValidator } from './validate-candidate.js';
 
 function validatorFor(
   logger: Logger,
   request: ChartRequest = makeGridRequest(),
+  validatePlan?: PlanValidator,
 ) {
   const input = makePlanningInput(request);
   return createCandidateValidator({
@@ -37,6 +39,7 @@ function validatorFor(
     enumSnapshot: buildActionParameterEnumSnapshot(input.request.vessels),
     messageId: input.messageId,
     logger,
+    ...(validatePlan === undefined ? {} : { validatePlan }),
   });
 }
 
@@ -960,6 +963,40 @@ describe('createCandidateValidator verdicts', () => {
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
     expect('reasons' in result.value).toBe(false);
+  });
+
+  test('a validatePlan hook does not see verdicts, and verdicts survive it', () => {
+    const seen: PlanValidationInput[] = [];
+    const validate = validatorFor(
+      spyLogger().logger,
+      goalRequest(true),
+      (input) => {
+        seen.push(input);
+        return [];
+      },
+    );
+
+    const result = validate(replylessWith([planned]));
+
+    expect(seen).toHaveLength(1);
+    expect('reasons' in (seen[0]?.response ?? {})).toBe(false);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
+    expect<unknown>(result.value.reasons).toEqual([planned]);
+  });
+
+  test('verdicts survive alongside plan issues a validatePlan hook reports', () => {
+    const missingView = { code: 'missing-view', message: 'Show the order' };
+    const validate = validatorFor(spyLogger().logger, goalRequest(true), () => [
+      missingView,
+    ]);
+
+    const result = validate(replylessWith([planned]));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
+    expect<unknown>(result.value.reasons).toEqual([planned]);
+    expect(result.value.diagnostics.planIssues).toEqual([missingView]);
   });
 
   test('a strict candidate ignores reasons', () => {
