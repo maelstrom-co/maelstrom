@@ -1769,7 +1769,7 @@ describe('clarification changes and per-goal verdicts', () => {
     expect(change.response.layout).toEqual(widerLayout);
     expect(change.response.executionPlan).toEqual([]);
     expect(change.response).not.toHaveProperty('userMessage');
-    expect(change.response).not.toHaveProperty('reasons');
+    expect(change.response).not.toHaveProperty('verdicts');
     harness.queue.acknowledge(applied(change.changeId, weekChart, []));
 
     expect(await Promise.all(answers)).toEqual(
@@ -1837,7 +1837,7 @@ describe('clarification changes and per-goal verdicts', () => {
       question,
       options,
       layout: widerLayout,
-      reasons: [
+      verdicts: [
         { id: 'r1', status: 'planned' },
         {
           id: 'r2',
@@ -1875,7 +1875,7 @@ describe('clarification changes and per-goal verdicts', () => {
       type: 'needs_clarification',
       question,
       layout: widerLayout,
-      reasons: [
+      verdicts: [
         { id: 'r1', status: 'planned' },
         { id: 'r2', status: 'needs_clarification', question: 'Which size?' },
       ],
@@ -1906,7 +1906,7 @@ describe('clarification changes and per-goal verdicts', () => {
     harness.planner.outcome(0, {
       type: 'response',
       response: changeResponse(monthChart),
-      reasons: [
+      verdicts: [
         { id: 'r1', status: 'planned' },
         { id: 'r2', status: 'failed' },
       ],
@@ -1926,36 +1926,6 @@ describe('clarification changes and per-goal verdicts', () => {
     expect(second?.summary).toBe('failed: "Show order 1.2"');
   });
 
-  test('a plan response whose needs_clarification verdict carries no question answers that goal failed with the change id and logs a warning', async () => {
-    const harness = createHarness();
-    harness.queue.noteChart(monthChart);
-    const answers = harness.queue.request(screenChange(1, 1, 2));
-
-    harness.planner.outcome(0, {
-      type: 'response',
-      response: changeResponse(monthChart),
-      reasons: [
-        { id: 'r1', status: 'planned' },
-        { id: 'r2', status: 'needs_clarification' },
-      ],
-    });
-    const change = await harness.nextUiChange();
-    harness.queue.acknowledge(
-      applied(change.changeId, weekChart, [{ ok: true }]),
-    );
-
-    const [, second] = await Promise.all(answers);
-    expect(second).toMatchObject({
-      status: 'failed',
-      changeId: change.changeId,
-    });
-    expect(harness.warnings()).toContainEqual({
-      message:
-        'Screen Change verdict asked for clarification without a question',
-      data: { changeId: change.changeId, reasonId: 'r2' },
-    });
-  });
-
   test('a goal without a verdict takes the top-level outcome, and a clarification with verdicts adds no onScreen', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
@@ -1964,7 +1934,7 @@ describe('clarification changes and per-goal verdicts', () => {
     harness.planner.outcome(0, {
       type: 'needs_clarification',
       question,
-      reasons: [{ id: 'r1', status: 'failed' }],
+      verdicts: [{ id: 'r1', status: 'failed' }],
     });
 
     expect(await Promise.all(answers)).toEqual([
@@ -1987,7 +1957,7 @@ describe('clarification changes and per-goal verdicts', () => {
       type: 'needs_clarification',
       question,
       executionPlan: changeResponse(monthChart).executionPlan,
-      reasons: [{ id: 'r1', status: 'planned' }],
+      verdicts: [{ id: 'r1', status: 'planned' }],
     });
     const change = await harness.nextUiChange();
     harness.queue.acknowledge(

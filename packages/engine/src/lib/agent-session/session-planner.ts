@@ -34,7 +34,7 @@ export type PlanOutcome =
        * Verdicts on the request's `user_intent` reasons, kept by validation.
        * A reason without one shares the response's outcome.
        */
-      readonly reasons?: readonly PlannerReasonVerdict[];
+      readonly verdicts?: readonly PlannerReasonVerdict[];
     }
   | {
       readonly type: 'needs_clarification';
@@ -50,7 +50,7 @@ export type PlanOutcome =
        * Verdicts on the request's `user_intent` reasons, kept by validation.
        * A reason without one shares the clarification's outcome.
        */
-      readonly reasons?: readonly PlannerReasonVerdict[];
+      readonly verdicts?: readonly PlannerReasonVerdict[];
     };
 
 /** Plans for one Agent Session. The Engine builds one per connection from its Planner. */

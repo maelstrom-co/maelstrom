@@ -73,7 +73,7 @@ function guarantees(): void {
 
   const replyless = {} as PlannerOutputFor<FlagTrue>;
   const replylessVerdicts: readonly PlannerReasonVerdict[] | undefined =
-    replyless.reasons;
+    replyless.verdicts;
   if (replyless.type === 'needs_clarification') {
     const question: string = replyless.question;
     void question;
@@ -82,8 +82,18 @@ function guarantees(): void {
     const required: string = replyless.userMessage;
     void required;
   }
+  // @ts-expect-error a clarification verdict always carries a question
+  const questionless: PlannerReasonVerdict = {
+    id: 'r1',
+    status: 'needs_clarification',
+  };
+  const verdict = {} as PlannerReasonVerdict;
+  if (verdict.status === 'needs_clarification') {
+    const verdictQuestion: string = verdict.question;
+    void verdictQuestion;
+  }
   // @ts-expect-error a reply-bearing output never carries verdicts
-  const replyBearingVerdicts: unknown = replyBearing.reasons;
+  const replyBearingVerdicts: unknown = replyBearing.verdicts;
 
   // @ts-expect-error a reply-bearing output is never a clarification
   const clarification: NeedsClarification = replyBearing;
@@ -102,6 +112,7 @@ function guarantees(): void {
     message,
     replylessVerdicts,
     replyBearingVerdicts,
+    questionless,
     clarification,
     untagged,
     stamped,

@@ -861,18 +861,18 @@ describe('createCandidateValidator verdicts', () => {
   };
 
   const replylessWith = (
-    reasons: ReplylessCandidate['reasons'],
+    verdicts: ReplylessCandidate['verdicts'],
   ): ReplylessCandidate => {
     const { userMessage: _omitted, ...rest } = buildGridResponse();
-    return { ...rest, reasons };
+    return { ...rest, verdicts };
   };
 
   const clarificationWith = (
-    reasons: NeedsClarification['reasons'],
+    verdicts: NeedsClarification['verdicts'],
   ): NeedsClarification => ({
     type: 'needs_clarification',
     question: 'Which calendar do you mean?',
-    reasons,
+    verdicts,
   });
 
   const planned = { id: 'r1', status: 'planned' } as const;
@@ -893,7 +893,7 @@ describe('createCandidateValidator verdicts', () => {
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
-    expect<unknown>(result.value.reasons).toEqual([
+    expect<unknown>(result.value.verdicts).toEqual([
       planned,
       { id: 'r2', status: 'failed' },
     ]);
@@ -907,7 +907,7 @@ describe('createCandidateValidator verdicts', () => {
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'needs_clarification') return;
-    expect<unknown>(result.value.reasons).toEqual([planned, asking]);
+    expect<unknown>(result.value.verdicts).toEqual([planned, asking]);
   });
 
   test.each([
@@ -930,7 +930,7 @@ describe('createCandidateValidator verdicts', () => {
 
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
-      const kept = 'reasons' in result.value ? result.value.reasons : undefined;
+      const kept = 'verdicts' in result.value ? result.value.verdicts : undefined;
       expect<unknown>(kept).toEqual([planned, asking]);
       expect(entries).toEqual([
         {
@@ -942,14 +942,14 @@ describe('createCandidateValidator verdicts', () => {
     },
   );
 
-  test('verdicts that all fail to match leave no reasons key', () => {
+  test('verdicts that all fail to match leave no verdicts key', () => {
     const validate = validatorFor(spyLogger().logger, goalRequest(true));
 
     const result = validate(replylessWith([{ id: 'r9', status: 'planned' }]));
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect('reasons' in result.value).toBe(false);
+    expect('verdicts' in result.value).toBe(false);
   });
 
   test('a request reason without an id matches no verdict', () => {
@@ -962,7 +962,7 @@ describe('createCandidateValidator verdicts', () => {
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect('reasons' in result.value).toBe(false);
+    expect('verdicts' in result.value).toBe(false);
   });
 
   test('a validatePlan hook does not see verdicts, and verdicts survive it', () => {
@@ -979,10 +979,10 @@ describe('createCandidateValidator verdicts', () => {
     const result = validate(replylessWith([planned]));
 
     expect(seen).toHaveLength(1);
-    expect('reasons' in (seen[0]?.response ?? {})).toBe(false);
+    expect('verdicts' in (seen[0]?.response ?? {})).toBe(false);
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
-    expect<unknown>(result.value.reasons).toEqual([planned]);
+    expect<unknown>(result.value.verdicts).toEqual([planned]);
   });
 
   test('verdicts survive alongside plan issues a validatePlan hook reports', () => {
@@ -995,23 +995,23 @@ describe('createCandidateValidator verdicts', () => {
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
-    expect<unknown>(result.value.reasons).toEqual([planned]);
+    expect<unknown>(result.value.verdicts).toEqual([planned]);
     expect(result.value.diagnostics.planIssues).toEqual([missingView]);
   });
 
-  test('a strict candidate ignores reasons', () => {
+  test('a strict candidate ignores verdicts', () => {
     const { logger, entries } = spyLogger();
     const validate = validatorFor(logger, goalRequest());
     const candidate: ReplylessCandidate = {
       ...buildGridResponse(),
-      reasons: [planned],
+      verdicts: [planned],
     };
 
     const result = validate(candidate);
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect('reasons' in result.value).toBe(false);
+    expect('verdicts' in result.value).toBe(false);
     expect(entries).toEqual([]);
   });
 });

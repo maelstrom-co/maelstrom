@@ -751,27 +751,27 @@ describe('Planner reason verdicts', () => {
       payload: tilingPayload({ tree: [], instances: [] }),
     },
   ])('$name keeps the verdicts it is given', ({ schema, payload }) => {
-    const result = schema.safeParse({ ...planned(payload), reasons: verdicts });
+    const result = schema.safeParse({ ...planned(payload), verdicts });
 
     expect(result.success).toBe(true);
-    if (result.success) expect<unknown>(result.data.reasons).toEqual(verdicts);
+    if (result.success) expect<unknown>(result.data.verdicts).toEqual(verdicts);
   });
 
-  test('a replyless result without verdicts keeps no reasons key', () => {
+  test('a replyless result without verdicts keeps no verdicts key', () => {
     const result = GridResponseWithoutReplySchema.safeParse(
       planned(gridPayload({ positions: [] })),
     );
 
     expect(result.success).toBe(true);
-    if (result.success) expect('reasons' in result.data).toBe(false);
+    if (result.success) expect('verdicts' in result.data).toBe(false);
   });
 
   test.each([
     { name: 'GridResponseSchema', schema: GridResponseSchema },
     { name: 'GridModelOutputSchema', schema: GridModelOutputSchema },
     { name: 'TilingModelOutputSchema', schema: TilingModelOutputSchema },
-  ])('$name has no reasons field', ({ schema }) => {
-    expect(Object.keys(schema.shape)).not.toContain('reasons');
+  ])('$name has no verdicts field', ({ schema }) => {
+    expect(Object.keys(schema.shape)).not.toContain('verdicts');
   });
 
   test.each<[string, unknown]>([
@@ -782,7 +782,16 @@ describe('Planner reason verdicts', () => {
     ],
     [
       'a blank option',
-      { id: 'r1', status: 'needs_clarification', options: ['A', ' '] },
+      {
+        id: 'r1',
+        status: 'needs_clarification',
+        question: 'Which one?',
+        options: ['A', ' '],
+      },
+    ],
+    [
+      'a needs_clarification status and no question',
+      { id: 'r1', status: 'needs_clarification' },
     ],
     ['a blank id', { id: ' ', status: 'planned' }],
     ['a missing id', { status: 'planned' }],
@@ -791,7 +800,7 @@ describe('Planner reason verdicts', () => {
     expect(
       GridResponseWithoutReplySchema.safeParse({
         ...planned(gridPayload({ positions: [] })),
-        reasons: [verdict],
+        verdicts: [verdict],
       }).success,
     ).toBe(false);
   });

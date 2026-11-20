@@ -345,7 +345,7 @@ const result: GridResponse = { ...output, type: 'plan' };
 
 For a request with `skipReply: true` the Planner may return one of these instead:
 
-- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same tagged shapes with an optional `userMessage` and optional `reasons` verdicts. The strict schemas stay unchanged.
+- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same tagged shapes with an optional `userMessage` and optional `verdicts`. The strict schemas stay unchanged.
 - **`GridNeedsClarificationSchema` / `TilingNeedsClarificationSchema`**: a question for the user when the Planner cannot finish without one. It may also carry the `layout` and `executionPlan` the Planner could already settle. For "Show Apple and Alphabet stock" it can lay out Apple and ask which Alphabet share class the user means. The `layout` must match the request mode. Without either field it leaves the screen unchanged. `NeedsClarificationSchema` accepts a layout of either mode, for a caller that does not know the request.
 
 ```ts
@@ -355,22 +355,26 @@ interface NeedsClarification<M extends LayoutMode = LayoutMode> {
   options?: readonly string[];   // suggested answers, each non-blank
   layout?: M extends 'grid' ? GridResponse['layout'] : TilingResponse['layout'];
   executionPlan?: GridResponse['executionPlan']; // same limit as a plan result
-  reasons?: readonly PlannerReasonVerdict[];
+  verdicts?: readonly PlannerReasonVerdict[];
 }
 ```
 
-Both replyless shapes may carry `reasons`, one verdict per `user_intent` reason the Planner can name by its `id`. `PlannerReasonVerdictSchema` parses one verdict:
+Both replyless shapes may carry `verdicts`, one verdict per `user_intent` reason the Planner can name by its `id`. `PlannerReasonVerdictSchema` parses one verdict:
 
 ```ts
-interface PlannerReasonVerdict {
-  id: string;                      // a user_intent reason id, never blank
-  status: 'planned' | 'needs_clarification' | 'failed';
-  question?: string;               // never blank
-  options?: readonly string[];     // each non-blank
-}
+type PlannerReasonVerdict =
+  | { id: string; status: 'planned' }
+  | { id: string; status: 'failed' }
+  | {
+      id: string;
+      status: 'needs_clarification';
+      question: string;              // required, never blank
+      options?: readonly string[];   // each non-blank
+    };
+// id is a user_intent reason id, never blank
 ```
 
-`planned` means the result plans for that reason. A reason without a verdict shares the result's own outcome, and a result without `reasons` gives every reason that outcome. The Engine keeps only verdicts whose `id` matches a `user_intent` reason id of the request, the first one per id. Verdicts stay inside the Engine and never ship in a `MaelstromResponse`. The LLM structured-output schemas have no `reasons` field.
+`planned` means the result plans for that reason, `failed` means it cannot, and `needs_clarification` asks its own required `question`. A reason without a verdict shares the result's own outcome, and a result without `verdicts` gives every reason that outcome. The Engine keeps only verdicts whose `id` matches a `user_intent` reason id of the request, the first one per id. Verdicts stay inside the Engine and never ship in a `MaelstromResponse`. The LLM structured-output schemas have no `verdicts` field.
 
 `PlannerOutputFor<R>` turns that rule into a type. For a request type whose `skipReply` is absent or `false` it is the reply-bearing `GridResponse | TilingResponse`, always tagged `'plan'`. For `skipReply: true`, or a flag only known as `boolean`, it is `GridResponseWithoutReply | TilingResponseWithoutReply | NeedsClarification`, so switching on `type` tells a plan from a clarification. A clarification is never valid without `skipReply: true`.
 

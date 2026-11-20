@@ -195,7 +195,7 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  const { layout, executionPlan, reasons, ...clarification } = shape.data;
+  const { layout, executionPlan, verdicts, ...clarification } = shape.data;
   const healed = guardInvariants(logger, messageId, () =>
     processPartialChanges({
       request,
@@ -232,7 +232,7 @@ function processNeedsClarification(
   }
   return ok({
     ...clarification,
-    ...matchedVerdicts(request, logger, messageId, reasons),
+    ...matchedVerdicts(request, logger, messageId, verdicts),
     ...healed.value,
   });
 }
@@ -243,7 +243,7 @@ function validateApplicationPlan(
   validatePlan: PlanValidator,
 ): Result<FullValidatedReplylessCandidate, EngineError> {
   try {
-    const { diagnostics, reasons, ...response } = processed;
+    const { diagnostics, verdicts, ...response } = processed;
     const returned: unknown = validatePlan({
       request: input.request,
       response,
@@ -258,7 +258,7 @@ function validateApplicationPlan(
     const planIssues = planIssuesSchema.parse(returned);
     return ok({
       ...response,
-      ...(reasons === undefined ? {} : { reasons }),
+      ...(verdicts === undefined ? {} : { verdicts }),
       diagnostics: buildDiagnostics({
         ...diagnostics,
         planIssues,
@@ -310,10 +310,10 @@ function processCandidate(
   const processed = guardInvariants(logger, messageId, () =>
     processResponse(input),
   );
-  if (isErr(processed) || !('reasons' in shape.data)) return processed;
+  if (isErr(processed) || !('verdicts' in shape.data)) return processed;
   return ok({
     ...processed.value,
-    ...matchedVerdicts(request, logger, messageId, shape.data.reasons),
+    ...matchedVerdicts(request, logger, messageId, shape.data.verdicts),
   });
 }
 
@@ -325,7 +325,7 @@ function matchedVerdicts(
   logger: Logger,
   messageId: MessageId,
   verdicts: readonly PlannerReasonVerdict[] | undefined,
-): { readonly reasons?: readonly PlannerReasonVerdict[] } {
+): { readonly verdicts?: readonly PlannerReasonVerdict[] } {
   if (verdicts === undefined) return {};
   const unclaimedIds = new Set(
     request.context.updateReasons.flatMap((reason) =>
@@ -339,7 +339,7 @@ function matchedVerdicts(
   if (droppedVerdictCount > 0) {
     logger.warn('Planner verdicts dropped', { messageId, droppedVerdictCount });
   }
-  return kept.length === 0 ? {} : { reasons: kept };
+  return kept.length === 0 ? {} : { verdicts: kept };
 }
 
 // A layout entry healing dropped, an Action skipped for a reason a better
