@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -13,6 +14,7 @@ import { dirname, join } from 'node:path';
 import {
   deepenEscapingImports,
   frozenBy,
+  replaceFolder,
   snapshotDocs,
   snapshotTarget,
   stripSlugFrontmatter,
@@ -153,7 +155,7 @@ describe('snapshotDocs', () => {
     const root = await docsRoot({
       'dev/guides/a.mdx': '# A\n',
       'dev/reference/api/README.md':
-        '- [Api](/dev/reference/api/classes/api/)\n- [Guide](/dev/guides/a/)\n',
+        '- [Api](/dev/reference/api/classes/api/)\n- [Guide](/dev/guides/a/)\n- [Package](https://example.com/dev/pkg/)\n',
       '0.2/guides/a.mdx': '# Old A\n',
     });
 
@@ -174,7 +176,9 @@ describe('snapshotDocs', () => {
     );
     expect(
       await readFile(join(root, '0.3/reference/api/README.md'), 'utf8'),
-    ).toBe('- [Api](/reference/api/classes/api/)\n- [Guide](/dev/guides/a/)\n');
+    ).toBe(
+      '- [Api](/reference/api/classes/api/)\n- [Guide](/guides/a/)\n- [Package](https://example.com/dev/pkg/)\n',
+    );
     expect(await readFile(join(root, '0.2/guides/a.mdx'), 'utf8')).toBe(
       '# Old A\n',
     );
@@ -242,6 +246,42 @@ describe('snapshotDocs', () => {
     expect(await readFile(join(root, '0.2/guides/a.mdx'), 'utf8')).toBe(
       '# Old A\n',
     );
+  });
+
+  test('puts the previous folder back when the replacement cannot move in', async () => {
+    const root = await docsRoot({
+      'staging/guides/a.mdx': '# A\n',
+      '0.3/guides/a.mdx': '# Old A\n',
+      '0.3/reference/api/README.md': '# API 0.3.0\n',
+    });
+    let moves = 0;
+
+    await expect(
+      replaceFolder(
+        join(root, 'staging'),
+        join(root, '0.3'),
+        join(root, 'replaced'),
+        async (from, to) => {
+          if (++moves === 2) throw new Error('disk full');
+          await rename(from, to);
+        },
+      ),
+    ).rejects.toThrow('disk full');
+    expect(await readFile(join(root, '0.3/guides/a.mdx'), 'utf8')).toBe(
+      '# Old A\n',
+    );
+    expect(
+      await readFile(join(root, '0.3/reference/api/README.md'), 'utf8'),
+    ).toBe('# API 0.3.0\n');
+    expect((await readdir(root)).sort()).toEqual(['0.3', 'staging']);
+  });
+
+  test('leaves no scratch folder beside the docs root', async () => {
+    const root = await docsRoot({ 'docs/dev/guides/a.mdx': '# A\n' });
+
+    await snapshotDocs('0.3.0', { root: join(root, 'docs') });
+
+    expect(await readdir(root)).toEqual(['docs']);
   });
 
   test('keeps the target folder when the source has no pages', async () => {

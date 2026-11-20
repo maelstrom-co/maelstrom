@@ -19,7 +19,12 @@ import {
   createGitHubSourceLinkTemplate,
   resolveDocsSourceRef,
 } from './src/lib/docs-source-links.js';
-import { DEV_VERSION } from './src/lib/docs-versions';
+import {
+  DEV_VERSION,
+  bareTarget,
+  versionHref,
+  versionLanding,
+} from './src/lib/docs-versions';
 import {
   docsVersions,
   readDocsVersions,
@@ -111,6 +116,17 @@ const docsSite = process.env.DOCS_SITE_URL ?? 'https://docs.maelstrom-ai.co';
 const docsRoot = fileURLToPath(new URL('./src/content/docs/', import.meta.url));
 const versions = readDocsVersions(docsRoot);
 const defaultVersion = versions.defaultVersion;
+// DOCS_DEFAULT_VERSION moves bare URLs without changing what npm serves.
+const latestRelease = versions.versions.find(
+  (version) => version !== DEV_VERSION,
+);
+const rootLanding = versionLanding(versions, defaultVersion);
+const legacyEvaluations = bareTarget(
+  'evals/architecture',
+  versions.versions,
+  defaultVersion,
+  (version, rest) => versions.pages[version]?.includes(rest) ?? false,
+);
 
 const llmsTitle = 'Maelstrom';
 const llmsDescription =
@@ -156,7 +172,7 @@ const llmsSets = [
 function llmsDetails(version: string): string {
   const versionNote =
     version === DEV_VERSION
-      ? `- This is the development documentation, built from main at source revision ${docsRevision}. Core SDK manifests: ${sdkVersions}. It can describe APIs that are not published to npm yet.${defaultVersion === DEV_VERSION ? '' : ` For the published packages, use the [${defaultVersion} documentation](/${defaultVersion}/llms.txt).`}`
+      ? `- This is the development documentation, built from main at source revision ${docsRevision}. Core SDK manifests: ${sdkVersions}. It can describe APIs that are not published to npm yet.${latestRelease === undefined ? '' : ` For the published packages, use the [${latestRelease} documentation](/${latestRelease}/llms.txt).`}`
       : `- This is the documentation for Maelstrom ${version}, frozen at its latest release. Use it when the installed \`@maelstrom-co/*\` packages are ${version}.x. The installed package manifest and exported API are the authority for your application.`;
   const overview = `
 ## Key Concepts
@@ -396,10 +412,7 @@ function docsSidebar(apiReference: SidebarItem[]): SidebarItem[] {
       items: [
         { label: 'Prompts library', link: '/agents/prompts/' },
         { label: 'Agent skills', link: '/agents/skills/' },
-        {
-          label: 'Testing prompts and skills',
-          link: '/agents/evaluations/',
-        },
+        { label: 'Testing prompts and skills', slug: 'agents/evaluations' },
       ],
     },
     {
@@ -422,22 +435,35 @@ export default defineConfig({
   compressHTML: true,
   server: { port: 4322 },
   redirects: {
-    '/': {
-      destination: `/${defaultVersion}/getting-started/introduction/`,
-      status: 302,
-    },
-    '/guides/engine/evaluations/': {
-      destination: `/${defaultVersion}/evals/architecture/`,
-      status: 301,
-    },
+    ...(rootLanding === undefined
+      ? {}
+      : {
+          '/': {
+            destination: versionHref(defaultVersion, rootLanding),
+            status: 302,
+          },
+        }),
+    ...(legacyEvaluations === undefined
+      ? {}
+      : {
+          '/guides/engine/evaluations/': {
+            destination: legacyEvaluations,
+            status: 301,
+          },
+        }),
+    // A version folder without pages gets no root redirect.
     ...Object.fromEntries(
-      versions.versions.map((version) => [
-        `/${version}/`,
-        {
-          destination: `/${version}/getting-started/introduction/`,
-          status: 302,
-        },
-      ]),
+      versions.versions.flatMap((version) => {
+        const landing = versionLanding(versions, version);
+        return landing === undefined
+          ? []
+          : [
+              [
+                `/${version}/`,
+                { destination: versionHref(version, landing), status: 302 },
+              ],
+            ];
+      }),
     ),
   },
   integrations: [

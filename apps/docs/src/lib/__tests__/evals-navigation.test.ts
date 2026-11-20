@@ -45,12 +45,12 @@ describe('evals navigation', () => {
         ),
       ),
     ).toBe(false);
-    expect(config).toContain("link: '/agents/evaluations/'");
+    expect(config).toContain("slug: 'agents/evaluations'");
   });
 
   it('redirects the old route permanently and exports the new LLM text set', () => {
     expect(config).toMatch(
-      /'\/guides\/engine\/evaluations\/': \{\s*destination: `\/\$\{defaultVersion\}\/evals\/architecture\/`,\s*status: 301,\s*\}/,
+      /'\/guides\/engine\/evaluations\/': \{\s*destination: legacyEvaluations,\s*status: 301,\s*\}/,
     );
     expect(config).toMatch(/label: 'Evals',\s*directory: 'evals'/);
   });
