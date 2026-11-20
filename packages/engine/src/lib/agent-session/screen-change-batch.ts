@@ -11,7 +11,11 @@ export const SCREEN_CHANGE_BATCH_FILL_TIMEOUT_MS = 1_000;
 
 /** One goal of a submitted batch. */
 export interface ScreenChangeBatchGoal {
-  /** The provider tool call id of the `change_screen` call. Never leaves the Engine. */
+  /**
+   * The call id: the provider tool call id inside the batch, the run's
+   * `CallId` once submitted to the Screen Change queue. Neither reaches the
+   * Planner request or `ui_change`.
+   */
   readonly callId: string;
   /** The `user_intent` reason id the goal plans under, `r1`, `r2`, ... in admission order. */
   readonly reasonId: string;

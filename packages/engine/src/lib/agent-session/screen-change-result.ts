@@ -5,8 +5,9 @@ import type { ChangeId } from '@maelstrom-co/protocol';
  *
  * - `applied`: the screen confirmed the change, or already showed the goal.
  * - `failed`: the Planner could not plan the goal, or some steps did not run.
- * - `unknown`: a change went out but the screen did not confirm it in time.
- *   It may still have been applied.
+ * - `unknown`: a change went out but the screen did not confirm it, because
+ *   the acknowledgement timed out or the run stopped waiting first. It may
+ *   still have been applied.
  * - `needs_clarification`: the Planner needs the user to answer a question.
  * - `cancelled`: the run stopped waiting before the change went out.
  * - `queued`: reserved for Ambient Screen Changes. Never produced yet.
@@ -35,8 +36,9 @@ export interface ScreenChangeResult {
   /** Suggested answers to {@link question}. */
   readonly options?: readonly string[];
   /**
-   * Vessel ids visible on the screen the Planner planned against. Present
-   * only on a clarification that carried no per-goal verdicts.
+   * Vessel ids visible in the layout the screen shows after this change: the
+   * layout sent, or the current one when nothing was sent. Present only on a
+   * clarification that carried no per-goal verdicts.
    */
   readonly onScreen?: readonly string[];
 }

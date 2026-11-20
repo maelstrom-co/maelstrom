@@ -62,8 +62,8 @@ export interface OpenConnectionOptions {
  * - Each UI change waits for acknowledgement for at most
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
  *   default. On the UI-only route a timeout fails the run and cancels queued
- *   work. On an agent connection a timeout of a loop-driven change only lets
- *   the next queued Screen Change start.
+ *   work. On an agent connection a timeout of a `change_screen` change
+ *   answers its goals `unknown` and lets the next queued Screen Change start.
  */
 export interface AgentConnection {
   /**
