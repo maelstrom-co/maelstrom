@@ -17,7 +17,11 @@ import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';
 
-/** Server-owned context and clock for one connection. Never supplied to the Planner. */
+/**
+ * Server-owned context and clock for one connection. Never supplied to the Planner.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface OpenConnectionOptions {
   /** Session the host authorized before opening this connection. */
   readonly sessionId: SessionId;
@@ -68,6 +72,8 @@ export interface OpenConnectionOptions {
  *   answers the goals that depend on it `unknown`, leaves a goal with a
  *   clarification verdict at `needs_clarification`, and lets the next queued
  *   Screen Change start.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentConnection {
   /**

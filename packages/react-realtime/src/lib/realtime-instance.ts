@@ -13,6 +13,8 @@ export interface RealtimeInstanceOptions {
    * own submit path, and returns that submission. When set, the instance
    * answers voice intents from the submission's `result` instead of the
    * intent scheduler. A throw is reported as an unconfirmed outcome.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   readonly sendAgentMessage?: (
     orchestrator: Orchestrator,

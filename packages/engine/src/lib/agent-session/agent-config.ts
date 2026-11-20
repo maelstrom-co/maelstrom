@@ -15,6 +15,8 @@ import {
  * Who an Agent Run acts for, as supplied when the connection opened. Model
  * factories and budget resolvers receive it once per run. It never reaches a
  * prompt, tool arguments or an event.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentRunContext {
   /** The user supplied when the connection opened, passed through unchanged. */
@@ -31,6 +33,8 @@ export interface AgentRunContext {
  * `chatStream` method ends the run with an error before it starts. So does a
  * factory still pending after the run's `maxElapsedMs`, or after the default
  * 120,000 ms when budgets come from a resolver. Its late result is discarded.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentModelFactory = (
   ctx: AgentRunContext,
@@ -44,6 +48,8 @@ export type AgentModelFactory = (
  * with an error, as does a resolver still pending after the default
  * `maxElapsedMs` of 120,000 ms. The resolver caps a single run, not
  * total spend.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentBudgetResolver = (
   ctx: AgentRunContext,
@@ -53,6 +59,8 @@ export type AgentBudgetResolver = (
  * The `agent` slot of the Engine config. When present, utterances run as
  * Agent Runs that call the configured tools. Read once when the Engine is
  * created.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentConfig {
   /**
@@ -87,7 +95,11 @@ export interface AgentConfig {
   readonly retry?: AgentRunRetry;
 }
 
-/** {@link AgentConfig} with its defaults applied and its tools registered. */
+/**
+ * {@link AgentConfig} with its defaults applied and its tools registered.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface ResolvedAgentConfig {
   /** The configured adapter or model factory. */
   readonly model: AnyTextAdapter | AgentModelFactory;

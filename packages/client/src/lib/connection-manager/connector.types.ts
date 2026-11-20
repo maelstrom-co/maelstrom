@@ -470,6 +470,8 @@ export interface EngineConnector {
    * {@link AgentEvent}. Rejects when the transport is not connected, no
    * session is established, or the transport cannot carry agent inputs, in
    * which case it rejects with {@link AgentWireUnsupportedError}.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   sendInput(input: AgentInput): Promise<void>;
 
@@ -483,6 +485,8 @@ export interface EngineConnector {
    *
    * @param handler - Callback invoked for each decoded agent event
    * @returns Unsubscribe function to remove the handler
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   onEvent(handler: (event: AgentEvent) => void): Unsubscribe;
 }
@@ -517,6 +521,8 @@ export class WireEngineError extends Error {
  * The error {@link EngineConnector.sendInput} rejects with when the
  * transport cannot carry Agent Session inputs at all, as opposed to a
  * transient failure such as a closed connection.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export class AgentWireUnsupportedError extends Error {
   /** Creates the error with a message naming the unsupported transport. */

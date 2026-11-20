@@ -170,6 +170,8 @@ export interface MaelstromInstanceCore<
    * if (run?.status === 'not_submitted') return <p role="alert">{run.error.message}</p>;
    * if (run?.status === 'streaming') return <p>{run.reply}</p>;
    * ```
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   useAgentRun: () => UseAgentRunResult;
 
@@ -185,6 +187,8 @@ export interface MaelstromInstanceCore<
    *   console.log('applied', runId, changeId);
    * });
    * ```
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   useAgentEvent: <K extends keyof AgentConversationEvents>(
     type: K,

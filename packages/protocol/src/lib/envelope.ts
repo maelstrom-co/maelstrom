@@ -126,6 +126,8 @@ export const AcknowledgedAssistantMessageSchema =
  * Wire-format Zod parser for {@link AgentInputMessage}. Validates the
  * discriminator, the branded `id` / `sessionId`, and the inner
  * {@link AgentInput}, including its `version`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentInputMessageSchema = z.object({
   type: z.literal('client.agent.input'),
@@ -138,6 +140,8 @@ export const AgentInputMessageSchema = z.object({
  * A `client.agent.input` frame: carries one {@link AgentInput} from a client
  * to the Agent Session of `sessionId`. The inner input keeps its own `type`
  * discriminator, which cannot collide with transport frame types.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentInputMessage {
   /** Frame discriminator. */
@@ -187,6 +191,9 @@ export const AgentInputMessage = (args: {
  * Agent Session. The legacy assistant arm remains fire-and-forget; only the
  * acknowledged arm requests a response. Discriminated on `type`, so a host
  * router can use one switch.
+ *
+ * The agent variants (`AgentInputMessage`, `AgentEventMessage`) are experimental
+ * in 0.3 and may change in any minor release.
  */
 export type ClientEnvelope =
   | ChartRequestMessage
@@ -397,6 +404,8 @@ export const EngineErrorMessageSchema = z.object({
  * Wire-format Zod parser for {@link AgentEventMessage}. Validates the
  * discriminator, the branded `id` / `sessionId`, and the inner
  * {@link AgentEvent}, including its `version`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentEventMessageSchema = z.object({
   type: z.literal('engine.agent.event'),
@@ -410,6 +419,8 @@ export const AgentEventMessageSchema = z.object({
  * Session of `sessionId` to its client. Events are streamed and correlate to
  * inputs through the inner event's `inputId` or `changeId`, not to a request,
  * so the frame carries its own `id` rather than a `requestId`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentEventMessage {
   /** Frame discriminator. */
@@ -451,6 +462,9 @@ export const AgentEventMessage = (args: {
 /**
  * Every message an engine host may send to a client over the duplex stream,
  * discriminated on `type`. See the union members below.
+ *
+ * The agent variants (`AgentInputMessage`, `AgentEventMessage`) are experimental
+ * in 0.3 and may change in any minor release.
  */
 export type ServerEnvelope =
   | MaelstromResponseMessage

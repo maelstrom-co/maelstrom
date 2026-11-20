@@ -189,6 +189,8 @@ The Engine's `handleEnvelope` adapter decodes an incoming frame and resolves to 
 
 ### Agent wire frames
 
+The agent loop is experimental in 0.3 and may change in any minor release, without deprecation aliases.
+
 The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentInputMessage`) carries one `AgentInput` under `input`, and `engine.agent.event` (`AgentEventMessage`) carries one `AgentEvent` under `event`. Both frames carry `id` and `sessionId` and decode through `decodeClientEnvelope` / `decodeServerEnvelope`.
 
 ```ts

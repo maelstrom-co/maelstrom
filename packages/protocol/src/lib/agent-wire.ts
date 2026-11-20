@@ -21,13 +21,19 @@ import type { MaelstromResponse } from './response.ts';
  * older decoder as `invalid_envelope`, so such a change bumps the version.
  * The wire is unstable, so version bumps apply only once it is declared
  * stable. Decoders reject any other version value.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AGENT_WIRE_VERSION = 1 as const;
 
 /** Where an utterance came from: typed text or transcribed voice. */
 export const AgentInputSourceSchema = z.enum(['text', 'voice']);
 
-/** Where an utterance came from: typed text or transcribed voice. */
+/**
+ * Where an utterance came from: typed text or transcribed voice.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentInputSource = z.infer<typeof AgentInputSourceSchema>;
 
 /**
@@ -47,7 +53,11 @@ export const AgentDispositionSchema = z.enum([
   'noise',
 ]);
 
-/** How the Engine decided to handle an accepted input. */
+/**
+ * How the Engine decided to handle an accepted input.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentDisposition = z.infer<typeof AgentDispositionSchema>;
 
 /**
@@ -63,7 +73,11 @@ export const AgentFinishReasonSchema = z.enum([
   'error',
 ]);
 
-/** Why an Agent Run ended. */
+/**
+ * Why an Agent Run ended.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentFinishReason = z.infer<typeof AgentFinishReasonSchema>;
 
 /**
@@ -77,7 +91,11 @@ export const AgentActionOutcomeSchema = z.object({
   error: z.string().optional(),
 });
 
-/** Outcome of one Action from an Execution Plan. */
+/**
+ * Outcome of one Action from an Execution Plan.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentActionOutcome {
   /** Whether the Action ran without error. */
   ok: boolean;
@@ -93,7 +111,11 @@ export const AgentRunToolCallCountsSchema = z.object({
   admitted: z.number().int().nonnegative(),
 });
 
-/** Tool call counts of one Agent Run. */
+/**
+ * Tool call counts of one Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentRunToolCallCounts {
   /** Tool calls the model requested, including the ones the run refused. */
   requested: number;
@@ -116,7 +138,11 @@ export const AgentRunMetricsSchema = z.object({
   outputTokens: z.number().int().nonnegative(),
 });
 
-/** Counters describing the cost of one Agent Run. */
+/**
+ * Counters describing the cost of one Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentRunMetrics {
   /** Loop model turns taken. */
   turns: number;
@@ -144,7 +170,11 @@ export const AgentUtteranceInputSchema = z.object({
   source: AgentInputSourceSchema,
 });
 
-/** A user utterance sent to the agent. */
+/**
+ * A user utterance sent to the agent.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentUtteranceInput {
   /** Member discriminator. */
   type: 'utterance';
@@ -173,7 +203,11 @@ export const AgentUiAppliedInputSchema = z.object({
   actionOutcomes: z.array(AgentActionOutcomeSchema),
 });
 
-/** The browser's acknowledgement that it applied a UI change. */
+/**
+ * The browser's acknowledgement that it applied a UI change.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentUiAppliedInput {
   /** Member discriminator. */
   type: 'ui_applied';
@@ -193,13 +227,19 @@ export interface AgentUiAppliedInput {
 /**
  * Every input a client may send to the Agent Session, discriminated on
  * `type`. Each member carries `version` equal to {@link AGENT_WIRE_VERSION}.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentInputSchema = z.discriminatedUnion('type', [
   AgentUtteranceInputSchema,
   AgentUiAppliedInputSchema,
 ]);
 
-/** Every input a client may send to the Agent Session. */
+/**
+ * Every input a client may send to the Agent Session.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentInput = AgentUtteranceInput | AgentUiAppliedInput;
 
 /**
@@ -213,7 +253,11 @@ export const AgentPlaceholderEventSchema = z.object({
   text: z.string(),
 });
 
-/** Immediate feedback for an input. */
+/**
+ * Immediate feedback for an input.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentPlaceholderEvent {
   /** Member discriminator. */
   type: 'placeholder';
@@ -246,7 +290,11 @@ export const AgentAcceptedEventSchema = z
     path: ['runId'],
   });
 
-/** The Engine's decision about an input. */
+/**
+ * The Engine's decision about an input.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentAcceptedEvent {
   /** Member discriminator. */
   type: 'accepted';
@@ -277,7 +325,11 @@ export const AgentMessageEventSchema = z.object({
   delta: z.string(),
 });
 
-/** A streamed fragment of the loop model's text. */
+/**
+ * A streamed fragment of the loop model's text.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentMessageEvent {
   /** Member discriminator. */
   type: 'message';
@@ -303,7 +355,11 @@ export const AgentUiChangeEventSchema = z.object({
   response: maelstromResponseSchema(),
 });
 
-/** A UI change for the browser to apply. */
+/**
+ * A UI change for the browser to apply.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentUiChangeEvent {
   /** Member discriminator. */
   type: 'ui_change';
@@ -348,7 +404,11 @@ export const AgentFinishedEventSchema = z
     },
   );
 
-/** The end of an Agent Run with its structured outcome. */
+/**
+ * The end of an Agent Run with its structured outcome.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentFinishedEvent {
   /** Member discriminator. */
   type: 'finished';
@@ -405,6 +465,8 @@ export const AgentErrorEventSchema = z.object({
  * A failure the Engine detects after the frame decoded that is not the run's
  * own ending, such as an unknown `ui_applied` or a failed loop-driven UI
  * change.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentErrorEvent {
   /** Member discriminator. */
@@ -442,7 +504,11 @@ export const AgentStartedEventSchema = z.object({
   runId: RunIdSchema,
 });
 
-/** The start of an Agent Run. */
+/**
+ * The start of an Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentStartedEvent {
   /** Member discriminator. */
   type: 'started';
@@ -471,7 +537,11 @@ export const AgentToolCallEventSchema = z.object({
     }),
 });
 
-/** A breadcrumb that the loop model called a tool. */
+/**
+ * A breadcrumb that the loop model called a tool.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentToolCallEvent {
   /** Member discriminator. */
   type: 'tool_call';
@@ -515,7 +585,11 @@ export const AgentToolResultEventSchema = z.object({
     }),
 });
 
-/** A breadcrumb that a tool call settled. */
+/**
+ * A breadcrumb that a tool call settled.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface AgentToolResultEvent {
   /** Member discriminator. */
   type: 'tool_result';
@@ -541,6 +615,8 @@ export interface AgentToolResultEvent {
 /**
  * Every event the Engine may send on the agent event stream, discriminated on
  * `type`. Each member carries `version` equal to {@link AGENT_WIRE_VERSION}.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentEventSchema = z.discriminatedUnion('type', [
   AgentPlaceholderEventSchema,
@@ -554,7 +630,11 @@ export const AgentEventSchema = z.discriminatedUnion('type', [
   AgentToolResultEventSchema,
 ]);
 
-/** Every event the Engine may send on the agent event stream. */
+/**
+ * Every event the Engine may send on the agent event stream.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentEvent =
   | AgentPlaceholderEvent
   | AgentAcceptedEvent

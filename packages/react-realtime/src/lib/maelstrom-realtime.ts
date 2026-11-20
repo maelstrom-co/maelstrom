@@ -175,6 +175,8 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
    * not submitted. A throw is reported as unconfirmed. It is opt-in because
    * `HttpConnector` and hosts that answer agent inputs with plain
    * `handleEnvelope` cannot serve agent inputs.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   readonly sendAgentMessage?: (
     orchestrator: Orchestrator,

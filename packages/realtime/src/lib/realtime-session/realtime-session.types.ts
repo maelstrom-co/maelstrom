@@ -69,6 +69,8 @@ export interface RealtimeInstance {
    * changes are applied. Preferred over `createIntentScope` and
    * `submitIntent` when present. Must never reject. A `lost` state is an
    * unknown outcome and is never replayed.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   sendAgentMessage?(text: string): Promise<SettledAgentRun>;
   /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */

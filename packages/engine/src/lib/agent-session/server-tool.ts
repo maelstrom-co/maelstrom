@@ -13,16 +13,32 @@ export const TOOL_SIDE_EFFECTS = [
 /** Every allowed {@link ToolApproval}. */
 export const TOOL_APPROVALS = ['never'] as const;
 
-/** Where a tool runs. Only `server` exists today. */
+/**
+ * Where a tool runs. Only `server` exists today.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type ToolLocus = (typeof TOOL_LOCI)[number];
 
-/** How a tool affects the world, used to decide whether repeating or parallelizing it is safe. */
+/**
+ * How a tool affects the world, used to decide whether repeating or parallelizing it is safe.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type ToolSideEffect = (typeof TOOL_SIDE_EFFECTS)[number];
 
-/** Whether a call needs user approval before it runs. Only `never` exists today. */
+/**
+ * Whether a call needs user approval before it runs. Only `never` exists today.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type ToolApproval = (typeof TOOL_APPROVALS)[number];
 
-/** Per-call context handed to a Server Tool. Identity reaches tools only through this object. */
+/**
+ * Per-call context handed to a Server Tool. Identity reaches tools only through this object.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface ServerToolContext {
   /** The user supplied when the connection opened. */
   readonly user: unknown;
@@ -32,7 +48,11 @@ export interface ServerToolContext {
   readonly signal: AbortSignal;
 }
 
-/** A tool the model can call, executed inside the Engine process. */
+/**
+ * A tool the model can call, executed inside the Engine process.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface ServerTool<Input, Output> {
   /** Name the model calls the tool by. Must match `^[A-Za-z0-9_-]{1,64}$`. */
   readonly name: string;
@@ -54,7 +74,11 @@ export interface ServerTool<Input, Output> {
   summarize(output: Output): string;
 }
 
-/** The fields an author writes. `locus`, `sideEffect` and `approval` are optional. */
+/**
+ * The fields an author writes. `locus`, `sideEffect` and `approval` are optional.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type ServerToolDefinition<Input, Output> = Omit<
   ServerTool<Input, Output>,
   'locus' | 'sideEffect' | 'approval'
@@ -64,6 +88,8 @@ export type ServerToolDefinition<Input, Output> = Omit<
 /**
  * Error whose message the tool author wrote and marked as safe to show to the
  * model and the user. Any other thrown error is replaced by a generic message.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export class ToolError extends Error {
   /** @param message User-safe text the model and the user see as the failed call's summary. */
@@ -91,6 +117,8 @@ export class ToolError extends Error {
  *   summarize: (order) => `Order ${order.orderId}`,
  * });
  * ```
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export function serverTool<Input, Output>(
   definition: ServerToolDefinition<Input, Output>,

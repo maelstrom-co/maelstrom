@@ -439,6 +439,8 @@ export class Orchestrator {
    * acknowledgement. Subscribing to `events` after {@link dispose} throws.
    * {@link dispose} reports `conversation_lost` with reason `disconnected`
    * first, so pending results settle.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   get agent(): OrchestratorAgent {
     return this.#agent;
@@ -688,6 +690,8 @@ export class Orchestrator {
    *   Agent Run goes silent before `finished`, {@link agent} emits
    *   `conversation_lost` with reason `stale_run`. Pass `Infinity` for the
    *   option to disable this.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   sendMessage(
     text: string,
