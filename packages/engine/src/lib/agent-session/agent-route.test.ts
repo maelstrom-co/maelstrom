@@ -1010,7 +1010,33 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('change_screen calls count toward the tool call cap: a turn over it is refused as a whole with no Planner call, while the same count of Server Tools alone runs', async () => {
+    test('a blank goal beside a valid change_screen call does not hold the valid goal for the fill timeout', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', '   '),
+            changeScreenCall('call-2', 'add the order to the calendar'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Done.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => session.plannerCalls() === 1);
+
+      expect(session.diagnostics.map((event) => event.kind)).not.toContain(
+        'engine.agent.screen_change.batch_fill_timeout',
+      );
+    });
+
+    test('change_screen calls count toward the tool call cap:a turn over it is refused as a whole with no Planner call, while the same count of Server Tools alone runs', async () => {
       const order = orderTool();
       const model = scriptedTextAdapter([
         scriptedToolTurn(

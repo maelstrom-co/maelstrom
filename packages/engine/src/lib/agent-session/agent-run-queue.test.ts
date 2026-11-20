@@ -1490,6 +1490,32 @@ describe('agent run queue', () => {
       expect(answers).toHaveLength(1);
     });
 
+    test('a batch fill timeout from a run is observed with its turn and counts', async () => {
+      const startRun: AgentRunStarter = (input) =>
+        (async function* (): AsyncGenerator<AgentRunEvent> {
+          input.screenChanges.noteBatchFillTimeout(`${input.runId}:t1`, {
+            admitted: 2,
+            registered: 1,
+          });
+          yield {
+            type: 'finished',
+            reason: 'completed',
+            metrics: ZERO_METRICS,
+            unreportedUsageCalls: 0,
+          };
+        })();
+      const session = createSession({ startRun });
+
+      await session.queue.enqueue(utterance('input-1', 'show it'));
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(
+        session.observedMetadataOf(
+          'engine.agent.screen_change.batch_fill_timeout',
+        ),
+      ).toEqual([{ turnId: `${runId}:t1`, admitted: 2, registered: 1 }]);
+    });
+
     test('a late note for an evicted run that overflows the transcript bound never evicts the newest run', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -1653,6 +1679,10 @@ function createSession(overrides: SessionOverrides = {}) {
     user,
     screenChangePlans,
     observedKinds: () => observed.map((entry) => entry.kind),
+    observedMetadataOf: (kind: string) =>
+      observed
+        .filter((entry) => entry.kind === kind)
+        .map((entry) => entry.metadata),
     finishedMetadata: () =>
       observed
         .filter((entry) => entry.kind === 'engine.agent.run.finished')
