@@ -65,7 +65,8 @@
             "env": "PUBLIC_TURNSTILE_ENVIRONMENT"
           },
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
-          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ],
         "outputs": [
           "{projectRoot}/dist",
@@ -102,7 +103,8 @@
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
           "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
           "default",
-          "toolchain"
+          "toolchain",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ]
       },
       "e2e": {
@@ -132,7 +134,8 @@
           "^default",
           "toolchain",
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
-          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ]
       },
       "published-examples-typecheck": {
