@@ -760,15 +760,17 @@ function shipPlanOutcome(
   outcome: FullValidatedPlannerOutput,
 ): Result<PlanOutcome, EngineError> {
   switch (outcome.type) {
-    case 'needs_clarification':
-      return ok({ type: 'needs_clarification', question: outcome.question });
+    case 'needs_clarification': {
+      const { diagnostics: _diagnostics, ...clarification } = outcome;
+      return ok(clarification);
+    }
     case 'maelstrom_response': {
       // Widened so `reasons` destructures on both members of the union.
       const replyless: FullValidatedReplylessCandidate = outcome;
       const {
         userMessage,
         diagnostics: _diagnostics,
-        reasons: _reasons,
+        reasons,
         ...withoutReply
       } = replyless;
       return ok({
@@ -777,6 +779,7 @@ function shipPlanOutcome(
           userMessage === undefined || userMessage.trim() === ''
             ? withoutReply
             : { ...withoutReply, userMessage },
+        ...(reasons === undefined ? {} : { reasons }),
       });
     }
     default:

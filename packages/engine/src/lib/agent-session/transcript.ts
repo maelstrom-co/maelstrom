@@ -53,9 +53,8 @@ export interface Transcript {
     summary: string,
   ): void;
   /**
-   * Records a one-line note about a Screen Change the run asked the Planner for, such
-   * as that it is queued or what the screen then displays. It belongs to the
-   * run, so it leaves with that run on eviction. A note recorded after its
+   * Records a one-line note about a `change_screen` outcome that settled
+   * after its run stopped waiting. It belongs to the run, so it leaves with that run on eviction. A note recorded after its
    * run was evicted is kept until the bound evicts it.
    */
   recordScreenNote(runId: RunId, turnId: string, text: string): void;

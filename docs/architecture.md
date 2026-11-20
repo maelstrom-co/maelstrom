@@ -198,7 +198,7 @@ Illustrative grid-mode response payload:
 - **Session state is optional.** With `history` configured, the Engine reads and records session history and deduplicates identical chart requests by `(sessionId, messageId)`. Without history, requests are processed without retained conversation history.
 - **Request-level flow.** A chart request passes through history loading, the configured Planner (with retries when enabled), response healing and validation, and history recording when configured.
 - **No direct UI mutation.** The Engine returns a response; the client applies its layout and executes accepted Actions. Configured history stores, loggers, instrumentation, and planner code may perform their own side effects.
-- **Planner stays the only path to the screen.** The Agent Session sends Planner changes as `ui_change` on its own after a tool phase, and the browser still applies them and acknowledges with `ui_applied`.
+- **Planner stays the only path to the screen.** The loop model asks for a screen change only through the built-in `change_screen` tool. The Agent Session plans one turn's calls as one Planner request, sends the change as `ui_change`, and the browser still applies it and acknowledges with `ui_applied`.
 - **Transport agnostic**: The protocol can travel over WebSocket, HTTP, or another compatible transport.
 - **Testable**: Engine behavior can be tested with mock inputs and planner results.
 
@@ -400,7 +400,10 @@ request cap, which stay request-only. Forwarding stays disabled in production.
 | `engine.agent.tool.completed` | Run | A tool call settled as `succeeded`, `failed` or `not_run`, with `durationMs` only when it started. |
 | `engine.agent.ui_change.emitted` | Run, or Session without a run | A UI change was sent to the client. |
 | `engine.agent.ui_change.applied` | Run | The client acknowledged the change. |
-| `engine.agent.screen_change.failed`, `.screen_change.skipped`, `.screen_change.cancelled`, `.ui_change.timed_out` | Run | A Screen Change did not reach the screen. |
+| `engine.agent.screen_change.requested` | Run | A turn's `change_screen` goals went to the Screen Change queue, with `turnId`, the goal count, comma-joined `reasonIds` and `callIds`. Goals and referents are content. |
+| `engine.agent.screen_change.settled` | Run | One `change_screen` call got its result, with `turnId`, `callId`, `reasonId`, `status` and `changeId` when a change went out. |
+| `engine.agent.screen_change.batch_fill_timeout` | Run | A turn's batch flushed after 1,000 ms before every admitted `change_screen` call registered, with the `admitted` and `registered` counts. |
+| `engine.agent.screen_change.failed`, `.screen_change.cancelled`, `.ui_change.timed_out` | Run | A Screen Change did not reach the screen. |
 | `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. Metadata holds scalars only, so `metrics.toolCalls.requested` and `.admitted` appear as `toolCallsRequested` and `toolCallsAdmitted`. |
 | `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
 | `engine.agent.ui_applied.rejected` | Run for a known change, Session for an unknown one | An acknowledgement named an unknown change or the wrong outcome count. |

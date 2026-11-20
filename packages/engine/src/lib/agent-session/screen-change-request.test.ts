@@ -1,55 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CallId, type ChartRequest } from '@maelstrom-co/protocol';
+import type { ChartRequest } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../__test-helpers__/fixtures.js';
-import type {
-  AgentRunToolPhaseEndedEvent,
-  AgentRunToolPhaseResult,
-} from './agent-run.js';
 import {
   buildScreenChangeRequest,
-  collectScreenChangeTools,
   userIntentRequest,
 } from './screen-change-request.js';
-
-describe('collectScreenChangeTools', () => {
-  test('lists the successful tools in call order, repeated per call', () => {
-    const screenChange = collectScreenChangeTools(
-      phase([
-        success('c1', 'latest_order', { orderId: 'ORD-10455' }),
-        success('c2', 'search_products', { skus: ['SKU-1'] }),
-        success('c3', 'latest_order', { orderId: 'ORD-10456' }),
-      ]),
-    );
-
-    expect(screenChange).toEqual({
-      toolNames: ['latest_order', 'search_products', 'latest_order'],
-    });
-  });
-
-  test('a failed result contributes no tool name', () => {
-    const screenChange = collectScreenChangeTools(
-      phase([
-        failure('c1', 'latest_order'),
-        success('c2', 'search_products', { skus: ['SKU-1'] }),
-      ]),
-    );
-
-    expect(screenChange).toEqual({ toolNames: ['search_products'] });
-  });
-
-  test('a phase with only failed results asks for no Screen Change', () => {
-    expect(
-      collectScreenChangeTools(
-        phase([
-          failure('c1', 'latest_order'),
-          failure('c2', 'search_products'),
-        ]),
-      ),
-    ).toBeUndefined();
-  });
-});
 
 describe('userIntentRequest', () => {
   test('removes client skipReply and replaces every update reason with the intent', () => {
@@ -81,7 +38,7 @@ describe('userIntentRequest', () => {
 });
 
 describe('buildScreenChangeRequest', () => {
-  test('replaces client skipReply and every client reason with the intent', () => {
+  test('replaces client skipReply and every client reason with one user_intent reason per goal', () => {
     const chart: ChartRequest = {
       ...makeGridRequest(),
       context: {
@@ -99,10 +56,15 @@ describe('buildScreenChangeRequest', () => {
       skipReply: false,
     };
 
-    const request = buildScreenChangeRequest(
-      chart,
-      'screenChange my latest order',
-    );
+    const request = buildScreenChangeRequest(chart, [
+      {
+        callId: 'provider-call-1',
+        reasonId: 'r1',
+        goal: 'show my latest order',
+        referents: { orderId: 'o-1' },
+      },
+      { callId: 'provider-call-2', reasonId: 'r2', goal: 'show my cart' },
+    ]);
 
     expect(request).toEqual({
       ...makeGridRequest(),
@@ -110,19 +72,25 @@ describe('buildScreenChangeRequest', () => {
       context: {
         ...chart.context,
         updateReasons: [
-          { type: 'user_intent', intent: 'screenChange my latest order' },
+          {
+            type: 'user_intent',
+            id: 'r1',
+            intent: 'show my latest order',
+            referents: { orderId: 'o-1' },
+          },
+          { type: 'user_intent', id: 'r2', intent: 'show my cart' },
         ],
       },
     });
+    expect(JSON.stringify(request)).not.toContain('provider-call');
   });
 
   test('keeps the Chart snapshot fields unchanged', () => {
     const chart = makeGridRequest();
 
-    const request = buildScreenChangeRequest(
-      chart,
-      'screenChange my latest order',
-    );
+    const request = buildScreenChangeRequest(chart, [
+      { callId: 'provider-call-1', reasonId: 'r1', goal: 'show my order' },
+    ]);
 
     expect(request.instances).toEqual(chart.instances);
     expect(request.vessels).toEqual(chart.vessels);
@@ -133,32 +101,3 @@ describe('buildScreenChangeRequest', () => {
     expect(request.context.layoutMode).toBe(chart.context.layoutMode);
   });
 });
-
-function phase(
-  results: readonly AgentRunToolPhaseResult[],
-): AgentRunToolPhaseEndedEvent {
-  return { type: 'tool_phase_ended', turnId: 'run-1:t1', results };
-}
-
-function success(
-  callId: string,
-  name: string,
-  value: unknown,
-): AgentRunToolPhaseResult {
-  return {
-    callId: CallId(callId),
-    name,
-    ok: true,
-    summary: `Result ${callId}`,
-    value,
-  };
-}
-
-function failure(callId: string, name: string): AgentRunToolPhaseResult {
-  return {
-    callId: CallId(callId),
-    name,
-    ok: false,
-    summary: `Failed ${callId}`,
-  };
-}

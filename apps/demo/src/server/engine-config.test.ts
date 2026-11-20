@@ -35,10 +35,17 @@ describe('createDemoAgentConfig', () => {
 
     expect(config.model).toBe(adapter);
     expect(config.instructions).toMatch(/pet shop/);
-    expect(config.instructions).toContain('Screen updated');
-    expect(config.instructions).toContain('Screen change queued');
-    expect(config.instructions).not.toMatch(/\bshow\b/i);
-    expect(config.instructions).toMatch(/offered to the screen automatically/);
+    expect(config.instructions).toContain('change_screen');
+    expect(config.instructions).toMatch(/exact referents/);
+    expect(config.instructions).toMatch(/wait for its result/);
+    expect(config.instructions).toMatch(/only when the result is applied/);
+    expect(config.instructions).toMatch(
+      /needs clarification, ask the user .* in plain text/,
+    );
+    expect(config.instructions).not.toContain('Screen change queued');
+    expect(config.instructions).not.toMatch(
+      /offered to the screen automatically/,
+    );
     expect(config.budgets).toBeUndefined();
     expect(config.tools).toHaveLength(2);
     expect(config.tools?.[0]).toMatchObject({

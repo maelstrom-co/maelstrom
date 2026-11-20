@@ -46,8 +46,8 @@ import {
   calendarChart,
   capturingAgentRunQueueModule,
   capturingScreenChangeQueueModule,
+  changeScreenCall,
   LATEST_ORDER,
-  noScreenChangePlanner,
   openAgentSession,
   orderTool,
   runIdOf,
@@ -72,7 +72,10 @@ import {
 } from './__test-helpers__/scripted-text-adapter.js';
 import { type AgentModelFactory, resolveAgentConfig } from './agent-config.js';
 import { NOT_RUN_TOOL_SUMMARY } from './agent-run-policy.js';
-import { BUDGET_CLOSING_MESSAGE } from './agent-run.js';
+import {
+  BUDGET_CLOSING_MESSAGE,
+  DEFAULT_AGENT_RUN_BUDGETS,
+} from './agent-run.js';
 import { toolCallRef } from './transcript.js';
 
 const PLANNER_PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
@@ -159,7 +162,7 @@ describe('agent route through the Engine handle', () => {
       expect(JSON.stringify(session.received)).not.toContain(
         'tool_phase_ended',
       );
-      expect(session.plannerCalls()).toBe(1);
+      expect(session.plannerCalls()).toBe(0);
     });
 
     test('identity reaches the tool context exactly and never a model request, tool arguments, the wire or the transcript', async () => {
@@ -194,30 +197,27 @@ describe('agent route through the Engine handle', () => {
     });
   });
 
-  describe('Screen Changes', () => {
-    test('a tool phase with a successful result plans one replyless Screen Change and sends its change with the run id', async () => {
-      const time = createFakeAgentRunTime();
-      const order = orderTool();
+  describe('change_screen', () => {
+    test('one change_screen call plans one replyless Screen Change for its goal, and its applied result reaches the next model turn before finished', async () => {
+      const goal = 'show my last order';
+      const referents = { orderId: 'o-1' };
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('call-1', goal, referents)],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['It is on screen.'], scriptedUsage(1, 1)),
       ]);
       const session = openAgentSession({
-        time,
         model: model.adapter,
-        tools: [order.tool],
         planner: addEventPlanner,
       });
 
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
+      const sent = session.send(
+        utterance('input-1', 'put my last order on screen', calendarChart()),
       );
-      await waitUntil(() =>
-        session.received.some((event) => event.type === 'ui_change'),
-      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      await settle();
 
       const runId = runIdOf(session.received, 'input-1');
       expect(session.plannerCalls()).toBe(1);
@@ -225,41 +225,79 @@ describe('agent route through the Engine handle', () => {
       expect(plannerInput?.sessionId).toBe(SessionId('agent-route'));
       expect(plannerInput?.history).toEqual([]);
       expect(plannerInput?.messageId).not.toBe(MessageId('input-1'));
-      const planned = plannerInput?.request;
-      expect(planned?.skipReply).toBe(true);
-      expect(planned).not.toHaveProperty('intentFacts');
-      expect(planned?.context.updateReasons).toEqual([
-        { type: 'user_intent', intent: 'show me my last order' },
+      expect(plannerInput?.request.skipReply).toBe(true);
+      expect(plannerInput?.request.context.updateReasons).toEqual([
+        { type: 'user_intent', id: 'r1', intent: goal, referents },
       ]);
-      const change = session.received.find(
-        (event) => event.type === 'ui_change',
-      );
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
       expect(change).toMatchObject({ type: 'ui_change', runId });
-      if (change?.type !== 'ui_change') throw new Error('no ui_change');
-      expect(change.changeId.length).toBeGreaterThan(0);
       expect(AgentEventSchema.safeParse(change).success).toBe(true);
+      expect(model.requests).toHaveLength(1);
+      expect(session.received.map(typeOf)).not.toContain('finished');
+
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
+
+      const summary = `applied: "${goal}"`;
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'applied',
+        summary,
+        changeId: change.changeId,
+      });
+      expect(session.received.map(typeOf)).toEqual([
+        'placeholder',
+        'accepted',
+        'started',
+        'tool_call',
+        'ui_change',
+        'tool_result',
+        'message',
+        'finished',
+      ]);
+      expect(toolResultEventOf(session.received, 'c1')).toEqual({
+        type: 'tool_result',
+        version: AGENT_WIRE_VERSION,
+        runId,
+        turnId: `${runId}:t1`,
+        callId: CallId('c1'),
+        name: 'change_screen',
+        ok: true,
+        summary,
+      });
+      expect(lastFinished(session.received)).toMatchObject({
+        runId,
+        reason: 'completed',
+        reply: 'It is on screen.',
+      });
+      expect(session.plannerCalls()).toBe(1);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).not.toContain('[screen ');
     });
 
-    test('one tool phase with two calls plans one Screen Change for the utterance', async () => {
-      const orders = [LATEST_ORDER, { ...LATEST_ORDER, orderId: 'o-2' }];
-      let served = 0;
+    test('two change_screen calls around a held Server Tool wait for it, then plan as one Screen Change with reasons in call order and share one change id', async () => {
+      const firstGoal = 'show my last order';
+      const secondGoal = 'show my cart';
+      const lookupStarted = defer<void>();
+      const releaseLookup = defer<void>();
       const order = orderTool({
-        latestOrder: () => {
-          const next = orders[served];
-          served += 1;
-          if (next === undefined) throw new Error('only two orders scripted');
-          return Promise.resolve(next);
+        latestOrder: async () => {
+          lookupStarted.resolve();
+          await releaseLookup.promise;
+          return LATEST_ORDER;
         },
       });
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [
-            { id: 'c1', name: 'latest_order', args: {} },
-            { id: 'c2', name: 'latest_order', args: {} },
+            changeScreenCall('call-1', firstGoal),
+            { id: 'call-2', name: 'latest_order', args: {} },
+            changeScreenCall('call-3', secondGoal),
           ],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['Two orders.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Both are on screen.'], scriptedUsage(1, 1)),
       ]);
       const session = openAgentSession({
         model: model.adapter,
@@ -267,259 +305,201 @@ describe('agent route through the Engine handle', () => {
         planner: addEventPlanner,
       });
 
-      await session.send(
-        utterance('input-1', 'show my last two orders', calendarChart()),
+      const sent = session.send(
+        utterance('input-1', 'show my order and my cart', calendarChart()),
       );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      await lookupStarted.promise;
+      await settle();
+      expect(session.plannerCalls()).toBe(0);
 
-      expect(session.plannerCalls()).toBe(1);
-      const planned = session.plannerInputs()[0]?.request;
-      expect(planned).not.toHaveProperty('intentFacts');
-      expect(planned?.context.updateReasons).toEqual([
-        { type: 'user_intent', intent: 'show my last two orders' },
-      ]);
-    });
-
-    test('a second Screen Change waits for the first change to be acknowledged and plans on the acknowledged Chart', async () => {
-      const time = createFakeAgentRunTime();
-      const gate = defer<PlannerCandidate>();
-      const firstScreenChange = blockingPlanner(gate);
-      let plannerCall = 0;
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedToolTurn(
-          [{ id: 'c2', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        time,
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: (input, ctx) => {
-          plannerCall += 1;
-          return plannerCall === 1
-            ? firstScreenChange.planner(input, ctx)
-            : addEventPlanner(input, ctx);
-        },
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await firstScreenChange.entered;
-      const runId = runIdOf(session.received, 'input-1');
-      expect(lastFinished(session.received)).toMatchObject({
-        runId,
-        reason: 'completed',
-      });
-      expect(session.plannerCalls()).toBe(1);
-
-      gate.resolve(addEventCandidate(calendarChart()));
+      releaseLookup.resolve();
       await waitUntil(() => uiChangesOf(session.received).length === 1);
       await settle();
+
       expect(session.plannerCalls()).toBe(1);
-
-      const [firstChange] = uiChangesOf(session.received);
-      if (firstChange === undefined) throw new Error('no ui_change');
-      const acknowledged = weekCalendarChart();
-      await session.connection.send(
-        acknowledgementOf(firstChange, acknowledged),
+      expect(session.plannerInputs()[0]?.request.context.updateReasons).toEqual(
+        [
+          { type: 'user_intent', id: 'r1', intent: firstGoal },
+          { type: 'user_intent', id: 'r2', intent: secondGoal },
+        ],
       );
-      await waitUntil(() => uiChangesOf(session.received).length === 2);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
 
-      expect(session.plannerCalls()).toBe(2);
-      const second = session.plannerInputs()[1]?.request;
-      expect(second?.instances).toEqual(acknowledged.instances);
-      expect(second?.layout).toEqual(acknowledged.layout);
-      expect(uiChangesOf(session.received)[1]).toMatchObject({ runId });
-      expect(session.received.map(typeOf)).not.toContain('error');
+      const results = model.requests[1]?.messages;
+      expect(toolResultOf(results, 'call-1')).toEqual({
+        status: 'applied',
+        summary: `applied: "${firstGoal}"`,
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-3')).toEqual({
+        status: 'applied',
+        summary: `applied: "${secondGoal}"`,
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-2')).toEqual(LATEST_ORDER);
+      expect(session.plannerCalls()).toBe(1);
+      expect(uiChangesOf(session.received)).toHaveLength(1);
     });
 
-    test('the run reaches its next model turn and finishes while its change still awaits acknowledgement', async () => {
-      const releaseSecondTurn = defer<void>();
+    test('Server Tools in a turn with a change_screen call still run one at a time in written order, and the Screen Change waits for both', async () => {
+      const started: string[] = [];
+      const gatedTool = (name: string) => {
+        const release = defer<void>();
+        const { tool } = orderTool({
+          name,
+          latestOrder: async () => {
+            started.push(name);
+            await release.promise;
+            return LATEST_ORDER;
+          },
+        });
+        return { tool, release };
+      };
+      const writtenFirst = gatedTool('latest_order');
+      const writtenSecond = gatedTool('earlier_order');
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [
+            { id: 'call-1', name: 'latest_order', args: {} },
+            changeScreenCall('call-2', 'show my last order'),
+            { id: 'call-3', name: 'earlier_order', args: {} },
+          ],
           scriptedUsage(1, 1),
         ),
-        async function* (request) {
-          await releaseSecondTurn.promise;
-          yield* scriptedTextTurn(
-            ['It was o-1.'],
-            scriptedUsage(1, 1),
-          )(request);
-        },
+        scriptedTextTurn(['Done.'], scriptedUsage(1, 1)),
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool().tool],
+        tools: [writtenSecond.tool, writtenFirst.tool],
         planner: addEventPlanner,
       });
 
       const sent = session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
+        utterance('input-1', 'show my last order', calendarChart()),
       );
-      await waitUntil(
-        () =>
-          uiChangesOf(session.received).length === 1 &&
-          model.requests.length === 2,
-      );
+      await waitUntil(() => started.length === 1);
+      await settle();
+      expect(started).toEqual(['latest_order']);
+      expect(session.plannerCalls()).toBe(0);
+
+      writtenFirst.release.resolve();
+      await waitUntil(() => started.length === 2);
+      await settle();
+      expect(started).toEqual(['latest_order', 'earlier_order']);
+      expect(session.plannerCalls()).toBe(0);
       const runId = runIdOf(session.received, 'input-1');
-      expect(session.received.map(typeOf)).not.toContain('finished');
-      releaseSecondTurn.resolve();
-      await sent;
-      await waitUntil(() => session.received.map(typeOf).includes('finished'));
 
-      expect(indexOf(session.received, 'ui_change', runId)).toBeLessThan(
-        indexOf(session.received, 'finished', runId),
-      );
-      expect(lastFinished(session.received)).toMatchObject({
-        runId,
-        reason: 'completed',
-        ok: true,
-        reply: 'It was o-1.',
-      });
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      const beforeAcknowledgement = session.received.length;
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(`[screen ${runId}:t1] Screen updated:`);
-    });
-
-    test('an acknowledged change leaves a queued note and a screen note that the next run prompt includes', async () => {
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        scriptedTextTurn(['It is on your calendar.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
-      );
+      writtenSecond.release.resolve();
       await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-
-      const runId = runIdOf(session.received, 'input-1');
-      const queuedNote = `[screen ${runId}:t1] Screen change queued: latest_order result.`;
-      const screenNote = `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
-      const transcript = serializeLoosely(
-        session.internals().transcript.renderPriorMessages(),
-      );
-      expect(transcript).toContain(queuedNote);
-      expect(transcript).toContain(screenNote);
-
-      await session.send(
-        utterance('input-2', 'where is it now?', calendarChart()),
-      );
-
-      const nextPrompt = serializeLoosely(model.requests[2]?.messages);
-      expect(nextPrompt).toContain(queuedNote);
-      expect(nextPrompt).toContain(screenNote);
-      expect(nextPrompt.indexOf(queuedNote)).toBeLessThan(
-        nextPrompt.indexOf(screenNote),
-      );
-    });
-
-    test('planner prose on a replyless Screen Change never reaches the wire, the transcript or a later prompt', async () => {
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        scriptedTextTurn(['Anything else?'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: scriptedPlanner([
-          {
-            ...addEventCandidate(calendarChart()),
-            userMessage: PLANNER_PROSE_SENTINEL,
-          },
-        ]),
-      });
-
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-      await session.send(
-        utterance('input-2', 'anything else?', calendarChart()),
-      );
-
       expect(session.plannerCalls()).toBe(1);
-      expect(change.response).not.toHaveProperty('userMessage');
-      expect(change.response).not.toHaveProperty('diagnostics');
-      expect(change.response.executionPlan).toHaveLength(1);
-      const messages = session.received.filter(
-        (event) => event.type === 'message',
-      );
-      expect(messages.length).toBeGreaterThan(0);
-      for (const message of messages) {
-        expect(JSON.stringify(message)).not.toContain(PLANNER_PROSE_SENTINEL);
-      }
-      const surfaces = [
-        JSON.stringify(session.received),
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-        ...model.requests.map(serializeLoosely),
-      ];
-      for (const surface of surfaces) {
-        expect(surface).not.toContain(PLANNER_PROSE_SENTINEL);
-      }
-      expect(model.requests).toHaveLength(3);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
+
+      expect(started).toEqual(['latest_order', 'earlier_order']);
+      expect(session.plannerCalls()).toBe(1);
+      expect(lastFinishedOf(session.received, runId)).toMatchObject({
+        reason: 'completed',
+      });
     });
 
-    test('Screen Change diagnostics carry the run owner and change id while the intent and screen note stay behind readContent', async () => {
-      const intent = 'show me my last order';
+    test('no tool call id reaches the Planner request or the ui_change, settled diagnostics carry the call and reason ids, and goals and referents stay behind readContent', async () => {
+      const firstGoal = 'show order goal-sentinel-1c9a';
+      const secondGoal = 'show cart goal-sentinel-6e0b';
+      const referents = { orderId: 'referent-sentinel-2f7d' };
+      const providerIds = [
+        'provider-call-sentinel-a',
+        'provider-call-sentinel-b',
+      ];
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [
+            changeScreenCall(providerIds[0] as string, firstGoal, referents),
+            changeScreenCall(providerIds[1] as string, secondGoal),
+          ],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Both are on screen.'], scriptedUsage(1, 1)),
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool().tool],
         planner: pipeline(named('arrange', addEventPlanner)),
       });
 
-      await session.send(utterance('input-1', intent, calendarChart()));
+      const sent = session.send(
+        utterance('input-1', 'show my order and my cart', calendarChart()),
+      );
       await waitUntil(() => uiChangesOf(session.received).length === 1);
       const [change] = uiChangesOf(session.received);
       if (change === undefined) throw new Error('no ui_change');
       await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
 
       const runId = runIdOf(session.received, 'input-1');
+      const engineCallIds = session.received.flatMap((event) =>
+        event.type === 'tool_call' ? [event.callId] : [],
+      );
+      expect(engineCallIds).toEqual([CallId('c1'), CallId('c2')]);
+      const forbidden = [...providerIds, ...engineCallIds];
+      for (const surface of [session.plannerInputs()[0]?.request, change]) {
+        expect(serializeLoosely(surface)).not.toContain('provider-call');
+        for (const value of stringValuesIn(surface))
+          expect(forbidden).not.toContain(value);
+      }
+
+      const [requested] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.screen_change.requested',
+      );
+      expect(requested?.runId).toBe(runId);
+      expect(requested?.metadata).toMatchObject({
+        turnId: `${runId}:t1`,
+        goals: 2,
+        reasonIds: 'r1,r2',
+        callIds: 'c1,c2',
+      });
+      expect(requested && session.readContentOf(requested)).toEqual({
+        goals: [{ goal: firstGoal, referents }, { goal: secondGoal }],
+      });
+      const settled = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.screen_change.settled',
+      );
+      expect(settled.map((event) => event.metadata)).toEqual([
+        {
+          turnId: `${runId}:t1`,
+          inputId: 'input-1',
+          callId: 'c1',
+          reasonId: 'r1',
+          status: 'applied',
+          changeId: change.changeId,
+        },
+        {
+          turnId: `${runId}:t1`,
+          inputId: 'input-1',
+          callId: 'c2',
+          reasonId: 'r2',
+          status: 'applied',
+          changeId: change.changeId,
+        },
+      ]);
+      for (const event of settled) expect(event.runId).toBe(runId);
+      const [emitted] = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_change.emitted',
+      );
+      expect(emitted && session.readContentOf(emitted)).toMatchObject({
+        goals: [firstGoal, secondGoal],
+      });
       for (const kind of [
         'engine.planner.started',
         'engine.planner.completed',
         'engine.stage.started',
         'engine.stage.completed',
-        'engine.candidate.validated',
-        'engine.validation.completed',
       ]) {
         for (const event of diagnosticsOfKind(session.diagnostics, kind)) {
           expect(event.runId).toBe(runId);
@@ -528,268 +508,40 @@ describe('agent route through the Engine handle', () => {
           expect(event.metadata.turnId).toBe(`${runId}:t1`);
         }
       }
-      const [emitted] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.ui_change.emitted',
-      );
-      const [applied] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.ui_change.applied',
-      );
-      if (emitted === undefined || applied === undefined)
-        throw new Error('the change was not observed');
-      for (const event of [emitted, applied]) {
-        expect(event.runId).toBe(runId);
-        expect(event.metadata.changeId).toBe(change.changeId);
-      }
-      const screenNote =
-        'Screen updated: ran addEvent on calendar → month. Visible: calendar (month).';
       for (const event of session.diagnostics) {
-        for (const value of Object.values(event.metadata)) {
-          expect(String(value)).not.toContain(intent);
-          expect(String(value)).not.toContain('Screen updated');
-        }
+        const metadata = serializeLoosely(event.metadata);
+        expect(metadata).not.toContain('goal-sentinel');
+        expect(metadata).not.toContain('referent-sentinel');
+        expect(metadata).not.toContain('provider-call');
       }
-      const [plannerStarted] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.planner.started',
-      );
-      if (plannerStarted === undefined) throw new Error('no planner call');
-      expect(serializeLoosely(session.readContentOf(plannerStarted))).toContain(
-        intent,
-      );
-      expect(session.readContentOf(emitted)).toMatchObject({ intent });
-      expect(session.readContentOf(emitted)).not.toHaveProperty('intentFacts');
-      expect(session.readContentOf(applied)).toMatchObject({ screenNote });
     });
 
-    test('a tool phase whose only result failed makes no Planner call and writes no note', async () => {
-      const order = orderTool({
-        latestOrder: () => Promise.reject(new ToolError('No orders yet.')),
-      });
+    test('a Planner response that changes nothing answers already on screen with no change id and sends no ui_change', async () => {
+      const goal = 'show my calendar';
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('call-1', goal)],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['You have no orders yet.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['It is already there.'], scriptedUsage(1, 1)),
       ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [order.tool],
-        planner: addEventPlanner,
-      });
+      const session = openAgentSession({ model: model.adapter });
 
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
-      );
-      await settle();
+      await session.send(utterance('input-1', goal, calendarChart()));
 
-      expect(lastFinished(session.received)).toMatchObject({
-        reason: 'completed',
-      });
-      expect(session.plannerCalls()).toBe(0);
-      expect(uiChangesOf(session.received)).toEqual([]);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).not.toContain('[screen ');
-    });
-
-    test('an unknown change id and a wrong outcome count are refused while the change stays pending until a valid acknowledgement', async () => {
-      const session = openAgentSession({
-        model: twoScreenChangeTurns().adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const [firstChange] = uiChangesOf(session.received);
-      if (firstChange === undefined) throw new Error('no ui_change');
-
-      const beforeStray = session.received.length;
-      await session.connection.send(strayAcknowledgement());
-      expect(session.received.slice(beforeStray)).toEqual([
-        strayAcknowledgementRefusal(),
-      ]);
-
-      const beforeWrongCount = session.received.length;
-      await session.connection.send({
-        ...acknowledgementOf(firstChange, calendarChart()),
-        actionOutcomes: [],
-      });
-      expect(session.received.slice(beforeWrongCount)).toEqual([
-        {
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          changeId: firstChange.changeId,
-          code: 'invalid_action_outcomes',
-          error: 'Expected one outcome per Action.',
-        },
-      ]);
-      await settle();
+      const runId = runIdOf(session.received, 'input-1');
+      const summary = `applied (already on screen): "${goal}"`;
       expect(session.plannerCalls()).toBe(1);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).not.toContain('Screen updated');
-      const runId = runIdOf(session.received, 'input-1');
-      const rejected = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.ui_applied.rejected',
-      );
-      expect(rejected).toHaveLength(2);
-      const [unknownChange, wrongCount] = rejected;
-      expect(unknownChange).not.toHaveProperty('runId');
-      expect(unknownChange).not.toHaveProperty('requestId');
-      expect(unknownChange?.metadata).toEqual({
-        changeId: 'stray-change',
-        code: 'unknown_change',
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'applied',
+        summary,
       });
-      expect(wrongCount).not.toHaveProperty('requestId');
-      expect(wrongCount?.runId).toBe(runId);
-      expect(wrongCount?.metadata).toEqual({
-        changeId: firstChange.changeId,
-        code: 'invalid_action_outcomes',
-        inputId: 'input-1',
-        turnId: `${runId}:t1`,
+      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
+      expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+        runId,
+        ok: true,
+        summary,
       });
-
-      await session.connection.send(
-        acknowledgementOf(firstChange, calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 2);
-
-      expect(session.plannerCalls()).toBe(2);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain('Screen updated: ran addEvent on calendar → month.');
-    });
-
-    test('an acknowledgement sent synchronously from inside the ui_change listener is accepted', async () => {
-      const session = openAgentSession({
-        model: twoScreenChangeTurns().adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-      const acknowledged = weekCalendarChart();
-      let acknowledgedInListener = false;
-      session.connection.subscribe((event) => {
-        if (event.type !== 'ui_change' || acknowledgedInListener) return;
-        acknowledgedInListener = true;
-        void session.connection.send(acknowledgementOf(event, acknowledged));
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 2);
-
-      expect(acknowledgedInListener).toBe(true);
-      expect(session.received.map(typeOf)).not.toContain('error');
-      expect(session.plannerInputs()[1]?.request.instances).toEqual(
-        acknowledged.instances,
-      );
-      const runId = runIdOf(session.received, 'input-1');
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(
-        `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → week. Visible: calendar (week).`,
-      );
-    });
-
-    test('an acknowledgement timeout sends ui_ack_timeout with the run id, records a not-confirmed note, starts the next queued Screen Change on the last known Chart and refuses a late acknowledgement', async () => {
-      const time = createFakeAgentRunTime();
-      const session = openAgentSession({
-        time,
-        acknowledgementTimeoutMs: 5_000,
-        model: twoScreenChangeTurns().adapter,
-        tools: [orderTool().tool],
-        planner: scriptedPlanner([
-          addEventCandidate(weekCalendarChart()),
-          addEventCandidate(calendarChart()),
-        ]),
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      await settle();
-      const [firstChange] = uiChangesOf(session.received);
-      expect(firstChange?.response.layout).toEqual(weekCalendarChart().layout);
-      time.advance(4_999);
-      await settle();
-      expect(session.plannerCalls()).toBe(1);
-
-      time.advance(1);
-      await waitUntil(() => uiChangesOf(session.received).length === 2);
-
-      expect(session.plannerCalls()).toBe(2);
-      const second = session.plannerInputs()[1]?.request;
-      expect(second?.layout).toEqual(calendarChart().layout);
-      expect(second?.instances).toEqual(calendarChart().instances);
-      expect(
-        session.received.filter((event) => event.type === 'error'),
-      ).toEqual([
-        {
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          changeId: firstChange?.changeId,
-          runId: runIdOf(session.received, 'input-1'),
-          code: 'ui_ack_timeout',
-          error: 'The UI acknowledgement did not arrive.',
-        },
-      ]);
-      const runId = runIdOf(session.received, 'input-1');
-      const timeoutError = session.received.find(
-        (event) => event.type === 'error',
-      );
-      expect(AgentEventSchema.safeParse(timeoutError).success).toBe(true);
-      const secondChange = uiChangesOf(session.received)[1];
-      if (secondChange === undefined) throw new Error('no second ui_change');
-      expect(indexOf(session.received, 'error', runId)).toBeLessThan(
-        session.received.indexOf(secondChange),
-      );
-      const transcript = serializeLoosely(
-        session.internals().transcript.renderPriorMessages(),
-      );
-      expect(transcript).toContain(
-        `[screen ${runId}:t1] Screen change not confirmed: the screen did not acknowledge the latest_order change.`,
-      );
-      expect(transcript).not.toContain('Screen updated');
-      expect(transcript).not.toContain('Screen change failed');
-      const [timedOut] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.ui_change.timed_out',
-      );
-      expect(timedOut?.runId).toBe(runId);
-      expect(timedOut?.metadata).toMatchObject({
-        changeId: firstChange?.changeId,
-        turnId: `${runId}:t1`,
-      });
-
-      if (firstChange === undefined) throw new Error('no ui_change');
-      const beforeLateAcknowledgement = session.received.length;
-      await session.connection.send(
-        acknowledgementOf(firstChange, weekCalendarChart()),
-      );
-      expect(session.received.slice(beforeLateAcknowledgement)).toEqual([
-        {
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          changeId: firstChange.changeId,
-          code: 'unknown_change',
-          error: 'Unknown UI change.',
-        },
-      ]);
-      expect(
-        occurrencesIn(
-          session.internals().transcript.renderPriorMessages(),
-          'Screen updated',
-        ),
-      ).toBe(0);
     });
 
     test.each([
@@ -804,67 +556,53 @@ describe('agent route through the Engine handle', () => {
         'ValidationError',
       ],
     ] as const)(
-      'a Planner failure by %s sends an error with the change id, run id and code, records a failed note and lets the next Screen Change run',
+      'a Planner failure by %s answers failed for every goal, sends an error with the run id and lets the run finish',
       async (_case, failing: ClarifyingPlanner, code) => {
-        const model = twoScreenChangeTurns();
+        const goals = ['show my last order', 'show my cart'];
+        const model = scriptedTextAdapter([
+          scriptedToolTurn(
+            [
+              changeScreenCall('call-1', goals[0] as string),
+              changeScreenCall('call-2', goals[1] as string),
+            ],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['I could not show that.'], scriptedUsage(1, 1)),
+        ]);
         const session = openAgentSession({
           model: model.adapter,
-          tools: [orderTool().tool],
-          planner: plannersInOrder([failing, addEventPlanner]),
+          planner: failing,
         });
 
         await session.send(
-          utterance('input-1', 'show my orders twice', calendarChart()),
+          utterance('input-1', 'show my order and cart', calendarChart()),
         );
-        await waitUntil(() => uiChangesOf(session.received).length === 1);
-        await settle();
 
         const runId = runIdOf(session.received, 'input-1');
-        const errors = session.received.filter(
-          (event) => event.type === 'error',
-        );
-        expect(errors).toEqual([
-          {
-            type: 'error',
-            version: AGENT_WIRE_VERSION,
-            changeId: expect.any(String),
-            runId,
-            code,
-            error: 'The screen could not be updated.',
-          },
-        ]);
-        const [failure] = errors;
-        if (failure?.type !== 'error') throw new Error('no error event');
-        expect(AgentEventSchema.safeParse(failure).success).toBe(true);
-        const [nextChange] = uiChangesOf(session.received);
-        if (nextChange === undefined) throw new Error('no ui_change');
-        expect(nextChange.changeId).not.toBe(failure.changeId);
-        expect(nextChange.runId).toBe(runId);
-        expect(session.plannerCalls()).toBe(2);
-        expect(
-          serializeLoosely(
-            session.internals().transcript.renderPriorMessages(),
-          ),
-        ).toContain(
-          `[screen ${runId}:t1] Screen change failed: latest_order result could not be shown.`,
-        );
+        expectFailedScreenChange(session.received, runId, code);
+        const results = model.requests[1]?.messages;
+        expect(toolResultOf(results, 'call-1')).toEqual({
+          status: 'failed',
+          summary: `failed: "${goals[0]}"`,
+        });
+        expect(toolResultOf(results, 'call-2')).toEqual({
+          status: 'failed',
+          summary: `failed: "${goals[1]}"`,
+        });
+        expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+          ok: true,
+          summary: `failed: "${goals[0]}"`,
+        });
+        expect(session.plannerCalls()).toBe(1);
         const [failed] = diagnosticsOfKind(
           session.diagnostics,
           'engine.agent.screen_change.failed',
         );
         expect(failed?.runId).toBe(runId);
         expect(failed?.metadata).toMatchObject({
-          changeId: failure.changeId,
           turnId: `${runId}:t1`,
           code,
         });
-
-        await session.connection.send(
-          acknowledgementOf(nextChange, calendarChart()),
-        );
-        await session.send(
-          utterance('input-2', 'did it work?', calendarChart()),
-        );
         const surfaces = [
           JSON.stringify(session.received),
           serializeLoosely(
@@ -881,247 +619,921 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('a Screen Change planning past the 30,000 ms timeout on the fake clock has its signal aborted, sends planning_timeout, records a failed note and lets the next Screen Change run', async () => {
+    test('a Screen Change planning past the 30,000 ms timeout on the fake clock has its signal aborted, answers failed, sends planning_timeout and lets the run finish', async () => {
       const time = createFakeAgentRunTime();
+      const goal = 'show my last order';
       const signals: (AbortSignal | undefined)[] = [];
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['I could not show that.'], scriptedUsage(1, 1)),
+      ]);
       const session = openAgentSession({
         time,
-        model: twoScreenChangeTurns().adapter,
-        tools: [orderTool().tool],
-        planner: plannersInOrder([
-          (input, ctx) => {
-            signals.push(ctx.signal);
-            return neverSettlingPlanner(input, ctx);
-          },
-          addEventPlanner,
-        ]),
+        model: model.adapter,
+        planner: (input, ctx) => {
+          signals.push(ctx.signal);
+          return neverSettlingPlanner(input, ctx);
+        },
       });
 
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await settle();
-      const runId = runIdOf(session.received, 'input-1');
-      expect(lastFinished(session.received)).toMatchObject({
-        runId,
-        reason: 'completed',
-      });
+      const sent = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => session.plannerCalls() === 1);
       time.advance(29_999);
       await settle();
-      expect(signals).toHaveLength(1);
       expect(signals[0]?.aborted).toBe(false);
       expect(session.received.map(typeOf)).not.toContain('error');
-      expect(session.plannerCalls()).toBe(1);
+      expect(session.received.map(typeOf)).not.toContain('finished');
 
       time.advance(1);
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      await sent;
 
+      const runId = runIdOf(session.received, 'input-1');
       expect(signals[0]?.aborted).toBe(true);
+      expectFailedScreenChange(session.received, runId, 'planning_timeout');
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'failed',
+        summary: `failed: "${goal}"`,
+      });
+      expect(session.plannerCalls()).toBe(1);
+    });
+
+    test('an acknowledgement timeout answers unknown with the change id, sends ui_ack_timeout with the run id, plans nothing again and refuses a late acknowledgement', async () => {
+      const time = createFakeAgentRunTime();
+      const goal = 'show my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['The screen did not confirm.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        acknowledgementTimeoutMs: 5_000,
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      time.advance(4_999);
+      await settle();
+      expect(session.received.map(typeOf)).not.toContain('finished');
+
+      time.advance(1);
+      await sent;
+
+      const runId = runIdOf(session.received, 'input-1');
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'unknown',
+        summary: `unknown (the screen did not confirm): "${goal}"`,
+        changeId: change.changeId,
+      });
       const errors = session.received.filter((event) => event.type === 'error');
       expect(errors).toEqual([
         {
           type: 'error',
           version: AGENT_WIRE_VERSION,
-          changeId: expect.any(String),
+          changeId: change.changeId,
           runId,
-          code: 'planning_timeout',
-          error: 'The screen could not be updated.',
+          code: 'ui_ack_timeout',
+          error: 'The UI acknowledgement did not arrive.',
         },
       ]);
       expect(AgentEventSchema.safeParse(errors[0]).success).toBe(true);
       expect(indexOf(session.received, 'error', runId)).toBeLessThan(
-        indexOf(session.received, 'ui_change', runId),
+        indexOf(session.received, 'finished', runId),
       );
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(
-        `[screen ${runId}:t1] Screen change failed: latest_order result could not be shown.`,
-      );
-      const [failed] = diagnosticsOfKind(
+      const [timedOut] = diagnosticsOfKind(
         session.diagnostics,
-        'engine.agent.screen_change.failed',
+        'engine.agent.ui_change.timed_out',
       );
-      expect(failed?.metadata).toMatchObject({
+      expect(timedOut?.metadata).toMatchObject({
+        changeId: change.changeId,
         turnId: `${runId}:t1`,
-        code: 'planning_timeout',
       });
-      expect(session.plannerCalls()).toBe(2);
-    });
+      expect(session.plannerCalls()).toBe(1);
 
-    test('a Screen Change with nothing to show sends nothing on the wire and records a skipped note', async () => {
-      const session = openAgentSession({
-        model: scriptedTextAdapter([
-          scriptedToolTurn(
-            [{ id: 'c1', name: 'latest_order', args: {} }],
-            scriptedUsage(1, 1),
-          ),
-          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        ]).adapter,
-        tools: [orderTool().tool],
-        planner: noScreenChangePlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
-      );
-      await waitUntil(() => session.plannerCalls() === 1);
+      const beforeLateAcknowledgement = session.received.length;
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
       await settle();
-
-      const runId = runIdOf(session.received, 'input-1');
-      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
+      expect(session.received.slice(beforeLateAcknowledgement)).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: change.changeId,
+          code: 'unknown_change',
+          error: 'Unknown UI change.',
+        },
+      ]);
+      expect(session.plannerCalls()).toBe(1);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(
-        `[screen ${runId}:t1] Screen change skipped: nothing new to show for latest_order result.`,
-      );
-      const [skipped] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.screen_change.skipped',
-      );
-      expect(skipped?.runId).toBe(runId);
-      expect(skipped?.metadata).toMatchObject({
-        turnId: `${runId}:t1`,
-        reason: 'nothing_to_show',
-      });
+      ).not.toContain('[screen ');
     });
 
-    test('a needs-clarification Screen Change sends nothing on the wire, drops its partial changes and records a skipped note whose question the next run prompt carries', async () => {
+    test('an acknowledgement with a failed Action answers failed with some steps not run and the change id', async () => {
+      const goal = 'show my last order';
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('call-1', goal)],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        scriptedTextTurn(['Which one did you mean?'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Part of it failed.'], scriptedUsage(1, 1)),
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool().tool],
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send({
+        ...acknowledgementOf(change, calendarChart()),
+        actionOutcomes: [{ ok: false, error: 'calendar is read-only' }],
+      });
+      await sent;
+
+      const summary = `failed (some steps did not run): "${goal}"`;
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'failed',
+        summary,
+        changeId: change.changeId,
+      });
+      expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+        ok: true,
+        summary,
+      });
+      expect(session.received.map(typeOf)).not.toContain('error');
+    });
+
+    test('Planner prose never reaches the model, the wire or the transcript, only the Engine summary does', async () => {
+      const goal = 'show my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It is on screen.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Anything else?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: scriptedPlanner([
+          {
+            ...addEventCandidate(calendarChart()),
+            rationale: PLANNER_PROSE_SENTINEL,
+            userMessage: PLANNER_PROSE_SENTINEL,
+          },
+        ]),
+      });
+
+      const sent = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
+      await session.send(
+        utterance('input-2', 'anything else?', calendarChart()),
+      );
+
+      expect(change.response).not.toHaveProperty('userMessage');
+      expect(change.response).not.toHaveProperty('diagnostics');
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'applied',
+        summary: `applied: "${goal}"`,
+        changeId: change.changeId,
+      });
+      expect(model.requests).toHaveLength(3);
+      const surfaces = [
+        JSON.stringify(session.received.filter((e) => e.type !== 'ui_change')),
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+        ...model.requests.map(serializeLoosely),
+      ];
+      for (const surface of surfaces) {
+        expect(surface).not.toContain(PLANNER_PROSE_SENTINEL);
+      }
+    });
+
+    test('a clarification with partial changes and no verdicts sends one ui_change, and after its acknowledgement every goal answers needs_clarification with the question, options, change id and what is on screen', async () => {
+      const goals = ['show my order', 'show the other one'];
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', goals[0] as string),
+            changeScreenCall('call-2', goals[1] as string),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which order did you mean?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
         planner: clarifyingWithPartialChangesPlanner,
       });
 
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
+      void session.send(
+        utterance('input-1', 'show my orders', calendarChart()),
       );
-      await waitUntil(() => session.plannerCalls() === 1);
-      await settle();
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      expect(change.response.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ]);
+      expect(change.response).not.toHaveProperty('reasons');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
+      );
 
-      const runId = runIdOf(session.received, 'input-1');
-      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
-      const skippedNote = `[screen ${runId}:t1] Screen change skipped: the Planner needs more detail to show latest_order result. Question: ${QUESTION_SENTINEL}`;
-      const transcript = serializeLoosely(
-        session.internals().transcript.renderPriorMessages(),
+      const results = model.requests[1]?.messages;
+      for (const [index, providerCallId] of ['call-1', 'call-2'].entries()) {
+        expect(toolResultOf(results, providerCallId)).toEqual({
+          status: 'needs_clarification',
+          summary: `needs clarification: "${goals[index]}"`,
+          changeId: change.changeId,
+          question: QUESTION_SENTINEL,
+          options: [CLARIFICATION_OPTION_SENTINEL],
+          onScreen: ['calendar'],
+        });
+      }
+      const types = session.received.map(typeOf);
+      expect(types.indexOf('finished')).toBeGreaterThan(
+        types.indexOf('ui_change'),
       );
-      expect(transcript).toContain(skippedNote);
-      const [skipped] = diagnosticsOfKind(
-        session.diagnostics,
-        'engine.agent.screen_change.skipped',
-      );
-      expect(skipped?.metadata).toMatchObject({
-        turnId: `${runId}:t1`,
-        reason: 'needs_clarification',
-      });
+      for (const request of model.requests)
+        expect(serializeLoosely(request)).not.toContain('addEvent');
       for (const event of session.diagnostics) {
         expect(serializeLoosely(event.metadata)).not.toContain(
           QUESTION_SENTINEL,
         );
       }
+    });
 
-      await session.send(
-        utterance('input-2', 'and where is it?', calendarChart()),
+    test('verdicts give each goal its own result: a planned goal answers applied and a clarification goal its own question, both with the change id and neither with onScreen', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', 'add the order to the calendar'),
+            changeScreenCall('call-2', 'show the matching toy'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which toy?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: clarifyingWithVerdictsPlanner,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
       );
 
-      expect(model.requests).toHaveLength(3);
-      expect(occurrencesIn(model.requests[2]?.messages, skippedNote)).toBe(1);
-      const surfaces = [
-        JSON.stringify(session.received),
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-        ...model.requests.map(serializeLoosely),
-      ];
-      for (const surface of surfaces) {
-        expect(surface).not.toContain('addEvent');
-        expect(surface).not.toContain(CLARIFICATION_OPTION_SENTINEL);
-      }
+      const results = model.requests[1]?.messages;
+      expect(toolResultOf(results, 'call-1')).toEqual({
+        status: 'applied',
+        summary: 'applied: "add the order to the calendar"',
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-2')).toEqual({
+        status: 'needs_clarification',
+        summary: 'needs clarification: "show the matching toy"',
+        changeId: change.changeId,
+        question: 'Which toy do you mean?',
+        options: ['The squeaky bone'],
+      });
+    });
+
+    test('a clarification without partial changes sends nothing and answers needs_clarification with no change id and what the current layout shows', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', 'show my order')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which order?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: clarifyingPlanner,
+      });
+
+      await session.send(utterance('input-1', 'show it', calendarChart()));
+
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'needs_clarification',
+        summary: 'needs clarification: "show my order"',
+        question: 'Which order do you mean?',
+        options: ['The latest order', 'The order from last week'],
+        onScreen: ['calendar'],
+      });
       expect(session.received.map(typeOf)).not.toContain('ui_change');
+    });
+
+    test('an acknowledgement timeout on a partial change answers the planned goal unknown while the clarification goal keeps its question and the change id', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', 'add the order to the calendar'),
+            changeScreenCall('call-2', 'show the matching toy'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which toy?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        planner: clarifyingWithVerdictsPlanner,
+        acknowledgementTimeoutMs: 1_000,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      time.advance(1_000);
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
+      );
+
+      const results = model.requests[1]?.messages;
+      expect(toolResultOf(results, 'call-1')).toEqual({
+        status: 'unknown',
+        summary:
+          'unknown (the screen did not confirm): "add the order to the calendar"',
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-2')).toMatchObject({
+        status: 'needs_clarification',
+        changeId: change.changeId,
+        question: 'Which toy do you mean?',
+      });
+    });
+
+    test('a blank goal gets the sanitized invalid arguments failure and makes no Planner call', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', '   ')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Sorry.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      await session.send(utterance('input-1', 'show it', calendarChart()));
+
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        ok: false,
+        error: 'change_screen received invalid arguments',
+      });
+      expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+        ok: false,
+        summary: 'change_screen received invalid arguments',
+      });
+      expect(session.plannerCalls()).toBe(0);
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+      });
+    });
+
+    test('a blank goal beside a valid change_screen call does not hold the valid goal for the fill timeout', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', '   '),
+            changeScreenCall('call-2', 'add the order to the calendar'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Done.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => session.plannerCalls() === 1);
+
+      expect(session.diagnostics.map((event) => event.kind)).not.toContain(
+        'engine.agent.screen_change.batch_fill_timeout',
+      );
+      session.connection.close();
+    });
+
+    test('change_screen calls count toward the tool call cap:a turn over it is refused as a whole with no Planner call, while the same count of Server Tools alone runs', async () => {
+      const order = orderTool();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            { id: 'call-1', name: 'latest_order', args: {} },
+            changeScreenCall('call-2', 'show my last order'),
+            changeScreenCall('call-3', 'show my cart'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['never sent'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+        budgets: { maxToolCalls: 2 },
+      });
+
+      await session.send(
+        utterance('input-1', 'show my order and cart', calendarChart()),
+      );
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(order.args).toEqual([]);
+      expect(session.plannerCalls()).toBe(0);
+      expect(uiChangesOf(session.received)).toEqual([]);
+      expect(model.requests).toHaveLength(1);
+      expectBudgetEnding(session.received, runId);
+
+      const withinCap = orderTool();
+      const serverToolsOnly = openAgentSession({
+        model: scriptedTextAdapter([
+          scriptedToolTurn(
+            [
+              { id: 'call-1', name: 'latest_order', args: {} },
+              { id: 'call-2', name: 'latest_order', args: {} },
+            ],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['Two orders.'], scriptedUsage(1, 1)),
+        ]).adapter,
+        tools: [withinCap.tool],
+        budgets: { maxToolCalls: 2 },
+      });
+      await serverToolsOnly.send(utterance('input-1', 'last orders?'));
+      expect(withinCap.args).toHaveLength(2);
+      expect(lastFinished(serverToolsOnly.received)).toMatchObject({
+        reason: 'completed',
+      });
+    });
+
+    test('a turn of 25 calls including change_screen is over the default cap of 24 and is refused as a whole', async () => {
+      const order = orderTool();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            ...Array.from({ length: 24 }, (_, index) => ({
+              id: `call-${index + 1}`,
+              name: 'latest_order',
+              args: {},
+            })),
+            changeScreenCall('call-25', 'show my orders'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['never sent'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+        budgets: { maxToolCalls: DEFAULT_AGENT_RUN_BUDGETS.maxToolCalls },
+      });
+
+      await session.send(
+        utterance('input-1', 'show my orders', calendarChart()),
+      );
+
+      expect(order.args).toEqual([]);
+      expect(session.plannerCalls()).toBe(0);
+      expectBudgetEnding(
+        session.received,
+        runIdOf(session.received, 'input-1'),
+      );
+    });
+
+    test('cancelling a run whose change awaits acknowledgement finishes it at once, starts the queued run, and the later acknowledgement becomes a Screen Note in that run', async () => {
+      const goal = 'show my last order';
+      const lookupStarted = defer<void>();
+      const releaseLookup = defer<void>();
+      const order = orderTool({
+        latestOrder: async () => {
+          lookupStarted.resolve();
+          await releaseLookup.promise;
+          return LATEST_ORDER;
+        },
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [{ id: 'call-1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It is on screen now.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      const first = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const second = session.send(
+        utterance('input-2', 'is it there?', calendarChart()),
+      );
+      const firstRun = runIdOf(session.received, 'input-1');
+      const secondRun = runIdOf(session.received, 'input-2');
+      session.internals().queue.cancelRun(firstRun);
+      await first;
+
+      expect(lastFinishedOf(session.received, firstRun)).toMatchObject({
+        reason: 'cancelled',
+        ok: false,
+      });
+      await lookupStarted.promise;
+      expect(indexOf(session.received, 'started', secondRun)).toBeGreaterThan(
+        indexOf(session.received, 'finished', firstRun),
+      );
+
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      const beforeAcknowledgement = session.received.length;
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await settle();
+      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
+      releaseLookup.resolve();
+      await second;
+
+      const lateNote = `[screen ${firstRun}:t1] Screen change settled after the run stopped waiting: applied: "${goal}"`;
+      expect(model.requests).toHaveLength(3);
+      expect(
+        occurrencesIn(model.requests[1]?.messages, jsonEscaped(lateNote)),
+      ).toBe(0);
+      expect(
+        occurrencesIn(model.requests[2]?.messages, jsonEscaped(lateNote)),
+      ).toBe(1);
+      expect(session.plannerCalls()).toBe(1);
+      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
+        reason: 'completed',
+      });
+    });
+
+    test('cancelling a run before its batch went out answers its goal cancelled and makes no Planner call', async () => {
+      const lookupStarted = defer<void>();
+      const releaseLookup = defer<void>();
+      const order = orderTool({
+        latestOrder: async () => {
+          lookupStarted.resolve();
+          await releaseLookup.promise;
+          return LATEST_ORDER;
+        },
+      });
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            { id: 'call-1', name: 'latest_order', args: {} },
+            changeScreenCall('call-2', 'show my last order'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Second run reply.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        planner: addEventPlanner,
+      });
+
+      const first = session.send(
+        utterance('input-1', 'show my last order', calendarChart()),
+      );
+      await lookupStarted.promise;
+      const second = session.send(
+        utterance('input-2', 'never mind', calendarChart()),
+      );
+      const firstRun = runIdOf(session.received, 'input-1');
+      session.internals().queue.cancelRun(firstRun);
+      releaseLookup.resolve();
+      await Promise.all([first, second]);
+      await settle();
+
+      expect(lastFinishedOf(session.received, firstRun)).toMatchObject({
+        reason: 'cancelled',
+      });
+      expect(session.plannerCalls()).toBe(0);
+      expect(uiChangesOf(session.received)).toEqual([]);
+      expect(session.diagnostics.map((event) => event.kind)).not.toContain(
+        'engine.agent.screen_change.requested',
+      );
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+        reply: 'Second run reply.',
+      });
+    });
+
+    test('a deadline ending while a change awaits acknowledgement is not held by it, and the later acknowledgement becomes a Screen Note', async () => {
+      const time = createFakeAgentRunTime();
+      const goal = 'show my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Here it is.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        planner: addEventPlanner,
+        budgets: { maxElapsedMs: 100 },
+      });
+
+      const first = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      time.advance(100);
+      await first;
+
+      const firstRun = runIdOf(session.received, 'input-1');
+      expectBudgetEnding(session.received, firstRun);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      const beforeAcknowledgement = session.received.length;
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await settle();
+      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
+      await session.send(utterance('input-2', 'is it there?', calendarChart()));
+
+      expect(
+        occurrencesIn(
+          model.requests[1]?.messages,
+          jsonEscaped(
+            `[screen ${firstRun}:t1] Screen change settled after the run stopped waiting: applied: "${goal}"`,
+          ),
+        ),
+      ).toBe(1);
+    });
+
+    test('a run whose Server Tool succeeds without a change_screen call makes no Planner call', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [{ id: 'call-1', name: 'latest_order', args: {} }],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [orderTool().tool],
+        planner: addEventPlanner,
+      });
+
+      await session.send(
+        utterance('input-1', 'show me my last order', calendarChart()),
+      );
+      await settle();
+
+      expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
+      expect(session.plannerCalls()).toBe(0);
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).not.toContain('[screen ');
+    });
+
+    test('a new run finishes without waiting for an earlier run change that still awaits acknowledgement', async () => {
+      const goal = 'show my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Hello again.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      const first = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const firstRun = runIdOf(session.received, 'input-1');
+      session.internals().queue.cancelRun(firstRun);
+      await first;
+      await session.send(utterance('input-2', 'hello', calendarChart()));
+
+      const secondRun = runIdOf(session.received, 'input-2');
+      expect(model.requests).toHaveLength(2);
+      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
+        reason: 'completed',
+        reply: 'Hello again.',
+      });
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      expect(
+        serializeLoosely(session.internals().transcript.renderPriorMessages()),
+      ).toContain(
+        jsonEscaped(
+          `[screen ${firstRun}:t1] Screen change settled after the run stopped waiting: applied: "${goal}"`,
+        ),
+      );
+    });
+
+    test('a second turn plans on the Chart the first change was acknowledged with', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', 'show my last order')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedToolTurn(
+          [changeScreenCall('call-2', 'show my cart')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+
+      const sent = session.send(
+        utterance('input-1', 'show my order then my cart', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [firstChange] = uiChangesOf(session.received);
+      if (firstChange === undefined) throw new Error('no ui_change');
+      const acknowledged = weekCalendarChart();
+      await session.connection.send(
+        acknowledgementOf(firstChange, acknowledged),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 2);
+
+      expect(session.plannerCalls()).toBe(2);
+      const second = session.plannerInputs()[1]?.request;
+      expect(second?.instances).toEqual(acknowledged.instances);
+      expect(second?.layout).toEqual(acknowledged.layout);
+      const secondChange = uiChangesOf(session.received)[1];
+      if (secondChange === undefined) throw new Error('no second ui_change');
+      await session.connection.send(
+        acknowledgementOf(secondChange, acknowledged),
+      );
+      await sent;
       expect(session.received.map(typeOf)).not.toContain('error');
     });
 
-    test.each([
-      [
-        'a failing planner',
-        failingPlanner(providerError('provider down', undefined)),
-      ],
-      ['a throwing planner', throwingPlanner(new Error('planner crashed'))],
-      ['a needs-clarification result', clarifyingPlanner],
-      ['an empty plan with nothing to show', noScreenChangePlanner],
-    ] as const)(
-      '%s releases the queue for the next Screen Change and sends no ui_change',
-      async (_case, firstScreenChange: ClarifyingPlanner) => {
-        const release = defer<void>();
-        const session = openAgentSession({
-          model: twoScreenChangeTurns().adapter,
-          tools: [orderTool().tool],
-          planner: plannersInOrder([
-            heldUntil(release.promise, firstScreenChange),
-            addEventPlanner,
-          ]),
-        });
+    test('an unknown change id and a wrong outcome count are refused while the change stays pending until a valid acknowledgement', async () => {
+      const goal = 'show my last order';
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', goal)],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It is on screen.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
 
-        await session.send(
-          utterance('input-1', 'show my orders twice', calendarChart()),
-        );
-        await settle();
-        expect(session.plannerCalls()).toBe(1);
-        release.resolve();
-        await waitUntil(() => uiChangesOf(session.received).length === 1);
-        await settle();
+      const sent = session.send(utterance('input-1', goal, calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
 
-        expect(session.plannerCalls()).toBe(2);
-        const changes = uiChangesOf(session.received);
-        expect(changes).toHaveLength(1);
-        expect(changes[0]?.response.executionPlan).toHaveLength(1);
-        const runId = runIdOf(session.received, 'input-1');
-        const firstScreenChangePlanning = session.diagnostics.filter(
-          (event) =>
-            event.kind.startsWith('engine.planner.') &&
-            event.metadata.turnId === `${runId}:t1`,
+      const beforeStray = session.received.length;
+      await session.connection.send(strayAcknowledgement());
+      expect(session.received.slice(beforeStray)).toEqual([
+        strayAcknowledgementRefusal(),
+      ]);
+
+      const beforeWrongCount = session.received.length;
+      await session.connection.send({
+        ...acknowledgementOf(change, calendarChart()),
+        actionOutcomes: [],
+      });
+      expect(session.received.slice(beforeWrongCount)).toEqual([
+        {
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          changeId: change.changeId,
+          code: 'invalid_action_outcomes',
+          error: 'Expected one outcome per Action.',
+        },
+      ]);
+      await settle();
+      expect(session.received.map(typeOf)).not.toContain('finished');
+      expect(model.requests).toHaveLength(1);
+      const runId = runIdOf(session.received, 'input-1');
+      const rejected = diagnosticsOfKind(
+        session.diagnostics,
+        'engine.agent.ui_applied.rejected',
+      );
+      expect(rejected).toHaveLength(2);
+      const [unknownChange, wrongCount] = rejected;
+      expect(unknownChange).not.toHaveProperty('runId');
+      expect(unknownChange).not.toHaveProperty('requestId');
+      expect(unknownChange?.metadata).toEqual({
+        changeId: 'stray-change',
+        code: 'unknown_change',
+      });
+      expect(wrongCount).not.toHaveProperty('requestId');
+      expect(wrongCount?.runId).toBe(runId);
+      expect(wrongCount?.metadata).toEqual({
+        changeId: change.changeId,
+        code: 'invalid_action_outcomes',
+        inputId: 'input-1',
+        turnId: `${runId}:t1`,
+      });
+
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await sent;
+
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'applied',
+        summary: `applied: "${goal}"`,
+        changeId: change.changeId,
+      });
+      expect(session.plannerCalls()).toBe(1);
+    });
+
+    test('an acknowledgement sent synchronously from inside the ui_change listener is accepted', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', 'show my last order')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['It is on screen.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: addEventPlanner,
+      });
+      let acknowledgedInListener = false;
+      session.connection.subscribe((event) => {
+        if (event.type !== 'ui_change' || acknowledgedInListener) return;
+        acknowledgedInListener = true;
+        void session.connection.send(
+          acknowledgementOf(event, weekCalendarChart()),
         );
-        expect(firstScreenChangePlanning.map((event) => event.kind)).toEqual(
-          expect.arrayContaining([
-            'engine.planner.started',
-            'engine.planner.completed',
-          ]),
-        );
-        for (const event of firstScreenChangePlanning) {
-          expect(event.runId).toBe(runId);
-          expect(event.requestId).toBeUndefined();
-          expect(event.metadata.inputId).toBe('input-1');
-        }
-      },
-    );
+      });
+
+      await session.send(
+        utterance('input-1', 'show my last order', calendarChart()),
+      );
+
+      expect(acknowledgedInListener).toBe(true);
+      expect(session.received.map(typeOf)).not.toContain('error');
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toMatchObject(
+        { status: 'applied' },
+      );
+    });
 
     test('closing the connection aborts a Screen Change plan in flight and sends and records nothing for it', async () => {
       const time = createFakeAgentRunTime();
       const gate = defer<PlannerCandidate>();
       const blocking = blockingPlanner(gate);
       const signals: (AbortSignal | undefined)[] = [];
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', 'show my last order')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['never sent'], scriptedUsage(1, 1)),
+      ]);
       const session = openAgentSession({
         time,
-        model: scriptedTextAdapter([
-          scriptedToolTurn(
-            [{ id: 'c1', name: 'latest_order', args: {} }],
-            scriptedUsage(1, 1),
-          ),
-          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        ]).adapter,
-        tools: [orderTool().tool],
+        model: model.adapter,
         planner: (input, ctx) => {
           signals.push(ctx.signal);
           return blocking.planner(input, ctx);
         },
       });
 
-      await session.send(
+      const sent = session.send(
         utterance('input-1', 'show me my last order', calendarChart()),
       );
       await blocking.entered;
@@ -1131,13 +1543,15 @@ describe('agent route through the Engine handle', () => {
       );
       const diagnosticsBeforeClose = session.diagnostics.length;
       session.connection.close();
-      time.advance(30_000);
-      await settle();
       expect(signals[0]?.aborted).toBe(true);
+      time.advance(30_000);
+      await sent;
+      await settle();
       gate.resolve(addEventCandidate(calendarChart()));
       await settle();
 
       expect(signals).toHaveLength(1);
+      expect(model.requests).toHaveLength(1);
       expect(session.received.slice(beforeClose)).toEqual([]);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
@@ -1153,20 +1567,18 @@ describe('agent route through the Engine handle', () => {
       const session = openAgentSession({
         model: scriptedTextAdapter([
           scriptedToolTurn(
-            [{ id: 'c1', name: 'latest_order', args: {} }],
+            [changeScreenCall('call-1', 'show my last order')],
             scriptedUsage(1, 1),
           ),
-          scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+          scriptedTextTurn(['Which order?'], scriptedUsage(1, 1)),
         ]).adapter,
-        tools: [orderTool().tool],
         planner: clarifyingPlanner,
       });
 
       await session.send(
         utterance('input-1', 'show me my last order', calendarChart()),
       );
-      await waitUntil(() => session.plannerCalls() === 1);
-      await settle();
+      expect(session.plannerCalls()).toBe(1);
       const handled = await session.engine.handle(
         ChartRequestMessage({
           sessionId: SessionId('agent-route'),
@@ -1194,8 +1606,64 @@ describe('agent route through the Engine handle', () => {
           ok({
             type: 'needs_clarification',
             question: 'Which order do you mean?',
+            options: ['The latest order', 'The order from last week'],
           }),
         );
+      });
+
+      test('a clarification keeps its healed partial changes and the verdicts that name a request reason', async () => {
+        const session = openAgentSession({
+          planner: clarifyingWithVerdictsPlanner,
+        });
+
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput(undefined, ['r1', 'r2']));
+
+        expect(result).toEqual(
+          ok({
+            type: 'needs_clarification',
+            question: 'Which toy do you mean?',
+            options: ['The squeaky bone'],
+            executionPlan: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                action: ActionName('addEvent'),
+              },
+            ],
+            reasons: [
+              { id: 'r1', status: 'planned' },
+              {
+                id: 'r2',
+                status: 'needs_clarification',
+                question: 'Which toy do you mean?',
+                options: ['The squeaky bone'],
+              },
+            ],
+          }),
+        );
+      });
+
+      test('a plan keeps its verdicts beside the response, which carries none', async () => {
+        const session = openAgentSession({
+          planner: (input) =>
+            Promise.resolve(
+              ok({
+                ...addEventCandidate(input.request),
+                userMessage: undefined,
+                reasons: [{ id: 'r1', status: 'planned' }],
+              }),
+            ),
+        });
+
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput(undefined, ['r1']));
+
+        if (isErr(result) || result.value.type !== 'response')
+          throw new Error('expected a response');
+        expect(result.value.reasons).toEqual([{ id: 'r1', status: 'planned' }]);
+        expect('reasons' in result.value.response).toBe(false);
       });
 
       test('a failing planner comes back as its error', async () => {
@@ -1225,322 +1693,6 @@ describe('agent route through the Engine handle', () => {
         const result = await pending;
         expect(isErr(result) && result.error._tag).toBe('CancellationError');
       });
-    });
-  });
-
-  describe('screen notes inside a run and the gate before a new run', () => {
-    test('the queued note reaches the model turn right after the tool phase and is not repeated as a new message', async () => {
-      const model = twoScreenChangeTurns();
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: neverSettlingPlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-
-      const runId = runIdOf(session.received, 'input-1');
-      const firstQueued = `[screen ${runId}:t1] Screen change queued: latest_order result.`;
-      const secondQueued = `[screen ${runId}:t2] Screen change queued: latest_order result.`;
-      expect(model.requests).toHaveLength(3);
-      expect(occurrencesIn(model.requests[0]?.messages, firstQueued)).toBe(0);
-      expect(model.requests[1]?.messages.at(-1)).toEqual({
-        role: 'user',
-        content: firstQueued,
-      });
-      expect(occurrencesIn(model.requests[1]?.messages, firstQueued)).toBe(1);
-      expect(occurrencesIn(model.requests[2]?.messages, firstQueued)).toBe(1);
-      expect(model.requests[2]?.messages.at(-1)).toEqual({
-        role: 'user',
-        content: secondQueued,
-      });
-    });
-
-    test('a screen note recorded while a later tool runs reaches the next model turn exactly once', async () => {
-      const secondLookupStarted = defer<void>();
-      const releaseSecondLookup = defer<void>();
-      let lookups = 0;
-      const order = orderTool({
-        latestOrder: async () => {
-          lookups += 1;
-          if (lookups === 2) {
-            secondLookupStarted.resolve();
-            await releaseSecondLookup.promise;
-          }
-          return LATEST_ORDER;
-        },
-      });
-      const model = twoScreenChangeTurns();
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [order.tool],
-        planner: addEventPlanner,
-      });
-
-      const sent = session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await secondLookupStarted.promise;
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-      releaseSecondLookup.resolve();
-      await sent;
-
-      const runId = runIdOf(session.received, 'input-1');
-      const screenNote = `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
-      expect(model.requests).toHaveLength(3);
-      expect(
-        occurrencesIn(model.requests[1]?.messages, 'Screen updated:'),
-      ).toBe(0);
-      expect(
-        occurrencesIn(model.requests[2]?.messages, 'Screen updated:'),
-      ).toBe(1);
-      expect(occurrencesIn(model.requests[2]?.messages, screenNote)).toBe(1);
-    });
-
-    test('a new run holds its first model turn until the earlier change is acknowledged, then sees the screen note once', async () => {
-      const time = createFakeAgentRunTime();
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
-        scriptedTextTurn(['It is on your calendar.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        time,
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show me my last order', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const sent = session.send(
-        utterance('input-2', 'where is it now?', calendarChart()),
-      );
-      const secondRun = runIdOf(session.received, 'input-2');
-      await waitUntil(() =>
-        eventsOf(session.received, secondRun).map(typeOf).includes('started'),
-      );
-      await settle();
-      expect(model.requests).toHaveLength(2);
-
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-      await sent;
-
-      const firstRun = runIdOf(session.received, 'input-1');
-      const screenNote = `[screen ${firstRun}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
-      expect(model.requests).toHaveLength(3);
-      expect(occurrencesIn(model.requests[2]?.messages, screenNote)).toBe(1);
-      expect(model.requests[2]?.messages.at(-1)).toEqual({
-        role: 'user',
-        content: screenNote,
-      });
-      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
-        reason: 'completed',
-        reply: 'It is on your calendar.',
-      });
-    });
-
-    test('a new run starts its first model turn once the acknowledgement timeout passes, even while a later Screen Change still plans, and the wait counts toward its elapsed time', async () => {
-      const time = createFakeAgentRunTime();
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedToolTurn(
-          [{ id: 'c2', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
-        scriptedTextTurn(['Here it is.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        time,
-        acknowledgementTimeoutMs: 5_000,
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: plannersInOrder([addEventPlanner, neverSettlingPlanner]),
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const sent = session.send(
-        utterance('input-2', 'where is it now?', calendarChart()),
-      );
-      const secondRun = runIdOf(session.received, 'input-2');
-      await waitUntil(() =>
-        eventsOf(session.received, secondRun).map(typeOf).includes('started'),
-      );
-      time.advance(4_999);
-      await settle();
-      expect(model.requests).toHaveLength(3);
-
-      time.advance(1);
-      await sent;
-
-      const firstRun = runIdOf(session.received, 'input-1');
-      expect(session.plannerCalls()).toBe(2);
-      expect(model.requests).toHaveLength(4);
-      expect(model.requests[3]?.messages.at(-1)).toEqual({
-        role: 'user',
-        content: `[screen ${firstRun}:t1] Screen change not confirmed: the screen did not acknowledge the latest_order change.`,
-      });
-      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
-        reason: 'completed',
-        metrics: expect.objectContaining({ elapsedMs: 5_000 }),
-      });
-    });
-
-    test('a change awaiting acknowledgement never holds a later model turn of the same run', async () => {
-      const time = createFakeAgentRunTime();
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedToolTurn(
-          [{ id: 'c2', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['Both on their way.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        time,
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-
-      await session.send(
-        utterance('input-1', 'show my orders twice', calendarChart()),
-      );
-
-      expect(model.requests).toHaveLength(3);
-      expect(uiChangesOf(session.received)).toHaveLength(1);
-      expect(session.plannerCalls()).toBe(1);
-      expect(lastFinished(session.received)).toMatchObject({
-        reason: 'completed',
-        reply: 'Both on their way.',
-        metrics: expect.objectContaining({ elapsedMs: 0 }),
-      });
-    });
-
-    test('cancelling a run drops its queued Screen Changes with cancelled notes while its emitted change still takes its acknowledgement and screen note', async () => {
-      const stalled: StalledCall = { closed: false };
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedToolTurn(
-          [{ id: 'c2', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        scriptedToolTurn(
-          [{ id: 'c3', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        stallingTurn(['Showing '], stalled),
-      ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: addEventPlanner,
-      });
-
-      const sent = session.send(
-        utterance('input-1', 'show my orders three times', calendarChart()),
-      );
-      await waitUntil(
-        () =>
-          uiChangesOf(session.received).length === 1 &&
-          model.requests.length === 4,
-      );
-      const runId = runIdOf(session.received, 'input-1');
-      session.internals().queue.cancelRun(runId);
-      await sent;
-
-      const transcript = serializeLoosely(
-        session.internals().transcript.renderPriorMessages(),
-      );
-      expect(transcript).toContain(
-        `[screen ${runId}:t2] Screen change cancelled: latest_order result.`,
-      );
-      expect(transcript).toContain(
-        `[screen ${runId}:t3] Screen change cancelled: latest_order result.`,
-      );
-      expect(lastFinishedOf(session.received, runId)).toMatchObject({
-        reason: 'cancelled',
-      });
-
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      const beforeAcknowledgement = session.received.length;
-      await session.connection.send(acknowledgementOf(change, calendarChart()));
-      await settle();
-
-      expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
-      expect(session.plannerCalls()).toBe(1);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(
-        `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`,
-      );
-    });
-
-    test('cancelling a run aborts its Screen Change in planning with a cancelled note and sends nothing for it', async () => {
-      const stalled: StalledCall = { closed: false };
-      const signals: (AbortSignal | undefined)[] = [];
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
-          scriptedUsage(1, 1),
-        ),
-        stallingTurn(['Showing '], stalled),
-      ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        tools: [orderTool().tool],
-        planner: (input, ctx) => {
-          signals.push(ctx.signal);
-          return neverSettlingPlanner(input, ctx);
-        },
-      });
-
-      const sent = session.send(
-        utterance('input-1', 'show my last order', calendarChart()),
-      );
-      await waitUntil(
-        () => signals.length === 1 && model.requests.length === 2,
-      );
-      const runId = runIdOf(session.received, 'input-1');
-      expect(signals[0]?.aborted).toBe(false);
-      session.internals().queue.cancelRun(runId);
-      await sent;
-      await settle();
-
-      expect(signals[0]?.aborted).toBe(true);
-      expect(
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(
-        `[screen ${runId}:t1] Screen change cancelled: latest_order result.`,
-      );
-      expect(session.received.map(typeOf)).not.toContain('ui_change');
-      expect(session.received.map(typeOf)).not.toContain('error');
     });
   });
 
@@ -1769,9 +1921,7 @@ describe('agent route through the Engine handle', () => {
       expect(secondPrompt).toContain(
         `[tool result ${firstRun}:c1] ok: Order o-1 for 42`,
       );
-      expect(secondPrompt).toContain(
-        `[screen ${firstRun}:t1] Screen change queued: latest_order result.`,
-      );
+      expect(secondPrompt).not.toContain('[screen ');
       expect(secondPrompt).not.toContain('squeaky bone');
       expect(
         session
@@ -2447,46 +2597,48 @@ const clarifyingWithPartialChangesPlanner: ClarifyingPlanner = () =>
     }),
   );
 
-function plannersInOrder(
-  planners: readonly ClarifyingPlanner[],
-): ClarifyingPlanner {
-  let call = 0;
-  return (input, ctx) => {
-    const planner = planners[call];
-    call += 1;
-    if (planner === undefined)
-      throw new Error(`only ${planners.length} planner calls scripted`);
-    return planner(input, ctx);
-  };
-}
+const clarifyingWithVerdictsPlanner: ClarifyingPlanner = () =>
+  Promise.resolve(
+    ok({
+      type: 'needs_clarification',
+      question: 'Which toy do you mean?',
+      options: ['The squeaky bone'],
+      executionPlan: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ],
+      reasons: [
+        { id: 'r1', status: 'planned' },
+        {
+          id: 'r2',
+          status: 'needs_clarification',
+          question: 'Which toy do you mean?',
+          options: ['The squeaky bone'],
+        },
+      ],
+    }),
+  );
 
-function heldUntil(
-  release: Promise<void>,
-  planner: ClarifyingPlanner,
-): ClarifyingPlanner {
-  return async (input, ctx) => {
-    await release;
-    return planner(input, ctx);
-  };
-}
-
-function twoScreenChangeTurns() {
-  return scriptedTextAdapter([
-    scriptedToolTurn(
-      [{ id: 'c1', name: 'latest_order', args: {} }],
-      scriptedUsage(1, 1),
-    ),
-    scriptedToolTurn(
-      [{ id: 'c2', name: 'latest_order', args: {} }],
-      scriptedUsage(1, 1),
-    ),
-    scriptedTextTurn(['Both shown.'], scriptedUsage(1, 1)),
-  ]);
-}
-
-function directScreenChangeInput(signal = new AbortController().signal) {
+function directScreenChangeInput(
+  signal = new AbortController().signal,
+  reasonIds: readonly string[] = [],
+) {
+  const chart = calendarChart();
   return {
-    request: { ...calendarChart(), skipReply: true },
+    request: {
+      ...chart,
+      skipReply: true,
+      context: {
+        ...chart.context,
+        updateReasons: reasonIds.map((id) => ({
+          type: 'user_intent' as const,
+          id,
+          intent: `goal ${id}`,
+        })),
+      },
+    },
     messageId: MessageId('direct-screen-change'),
     owner: {
       runId: RunId('direct-run'),
@@ -2667,4 +2819,72 @@ function serializeLoosely(value: unknown): string {
 
 function occurrencesIn(value: unknown, needle: string): number {
   return serializeLoosely(value).split(needle).length - 1;
+}
+
+function toolResultOf(messages: unknown, providerCallId: string): unknown {
+  if (!Array.isArray(messages)) throw new Error('no model messages');
+  for (const message of messages as unknown[]) {
+    if (
+      typeof message === 'object' &&
+      message !== null &&
+      'role' in message &&
+      message.role === 'tool' &&
+      'toolCallId' in message &&
+      message.toolCallId === providerCallId &&
+      'content' in message
+    ) {
+      return typeof message.content === 'string'
+        ? (JSON.parse(message.content) as unknown)
+        : message.content;
+    }
+  }
+  throw new Error(`no tool result for ${providerCallId}`);
+}
+
+function toolResultEventOf(events: readonly AgentEvent[], callId: string) {
+  const result = events.find(
+    (event) => event.type === 'tool_result' && event.callId === callId,
+  );
+  if (result === undefined) throw new Error(`no tool_result for ${callId}`);
+  return result;
+}
+
+function stringValuesIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value !== 'object' || value === null) return [];
+  return [
+    ...Object.keys(value),
+    ...Object.values(value).flatMap(stringValuesIn),
+  ];
+}
+
+function expectFailedScreenChange(
+  events: readonly AgentEvent[],
+  runId: RunId,
+  code: string,
+) {
+  const errors = events.filter((event) => event.type === 'error');
+  expect(errors).toEqual([
+    {
+      type: 'error',
+      version: AGENT_WIRE_VERSION,
+      changeId: expect.any(String),
+      runId,
+      code,
+      error: 'The screen could not be updated.',
+    },
+  ]);
+  expect(AgentEventSchema.safeParse(errors[0]).success).toBe(true);
+  expect(indexOf(events, 'error', runId)).toBeLessThan(
+    indexOf(events, 'finished', runId),
+  );
+  expect(lastFinishedOf(events, runId)).toMatchObject({
+    reason: 'completed',
+    ok: true,
+  });
+  expect(events.map(typeOf)).not.toContain('ui_change');
+}
+
+function jsonEscaped(text: string): string {
+  return JSON.stringify(text).slice(1, -1);
 }

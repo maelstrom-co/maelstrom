@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 
+import { RESERVED_TOOL_NAMES } from './built-in-tools.js';
 import {
   TOOL_APPROVALS,
   TOOL_LOCI,
@@ -58,8 +59,9 @@ export interface ToolRegistry {
 
 /**
  * Builds a registry from tool declarations.
- * @throws When a name is not a string, is duplicated or does not match
- * `^[A-Za-z0-9_-]{1,64}$`, when `summarize` or `execute` is not a function,
+ * @throws When a name is not a string, is duplicated, does not match
+ * `^[A-Za-z0-9_-]{1,64}$` or is reserved for a built-in tool
+ * (`change_screen`, `describe_capabilities`), when `summarize` or `execute` is not a function,
  * when `input` or `output` is not a schema with a `safeParseAsync` function,
  * or when `locus`, `sideEffect` or `approval` (after defaults) is not an
  * allowed value.
@@ -77,6 +79,11 @@ export function createToolRegistry(
     if (!TOOL_NAME_PATTERN.test(tool.name)) {
       throw new Error(
         `Invalid server tool name ${JSON.stringify(tool.name)}: must match ${TOOL_NAME_PATTERN.source}`,
+      );
+    }
+    if (RESERVED_TOOL_NAMES.includes(tool.name)) {
+      throw new Error(
+        `Server tool name "${tool.name}" is reserved for a built-in tool`,
       );
     }
     if (byName.has(tool.name)) {

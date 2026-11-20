@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { defer } from '../__test-helpers__/defer.js';
 import { makeTilingRequest } from '../__test-helpers__/fixtures.js';
 import type { Logger } from '../logger.js';
+import { changeScreenCall } from './__test-helpers__/agent-session-harness.js';
 import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import {
   scriptedFailingTurn,
@@ -38,12 +39,14 @@ import {
 import {
   type AgentRunBudgets,
   type AgentRunEvent,
+  type AgentRunFinished,
   BUDGET_CLOSING_MESSAGE,
   DEFAULT_AGENT_RUN_BUDGETS,
   runAgent,
 } from './agent-run.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import { createScreenChangeQueue } from './screen-change-queue.js';
+import type { ScreenChangeResult } from './screen-change-result.js';
 import { serverTool, ToolError } from './server-tool.js';
 import type { SessionPlanInput, SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
@@ -778,7 +781,7 @@ describe('agent run queue', () => {
     },
   );
 
-  test('a run out of turns sends the closing message, finishes as budget and screenChanges both to the next run', async () => {
+  test('a run out of turns sends the closing message, finishes as budget and passes both to the next run', async () => {
     const order = orderTool();
     const model = scriptedTextAdapter([
       scriptedToolTurn(
@@ -1089,7 +1092,7 @@ describe('agent run queue', () => {
   });
 
   describe('Screen Changes', () => {
-    test('a tool phase with a successful result records the queued note and requests one Screen Change for the utterance', async () => {
+    test('a tool phase with a successful Server Tool requests no Screen Change and writes no note', async () => {
       const order = orderTool();
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -1104,23 +1107,11 @@ describe('agent run queue', () => {
       });
 
       await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      await flushMacrotasks();
 
-      const runId = runIdOf(session.received, 'input-1');
-      expect(session.screenChangePlans).toHaveLength(1);
-      const [plan] = session.screenChangePlans;
-      expect(plan?.owner).toEqual({
-        runId,
-        inputId: MessageId('input-1'),
-        turnId: `${runId}:t1`,
-      });
-      expect(plan?.request.skipReply).toBe(true);
-      expect(plan?.request).not.toHaveProperty('intentFacts');
-      expect(plan?.request.context.updateReasons).toEqual([
-        { type: 'user_intent', intent: 'show my last order' },
-      ]);
-      expect(renderedTranscript(session.transcript)).toContain(
-        `[screen ${runId}:t1] Screen change queued: latest_order result.`,
-      );
+      expect(order.contexts).toHaveLength(1);
+      expect(session.screenChangePlans).toHaveLength(0);
+      expect(renderedTranscript(session.transcript)).not.toContain('[screen ');
     });
 
     test('a tool phase whose only result failed requests no Screen Change and writes no note', async () => {
@@ -1146,24 +1137,25 @@ describe('agent run queue', () => {
       expect(renderedTranscript(session.transcript)).not.toContain('[screen ');
     });
 
-    test('an acknowledgement reaches the Screen Change queue, which writes the screen note or refuses an unknown change', async () => {
+    test('a change_screen call plans its goal for the run, and the acknowledgement settles it live with no screen note while a repeated one is refused', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('c1', 'Show order o-1')],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Done.'], scriptedUsage(1, 1)),
       ]);
       const session = createSession({
         model: model.adapter,
-        tools: [orderTool().tool],
         planner: (input) =>
           Promise.resolve(
             ok({ type: 'response', response: screenChangeResponse(input, 1) }),
           ),
       });
 
-      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const run = session.queue.enqueue(
+        utterance('input-1', 'show my last order'),
+      );
       await waitUntil(() =>
         session.received.some((event) => event.type === 'ui_change'),
       );
@@ -1173,11 +1165,31 @@ describe('agent run queue', () => {
       if (change?.type !== 'ui_change') throw new Error('no ui_change');
       const runId = runIdOf(session.received, 'input-1');
       expect(change.runId).toBe(runId);
+      const [plan] = session.screenChangePlans;
+      expect(plan?.owner).toEqual({
+        runId,
+        inputId: MessageId('input-1'),
+        turnId: `${runId}:t1`,
+      });
+      expect(plan?.request.skipReply).toBe(true);
+      expect(plan?.request.context.updateReasons).toEqual([
+        { type: 'user_intent', id: 'r1', intent: 'Show order o-1' },
+      ]);
+      expect(session.received.some((event) => event.type === 'finished')).toBe(
+        false,
+      );
 
       session.queue.acknowledge(applied(change.changeId, 1));
-      expect(renderedTranscript(session.transcript)).toContain(
-        `[screen ${runId}:t1] Screen updated: ran addEvent on calendar`,
-      );
+      await run;
+
+      expect(
+        session.received.find((event) => event.type === 'tool_result'),
+      ).toMatchObject({ ok: true, summary: 'applied: "Show order o-1"' });
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+        reply: 'Done.',
+      });
+      expect(renderedTranscript(session.transcript)).not.toContain('[screen ');
 
       const before = session.received.length;
       session.queue.acknowledge(applied(change.changeId, 1));
@@ -1192,29 +1204,46 @@ describe('agent run queue', () => {
       ]);
     });
 
-    test('the run finishes while its Screen Change is still planning', async () => {
+    test("a new run's first model turn does not wait for an earlier run's pending Screen Change", async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('c1', 'Show order o-1')],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Hello again.'], scriptedUsage(1, 1)),
       ]);
       const session = createSession({
         model: model.adapter,
-        tools: [orderTool().tool],
-        planner: () => new Promise(() => {}),
+        planner: (input) =>
+          Promise.resolve(
+            ok({ type: 'response', response: screenChangeResponse(input, 1) }),
+          ),
       });
 
-      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const first = session.queue.enqueue(
+        utterance('input-1', 'show my last order'),
+      );
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
+      const second = session.queue.enqueue(utterance('input-2', 'hi'));
+      session.queue.cancelRun(runIdOf(session.received, 'input-1'));
+      await first;
+      await second;
 
-      expect(session.screenChangePlans).toHaveLength(1);
+      const secondRun = runIdOf(session.received, 'input-2');
       expect(model.requests).toHaveLength(2);
-      expect(lastFinished(session.received)).toMatchObject({
+      expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
         reason: 'completed',
-        reply: 'It was o-1.',
+        reply: 'Hello again.',
       });
-      expect(session.queue.pendingRuns()).toBe(0);
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
+      const before = session.received.length;
+      session.queue.acknowledge(applied(change.changeId, 1));
+      expect(session.received.slice(before)).toEqual([]);
     });
 
     test('closing the queue aborts the Screen Change in flight and emits no later change', async () => {
@@ -1222,23 +1251,25 @@ describe('agent run queue', () => {
       const outcome = defer<MaelstromResponse>();
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('c1', 'Show order o-1')],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
+        scriptedTextTurn(['Done.'], scriptedUsage(1, 1)),
       ]);
       const session = createSession({
         model: model.adapter,
-        tools: [orderTool().tool],
         planner: async () => {
           planned.resolve();
           return ok({ type: 'response', response: await outcome.promise });
         },
       });
 
-      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const run = session.queue.enqueue(
+        utterance('input-1', 'show my last order'),
+      );
       await planned.promise;
       session.queue.close();
+      await run;
       const [plan] = session.screenChangePlans;
       if (plan === undefined) throw new Error('no Screen Change planned');
       expect(plan.signal.aborted).toBe(true);
@@ -1250,13 +1281,12 @@ describe('agent run queue', () => {
       );
     });
 
-    test('a screen note recorded before a run renders its prior messages stays there alone, and one recorded after is taken once', async () => {
+    test('a late outcome of a cancelled run is a session note for the run in progress, taken once, and part of the prior messages of a later run', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('c1', 'Show order o-1')],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
       ]);
       const parked: {
         input: Parameters<AgentRunStarter>[0];
@@ -1271,7 +1301,6 @@ describe('agent run queue', () => {
       };
       const session = createSession({
         model: model.adapter,
-        tools: [orderTool().tool],
         startRun,
         planner: (input) =>
           Promise.resolve(
@@ -1279,17 +1308,19 @@ describe('agent run queue', () => {
           ),
       });
 
-      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const first = session.queue.enqueue(
+        utterance('input-1', 'show my last order'),
+      );
       await waitUntil(() =>
         session.received.some((event) => event.type === 'ui_change'),
       );
+      const firstRun = runIdOf(session.received, 'input-1');
       const second = session.queue.enqueue(utterance('input-2', 'and now?'));
+      session.queue.cancelRun(firstRun);
+      await first;
       await waitUntil(() => parked.length === 1);
       const [run] = parked;
       if (run === undefined) throw new Error('second run never started');
-      const firstRun = runIdOf(session.received, 'input-1');
-      const queuedNote = `[screen ${firstRun}:t1] Screen change queued: latest_order result.`;
-      expect(serializeLoosely(run.input.priorMessages)).toContain(queuedNote);
       expect(run.options.takeSessionNotes?.()).toEqual([]);
 
       const change = session.received.find(
@@ -1298,41 +1329,41 @@ describe('agent run queue', () => {
       if (change?.type !== 'ui_change') throw new Error('no ui_change');
       session.queue.acknowledge(applied(change.changeId, 1));
 
-      expect(run.options.takeSessionNotes?.()).toEqual([
-        expect.stringMatching(
-          new RegExp(`^\\[screen ${firstRun}:t1\\] Screen updated: `),
-        ),
-      ]);
+      const lateNote = `[screen ${firstRun}:t1] Screen change settled after the run stopped waiting: applied: "Show order o-1"`;
+      expect(run.options.takeSessionNotes?.()).toEqual([lateNote]);
       expect(run.options.takeSessionNotes?.()).toEqual([]);
       expect(serializeLoosely(run.input.priorMessages)).not.toContain(
-        'Screen updated:',
+        'Screen change settled',
       );
       session.queue.cancelRun(runIdOf(session.received, 'input-2'));
       await second;
+
+      const third = session.queue.enqueue(utterance('input-3', 'again'));
+      await waitUntil(() => parked.length === 2);
+      expect(serializeLoosely(parked[1]?.input.priorMessages)).toContain(
+        JSON.stringify(lateNote).slice(1, -1),
+      );
+      session.queue.cancelRun(runIdOf(session.received, 'input-3'));
+      await third;
     });
 
-    test('cancelling the active run drops its queued Screen Changes with cancelled notes and keeps its sent change awaiting acknowledgement', async () => {
+    test('cancelling the active run answers its queued Screen Changes cancelled with no note and keeps its sent change awaiting acknowledgement', async () => {
+      const answers: Promise<ScreenChangeResult>[] = [];
       const startRun: AgentRunStarter = (input, { signal }) =>
         (async function* (): AsyncGenerator<AgentRunEvent> {
-          for (const turn of [1, 2, 3]) {
-            yield {
-              type: 'tool_phase_ended',
-              turnId: `${input.runId}:t${turn}`,
-              results: [
+          for (const turn of [1, 2, 3])
+            answers.push(
+              ...input.screenChanges.request(`${input.runId}:t${turn}`, [
                 {
-                  callId: CallId(`c${turn}`),
-                  name: 'latest_order',
-                  ok: true,
-                  summary: 'Order o-1',
-                  value: LATEST_ORDER,
+                  callId: `c${turn}`,
+                  reasonId: 'r1',
+                  goal: `Show order o-${turn}`,
                 },
-              ],
-            };
-          }
+              ]),
+            );
           yield* untilAborted(signal);
         })();
       const session = createSession({
-        tools: [orderTool().tool],
         startRun,
         planner: (input) =>
           Promise.resolve(
@@ -1348,13 +1379,11 @@ describe('agent run queue', () => {
       session.queue.cancelRun(runId);
       await run;
 
-      const transcript = renderedTranscript(session.transcript);
-      expect(transcript).toContain(
-        `[screen ${runId}:t2] Screen change cancelled: latest_order result.`,
-      );
-      expect(transcript).toContain(
-        `[screen ${runId}:t3] Screen change cancelled: latest_order result.`,
-      );
+      expect(await Promise.all(answers.slice(1))).toEqual([
+        { status: 'cancelled', summary: 'cancelled: "Show order o-2"' },
+        { status: 'cancelled', summary: 'cancelled: "Show order o-3"' },
+      ]);
+      expect(renderedTranscript(session.transcript)).not.toContain('[screen ');
       expect(session.screenChangePlans).toHaveLength(1);
 
       const change = session.received.find(
@@ -1365,19 +1394,134 @@ describe('agent run queue', () => {
       session.queue.acknowledge(applied(change.changeId, 1));
 
       expect(session.received.slice(before)).toEqual([]);
-      expect(renderedTranscript(session.transcript)).toContain(
-        `[screen ${runId}:t1] Screen updated: `,
+      expect((await answers[0])?.status).toBe('applied');
+      expect(
+        session.transcript
+          .renderPriorMessages()
+          .map((message) => message.content),
+      ).toContain(
+        `[screen ${runId}:t1] Screen change settled after the run stopped waiting: applied: "Show order o-1"`,
       );
       expect(session.screenChangePlans).toHaveLength(1);
     });
 
-    test('a cancelled note for an evicted run that overflows the transcript bound never evicts the newest run', async () => {
+    test.each([
+      {
+        reason: 'budget',
+        finished: {
+          type: 'finished',
+          reason: 'budget',
+          reply: BUDGET_CLOSING_MESSAGE,
+          limit: 'turns',
+          metrics: ZERO_METRICS,
+          unreportedUsageCalls: 0,
+        },
+      },
+      {
+        reason: 'error',
+        finished: {
+          type: 'finished',
+          reason: 'error',
+          code: 'provider_error',
+          error: 'The model failed.',
+          metrics: ZERO_METRICS,
+          unreportedUsageCalls: 0,
+        },
+      },
+    ] satisfies { reason: string; finished: AgentRunFinished }[])(
+      'a run finishing with reason $reason drops its Screen Change in planning, answering cancelled',
+      async ({ finished }) => {
+        const answers: Promise<ScreenChangeResult>[] = [];
+        const startRun: AgentRunStarter = (input) =>
+          (async function* (): AsyncGenerator<AgentRunEvent> {
+            answers.push(
+              ...input.screenChanges.request(`${input.runId}:t1`, [
+                { callId: 'c1', reasonId: 'r1', goal: 'Show order o-1' },
+              ]),
+            );
+            yield finished;
+          })();
+        const session = createSession({
+          startRun,
+          planner: () => new Promise(() => {}),
+        });
+
+        await session.queue.enqueue(utterance('input-1', 'show it'));
+
+        expect(session.screenChangePlans).toHaveLength(1);
+        expect(session.screenChangePlans[0]?.signal.aborted).toBe(true);
+        expect(await Promise.all(answers)).toEqual([
+          { status: 'cancelled', summary: 'cancelled: "Show order o-1"' },
+        ]);
+        expect(session.observedKinds()).toContain(
+          'engine.agent.screen_change.cancelled',
+        );
+      },
+    );
+
+    test('a completed run leaves its Screen Change in planning', async () => {
+      const answers: Promise<ScreenChangeResult>[] = [];
+      const startRun: AgentRunStarter = (input) =>
+        (async function* (): AsyncGenerator<AgentRunEvent> {
+          answers.push(
+            ...input.screenChanges.request(`${input.runId}:t1`, [
+              { callId: 'c1', reasonId: 'r1', goal: 'Show order o-1' },
+            ]),
+          );
+          yield {
+            type: 'finished',
+            reason: 'completed',
+            metrics: ZERO_METRICS,
+            unreportedUsageCalls: 0,
+          };
+        })();
+      const session = createSession({
+        startRun,
+        planner: () => new Promise(() => {}),
+      });
+
+      await session.queue.enqueue(utterance('input-1', 'show it'));
+      await flushMacrotasks();
+
+      expect(session.screenChangePlans[0]?.signal.aborted).toBe(false);
+      expect(session.observedKinds()).not.toContain(
+        'engine.agent.screen_change.cancelled',
+      );
+      expect(answers).toHaveLength(1);
+    });
+
+    test('a batch fill timeout from a run is observed with its turn and counts', async () => {
+      const startRun: AgentRunStarter = (input) =>
+        (async function* (): AsyncGenerator<AgentRunEvent> {
+          input.screenChanges.noteBatchFillTimeout(`${input.runId}:t1`, {
+            admitted: 2,
+            registered: 1,
+          });
+          yield {
+            type: 'finished',
+            reason: 'completed',
+            metrics: ZERO_METRICS,
+            unreportedUsageCalls: 0,
+          };
+        })();
+      const session = createSession({ startRun });
+
+      await session.queue.enqueue(utterance('input-1', 'show it'));
+
+      const runId = runIdOf(session.received, 'input-1');
+      expect(
+        session.observedMetadataOf(
+          'engine.agent.screen_change.batch_fill_timeout',
+        ),
+      ).toEqual([{ turnId: `${runId}:t1`, admitted: 2, registered: 1 }]);
+    });
+
+    test('a late note for an evicted run that overflows the transcript bound never evicts the newest run', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
-          [{ id: 'c1', name: 'latest_order', args: {} }],
+          [changeScreenCall('c1', 'Show order o-1')],
           scriptedUsage(1, 1),
         ),
-        scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
       ]);
       const parked: Parameters<AgentRunStarter>[0][] = [];
       let starts = 0;
@@ -1390,21 +1534,34 @@ describe('agent run queue', () => {
       const transcript = createTranscript({ maxChars: 230 });
       const session = createSession({
         model: model.adapter,
-        tools: [orderTool().tool],
         startRun,
         transcript,
-        planner: () => new Promise(() => {}),
+        planner: (input) =>
+          Promise.resolve(
+            ok({ type: 'response', response: screenChangeResponse(input, 1) }),
+          ),
       });
 
-      await session.queue.enqueue(utterance('input-1', 'show my last order'));
+      const first = session.queue.enqueue(
+        utterance('input-1', 'show my last order'),
+      );
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'ui_change'),
+      );
       const firstRun = runIdOf(session.received, 'input-1');
+      session.queue.cancelRun(firstRun);
+      await first;
       const second = session.queue.enqueue(
         utterance('input-2', 'x'.repeat(200)),
       );
       await waitUntil(() => parked.length === 1);
       expect(renderedTranscript(transcript)).not.toContain(firstRun);
+      const change = session.received.find(
+        (event) => event.type === 'ui_change',
+      );
+      if (change?.type !== 'ui_change') throw new Error('no ui_change');
 
-      session.queue.cancelRun(firstRun);
+      session.queue.acknowledge(applied(change.changeId, 1));
 
       expect(transcript.renderPriorMessages()).toEqual([
         { role: 'user', content: 'x'.repeat(200) },
@@ -1507,7 +1664,6 @@ function createSession(overrides: SessionOverrides = {}) {
     clock: time.clock.now,
     scheduleTimeout: time.clock.scheduleTimeout,
     screenChanges,
-    screenChangesSettleTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
     transcript,
     toolResults,
     ...(overrides.startRun === undefined
@@ -1523,6 +1679,10 @@ function createSession(overrides: SessionOverrides = {}) {
     user,
     screenChangePlans,
     observedKinds: () => observed.map((entry) => entry.kind),
+    observedMetadataOf: (kind: string) =>
+      observed
+        .filter((entry) => entry.kind === kind)
+        .map((entry) => entry.metadata),
     finishedMetadata: () =>
       observed
         .filter((entry) => entry.kind === 'engine.agent.run.finished')

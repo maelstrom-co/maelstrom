@@ -36,6 +36,7 @@ import {
   calendarChart,
   capturingAgentRunQueueModule,
   capturingScreenChangeQueueModule,
+  changeScreenCall,
   LATEST_ORDER,
   openAgentSession,
   orderTool,
@@ -353,10 +354,13 @@ describe('run.finished durationMs', () => {
 });
 
 describe('agent run diagnostics', () => {
-  test('a two-turn run with a Screen Change reports its run, turns and tool call, and its Planner events carry the run owner and the turn id', async () => {
+  test('a two-turn run with a Screen Change reports its run, turns and tool calls, and its Planner events carry the run owner and the turn id', async () => {
     const model = scriptedTextAdapter([
       scriptedToolTurn(
-        [{ id: 'provider-call-1', name: 'latest_order', args: {} }],
+        [
+          { id: 'provider-call-1', name: 'latest_order', args: {} },
+          changeScreenCall('provider-call-2', 'Show order o-1'),
+        ],
         scriptedUsage(3, 2),
       ),
       scriptedTextTurn(['It was o-1.'], scriptedUsage(5, 4)),
@@ -367,13 +371,17 @@ describe('agent run diagnostics', () => {
       planner: pipeline(named('arrange', addEventPlanner)),
     });
 
-    await session.send(
+    const sent = session.send(
       utterance('input-1', 'show me my last order', calendarChart()),
     );
     await waitUntil(() => uiChangesOf(session.received).length === 1);
     const [change] = uiChangesOf(session.received);
     if (change === undefined) throw new Error('no ui_change');
     await session.connection.send(acknowledgementOf(change, calendarChart()));
+    await sent;
+    await waitUntil(() =>
+      session.received.some((event) => event.type === 'finished'),
+    );
 
     const runId = runIdOf(session.received, 'input-1');
     const firstTurn = `${runId}:t1`;
@@ -401,6 +409,15 @@ describe('agent run diagnostics', () => {
         {
           inputId: 'input-1',
           turnId: firstTurn,
+          callId: 'c2',
+          toolName: 'change_screen',
+        },
+      ],
+      [
+        'engine.agent.tool.started',
+        {
+          inputId: 'input-1',
+          turnId: firstTurn,
           callId: 'c1',
           toolName: 'latest_order',
         },
@@ -417,13 +434,24 @@ describe('agent run diagnostics', () => {
         },
       ],
       [
+        'engine.agent.tool.completed',
+        {
+          inputId: 'input-1',
+          turnId: firstTurn,
+          callId: 'c2',
+          toolName: 'change_screen',
+          outcome: 'succeeded',
+          durationMs: 0,
+        },
+      ],
+      [
         'engine.agent.turn.finished',
         {
           inputId: 'input-1',
           turnId: firstTurn,
           turnIndex: 1,
-          toolCallsRequested: 1,
-          toolCallsAdmitted: 1,
+          toolCallsRequested: 2,
+          toolCallsAdmitted: 2,
           inputTokens: 3,
           outputTokens: 2,
         },
@@ -449,8 +477,8 @@ describe('agent run diagnostics', () => {
         expect.objectContaining({
           reason: 'completed',
           turns: 2,
-          toolCallsRequested: 1,
-          toolCallsAdmitted: 1,
+          toolCallsRequested: 2,
+          toolCallsAdmitted: 2,
           inputTokens: 8,
           outputTokens: 6,
         }),
@@ -474,6 +502,36 @@ describe('agent run diagnostics', () => {
       expect(event.metadata.turnId).toBe(firstTurn);
     expect(kinds.indexOf('engine.planner.started')).toBeGreaterThan(
       kinds.indexOf('engine.agent.tool.completed'),
+    );
+    expect(
+      session.diagnostics
+        .filter((event) => event.kind.startsWith('engine.agent.screen_change.'))
+        .map((event) => [event.kind, event.metadata]),
+    ).toEqual([
+      [
+        'engine.agent.screen_change.requested',
+        {
+          inputId: 'input-1',
+          turnId: firstTurn,
+          goals: 1,
+          reasonIds: 'r1',
+          callIds: 'c2',
+        },
+      ],
+      [
+        'engine.agent.screen_change.settled',
+        {
+          inputId: 'input-1',
+          turnId: firstTurn,
+          callId: 'c2',
+          reasonId: 'r1',
+          status: 'applied',
+          changeId: change.changeId,
+        },
+      ],
+    ]);
+    expect(kinds.indexOf('engine.agent.screen_change.requested')).toBeLessThan(
+      kinds.indexOf('engine.planner.started'),
     );
     const emitted = session.diagnostics.find(
       (event) => event.kind === 'engine.agent.ui_change.emitted',
@@ -764,6 +822,7 @@ describe('agent run diagnostics', () => {
             name: 'find_order',
             args: { orderNumber: ARGS_SENTINEL },
           },
+          changeScreenCall('provider-call-2', GOAL_SENTINEL),
         ],
         scriptedUsage(1, 1),
       ),
@@ -791,12 +850,17 @@ describe('agent run diagnostics', () => {
     await forwarders[0].handle(diagnosticsSubscription('agent-route'));
     await forwarders[1].handle(diagnosticsSubscription('agent-route', true));
 
-    await session.send(
+    const sent = session.send(
       utterance('input-1', UTTERANCE_SENTINEL, calendarChart()),
     );
     await waitUntil(() => uiChangesOf(session.received).length === 1);
     const [change] = uiChangesOf(session.received);
     if (change === undefined) throw new Error('no ui_change');
+    await session.connection.send(acknowledgementOf(change, calendarChart()));
+    await sent;
+    await waitUntil(() =>
+      session.received.some((event) => event.type === 'finished'),
+    );
 
     expect(structural.length).toBeGreaterThan(0);
     for (const frame of structural) {
@@ -806,33 +870,49 @@ describe('agent run diagnostics', () => {
         ARGS_SENTINEL,
         RESULT_SENTINEL,
         RATIONALE_SENTINEL,
+        GOAL_SENTINEL,
       ])
         expect(frame).not.toContain(sentinel);
     }
     expect(JSON.stringify(change.response)).toContain(RATIONALE_SENTINEL);
-    const contentOf = (kind: string, turnIndex?: number) =>
+    const contentOf = (
+      kind: string,
+      match: Readonly<Record<string, unknown>> = {},
+    ) =>
       withContent
         .map((frame) => (JSON.parse(frame) as { event: DiagnosticEvent }).event)
         .find(
           (event) =>
             event.kind === kind &&
-            (turnIndex === undefined || event.metadata.turnIndex === turnIndex),
+            Object.entries(match).every(
+              ([key, value]) => event.metadata[key] === value,
+            ),
         )?.content;
-    expect(contentOf('engine.agent.turn.finished', 1)).toEqual({ text: '' });
-    expect(contentOf('engine.agent.turn.finished', 2)).toEqual({
+    expect(contentOf('engine.agent.turn.finished', { turnIndex: 1 })).toEqual({
+      text: '',
+    });
+    expect(contentOf('engine.agent.turn.finished', { turnIndex: 2 })).toEqual({
       text: REPLY_SENTINEL,
     });
-    expect(contentOf('engine.agent.tool.started')).toEqual({
+    expect(
+      contentOf('engine.agent.tool.started', { toolName: 'find_order' }),
+    ).toEqual({
       args: { orderNumber: ARGS_SENTINEL },
     });
-    expect(contentOf('engine.agent.tool.completed')).toEqual({
+    expect(
+      contentOf('engine.agent.tool.completed', { toolName: 'find_order' }),
+    ).toEqual({
       result: {
         ok: true,
         summary: 'Found the order',
         value: { orderId: 'o-1', note: RESULT_SENTINEL },
       },
     });
-    expect(contentOf('engine.agent.ui_change.emitted')).toMatchObject({
+    expect(contentOf('engine.agent.screen_change.requested')).toEqual({
+      goals: [{ goal: GOAL_SENTINEL }],
+    });
+    expect(contentOf('engine.agent.ui_change.emitted')).toEqual({
+      goals: [GOAL_SENTINEL],
       response: change.response,
     });
     for (const forwarder of forwarders) forwarder.dispose();
@@ -1058,6 +1138,7 @@ const REPLY_SENTINEL = 'reply-sentinel-47';
 const ARGS_SENTINEL = 'args-sentinel-55';
 const RESULT_SENTINEL = 'result-sentinel-82';
 const RATIONALE_SENTINEL = 'rationale-sentinel-64';
+const GOAL_SENTINEL = 'goal-sentinel-23';
 const CAUSE_SENTINEL = 'cause-sentinel-19';
 
 const RUN_LIFECYCLE_KINDS = new Set([
