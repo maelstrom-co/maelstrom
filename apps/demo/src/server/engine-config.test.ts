@@ -36,7 +36,10 @@ describe('createDemoAgentConfig', () => {
     expect(config.model).toBe(adapter);
     expect(config.instructions).toMatch(/pet shop/);
     expect(config.instructions).toContain('change_screen');
-    expect(config.instructions).toMatch(/exact referents/);
+    expect(config.instructions).toMatch(
+      /goal that itself contains the exact values/,
+    );
+    expect(config.instructions).toMatch(/same values in referents/);
     expect(config.instructions).toMatch(/wait for its result/);
     expect(config.instructions).toMatch(/only when the result is applied/);
     expect(config.instructions).toMatch(
