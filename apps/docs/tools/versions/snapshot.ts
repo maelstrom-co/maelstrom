@@ -23,7 +23,7 @@ const docsRoot = join(import.meta.dir, '../../src/content/docs');
 const RELEASE =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
-const GENERATED_FOLDERS = new Set(['reference']);
+const REFERENCE_FOLDER = 'reference';
 
 /** Where a release's docs go: a version folder, or nowhere for a prerelease. */
 export type SnapshotTarget =
@@ -149,14 +149,20 @@ export type SnapshotResult =
       replaced: boolean;
       source: string;
       fixups: { slug: number; imports: number };
+      /**
+       * How the folder got its API reference: frozen from the source's
+       * generated pages, kept from the folder it replaced, or none.
+       */
+      reference: 'frozen' | 'kept' | 'none';
     };
 
 /**
  * Copy the dev docs into the folder for `release`, replacing that folder.
  * A patch release rewrites its minor (or major) folder, which leaves git
  * clean when the docs did not change. Frozen folders are refused unless
- * the content comes from a git ref. Generated API reference pages are left
- * out because they are rebuilt from source.
+ * the content comes from a git ref. The API reference that the docs build
+ * generated into `dev/reference/` is frozen with the copy. A source without
+ * one, such as a git ref, keeps the reference the folder already has.
  */
 export async function snapshotDocs(
   release: string,
@@ -185,13 +191,7 @@ export async function snapshotDocs(
           }
         : await extractRef(root, options.from, join(scratch, 'source'));
     const staging = join(scratch, 'staging');
-    await cp(source.dir, staging, {
-      recursive: true,
-      filter: (path) => {
-        const [first = ''] = relative(source.dir, path).split(sep);
-        return !GENERATED_FOLDERS.has(first);
-      },
-    });
+    await cp(source.dir, staging, { recursive: true });
     const { pages, ...fixups } = await fixupPages(staging, source.levels);
     if (pages === 0) {
       throw new Error(
@@ -200,6 +200,7 @@ export async function snapshotDocs(
     }
 
     const destination = join(root, target.folder);
+    const reference = await freezeReference(staging, destination);
     const replaced = existing.includes(target.folder);
     await rm(destination, { recursive: true, force: true });
     await cp(staging, destination, { recursive: true });
@@ -211,6 +212,7 @@ export async function snapshotDocs(
       replaced,
       source: source.label,
       fixups,
+      reference,
     };
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -243,6 +245,13 @@ if (import.meta.main) {
       );
       console.log(
         `Fixups: slug frontmatter removed in ${result.fixups.slug} files, imports deepened in ${result.fixups.imports} files.`,
+      );
+      console.log(
+        {
+          frozen: `API reference: frozen from the generated ${DEV_VERSION}/${REFERENCE_FOLDER}/.`,
+          kept: `API reference: kept the folder's existing ${REFERENCE_FOLDER}/.`,
+          none: `API reference: none. Build the docs so ${DEV_VERSION}/${REFERENCE_FOLDER}/ exists, then run this again.`,
+        }[result.reference],
       );
     }
   } catch (error) {
@@ -299,6 +308,40 @@ async function git(cwd: string, args: string[]): Promise<string> {
     );
   }
   return result.stdout.toString().trim();
+}
+
+// Generated pages link into dev; the frozen copy links unversioned so the
+// version serving it keeps readers inside that version.
+async function freezeReference(
+  staging: string,
+  destination: string,
+): Promise<'frozen' | 'kept' | 'none'> {
+  const staged = join(staging, REFERENCE_FOLDER);
+  if (await isDirectory(staged)) {
+    const devLink = new RegExp(
+      `(?<=[("'])/${DEV_VERSION}/${REFERENCE_FOLDER}/`,
+      'g',
+    );
+    for (const file of await readdir(staged, { recursive: true })) {
+      if (!/\.mdx?$/.test(file)) continue;
+      const path = join(staged, file);
+      const text = await readFile(path, 'utf8');
+      const unversioned = text.replace(devLink, `/${REFERENCE_FOLDER}/`);
+      if (unversioned !== text) await writeFile(path, unversioned);
+    }
+    return 'frozen';
+  }
+  const existing = join(destination, REFERENCE_FOLDER);
+  if (!(await isDirectory(existing))) return 'none';
+  await cp(existing, staged, { recursive: true });
+  return 'kept';
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  return stat(path).then(
+    (entry) => entry.isDirectory(),
+    () => false,
+  );
 }
 
 async function fixupPages(
