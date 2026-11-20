@@ -8,6 +8,8 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
 import { runAgentChat } from './agent-run-chat.js';
+import type { ScreenChangeBatchGoal } from './screen-change-batch.js';
+import type { ScreenChangeResult } from './screen-change-result.js';
 import type { ToolCallIdentity } from './server-tool-runner.js';
 import type { ToolCallFailureCode } from './tool-executor.js';
 import type { ToolRegistry } from './tool-registry.js';
@@ -95,6 +97,28 @@ export interface AgentRunInput {
   readonly clock: AgentRunClock;
   /** Receives diagnostics, such as a provider call that completed without reporting usage. */
   readonly logger: Logger;
+  /** Where the run's `change_screen` calls go, bound to this run. */
+  readonly screenChanges: AgentRunScreenChanges;
+}
+
+/** The session's Screen Changes as one Agent Run reaches them. */
+export interface AgentRunScreenChanges {
+  /**
+   * Plans one turn's `change_screen` goals as one Screen Change and returns
+   * one answer per goal, in order. An answer never rejects.
+   */
+  request(
+    turnId: string,
+    goals: readonly ScreenChangeBatchGoal[],
+  ): readonly Promise<ScreenChangeResult>[];
+  /**
+   * Reports that a turn's batch flushed on its fill timeout before every
+   * admitted `change_screen` call registered.
+   */
+  noteBatchFillTimeout(
+    turnId: string,
+    counts: { readonly admitted: number; readonly registered: number },
+  ): void;
 }
 
 /**

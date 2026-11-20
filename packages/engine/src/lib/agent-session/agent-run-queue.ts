@@ -37,8 +37,6 @@ import {
   type RunFailure,
 } from './run-events.js';
 import type { ScreenChangeQueue } from './screen-change-queue.js';
-import { collectScreenChangeTools } from './screen-change-request.js';
-import { describeScreenChangeQueued } from './screen-note.js';
 import type { ToolResultStore } from './tool-result-store.js';
 import { renderScreenNote, type Transcript } from './transcript.js';
 
@@ -65,15 +63,13 @@ export interface AgentRunQueueOptions {
   /** Schedules a callback and returns a function that cancels it. */
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
   /**
-   * The connection's Screen Changes. A tool phase with a successful
-   * result requests one, and the queue closes them when it closes.
+   * The connection's Screen Changes. Each run's `change_screen` calls go
+   * there, and the queue closes them when it closes.
    */
   readonly screenChanges: ScreenChangeQueue;
-  /** How long a new run's first model turn waits for earlier Screen Changes to settle. */
-  readonly screenChangesSettleTimeoutMs: number;
   /**
    * Session transcript later runs build on, the one the Screen Changes record their
-   * notes in. The queue hands every screen note recorded in it to the active
+   * late notes in. The queue hands every screen note recorded in it to the active
    * run.
    */
   readonly transcript: Transcript;
@@ -86,12 +82,12 @@ export interface AgentRunQueueOptions {
 /**
  * Serial Agent Runs of one connection, one at a time in arrival order. A run's
  * ending is emitted at once, but the next run starts only after every tool
- * call of the previous run that is not `read_only` has settled. A tool phase
- * with a successful result queues one Screen Change, which runs beside the
- * runs. Only a run's first model turn waits, until every earlier Screen Change has
- * settled or {@link AgentRunQueueOptions.screenChangesSettleTimeoutMs} has passed,
- * and that wait counts toward the run's `maxElapsedMs`. A screen note recorded
- * after a run rendered its prior messages reaches that run's next model turn.
+ * call of the previous run that is not `read_only` has settled. A run
+ * changes the screen only through its `change_screen` calls, whose turn
+ * waits for their results, and a new run never waits for an earlier run's
+ * Screen Change. A budget or error ending stops the run waiting like a
+ * cancel. A screen note recorded after a run rendered its prior messages
+ * reaches that run's next model turn.
  */
 export interface AgentRunQueue {
   /** Queued runs plus the active one. */
@@ -102,16 +98,17 @@ export interface AgentRunQueue {
    * Cancels a run. The active run is aborted, drained and finished as
    * `cancelled`, dropping anything else it produces afterwards. A queued run
    * finishes as `cancelled` without starting. The run's queued Screen Changes are
-   * dropped and its Screen Change in planning is aborted, each with a cancelled note,
-   * while its change already sent still awaits acknowledgement. A run that
-   * already finished still has its remaining Screen Changes dropped this way. A run
-   * that is neither active nor queued and has no Screen Changes is ignored.
+   * dropped and its Screen Change in planning is aborted, their goals answering
+   * `cancelled`, while its change already sent still awaits acknowledgement and
+   * settles as a Screen Note. A run that already finished still has its
+   * remaining Screen Changes dropped this way. A run that is neither active nor
+   * queued and has no Screen Changes is ignored.
    */
   cancelRun(runId: RunId): void;
   /**
-   * Settles the loop-driven change awaiting acknowledgement and records what
-   * the screen now shows as a note later runs read. An unknown `changeId` or
-   * a wrong outcome count is refused with an agent `error` event.
+   * Settles the `change_screen` change awaiting acknowledgement. An unknown
+   * `changeId` or a wrong outcome count is refused with an agent `error`
+   * event.
    */
   acknowledge(input: AgentUiAppliedInput): void;
   /** Aborts the active run, drops all queued runs and Screen Changes. Emits nothing further. */
@@ -128,7 +125,6 @@ export function createAgentRunQueue({
   clock,
   scheduleTimeout,
   screenChanges,
-  screenChangesSettleTimeoutMs,
   transcript,
   toolResults,
   startRun = runAgent,
@@ -252,6 +248,9 @@ export function createAgentRunQueue({
     if (finished.reason === 'budget') {
       transcript.recordClosingMessage(run.runId, finished.reply);
     }
+    if (finished.reason === 'budget' || finished.reason === 'error') {
+      screenChanges.dropRun(run.runId);
+    }
     transcript.recordEnding(run.runId, finished);
     const now = clock();
     const ending = buildRunEnding(
@@ -331,24 +330,9 @@ export function createAgentRunQueue({
           summary: event.summary,
         });
         return;
-      case 'tool_phase_ended': {
+      case 'tool_phase_ended':
         toolResults.recordToolPhase(runId, event);
-        const facts = collectScreenChangeTools(event);
-        if (facts === undefined) return;
-        transcript.recordScreenNote(
-          runId,
-          event.turnId,
-          describeScreenChangeQueued(facts.toolNames),
-        );
-        screenChanges.request({
-          runId,
-          inputId: run.input.inputId,
-          turnId: event.turnId,
-          intent: run.input.text,
-          ...facts,
-        });
         return;
-      }
       case 'finished':
         return;
     }
@@ -417,13 +401,26 @@ export function createAgentRunQueue({
         identity,
         clock: runClock,
         logger,
+        screenChanges: {
+          request: (turnId, goals) =>
+            screenChanges.request({
+              runId: run.runId,
+              inputId: run.input.inputId,
+              turnId,
+              goals,
+            }),
+          noteBatchFillTimeout: (turnId, counts) => {
+            observe(
+              run.runId,
+              run.input.inputId,
+              'engine.agent.screen_change.batch_fill_timeout',
+              { turnId, ...counts },
+            );
+          },
+        },
       },
       {
         signal: run.controller.signal,
-        gate: ({ turn }) =>
-          turn === 1
-            ? earlierScreenChangesSettled(run.controller.signal)
-            : undefined,
         takeSessionNotes: () => run.sessionNotes.splice(0),
         onActivity: (activity) => observeActivity(run, activity),
       },
@@ -457,17 +454,6 @@ export function createAgentRunQueue({
         ? cancelledRun(finished.metrics, finished.unreportedUsageCalls)
         : finished,
       finished.toolsSettled,
-    );
-  }
-
-  function earlierScreenChangesSettled(signal: AbortSignal): Promise<void> {
-    let cancelTimeout = () => {};
-    const timedOut = new Promise<void>((resolve) => {
-      cancelTimeout = scheduleTimeout(resolve, screenChangesSettleTimeoutMs);
-    });
-    signal.addEventListener('abort', () => cancelTimeout(), { once: true });
-    return Promise.race([screenChanges.whenIdle(), timedOut]).finally(
-      cancelTimeout,
     );
   }
 

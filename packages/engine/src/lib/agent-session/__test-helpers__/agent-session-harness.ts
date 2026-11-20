@@ -41,7 +41,10 @@ import {
   createFakeAgentRunTime,
   type FakeAgentRunTime,
 } from './fake-agent-run-time.js';
-import { scriptedTextAdapter } from './scripted-text-adapter.js';
+import {
+  type ScriptedToolCall,
+  scriptedTextAdapter,
+} from './scripted-text-adapter.js';
 
 /** A user value the host authenticates, which must never reach the model or the wire. */
 export const USER_SENTINEL = 'user-sentinel-7f3a';
@@ -236,6 +239,19 @@ export function orderTool(
     summarize: (output) => `Order ${output.orderId} for ${output.total}`,
   });
   return { tool, contexts, args };
+}
+
+/** A scripted `change_screen` call for `goal`, with `referents` when given. */
+export function changeScreenCall(
+  id: string,
+  goal: string,
+  referents?: Readonly<Record<string, unknown>>,
+): ScriptedToolCall {
+  return {
+    id,
+    name: 'change_screen',
+    args: referents === undefined ? { goal } : { goal, referents },
+  };
 }
 
 /** A typed utterance on a tiling Chart. */

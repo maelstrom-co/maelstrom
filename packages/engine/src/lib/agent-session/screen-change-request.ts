@@ -1,41 +1,32 @@
 import type { ChartRequest } from '@maelstrom-co/protocol';
 
-import type { AgentRunToolPhaseEndedEvent } from './agent-run.js';
-
-/** What one tool phase contributes to the Screen Change it asks for. */
-export interface ScreenChangeFacts {
-  /**
-   * Names of the tools whose calls succeeded, in call order, repeated when a
-   * tool ran more than once.
-   */
-  readonly toolNames: readonly string[];
-}
+import type { ScreenChangeBatchGoal } from './screen-change-batch.js';
 
 /**
- * Collects what a settled tool phase contributes to a Screen Change. Returns
- * `undefined` when no result succeeded, because only a phase with a
- * successful result asks for a Screen Change.
- */
-export function collectScreenChangeTools(
-  phase: AgentRunToolPhaseEndedEvent,
-): ScreenChangeFacts | undefined {
-  const toolNames = phase.results
-    .filter((result) => result.ok)
-    .map((result) => result.name);
-  return toolNames.length === 0 ? undefined : { toolNames };
-}
-
-/**
- * Builds the Planner request for one Screen Change from a Chart snapshot. Any
- * client-sent `skipReply` is replaced with `skipReply: true`, and
- * `updateReasons` is replaced with a single `user_intent` reason carrying
- * `intent`.
+ * Builds the Planner request for one batch of Screen Change goals from a
+ * Chart snapshot. Any client-sent `skipReply` is replaced with
+ * `skipReply: true`, and `updateReasons` is replaced with one `user_intent`
+ * reason per goal, in order, carrying its reason id, goal and referents.
+ * Tool call ids stay out of the request.
  */
 export function buildScreenChangeRequest(
   chart: ChartRequest,
-  intent: string,
+  goals: readonly ScreenChangeBatchGoal[],
 ): ChartRequest {
-  return { ...userIntentRequest(chart, intent), skipReply: true };
+  const { skipReply: _skipReply, ...snapshot } = chart;
+  return {
+    ...snapshot,
+    context: {
+      ...snapshot.context,
+      updateReasons: goals.map(({ reasonId, goal, referents }) => ({
+        type: 'user_intent' as const,
+        id: reasonId,
+        intent: goal,
+        ...(referents === undefined ? {} : { referents }),
+      })),
+    },
+    skipReply: true,
+  };
 }
 
 /**

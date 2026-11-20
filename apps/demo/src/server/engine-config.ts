@@ -40,10 +40,10 @@ const MAX_RETRIES = 2;
 const HISTORY_MAX_ENTRIES = 20;
 const DEMO_AGENT_INSTRUCTIONS = [
   'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.',
-  'Each successful tool result is offered to the screen automatically.',
-  'Describe the data in your reply. You may say you are bringing it up.',
-  'Notes in the conversation tell you what happened to each Screen Change, such as "Screen change queued" or "Screen updated".',
-  'Say something is on screen only after a "Screen updated" note says so.',
+  'To put something on screen, call change_screen with a plain goal and exact referents, for example the order id.',
+  'Always wait for its result before your reply.',
+  'Say something is on screen only when the result is applied.',
+  'When the result needs clarification, ask the user its question in plain text.',
 ].join(' ');
 
 export interface PlaygroundEngineOptions {

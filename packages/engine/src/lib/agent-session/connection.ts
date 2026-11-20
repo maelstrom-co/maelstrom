@@ -41,9 +41,9 @@ export interface OpenConnectionOptions {
    * greater than 2,147,483,647, or opening the connection throws. On the
    * UI-only route, when it elapses, the run finishes with code
    * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
-   * next utterance plans against its own Chart. A loop-driven change of an
-   * Agent Run waits as long, then the next queued Screen Change starts on the last
-   * acknowledged Chart while the runs carry on.
+   * next utterance plans against its own Chart. A `change_screen` change of
+   * an Agent Run waits as long, then its goals answer `unknown` and the next
+   * queued Screen Change starts on the last acknowledged Chart.
    */
   readonly acknowledgementTimeoutMs?: number;
 }
@@ -225,7 +225,6 @@ function createAgentRoute({
     clock,
     scheduleTimeout,
     screenChanges,
-    screenChangesSettleTimeoutMs: acknowledgementTimeoutMs,
     transcript,
     toolResults: createToolResultStore(),
   });

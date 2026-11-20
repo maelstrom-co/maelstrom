@@ -46,6 +46,21 @@ import {
   type AgentRunToolPhaseResult,
   BUDGET_CLOSING_MESSAGE,
 } from './agent-run.js';
+import { withBuiltInTools } from './built-in-tools.js';
+import {
+  CHANGE_SCREEN_TOOL_NAME,
+  type ChangeScreenInput,
+  changeScreenInputSchema,
+  changeScreenToolEntry,
+} from './change-screen-tool.js';
+import {
+  createScreenChangeBatch,
+  type ScreenChangeBatch,
+} from './screen-change-batch.js';
+import {
+  describeScreenChangeResult,
+  type ScreenChangeResult,
+} from './screen-change-result.js';
 import {
   createServerToolQueue,
   type ServerToolQueue,
@@ -256,20 +271,24 @@ function startChat(
     }),
     policy,
   );
+  const tools = withBuiltInTools(input.registry);
   const policyMiddleware = createAgentRunPolicyMiddleware(policy, {
-    registry: input.registry,
+    registry: tools,
     onToolCallRefused: (refusal) => {
       calls.settle(refusal.callId, refusal.result);
     },
   });
   const rawArgsByCall = new Map<string, unknown>();
+  const screenChanges: TurnScreenChanges = { batch: undefined };
   const runEventsMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-events',
     // After the policy middleware, whose gate wait can record more notes.
     onConfig: (ctx, config) => {
       if (ctx.phase !== 'beforeModel') return undefined;
-      if (policy.ending === undefined) calls.beginTurn(ctx.iteration + 1);
-      else calls.skipTurn(ctx.iteration + 1);
+      if (policy.ending === undefined) {
+        calls.beginTurn(ctx.iteration + 1);
+        screenChanges.batch = createTurnBatch(calls.turnId());
+      } else calls.skipTurn(ctx.iteration + 1);
       const notes = options.takeSessionNotes?.() ?? [];
       if (notes.length === 0) return undefined;
       return {
@@ -291,7 +310,9 @@ function startChat(
   const resultGuardMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-result-guard',
     onGuardToolCall: (_ctx, hookCtx) => {
-      if (input.registry.get(hookCtx.toolName) !== undefined)
+      if (hookCtx.toolName === CHANGE_SCREEN_TOOL_NAME)
+        screenChanges.batch?.admit(hookCtx.toolCallId);
+      else if (input.registry.get(hookCtx.toolName) !== undefined)
         serverTools.reserve(hookCtx.toolCallId);
       return undefined;
     },
@@ -312,19 +333,24 @@ function startChat(
       ...input.priorMessages,
       { role: 'user', content: input.utterance },
     ],
-    tools: input.registry
-      .entries()
-      .map((entry) =>
-        toChatTool(
-          entry,
-          input,
-          policy,
-          calls,
-          executions,
-          serverTools,
-          (callId) => rawArgsByCall.get(callId),
+    tools: [
+      ...input.registry
+        .entries()
+        .map((entry) =>
+          toChatTool(
+            entry,
+            input,
+            policy,
+            calls,
+            executions,
+            serverTools,
+            (callId) => rawArgsByCall.get(callId),
+          ),
         ),
+      changeScreenChatTool(policy, calls, executions, screenChanges, (callId) =>
+        rawArgsByCall.get(callId),
       ),
+    ],
     toolExecution: 'parallel',
     agentLoopStrategy: () => true,
     abortController: policy.abortController,
@@ -340,6 +366,33 @@ function startChat(
     ...(input.retry !== undefined && { retry: input.retry }),
   });
 
+  // The batch stops at the run's abort, before the Server Tool queue's
+  // abort releases its slots and could let the batch flush.
+  function createTurnBatch(turnId: string): ScreenChangeBatch {
+    const batch = createScreenChangeBatch({
+      submit: (goals) =>
+        input.screenChanges.request(
+          turnId,
+          goals.map((goal) => ({
+            ...goal,
+            callId: calls.callIdOf(goal.callId) ?? goal.callId,
+          })),
+        ),
+      whenServerToolsIdle: () => serverTools.whenIdle(),
+      scheduleTimeout: input.clock.scheduleTimeout,
+      onFillTimeout: (counts) => {
+        input.screenChanges.noteBatchFillTimeout(turnId, counts);
+      },
+    });
+    const signal = policy.abortController.signal;
+    if (signal.aborted) batch.cancelUnsent();
+    else
+      signal.addEventListener('abort', () => batch.cancelUnsent(), {
+        once: true,
+      });
+    return batch;
+  }
+
   // chat() would send its own validation message to the model, so invalid
   // arguments get the executor's sanitized failure instead.
   async function admitArgs(
@@ -347,7 +400,7 @@ function startChat(
     hookCtx: ToolCallHookContext,
     args: unknown,
   ): Promise<BeforeToolCallDecision> {
-    const entry = input.registry.get(hookCtx.toolName);
+    const entry = tools.get(hookCtx.toolName);
     if (entry === undefined) return undefined;
     rawArgsByCall.set(hookCtx.toolCallId, args);
     if (await acceptsInput(entry, args)) return undefined;
@@ -367,7 +420,7 @@ function startChat(
   async function guardResult(
     info: AfterToolCallInfo,
   ): Promise<AfterToolCallDecision> {
-    const entry = input.registry.get(info.toolName);
+    const entry = tools.get(info.toolName);
     if (entry === undefined) return undefined;
     if (!info.ok && info.result === undefined) return undefined;
     const own = calls.settledResult(info.toolCallId);
@@ -465,6 +518,84 @@ function toChatTool(
   }) as Tool;
 }
 
+/** The `change_screen` batch of the turn in progress. */
+interface TurnScreenChanges {
+  batch: ScreenChangeBatch | undefined;
+}
+
+const RUN_STOPPED_WAITING = Symbol('run stopped waiting');
+
+// change_screen skips the Server Tool queue and waits on its turn's batch.
+// The fence tracks the wait only until the run aborts, so it never holds the
+// next run for a browser acknowledgement.
+function changeScreenChatTool(
+  policy: AgentRunPolicy,
+  calls: RunActivityTracker,
+  executions: ToolExecutionFence,
+  screenChanges: TurnScreenChanges,
+  rawArgsOf: (callId: string) => unknown,
+): Tool {
+  return toolDefinition({
+    name: changeScreenToolEntry.tool.name,
+    description: changeScreenToolEntry.tool.description,
+    inputSchema: changeScreenInputSchema,
+  }).server(async (validatedArgs, context) => {
+    const { goal, referents } = validatedArgs as ChangeScreenInput;
+    const callId = context?.toolCallId;
+    const batch = screenChanges.batch;
+    let result: ScreenChangeResult;
+    if (callId === undefined || batch === undefined) {
+      result = {
+        status: 'cancelled',
+        summary: describeScreenChangeResult(goal, 'cancelled'),
+      };
+    } else {
+      calls.markStarted(callId, rawArgsOf(callId) ?? validatedArgs);
+      const answer = batch.register(callId, goal, referents);
+      const outcome = await executions.track(
+        changeScreenToolEntry,
+        Promise.race([
+          answer,
+          stoppedWaiting(context?.abortSignal ?? policy.abortController.signal),
+        ]),
+      );
+      if (outcome !== RUN_STOPPED_WAITING) result = outcome;
+      else if (!batch.isSent(callId)) {
+        batch.cancelUnsent();
+        result = await answer;
+      } else {
+        // The change may still reach the screen. Its outcome becomes a
+        // Screen Note once it settles.
+        result = {
+          status: 'unknown',
+          summary: describeScreenChangeResult(goal, 'unknown'),
+        };
+      }
+    }
+    const settled: ToolCallResult = {
+      ok: true,
+      value: result,
+      summary: result.summary,
+    };
+    if (callId !== undefined) calls.settle(callId, settled);
+    return toModelToolPayload(settled);
+  }) as Tool;
+}
+
+function stoppedWaiting(
+  signal: AbortSignal,
+): Promise<typeof RUN_STOPPED_WAITING> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(RUN_STOPPED_WAITING);
+      return;
+    }
+    signal.addEventListener('abort', () => resolve(RUN_STOPPED_WAITING), {
+      once: true,
+    });
+  });
+}
+
 interface StreamingToolCall {
   readonly name: string;
   readonly turnId: string;
@@ -547,6 +678,10 @@ function createRunActivityTracker(
       turn = index;
     },
     endTurn,
+    turnId,
+    callIdOf(providerCallId: string): CallId | undefined {
+      return callIdByProviderId.get(providerCallId);
+    },
     recordProviderCall(call: ProviderCallRecord) {
       if (openTurn === undefined) return;
       const { inputTokens, outputTokens } = call.usage ?? {};

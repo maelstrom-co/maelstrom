@@ -68,6 +68,15 @@ test('duplicate names are rejected', () => {
   );
 });
 
+test.each(['change_screen', 'describe_capabilities'])(
+  'a user tool named %p is rejected as reserved',
+  (name) => {
+    expect(() => createToolRegistry([{ ...echoTool, name }])).toThrow(
+      `Server tool name "${name}" is reserved for a built-in tool`,
+    );
+  },
+);
+
 test.each(['', 'has space', 'dot.name', 'a'.repeat(65)])(
   'invalid name %p is rejected',
   (name) => {

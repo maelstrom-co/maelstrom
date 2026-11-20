@@ -1,5 +1,7 @@
 import type {
   AgentAcceptedEvent,
+  AgentEvent,
+  AgentInput,
   AgentFinishedEvent,
   AgentUiAppliedInput,
   AgentUiChangeEvent,
@@ -16,6 +18,9 @@ import {
   collectWebSocketFrames,
   receivedAgentEvents,
   sentAgentInputs,
+  type Timed,
+  timedReceivedAgentEvents,
+  timedSentAgentInputs,
 } from './agent-frames';
 
 const UTTERANCE = 'show my last order';
@@ -59,17 +64,14 @@ test('typed "show my last order" runs the demo agent and opens the order', async
   const { runId } = accepted;
 
   await expect
-    .poll(
-      () =>
-        receivedAgentEvents(frames).some(
-          (event) =>
-            event.type === 'tool_call' &&
-            event.runId === runId &&
-            event.name === 'latest_order',
-        ),
-      { message: 'the agent calls the latest_order tool' },
-    )
-    .toBe(true);
+    .poll(() => changeScreenCallFor(frames, runId), {
+      message: 'the agent calls the change_screen tool',
+    })
+    .toBeDefined();
+  const changeScreenCall = found(
+    changeScreenCallFor(frames, runId),
+    'change_screen tool_call',
+  );
 
   await expect
     .poll(() => uiChangeFor(frames, runId), {
@@ -110,7 +112,76 @@ test('typed "show my last order" runs the demo agent and opens the order', async
   );
   expect(runErrors).toEqual([]);
   expect(finished).toMatchObject({ ok: true });
+
+  const toolCallAt = timeOf(
+    timedReceivedAgentEvents(frames),
+    (event) =>
+      event.type === 'tool_call' && event.callId === changeScreenCall.callId,
+  );
+  const uiChangeAt = timeOf(
+    timedReceivedAgentEvents(frames),
+    (event) => event.type === 'ui_change' && event.changeId === changeId,
+  );
+  const uiAppliedAt = timeOf(
+    timedSentAgentInputs(frames),
+    (input) => input.type === 'ui_applied' && input.changeId === changeId,
+  );
+  const toolResultAt = timeOf(
+    timedReceivedAgentEvents(frames),
+    (event) =>
+      event.type === 'tool_result' && event.callId === changeScreenCall.callId,
+  );
+  const finishedAt = timeOf(
+    timedReceivedAgentEvents(frames),
+    (event) => event.type === 'finished' && event.runId === runId,
+  );
+  const utteranceAt = timeOf(
+    timedSentAgentInputs(frames),
+    (input) => input.type === 'utterance' && input.inputId === inputId,
+  );
+  expect(uiChangeAt).toBeGreaterThanOrEqual(toolCallAt);
+  expect(uiAppliedAt).toBeGreaterThanOrEqual(uiChangeAt);
+  expect(finishedAt).toBeGreaterThanOrEqual(uiAppliedAt);
+  expect(eventIndexOf(frames, 'finished', runId)).toBeGreaterThan(
+    eventIndexOf(frames, 'ui_change', runId),
+  );
+  console.log(`utterance to finished: ${finishedAt - utteranceAt} ms`);
+  console.log(
+    `change_screen tool_call to tool_result: ${toolResultAt - toolCallAt} ms`,
+  );
 });
+
+function changeScreenCallFor(
+  frames: readonly CollectedFrame[],
+  runId: RunId | null,
+): Extract<AgentEvent, { type: 'tool_call' }> | undefined {
+  return receivedAgentEvents(frames).find(
+    (event): event is Extract<AgentEvent, { type: 'tool_call' }> =>
+      event.type === 'tool_call' &&
+      event.runId === runId &&
+      event.name === 'change_screen',
+  );
+}
+
+function timeOf<T extends AgentEvent | AgentInput>(
+  timed: readonly Timed<T>[],
+  matches: (value: T) => boolean,
+): number {
+  return found(
+    timed.find(({ value }) => matches(value)),
+    'timed frame',
+  ).at;
+}
+
+function eventIndexOf(
+  frames: readonly CollectedFrame[],
+  type: AgentEvent['type'],
+  runId: RunId | null,
+): number {
+  return receivedAgentEvents(frames).findIndex(
+    (event) => event.type === type && 'runId' in event && event.runId === runId,
+  );
+}
 
 function sentUtterance(
   frames: readonly CollectedFrame[],

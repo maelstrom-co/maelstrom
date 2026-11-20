@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CallId, RunId } from '@maelstrom-co/protocol';
+import { CallId, ChangeId, RunId } from '@maelstrom-co/protocol';
 import {
   type ChatMiddleware,
   EventType,
@@ -27,11 +27,14 @@ import {
   type AgentRunFinished,
   type AgentRunInput,
   type AgentRunOptions,
+  type AgentRunScreenChanges,
   type AgentRunToolResultEvent,
   BUDGET_CLOSING_MESSAGE,
   DEFAULT_AGENT_RUN_BUDGETS,
   runAgent,
 } from './agent-run.js';
+import type { ScreenChangeBatchGoal } from './screen-change-batch.js';
+import type { ScreenChangeResult } from './screen-change-result.js';
 import { serverTool, ToolError } from './server-tool.js';
 import { validateToolResultEnvelope } from './tool-executor.js';
 import { createToolRegistry } from './tool-registry.js';
@@ -2847,6 +2850,253 @@ describe('runAgent session notes', () => {
   });
 });
 
+describe('runAgent change_screen', () => {
+  test('change_screen is offered to the model beside the registry tools', async () => {
+    const tools = orderTools();
+    const model = scriptedAdapter([textTurn(['Hi.'], usage(1, 1))]);
+
+    await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const offered = (model.requests[0]?.tools ?? []).map((tool) => tool.name);
+    expect(offered).toEqual([
+      ...tools.registry.entries().map((entry) => entry.tool.name),
+      'change_screen',
+    ]);
+  });
+
+  test('a change_screen call with invalid arguments gets the sanitized invalid-arguments failure and never reaches the Screen Change queue', async () => {
+    const screens = recordingScreenChanges();
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'change_screen', args: { goal: '   ' } }],
+        usage(4, 1),
+      ),
+      textTurn(['Sorry.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          screenChanges: screens.screenChanges,
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(screens.requests).toEqual([]);
+    expect(toolMessageContents(model.requests[1])).toEqual([
+      { ok: false, error: 'change_screen received invalid arguments' },
+    ]);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'change_screen',
+      ok: false,
+      summary: 'change_screen received invalid arguments',
+    });
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+  });
+
+  test('two change_screen calls in one turn reach the Screen Change queue once, with reason ids r1 and r2 and the Engine call ids', async () => {
+    const screens = recordingScreenChanges();
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          {
+            id: 'provider-a',
+            name: 'change_screen',
+            args: { goal: 'Show order o-1' },
+          },
+          {
+            id: 'provider-b',
+            name: 'change_screen',
+            args: {
+              goal: 'Show the shipping address',
+              referents: { orderId: 'o-1' },
+            },
+          },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['Done.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          screenChanges: screens.screenChanges,
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(screens.requests).toEqual([
+      {
+        turnId: 'run-1:t1',
+        goals: [
+          { callId: 'c1', reasonId: 'r1', goal: 'Show order o-1' },
+          {
+            callId: 'c2',
+            reasonId: 'r2',
+            goal: 'Show the shipping address',
+            referents: { orderId: 'o-1' },
+          },
+        ],
+      },
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === 'tool_call')
+        .map((event) => event.callId),
+    ).toEqual([CallId('c1'), CallId('c2')]);
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+    expectEveryCallSettledOnce(events);
+  });
+
+  test('the change_screen result reaches the next model turn and the tool_result summary', async () => {
+    const result: ScreenChangeResult = {
+      status: 'applied',
+      summary: 'applied: "Show order o-1"',
+      changeId: ChangeId('change-1'),
+    };
+    const screens = recordingScreenChanges(() => result);
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'change_screen', args: { goal: 'Show order o-1' } }],
+        usage(4, 1),
+      ),
+      textTurn(['It is on screen.'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          screenChanges: screens.screenChanges,
+        }),
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(toolMessageContents(model.requests[1])).toEqual([result]);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'change_screen',
+      ok: true,
+      summary: 'applied: "Show order o-1"',
+    });
+    expect(lastEvent(events)).toMatchObject({
+      reason: 'completed',
+      reply: 'It is on screen.',
+    });
+  });
+
+  test('on abort an unsent goal answers cancelled and a never-settling answer does not hold toolsSettled', async () => {
+    const release = defer<typeof LATEST_ORDER>();
+    const tools = orderTools({ latestOrder: () => release.promise });
+    const screens = recordingScreenChanges();
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'latest_order', args: {} },
+          {
+            id: 'c2',
+            name: 'change_screen',
+            args: { goal: 'Show order o-1' },
+          },
+        ],
+        usage(4, 1),
+      ),
+    ]);
+    const controller = new AbortController();
+    const started = defer<void>();
+
+    const run = collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: tools.registry,
+          screenChanges: screens.screenChanges,
+        }),
+        {
+          signal: controller.signal,
+          onActivity: (activity) => {
+            if (activity.type === 'tool_started' && activity.callId === 'c1')
+              started.resolve();
+          },
+        },
+      ),
+    );
+    await started.promise;
+    controller.abort();
+    release.resolve(LATEST_ORDER);
+    const events = await run;
+
+    expect(screens.requests).toEqual([]);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c2'),
+      name: 'change_screen',
+      ok: true,
+      summary: 'cancelled: "Show order o-1"',
+    });
+    const finished = lastEvent(events);
+    expect(finished).toMatchObject({ reason: 'cancelled' });
+    expect(await toolsSettledOf(finished)).toBeUndefined();
+  });
+
+  test('on abort a sent goal whose answer never settles answers unknown and does not hold toolsSettled', async () => {
+    const requested = defer<void>();
+    const screens = recordingScreenChanges(undefined, () => {
+      requested.resolve();
+      return new Promise<ScreenChangeResult>(() => {});
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [{ id: 'c1', name: 'change_screen', args: { goal: 'Show order o-1' } }],
+        usage(4, 1),
+      ),
+    ]);
+    const controller = new AbortController();
+
+    const run = collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          screenChanges: screens.screenChanges,
+        }),
+        { signal: controller.signal },
+      ),
+    );
+    await requested.promise;
+    controller.abort();
+    const events = await run;
+
+    expect(screens.requests).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: 'tool_result',
+      turnId: 'run-1:t1',
+      callId: CallId('c1'),
+      name: 'change_screen',
+      ok: true,
+      summary: 'unknown (the screen did not confirm): "Show order o-1"',
+    });
+    const finished = lastEvent(events);
+    expect(finished).toMatchObject({ reason: 'cancelled' });
+    expect(await toolsSettledOf(finished)).toBeUndefined();
+  });
+});
+
 const QUEUED_NOTE =
   '[screen run-1:t1] Screen change queued: latest_order result.';
 const SCREEN_NOTE =
@@ -2905,8 +3155,34 @@ function runInput(overrides: Partial<AgentRunInput>): AgentRunInput {
     identity: { user: { id: 'user-1' } },
     clock: { now: () => 0, scheduleTimeout: () => () => undefined },
     logger: recordingLogger([]),
+    screenChanges: recordingScreenChanges().screenChanges,
     ...overrides,
   };
+}
+
+function recordingScreenChanges(
+  answer: (goal: ScreenChangeBatchGoal) => ScreenChangeResult = ({ goal }) => ({
+    status: 'applied',
+    summary: `applied: "${goal}"`,
+  }),
+  answerAsync?: (goal: ScreenChangeBatchGoal) => Promise<ScreenChangeResult>,
+) {
+  const requests: {
+    readonly turnId: string;
+    readonly goals: readonly ScreenChangeBatchGoal[];
+  }[] = [];
+  const screenChanges: AgentRunScreenChanges = {
+    request: (turnId, goals) => {
+      requests.push({ turnId, goals });
+      return goals.map((goal) =>
+        answerAsync === undefined
+          ? Promise.resolve(answer(goal))
+          : answerAsync(goal),
+      );
+    },
+    noteBatchFillTimeout: () => undefined,
+  };
+  return { requests, screenChanges };
 }
 
 function scriptedAdapter(
