@@ -42,8 +42,10 @@ export interface OpenConnectionOptions {
    * UI-only route, when it elapses, the run finishes with code
    * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
    * next utterance plans against its own Chart. A `change_screen` change of
-   * an Agent Run waits as long, then its goals answer `unknown` and the next
-   * queued Screen Change starts on the last acknowledged Chart.
+   * an Agent Run waits as long, then its goals that depend on the change
+   * answer `unknown`, a goal with a clarification verdict keeps
+   * `needs_clarification`, and the next queued Screen Change starts on the
+   * last acknowledged Chart.
    */
   readonly acknowledgementTimeoutMs?: number;
 }
@@ -63,7 +65,9 @@ export interface OpenConnectionOptions {
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
  *   default. On the UI-only route a timeout fails the run and cancels queued
  *   work. On an agent connection a timeout of a `change_screen` change
- *   answers its goals `unknown` and lets the next queued Screen Change start.
+ *   answers the goals that depend on it `unknown`, leaves a goal with a
+ *   clarification verdict at `needs_clarification`, and lets the next queued
+ *   Screen Change start.
  */
 export interface AgentConnection {
   /**

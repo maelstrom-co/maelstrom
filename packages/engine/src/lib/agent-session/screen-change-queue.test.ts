@@ -1064,7 +1064,42 @@ describe('createScreenChangeQueue', () => {
     harness.queue.noteChart(monthChart);
     const [answer] = harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart));
-    await harness.nextUiChange();
+    const change = await harness.nextUiChange();
+
+    harness.queue.close();
+
+    expect(await answer).toEqual({
+      status: 'cancelled',
+      summary: 'cancelled: "Show order 1.1"',
+      changeId: change.changeId,
+    });
+    expect(harness.notes).toEqual([]);
+  });
+
+  test('close from inside the acknowledgement timeout error listener answers the goals cancelled with the change id', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.events.subscribe((event) => {
+      if (event.type === 'error' && event.code === 'ui_ack_timeout')
+        harness.queue.close();
+    });
+    const [answer] = harness.queue.request(screenChange(1));
+    harness.planner.respond(0, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    expect(await answer).toEqual({
+      status: 'cancelled',
+      summary: 'cancelled: "Show order 1.1"',
+      changeId: change.changeId,
+    });
+  });
+
+  test('close while a Screen Change is planning answers cancelled without a change id', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const [answer] = harness.queue.request(screenChange(1));
 
     harness.queue.close();
 
@@ -1072,7 +1107,96 @@ describe('createScreenChangeQueue', () => {
       status: 'cancelled',
       summary: 'cancelled: "Show order 1.1"',
     });
-    expect(harness.notes).toEqual([]);
+  });
+
+  test('a Screen Change whose requested observer closes the queue answers cancelled and is never planned', async () => {
+    let close = () => {};
+    const harness = createHarness({
+      onRunDiagnostic: (kind) => {
+        if (kind === 'engine.agent.screen_change.requested') close();
+      },
+    });
+    close = () => harness.queue.close();
+    harness.queue.noteChart(monthChart);
+
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    expect(await Promise.all(answers)).toEqual([
+      { status: 'cancelled', summary: 'cancelled: "Show order 1.1"' },
+      { status: 'cancelled', summary: 'cancelled: "Show order 1.2"' },
+    ]);
+    expect(harness.planner.calls).toHaveLength(0);
+  });
+
+  test('after an acknowledgement timeout a response that changes nothing answers unknown until a fresh Chart confirms the screen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(screenChange(1));
+    const [unconfirmed] = harness.queue.request(screenChange(2));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    harness.planner.respond(1, noScreenChange(monthChart));
+
+    expect(await unconfirmed).toEqual({
+      status: 'unknown',
+      summary: 'unknown (the screen did not confirm): "Show order 2.1"',
+    });
+    expect(uiChangesIn(harness.received)).toHaveLength(1);
+
+    harness.queue.noteChart(weekChart);
+    const [confirmed] = harness.queue.request(screenChange(3));
+    harness.planner.respond(2, noScreenChange(weekChart));
+
+    expect(await confirmed).toEqual({
+      status: 'applied',
+      summary: 'applied (already on screen): "Show order 3.1"',
+    });
+  });
+
+  test('an acknowledged change confirms the screen again after an acknowledgement timeout', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+    const secondChange = harness.nextUiChange();
+    harness.planner.respond(1, changeResponse(monthChart));
+    harness.queue.acknowledge(
+      applied((await secondChange).changeId, weekChart, [{ ok: true }]),
+    );
+
+    const [answer] = harness.queue.request(screenChange(3));
+    harness.planner.respond(2, noScreenChange(weekChart));
+
+    expect(await answer).toEqual({
+      status: 'applied',
+      summary: 'applied (already on screen): "Show order 3.1"',
+    });
+  });
+
+  test('after an acknowledgement timeout a clarification that sends nothing keeps its question and omits onScreen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(screenChange(1));
+    const [answer] = harness.queue.request(screenChange(2));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    harness.planner.outcome(1, {
+      type: 'needs_clarification',
+      question: 'Which order do you mean?',
+    });
+
+    expect(await answer).toEqual({
+      status: 'needs_clarification',
+      summary: 'needs clarification: "Show order 2.1"',
+      question: 'Which order do you mean?',
+    });
   });
 
   test('close resolves idle waiters and ignores a later dropRun', async () => {
@@ -1571,6 +1695,31 @@ describe('clarification changes and per-goal verdicts', () => {
     );
   });
 
+  test('an acknowledgement timeout on a partial clarification without verdicts keeps the question, options and change id and omits onScreen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      options,
+      layout: widerLayout,
+    });
+    const change = await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    expect(await Promise.all(answers)).toEqual(
+      [1, 2].map((goal) => ({
+        status: 'needs_clarification',
+        summary: `needs clarification: "Show order 1.${goal}"`,
+        changeId: change.changeId,
+        question,
+        options,
+      })),
+    );
+  });
+
   test('a clarification with only an execution plan runs it on the current layout', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
@@ -1767,7 +1916,11 @@ describe('clarification changes and per-goal verdicts', () => {
 
 function createHarness({
   planningTimeoutMs,
-}: { readonly planningTimeoutMs?: number } = {}) {
+  onRunDiagnostic,
+}: {
+  readonly planningTimeoutMs?: number;
+  readonly onRunDiagnostic?: (kind: string) => void;
+} = {}) {
   const time = createFakeAgentRunTime();
   const events = createOrderedEmitter<AgentEvent>();
   const received: AgentEvent[] = [];
@@ -1795,8 +1948,10 @@ function createHarness({
     planner: planner.plan,
     events,
     diagnostics: {
-      run: (runId, inputId, kind, metadata, readContent) =>
-        observed.push({ runId, inputId, kind, metadata, readContent }),
+      run: (runId, inputId, kind, metadata, readContent) => {
+        observed.push({ runId, inputId, kind, metadata, readContent });
+        onRunDiagnostic?.(kind);
+      },
       session: (kind, metadata) => sessionObserved.push({ kind, metadata }),
     },
     recordScreenNote: (runId, turnId, text) =>
@@ -1912,6 +2067,10 @@ function applied(
     chart,
     actionOutcomes,
   };
+}
+
+function uiChangesIn(events: readonly AgentEvent[]) {
+  return events.filter((event) => event.type === 'ui_change');
 }
 
 function unknownChangeError(changeId: string): AgentErrorEvent {

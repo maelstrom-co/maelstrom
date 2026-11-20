@@ -80,7 +80,9 @@ export interface ScreenChangeQueueOptions {
   readonly scheduleTimeout: AgentRunClock['scheduleTimeout'];
   /**
    * How long an emitted change may await its acknowledgement. Its goals
-   * then answer `unknown` and the next Screen Change starts.
+   * that depend on the change then answer `unknown`, a goal with a
+   * clarification verdict keeps `needs_clarification`, and the next Screen
+   * Change starts.
    */
   readonly acknowledgementTimeoutMs: number;
   /**
@@ -102,6 +104,9 @@ export interface ScreenChangeQueueOptions {
  * an Action failed, `unknown` when the acknowledgement timed out,
  * `needs_clarification` when the Planner asked a question, and `cancelled`
  * when the run was dropped before the change went out or the queue closed.
+ * After an acknowledgement timeout the screen is unconfirmed until an
+ * utterance or an acknowledgement brings a Chart. Until then a response that
+ * changes nothing answers `unknown` instead of `applied`.
  * A Planner failure and an acknowledgement timeout also send an agent `error`
  * event carrying the Screen Change's `changeId` and `runId`. An outcome that
  * settles after its run stopped waiting becomes a Screen Note instead.
@@ -109,7 +114,8 @@ export interface ScreenChangeQueueOptions {
  * A clarification's partial `layout` and `executionPlan` go out as a change
  * like any plan. Planner verdicts give each goal its own result by reason
  * id, and a goal without one takes the outcome's own result. A
- * clarification without verdicts also answers `onScreen`.
+ * clarification without verdicts also answers `onScreen`, unless the screen
+ * is unconfirmed.
  */
 export interface ScreenChangeQueue {
   /**
@@ -144,9 +150,9 @@ export interface ScreenChangeQueue {
    */
   dropRun(runId: RunId): void;
   /**
-   * Answers every unsettled goal `cancelled`, aborts the Planner call in
-   * flight and cancels pending timers. Nothing reaches the wire or the
-   * transcript afterwards.
+   * Answers every unsettled goal `cancelled`, with the `changeId` when its
+   * change already went out, aborts the Planner call in flight and cancels
+   * pending timers. Nothing reaches the wire or the transcript afterwards.
    */
   close(): void;
 }
@@ -167,6 +173,8 @@ export function createScreenChangeQueue({
   const stoppedRuns = new Set<RunId>();
   let state: ScreenChangeQueueState = { phase: 'idle' };
   let chart: ChartRequest | undefined;
+  // False from an acknowledgement timeout until a Chart arrives: the browser may show that change.
+  let chartConfirmed = true;
   let closed = false;
 
   return {
@@ -193,13 +201,18 @@ export function createScreenChangeQueue({
           ),
         }),
       );
-      queue.push(queued);
-      pump();
+      // The observer may close the queue.
+      if (closed) answerCancelled(queued, undefined);
+      else {
+        queue.push(queued);
+        pump();
+      }
       return answers.map((answer) => answer.promise);
     },
     noteChart(next) {
       if (closed || state.phase === 'awaiting_ack') return;
       chart = next;
+      chartConfirmed = true;
       if (state.phase !== 'planning') return;
       const { planned } = state;
       const request = buildScreenChangeRequest(next, planned.queued.job.goals);
@@ -245,6 +258,7 @@ export function createScreenChangeQueue({
       cancelTimeout();
       state = { phase: 'idle' };
       chart = input.chart;
+      chartConfirmed = true;
       const failed = input.actionOutcomes.filter((outcome) => !outcome.ok);
       diagnostics.run(
         job.runId,
@@ -301,24 +315,31 @@ export function createScreenChangeQueue({
     },
     close() {
       closed = true;
-      const unsettled = queue.splice(0);
-      if (state.phase === 'planning') {
-        abortPlanning(state.planned);
-        unsettled.push(state.planned.queued);
-      }
-      if (state.phase === 'awaiting_ack') {
-        state.cancelTimeout();
-        unsettled.push(state.planned.queued);
-      }
+      const unsent = queue.splice(0);
+      const active = state;
       state = { phase: 'idle' };
-      for (const queued of unsettled) answerCancelled(queued);
+      if (active.phase === 'planning') {
+        abortPlanning(active.planned);
+        unsent.push(active.planned.queued);
+      }
+      if (active.phase === 'awaiting_ack') {
+        active.cancelTimeout();
+        answerCancelled(active.planned.queued, active.planned.changeId);
+      }
+      for (const queued of unsent) answerCancelled(queued, undefined);
       resolveIdleWaiters();
     },
   };
 
-  function answerCancelled(queued: QueuedScreenChange) {
+  // `sentChangeId` is the change the browser received for these goals, when one went out.
+  function answerCancelled(
+    queued: QueuedScreenChange,
+    sentChangeId: ChangeId | undefined,
+  ) {
     for (const [index, goal] of queued.job.goals.entries())
-      queued.answers[index]?.resolve(resultOf(goal, { outcome: 'cancelled' }));
+      queued.answers[index]?.resolve(
+        resultOf(goal, { outcome: 'cancelled', changeId: sentChangeId }),
+      );
   }
 
   function resolveIdleWaiters() {
@@ -446,9 +467,10 @@ export function createScreenChangeQueue({
     });
     // A listener may close the queue inside the error event.
     if (closed) {
-      answerCancelled(planned.queued);
+      answerCancelled(planned.queued, changeId);
       return;
     }
+    chartConfirmed = false;
     diagnostics.run(
       job.runId,
       job.inputId,
@@ -458,8 +480,10 @@ export function createScreenChangeQueue({
         turnId: job.turnId,
       },
     );
+    // The screen never confirmed the layout sent, so nothing is known to be on it.
+    const { onScreen: _unconfirmed, ...unconfirmed } = decision;
     settleEach(planned.queued, (goal) =>
-      settlementOf(decision, goal, { outcome: 'unknown', changeId }, logger),
+      settlementOf(unconfirmed, goal, { outcome: 'unknown', changeId }, logger),
     );
     startNextScreenChange();
   }
@@ -488,7 +512,7 @@ export function createScreenChangeQueue({
     });
     // A listener may close the queue inside the error event.
     if (closed) {
-      answerCancelled(planned.queued);
+      answerCancelled(planned.queued, undefined);
       return;
     }
     diagnostics.run(
@@ -566,13 +590,18 @@ export function createScreenChangeQueue({
 
   function settleUnsent(planned: PlannedScreenChange, decision: PlanDecision) {
     state = { phase: 'idle' };
-    const shown = withOnScreen(
-      decision,
-      planned.request.layout,
-      planned.request,
-    );
+    // After an acknowledgement timeout the request's Chart may no longer be what the browser shows.
+    const confirmed = chartConfirmed;
+    const shown = confirmed
+      ? withOnScreen(decision, planned.request.layout, planned.request)
+      : decision;
     settleEach(planned.queued, (goal) =>
-      settlementOf(shown, goal, { outcome: 'already_on_screen' }, logger),
+      settlementOf(
+        shown,
+        goal,
+        { outcome: confirmed ? 'already_on_screen' : 'unknown' },
+        logger,
+      ),
     );
     startNextScreenChange();
   }
