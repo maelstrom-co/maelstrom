@@ -195,7 +195,9 @@ test('setup copy is honest about the deterministic starter, optional voice and t
   const starter = page.locator('#setup-panel-starter');
   await expect(starter).toContainText('without a model API key');
   await expect(starter).toContainText('deterministic planner');
-  await expect(starter).toContainText('optional voice integration');
+  await expect(starter).toContainText(
+    'optional @maelstrom-co/react-realtime voice integration.',
+  );
   await expect(starter.locator('code.inline-code')).toHaveText(
     '@maelstrom-co/react-realtime',
   );
