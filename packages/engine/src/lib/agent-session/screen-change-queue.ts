@@ -276,14 +276,10 @@ export function createScreenChangeQueue({
         }),
       );
       settleEach(planned.queued, (goal) =>
-        settlementOf(
-          decision,
-          goal,
-          {
-            outcome: failed.length === 0 ? 'applied' : 'partially_failed',
-            changeId: planned.changeId,
-          },
-        ),
+        settlementOf(decision, goal, {
+          outcome: failed.length === 0 ? 'applied' : 'partially_failed',
+          changeId: planned.changeId,
+        }),
       );
       startNextScreenChange();
     },
@@ -570,7 +566,11 @@ export function createScreenChangeQueue({
         return;
       }
       case 'response':
-        ship(planned, decisionOf(outcome.verdicts, undefined), outcome.response);
+        ship(
+          planned,
+          decisionOf(outcome.verdicts, undefined),
+          outcome.response,
+        );
         return;
       default:
         assertNever(outcome, 'PlanOutcome');
@@ -600,11 +600,9 @@ export function createScreenChangeQueue({
       ? withOnScreen(decision, planned.request.layout, planned.request)
       : decision;
     settleEach(planned.queued, (goal) =>
-      settlementOf(
-        shown,
-        goal,
-        { outcome: confirmed ? 'already_on_screen' : 'unknown' },
-      ),
+      settlementOf(shown, goal, {
+        outcome: confirmed ? 'already_on_screen' : 'unknown',
+      }),
     );
     startNextScreenChange();
   }

@@ -930,7 +930,8 @@ describe('createCandidateValidator verdicts', () => {
 
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
-      const kept = 'verdicts' in result.value ? result.value.verdicts : undefined;
+      const kept =
+        'verdicts' in result.value ? result.value.verdicts : undefined;
       expect<unknown>(kept).toEqual([planned, asking]);
       expect(entries).toEqual([
         {

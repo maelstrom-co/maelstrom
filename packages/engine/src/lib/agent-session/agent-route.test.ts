@@ -1662,7 +1662,9 @@ describe('agent route through the Engine handle', () => {
 
         if (isErr(result) || result.value.type !== 'response')
           throw new Error('expected a response');
-        expect(result.value.verdicts).toEqual([{ id: 'r1', status: 'planned' }]);
+        expect(result.value.verdicts).toEqual([
+          { id: 'r1', status: 'planned' },
+        ]);
         expect('verdicts' in result.value.response).toBe(false);
       });
 

@@ -75,6 +75,8 @@ describe('change_screen tool input', () => {
     expect(description).toContain('Vessel');
     expect(description).toContain('wait');
     expect(description).toMatch(/goal itself must contain the exact values/);
-    expect(description).toMatch(/Vessel ids are only for describe_capabilities/);
+    expect(description).toMatch(
+      /Vessel ids are only for describe_capabilities/,
+    );
   });
 });
