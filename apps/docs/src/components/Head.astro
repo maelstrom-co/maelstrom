@@ -4,12 +4,13 @@ import { ClientRouter } from 'astro:transitions';
 import docs from 'virtual:maelstrom/docs-versions';
 
 import { docsRevision, sdkVersions } from '../lib/docs-build-info';
-import { splitVersion } from '../lib/docs-versions';
+import { searchFilterVersions, splitVersion } from '../lib/docs-versions';
 import { markdownPath } from '../lib/markdown-path';
 import PostHog from './PostHog.astro';
 
 const { head } = Astro.locals.starlightRoute;
 const version = splitVersion(Astro.url.pathname, docs.versions)?.version;
+const filterVersions = searchFilterVersions(Astro.url.pathname, docs.versions);
 ---
 
 {head.map(({ tag: Tag, attrs, content }) => (
@@ -29,6 +30,9 @@ const version = splitVersion(Astro.url.pathname, docs.versions)?.version;
   href={version ? `/${version}/llms.txt` : '/llms.txt'}
   title="LLM documentation index"
 />
+{filterVersions.map((filterVersion) => (
+  <meta data-pagefind-filter="version[content]" content={filterVersion} />
+))}
 <meta name="maelstrom-docs-revision" content={docsRevision} />
 <meta name="maelstrom-sdk-versions" content={sdkVersions} />
 {/* Runs before first paint so focus mode never flashes open. Inline scripts

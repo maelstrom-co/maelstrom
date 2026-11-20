@@ -97,6 +97,30 @@ export function splitVersion(
   return { version: first, rest: rest.join('/') };
 }
 
+/**
+ * The version search results are limited to on a page: the page's own
+ * version, or the default version on pages outside every version folder.
+ */
+export function searchVersion(
+  pathname: string,
+  versions: readonly string[],
+  defaultVersion: string,
+): string {
+  return splitVersion(pathname, versions)?.version ?? defaultVersion;
+}
+
+/**
+ * The `version` filter values Pagefind indexes for a page. Unversioned pages
+ * carry every version so search finds them from any version.
+ */
+export function searchFilterVersions(
+  pathname: string,
+  versions: readonly string[],
+): string[] {
+  const version = splitVersion(pathname, versions)?.version;
+  return version ? [version] : [...versions];
+}
+
 /** The URL of a version-relative page slug. */
 export function versionHref(version: string, rest: string): string {
   return rest ? `/${version}/${rest}/` : `/${version}/`;
