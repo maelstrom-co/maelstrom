@@ -2626,7 +2626,7 @@ describe('agent route through the Engine handle', () => {
       });
       expect(toolResultEventOf(session.received, 'c2')).toMatchObject({
         ok: true,
-        summary: 'described 1 Vessels',
+        summary: 'described 1 Vessel',
       });
       expect(lastFinished(session.received)).toMatchObject({
         reason: 'completed',

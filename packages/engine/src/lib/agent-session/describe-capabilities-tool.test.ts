@@ -48,7 +48,7 @@ describe('describe_capabilities tool', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(vesselIds(result.value)).toEqual(['cart']);
-    expect(result.summary).toBe('described 1 Vessels');
+    expect(result.summary).toBe('described 1 Vessel');
   });
 
   test('warns developers about option omissions once per run and never tells the model', async () => {

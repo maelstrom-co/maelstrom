@@ -51,8 +51,10 @@ export function createDescribeCapabilitiesToolEntry(
   context: DescribeCapabilitiesContext,
 ): ToolRegistryEntry {
   let warned = false;
-  const summarize = (output: unknown) =>
-    `described ${(output as CapabilitySnapshot).vessels.length} Vessels`;
+  const summarize = (output: unknown) => {
+    const count = (output as CapabilitySnapshot).vessels.length;
+    return `described ${count} ${count === 1 ? 'Vessel' : 'Vessels'}`;
+  };
   return {
     tool: {
       name: DESCRIBE_CAPABILITIES_TOOL_NAME,
