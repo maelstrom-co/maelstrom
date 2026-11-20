@@ -6,15 +6,15 @@ const config = readFileSync(
   'utf8',
 );
 const architecture = readFileSync(
-  new URL('../../content/docs/evals/architecture.mdx', import.meta.url),
+  new URL('../../content/docs/dev/evals/architecture.mdx', import.meta.url),
   'utf8',
 );
 const langfuse = readFileSync(
-  new URL('../../content/docs/evals/langfuse.mdx', import.meta.url),
+  new URL('../../content/docs/dev/evals/langfuse.mdx', import.meta.url),
   'utf8',
 );
 const cases = readFileSync(
-  new URL('../../content/docs/evals/cases.mdx', import.meta.url),
+  new URL('../../content/docs/dev/evals/cases.mdx', import.meta.url),
   'utf8',
 );
 const caseIndex = JSON.parse(
@@ -39,7 +39,7 @@ describe('evals navigation', () => {
     expect(
       existsSync(
         new URL(
-          '../../content/docs/guides/engine/evaluations.mdx',
+          '../../content/docs/dev/guides/engine/evaluations.mdx',
           import.meta.url,
         ),
       ),

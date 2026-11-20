@@ -10,7 +10,7 @@ const sidebarStyles = readFileSync(
   'utf8',
 );
 const evaluationGuide = readFileSync(
-  new URL('../../content/docs/agents/evaluations.mdx', import.meta.url),
+  new URL('../../content/docs/dev/agents/evaluations.mdx', import.meta.url),
   'utf8',
 );
 const evaluationReadme = readFileSync(

@@ -13,7 +13,9 @@ type DocsCollectionConfig = Extract<
 
 export const collections = {
   docs: defineCollection({
-    loader: docsLoader() as DocsCollectionConfig['loader'],
+    loader: docsLoader({
+      generateId: ({ entry, data }) => docsEntryId(entry, data.slug),
+    }) as DocsCollectionConfig['loader'],
     schema: docsSchema(),
   }),
   prompts: defineCollection({
@@ -25,3 +27,20 @@ export const collections = {
     }),
   }),
 };
+
+// github-slugger, which Astro applies to entry ids, removes these on ASCII names.
+const SLUG_REMOVED = /[!-,./:-@[-^`{-~]/g;
+
+// Astro's default entry id, minus the dev/ folder, so pages keep their routes.
+function docsEntryId(entry: string, slug: unknown): string {
+  if (typeof slug === 'string' && slug) return slug;
+  return entry
+    .replace(/^dev\//, '')
+    .replace(/\.[^./]+$/, '')
+    .split('/')
+    .map((segment) =>
+      segment.toLowerCase().replace(SLUG_REMOVED, '').replace(/ /g, '-'),
+    )
+    .join('/')
+    .replace(/\/index$/, '');
+}

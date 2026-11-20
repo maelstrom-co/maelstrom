@@ -480,19 +480,19 @@ describe('portable agent skill bundle', () => {
   test('each newly referenced prompt has a collapsed source disclosure on its guide', async () => {
     const cases = [
       [
-        'src/content/docs/guides/client/custom-connectors.mdx',
+        'src/content/docs/dev/guides/client/custom-connectors.mdx',
         'maelstrom-connector-auth',
       ],
       [
-        'src/content/docs/guides/react/variants-and-actions.mdx',
+        'src/content/docs/dev/guides/react/variants-and-actions.mdx',
         'maelstrom-state-sync',
       ],
       [
-        'src/content/docs/guides/react/error-handling.mdx',
+        'src/content/docs/dev/guides/react/error-handling.mdx',
         'maelstrom-observability',
       ],
       [
-        'src/content/docs/guides/voice/overview.mdx',
+        'src/content/docs/dev/guides/voice/overview.mdx',
         'maelstrom-voice-integration',
       ],
     ] as const;
