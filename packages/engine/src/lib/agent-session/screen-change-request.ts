@@ -2,8 +2,8 @@ import type { ChartRequest } from '@maelstrom-co/protocol';
 
 import type { AgentRunToolPhaseEndedEvent } from './agent-run.js';
 
-/** What one tool phase contributes to the show it asks for. */
-export interface ShowFacts {
+/** What one tool phase contributes to the Screen Change it asks for. */
+export interface ScreenChangeFacts {
   /**
    * Names of the tools whose calls succeeded, in call order, repeated when a
    * tool ran more than once.
@@ -12,13 +12,13 @@ export interface ShowFacts {
 }
 
 /**
- * Collects what a settled tool phase contributes to a show. Returns
+ * Collects what a settled tool phase contributes to a Screen Change. Returns
  * `undefined` when no result succeeded, because only a phase with a
- * successful result asks for a show.
+ * successful result asks for a Screen Change.
  */
-export function collectShowFacts(
+export function collectScreenChangeTools(
   phase: AgentRunToolPhaseEndedEvent,
-): ShowFacts | undefined {
+): ScreenChangeFacts | undefined {
   const toolNames = phase.results
     .filter((result) => result.ok)
     .map((result) => result.name);
@@ -26,12 +26,12 @@ export function collectShowFacts(
 }
 
 /**
- * Builds the Planner request for one show from a Chart snapshot. Any
+ * Builds the Planner request for one Screen Change from a Chart snapshot. Any
  * client-sent `skipReply` is replaced with `skipReply: true`, and
  * `updateReasons` is replaced with a single `user_intent` reason carrying
  * `intent`.
  */
-export function buildShowRequest(
+export function buildScreenChangeRequest(
   chart: ChartRequest,
   intent: string,
 ): ChartRequest {

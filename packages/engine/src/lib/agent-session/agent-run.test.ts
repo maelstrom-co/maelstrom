@@ -2650,9 +2650,10 @@ describe('runAgent session notes', () => {
   });
 });
 
-const QUEUED_NOTE = '[show run-1:t1] Show queued: latest_order result.';
+const QUEUED_NOTE =
+  '[screen run-1:t1] Screen change queued: latest_order result.';
 const SCREEN_NOTE =
-  '[show run-1:t1] Screen updated: latest_order result is on screen.';
+  '[screen run-1:t1] Screen updated: latest_order result is on screen.';
 
 const SECRET = 'sk-SECRET-123';
 const USER_SENTINEL = 'USER-SENTINEL-42';

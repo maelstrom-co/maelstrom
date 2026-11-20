@@ -216,16 +216,16 @@ describe('createTranscript', () => {
     ]);
   });
 
-  describe('show notes', () => {
-    test('renders a show note as a user-role line tagged with its turn', () => {
+  describe('screen notes', () => {
+    test('renders a screen note as a user-role line tagged with its turn', () => {
       const transcript = createTranscript();
 
       transcript.recordUserInput(firstRun, 'Show my last order');
       transcript.recordToolCall(firstRun, CallId('c1'), 'latest_order', {});
-      transcript.recordShowNote(
+      transcript.recordScreenNote(
         firstRun,
         'run-1:t1',
-        'Show queued: latest_order result.',
+        'Screen change queued: latest_order result.',
       );
       transcript.recordMessage(firstRun, 'run-1:t2', 'Done.');
 
@@ -234,39 +234,40 @@ describe('createTranscript', () => {
         { role: 'assistant', content: '[tool call run-1:c1] latest_order {}' },
         {
           role: 'user',
-          content: '[show run-1:t1] Show queued: latest_order result.',
+          content:
+            '[screen run-1:t1] Screen change queued: latest_order result.',
         },
         { role: 'assistant', content: 'Done.' },
       ]);
     });
 
-    test('hands each later show note to a listener after recording it, until it stops', () => {
+    test('hands each later screen note to a listener after recording it, until it stops', () => {
       const transcript = createTranscript();
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'before');
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'before');
       const heard: {
         runId: RunId;
         turnId: string;
         text: string;
         rendered: string;
       }[] = [];
-      const stop = transcript.onShowNote((runId, turnId, text) => {
+      const stop = transcript.onScreenNote((runId, turnId, text) => {
         heard.push({ runId, turnId, text, rendered: serialized(transcript) });
       });
 
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'during');
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'during');
       stop();
-      transcript.recordShowNote(firstRun, 'run-1:t2', 'after');
+      transcript.recordScreenNote(firstRun, 'run-1:t2', 'after');
 
       expect(heard.map(({ rendered: _rendered, ...note }) => note)).toEqual([
         { runId: firstRun, turnId: 'run-1:t1', text: 'during' },
       ]);
-      expect(heard[0]?.rendered).toContain('[show run-1:t1] during');
+      expect(heard[0]?.rendered).toContain('[screen run-1:t1] during');
     });
 
-    test('evicts a show note together with its run', () => {
+    test('evicts a screen note together with its run', () => {
       const transcript = createTranscript({ maxChars: 300 });
       recordRunWithTool(transcript, firstRun, 'a'.repeat(30));
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'note-of-run-1');
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'note-of-run-1');
       recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
 
       expect(serialized(transcript)).toContain('note-of-run-1');
@@ -286,12 +287,12 @@ describe('createTranscript', () => {
       recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
       expect(serialized(transcript)).not.toContain('a'.repeat(30));
 
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'late');
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'late');
 
       expect(transcript.renderPriorMessages()).toEqual([
         ...renderedRunWithTool(secondRun, 'b'.repeat(30)),
         ...renderedRunWithTool(thirdRun, 'c'.repeat(30)),
-        { role: 'user', content: '[show run-1:t1] late' },
+        { role: 'user', content: '[screen run-1:t1] late' },
       ]);
     });
 
@@ -301,11 +302,11 @@ describe('createTranscript', () => {
       recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
       recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
 
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'n'.repeat(40));
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'n'.repeat(40));
 
       expect(transcript.renderPriorMessages()).toEqual([
         ...renderedRunWithTool(thirdRun, 'c'.repeat(30)),
-        { role: 'user', content: `[show run-1:t1] ${'n'.repeat(40)}` },
+        { role: 'user', content: `[screen run-1:t1] ${'n'.repeat(40)}` },
       ]);
       expect(renderedChars(transcript)).toBeLessThanOrEqual(220);
     });
@@ -316,7 +317,7 @@ describe('createTranscript', () => {
       recordRunWithTool(transcript, secondRun, 'b'.repeat(30));
       recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
 
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'n'.repeat(150));
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'n'.repeat(150));
 
       expect(transcript.renderPriorMessages()).toEqual(
         renderedRunWithTool(thirdRun, 'c'.repeat(30)),
@@ -331,7 +332,7 @@ describe('createTranscript', () => {
       recordRunWithTool(transcript, thirdRun, 'c'.repeat(30));
       expect(serialized(transcript)).toContain('a'.repeat(30));
 
-      transcript.recordShowNote(firstRun, 'run-1:t1', 'late note');
+      transcript.recordScreenNote(firstRun, 'run-1:t1', 'late note');
 
       expect(transcript.renderPriorMessages()).toEqual([
         ...renderedRunWithTool(secondRun, 'b'.repeat(30)),

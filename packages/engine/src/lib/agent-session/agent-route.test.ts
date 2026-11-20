@@ -45,9 +45,9 @@ import {
   addEventPlanner,
   calendarChart,
   capturingAgentRunQueueModule,
-  capturingPlannerShowQueueModule,
+  capturingScreenChangeQueueModule,
   LATEST_ORDER,
-  nothingToShowPlanner,
+  noScreenChangePlanner,
   openAgentSession,
   orderTool,
   runIdOf,
@@ -90,7 +90,7 @@ const SINGLE_TOOL_RUN_WIRE: readonly AgentEvent['type'][] = [
   'finished',
 ];
 
-void mock.module('./planner-show-queue.js', capturingPlannerShowQueueModule);
+void mock.module('./screen-change-queue.js', capturingScreenChangeQueueModule);
 void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('agent route through the Engine handle', () => {
@@ -194,8 +194,8 @@ describe('agent route through the Engine handle', () => {
     });
   });
 
-  describe('loop-driven shows', () => {
-    test('a tool phase with a successful result plans one replyless show and sends its change with the run id', async () => {
+  describe('Screen Changes', () => {
+    test('a tool phase with a successful result plans one replyless Screen Change and sends its change with the run id', async () => {
       const time = createFakeAgentRunTime();
       const order = orderTool();
       const model = scriptedTextAdapter([
@@ -240,7 +240,7 @@ describe('agent route through the Engine handle', () => {
       expect(AgentEventSchema.safeParse(change).success).toBe(true);
     });
 
-    test('one tool phase with two calls plans one show for the utterance', async () => {
+    test('one tool phase with two calls plans one Screen Change for the utterance', async () => {
       const orders = [LATEST_ORDER, { ...LATEST_ORDER, orderId: 'o-2' }];
       let served = 0;
       const order = orderTool({
@@ -280,10 +280,10 @@ describe('agent route through the Engine handle', () => {
       ]);
     });
 
-    test('a second show waits for the first change to be acknowledged and plans on the acknowledged Chart', async () => {
+    test('a second Screen Change waits for the first change to be acknowledged and plans on the acknowledged Chart', async () => {
       const time = createFakeAgentRunTime();
       const gate = defer<PlannerCandidate>();
-      const firstShow = blockingPlanner(gate);
+      const firstScreenChange = blockingPlanner(gate);
       let plannerCall = 0;
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -303,7 +303,7 @@ describe('agent route through the Engine handle', () => {
         planner: (input, ctx) => {
           plannerCall += 1;
           return plannerCall === 1
-            ? firstShow.planner(input, ctx)
+            ? firstScreenChange.planner(input, ctx)
             : addEventPlanner(input, ctx);
         },
       });
@@ -311,7 +311,7 @@ describe('agent route through the Engine handle', () => {
       await session.send(
         utterance('input-1', 'show my orders twice', calendarChart()),
       );
-      await firstShow.entered;
+      await firstScreenChange.entered;
       const runId = runIdOf(session.received, 'input-1');
       expect(lastFinished(session.received)).toMatchObject({
         runId,
@@ -391,7 +391,7 @@ describe('agent route through the Engine handle', () => {
       expect(session.received.slice(beforeAcknowledgement)).toEqual([]);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(`[show ${runId}:t1] Screen updated:`);
+      ).toContain(`[screen ${runId}:t1] Screen updated:`);
     });
 
     test('an acknowledged change leaves a queued note and a screen note that the next run prompt includes', async () => {
@@ -418,8 +418,8 @@ describe('agent route through the Engine handle', () => {
       await session.connection.send(acknowledgementOf(change, calendarChart()));
 
       const runId = runIdOf(session.received, 'input-1');
-      const queuedNote = `[show ${runId}:t1] Show queued: latest_order result.`;
-      const screenNote = `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      const queuedNote = `[screen ${runId}:t1] Screen change queued: latest_order result.`;
+      const screenNote = `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
       const transcript = serializeLoosely(
         session.internals().transcript.renderPriorMessages(),
       );
@@ -438,7 +438,7 @@ describe('agent route through the Engine handle', () => {
       );
     });
 
-    test('planner prose on a replyless show never reaches the wire, the transcript or a later prompt', async () => {
+    test('planner prose on a replyless Screen Change never reaches the wire, the transcript or a later prompt', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -491,7 +491,7 @@ describe('agent route through the Engine handle', () => {
       expect(model.requests).toHaveLength(3);
     });
 
-    test('show diagnostics carry the run owner and change id while the intent and screen note stay behind readContent', async () => {
+    test('Screen Change diagnostics carry the run owner and change id while the intent and screen note stay behind readContent', async () => {
       const intent = 'show me my last order';
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -592,12 +592,12 @@ describe('agent route through the Engine handle', () => {
       expect(uiChangesOf(session.received)).toEqual([]);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).not.toContain('[show ');
+      ).not.toContain('[screen ');
     });
 
     test('an unknown change id and a wrong outcome count are refused while the change stays pending until a valid acknowledgement', async () => {
       const session = openAgentSession({
-        model: twoShowTurns().adapter,
+        model: twoScreenChangeTurns().adapter,
         tools: [orderTool().tool],
         planner: addEventPlanner,
       });
@@ -669,7 +669,7 @@ describe('agent route through the Engine handle', () => {
 
     test('an acknowledgement sent synchronously from inside the ui_change listener is accepted', async () => {
       const session = openAgentSession({
-        model: twoShowTurns().adapter,
+        model: twoScreenChangeTurns().adapter,
         tools: [orderTool().tool],
         planner: addEventPlanner,
       });
@@ -695,16 +695,16 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).toContain(
-        `[show ${runId}:t1] Screen updated: ran addEvent on calendar → week. Visible: calendar (week).`,
+        `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → week. Visible: calendar (week).`,
       );
     });
 
-    test('an acknowledgement timeout sends ui_ack_timeout with the run id, records a not-confirmed note, starts the next queued show on the last known Chart and refuses a late acknowledgement', async () => {
+    test('an acknowledgement timeout sends ui_ack_timeout with the run id, records a not-confirmed note, starts the next queued Screen Change on the last known Chart and refuses a late acknowledgement', async () => {
       const time = createFakeAgentRunTime();
       const session = openAgentSession({
         time,
         acknowledgementTimeoutMs: 5_000,
-        model: twoShowTurns().adapter,
+        model: twoScreenChangeTurns().adapter,
         tools: [orderTool().tool],
         planner: scriptedPlanner([
           addEventCandidate(weekCalendarChart()),
@@ -756,10 +756,10 @@ describe('agent route through the Engine handle', () => {
         session.internals().transcript.renderPriorMessages(),
       );
       expect(transcript).toContain(
-        `[show ${runId}:t1] Show not confirmed: the screen did not acknowledge the latest_order change.`,
+        `[screen ${runId}:t1] Screen change not confirmed: the screen did not acknowledge the latest_order change.`,
       );
       expect(transcript).not.toContain('Screen updated');
-      expect(transcript).not.toContain('Show failed');
+      expect(transcript).not.toContain('Screen change failed');
       const [timedOut] = diagnosticsOfKind(
         session.diagnostics,
         'engine.agent.ui_change.timed_out',
@@ -804,9 +804,9 @@ describe('agent route through the Engine handle', () => {
         'ValidationError',
       ],
     ] as const)(
-      'a Planner failure by %s sends an error with the change id, run id and code, records a failed note and lets the next show run',
+      'a Planner failure by %s sends an error with the change id, run id and code, records a failed note and lets the next Screen Change run',
       async (_case, failing: ClarifyingPlanner, code) => {
-        const model = twoShowTurns();
+        const model = twoScreenChangeTurns();
         const session = openAgentSession({
           model: model.adapter,
           tools: [orderTool().tool],
@@ -846,11 +846,11 @@ describe('agent route through the Engine handle', () => {
             session.internals().transcript.renderPriorMessages(),
           ),
         ).toContain(
-          `[show ${runId}:t1] Show failed: latest_order result could not be shown.`,
+          `[screen ${runId}:t1] Screen change failed: latest_order result could not be shown.`,
         );
         const [failed] = diagnosticsOfKind(
           session.diagnostics,
-          'engine.agent.show.failed',
+          'engine.agent.screen_change.failed',
         );
         expect(failed?.runId).toBe(runId);
         expect(failed?.metadata).toMatchObject({
@@ -881,12 +881,12 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('a show planning past the 30,000 ms timeout on the fake clock has its signal aborted, sends planning_timeout, records a failed note and lets the next show run', async () => {
+    test('a Screen Change planning past the 30,000 ms timeout on the fake clock has its signal aborted, sends planning_timeout, records a failed note and lets the next Screen Change run', async () => {
       const time = createFakeAgentRunTime();
       const signals: (AbortSignal | undefined)[] = [];
       const session = openAgentSession({
         time,
-        model: twoShowTurns().adapter,
+        model: twoScreenChangeTurns().adapter,
         tools: [orderTool().tool],
         planner: plannersInOrder([
           (input, ctx) => {
@@ -935,11 +935,11 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).toContain(
-        `[show ${runId}:t1] Show failed: latest_order result could not be shown.`,
+        `[screen ${runId}:t1] Screen change failed: latest_order result could not be shown.`,
       );
       const [failed] = diagnosticsOfKind(
         session.diagnostics,
-        'engine.agent.show.failed',
+        'engine.agent.screen_change.failed',
       );
       expect(failed?.metadata).toMatchObject({
         turnId: `${runId}:t1`,
@@ -948,7 +948,7 @@ describe('agent route through the Engine handle', () => {
       expect(session.plannerCalls()).toBe(2);
     });
 
-    test('a show with nothing to show sends nothing on the wire and records a skipped note', async () => {
+    test('a Screen Change with nothing to show sends nothing on the wire and records a skipped note', async () => {
       const session = openAgentSession({
         model: scriptedTextAdapter([
           scriptedToolTurn(
@@ -958,7 +958,7 @@ describe('agent route through the Engine handle', () => {
           scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
         ]).adapter,
         tools: [orderTool().tool],
-        planner: nothingToShowPlanner,
+        planner: noScreenChangePlanner,
       });
 
       await session.send(
@@ -972,11 +972,11 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).toContain(
-        `[show ${runId}:t1] Show skipped: nothing new to show for latest_order result.`,
+        `[screen ${runId}:t1] Screen change skipped: nothing new to show for latest_order result.`,
       );
       const [skipped] = diagnosticsOfKind(
         session.diagnostics,
-        'engine.agent.show.skipped',
+        'engine.agent.screen_change.skipped',
       );
       expect(skipped?.runId).toBe(runId);
       expect(skipped?.metadata).toMatchObject({
@@ -985,7 +985,7 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('a needs-clarification show sends nothing on the wire, drops its partial changes and records a skipped note whose question the next run prompt carries', async () => {
+    test('a needs-clarification Screen Change sends nothing on the wire, drops its partial changes and records a skipped note whose question the next run prompt carries', async () => {
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -1008,14 +1008,14 @@ describe('agent route through the Engine handle', () => {
 
       const runId = runIdOf(session.received, 'input-1');
       expect(session.received.map(typeOf)).toEqual([...SINGLE_TOOL_RUN_WIRE]);
-      const skippedNote = `[show ${runId}:t1] Show skipped: the Planner needs more detail to show latest_order result. Question: ${QUESTION_SENTINEL}`;
+      const skippedNote = `[screen ${runId}:t1] Screen change skipped: the Planner needs more detail to show latest_order result. Question: ${QUESTION_SENTINEL}`;
       const transcript = serializeLoosely(
         session.internals().transcript.renderPriorMessages(),
       );
       expect(transcript).toContain(skippedNote);
       const [skipped] = diagnosticsOfKind(
         session.diagnostics,
-        'engine.agent.show.skipped',
+        'engine.agent.screen_change.skipped',
       );
       expect(skipped?.metadata).toMatchObject({
         turnId: `${runId}:t1`,
@@ -1053,16 +1053,16 @@ describe('agent route through the Engine handle', () => {
       ],
       ['a throwing planner', throwingPlanner(new Error('planner crashed'))],
       ['a needs-clarification result', clarifyingPlanner],
-      ['an empty plan with nothing to show', nothingToShowPlanner],
+      ['an empty plan with nothing to show', noScreenChangePlanner],
     ] as const)(
-      '%s releases the queue for the next show and sends no ui_change',
-      async (_case, firstShow: ClarifyingPlanner) => {
+      '%s releases the queue for the next Screen Change and sends no ui_change',
+      async (_case, firstScreenChange: ClarifyingPlanner) => {
         const release = defer<void>();
         const session = openAgentSession({
-          model: twoShowTurns().adapter,
+          model: twoScreenChangeTurns().adapter,
           tools: [orderTool().tool],
           planner: plannersInOrder([
-            heldUntil(release.promise, firstShow),
+            heldUntil(release.promise, firstScreenChange),
             addEventPlanner,
           ]),
         });
@@ -1081,18 +1081,18 @@ describe('agent route through the Engine handle', () => {
         expect(changes).toHaveLength(1);
         expect(changes[0]?.response.executionPlan).toHaveLength(1);
         const runId = runIdOf(session.received, 'input-1');
-        const firstShowPlanning = session.diagnostics.filter(
+        const firstScreenChangePlanning = session.diagnostics.filter(
           (event) =>
             event.kind.startsWith('engine.planner.') &&
             event.metadata.turnId === `${runId}:t1`,
         );
-        expect(firstShowPlanning.map((event) => event.kind)).toEqual(
+        expect(firstScreenChangePlanning.map((event) => event.kind)).toEqual(
           expect.arrayContaining([
             'engine.planner.started',
             'engine.planner.completed',
           ]),
         );
-        for (const event of firstShowPlanning) {
+        for (const event of firstScreenChangePlanning) {
           expect(event.runId).toBe(runId);
           expect(event.requestId).toBeUndefined();
           expect(event.metadata.inputId).toBe('input-1');
@@ -1100,7 +1100,7 @@ describe('agent route through the Engine handle', () => {
       },
     );
 
-    test('closing the connection aborts a show plan in flight and sends and records nothing for it', async () => {
+    test('closing the connection aborts a Screen Change plan in flight and sends and records nothing for it', async () => {
       const time = createFakeAgentRunTime();
       const gate = defer<PlannerCandidate>();
       const blocking = blockingPlanner(gate);
@@ -1149,7 +1149,7 @@ describe('agent route through the Engine handle', () => {
       ).toEqual([]);
     });
 
-    test('handle() still refuses a needs-clarification result after a show planned one', async () => {
+    test('handle() still refuses a needs-clarification result after a Screen Change planned one', async () => {
       const session = openAgentSession({
         model: scriptedTextAdapter([
           scriptedToolTurn(
@@ -1182,11 +1182,13 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    describe('the show planner a connection wires', () => {
+    describe('the Screen Change planner a connection wires', () => {
       test('a needs-clarification result becomes the Planner question alone', async () => {
         const session = openAgentSession({ planner: clarifyingPlanner });
 
-        const result = await session.internals().planner(directShowInput());
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput());
 
         expect(result).toEqual(
           ok({
@@ -1201,7 +1203,9 @@ describe('agent route through the Engine handle', () => {
           planner: failingPlanner(providerError('provider down', undefined)),
         });
 
-        const result = await session.internals().planner(directShowInput());
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput());
 
         expect(isErr(result) && result.error._tag).toBe('ProviderError');
       });
@@ -1214,7 +1218,7 @@ describe('agent route through the Engine handle', () => {
 
         const pending = session
           .internals()
-          .planner(directShowInput(controller.signal));
+          .planner(directScreenChangeInput(controller.signal));
         await blocking.entered;
         controller.abort('connection closed');
 
@@ -1224,9 +1228,9 @@ describe('agent route through the Engine handle', () => {
     });
   });
 
-  describe('show notes inside a run and the gate before a new run', () => {
+  describe('screen notes inside a run and the gate before a new run', () => {
     test('the queued note reaches the model turn right after the tool phase and is not repeated as a new message', async () => {
-      const model = twoShowTurns();
+      const model = twoScreenChangeTurns();
       const session = openAgentSession({
         model: model.adapter,
         tools: [orderTool().tool],
@@ -1238,8 +1242,8 @@ describe('agent route through the Engine handle', () => {
       );
 
       const runId = runIdOf(session.received, 'input-1');
-      const firstQueued = `[show ${runId}:t1] Show queued: latest_order result.`;
-      const secondQueued = `[show ${runId}:t2] Show queued: latest_order result.`;
+      const firstQueued = `[screen ${runId}:t1] Screen change queued: latest_order result.`;
+      const secondQueued = `[screen ${runId}:t2] Screen change queued: latest_order result.`;
       expect(model.requests).toHaveLength(3);
       expect(occurrencesIn(model.requests[0]?.messages, firstQueued)).toBe(0);
       expect(model.requests[1]?.messages.at(-1)).toEqual({
@@ -1268,7 +1272,7 @@ describe('agent route through the Engine handle', () => {
           return LATEST_ORDER;
         },
       });
-      const model = twoShowTurns();
+      const model = twoScreenChangeTurns();
       const session = openAgentSession({
         model: model.adapter,
         tools: [order.tool],
@@ -1287,7 +1291,7 @@ describe('agent route through the Engine handle', () => {
       await sent;
 
       const runId = runIdOf(session.received, 'input-1');
-      const screenNote = `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      const screenNote = `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
       expect(model.requests).toHaveLength(3);
       expect(
         occurrencesIn(model.requests[1]?.messages, 'Screen updated:'),
@@ -1335,7 +1339,7 @@ describe('agent route through the Engine handle', () => {
       await sent;
 
       const firstRun = runIdOf(session.received, 'input-1');
-      const screenNote = `[show ${firstRun}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
+      const screenNote = `[screen ${firstRun}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`;
       expect(model.requests).toHaveLength(3);
       expect(occurrencesIn(model.requests[2]?.messages, screenNote)).toBe(1);
       expect(model.requests[2]?.messages.at(-1)).toEqual({
@@ -1348,7 +1352,7 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('a new run starts its first model turn once the acknowledgement timeout passes, even while a later show still plans, and the wait counts toward its elapsed time', async () => {
+    test('a new run starts its first model turn once the acknowledgement timeout passes, even while a later Screen Change still plans, and the wait counts toward its elapsed time', async () => {
       const time = createFakeAgentRunTime();
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -1393,7 +1397,7 @@ describe('agent route through the Engine handle', () => {
       expect(model.requests).toHaveLength(4);
       expect(model.requests[3]?.messages.at(-1)).toEqual({
         role: 'user',
-        content: `[show ${firstRun}:t1] Show not confirmed: the screen did not acknowledge the latest_order change.`,
+        content: `[screen ${firstRun}:t1] Screen change not confirmed: the screen did not acknowledge the latest_order change.`,
       });
       expect(lastFinishedOf(session.received, secondRun)).toMatchObject({
         reason: 'completed',
@@ -1435,7 +1439,7 @@ describe('agent route through the Engine handle', () => {
       });
     });
 
-    test('cancelling a run drops its queued shows with cancelled notes while its emitted change still takes its acknowledgement and screen note', async () => {
+    test('cancelling a run drops its queued Screen Changes with cancelled notes while its emitted change still takes its acknowledgement and screen note', async () => {
       const stalled: StalledCall = { closed: false };
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -1474,10 +1478,10 @@ describe('agent route through the Engine handle', () => {
         session.internals().transcript.renderPriorMessages(),
       );
       expect(transcript).toContain(
-        `[show ${runId}:t2] Show cancelled: latest_order result.`,
+        `[screen ${runId}:t2] Screen change cancelled: latest_order result.`,
       );
       expect(transcript).toContain(
-        `[show ${runId}:t3] Show cancelled: latest_order result.`,
+        `[screen ${runId}:t3] Screen change cancelled: latest_order result.`,
       );
       expect(lastFinishedOf(session.received, runId)).toMatchObject({
         reason: 'cancelled',
@@ -1494,11 +1498,11 @@ describe('agent route through the Engine handle', () => {
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
       ).toContain(
-        `[show ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`,
+        `[screen ${runId}:t1] Screen updated: ran addEvent on calendar → month. Visible: calendar (month).`,
       );
     });
 
-    test('cancelling a run aborts its show in planning with a cancelled note and sends nothing for it', async () => {
+    test('cancelling a run aborts its Screen Change in planning with a cancelled note and sends nothing for it', async () => {
       const stalled: StalledCall = { closed: false };
       const signals: (AbortSignal | undefined)[] = [];
       const model = scriptedTextAdapter([
@@ -1532,7 +1536,9 @@ describe('agent route through the Engine handle', () => {
       expect(signals[0]?.aborted).toBe(true);
       expect(
         serializeLoosely(session.internals().transcript.renderPriorMessages()),
-      ).toContain(`[show ${runId}:t1] Show cancelled: latest_order result.`);
+      ).toContain(
+        `[screen ${runId}:t1] Screen change cancelled: latest_order result.`,
+      );
       expect(session.received.map(typeOf)).not.toContain('ui_change');
       expect(session.received.map(typeOf)).not.toContain('error');
     });
@@ -1764,7 +1770,7 @@ describe('agent route through the Engine handle', () => {
         `[tool result ${firstRun}:c1] ok: Order o-1 for 42`,
       );
       expect(secondPrompt).toContain(
-        `[show ${firstRun}:t1] Show queued: latest_order result.`,
+        `[screen ${firstRun}:t1] Screen change queued: latest_order result.`,
       );
       expect(secondPrompt).not.toContain('squeaky bone');
       expect(
@@ -2464,7 +2470,7 @@ function heldUntil(
   };
 }
 
-function twoShowTurns() {
+function twoScreenChangeTurns() {
   return scriptedTextAdapter([
     scriptedToolTurn(
       [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -2478,10 +2484,10 @@ function twoShowTurns() {
   ]);
 }
 
-function directShowInput(signal = new AbortController().signal) {
+function directScreenChangeInput(signal = new AbortController().signal) {
   return {
     request: { ...calendarChart(), skipReply: true },
-    messageId: MessageId('direct-show'),
+    messageId: MessageId('direct-screen-change'),
     owner: {
       runId: RunId('direct-run'),
       inputId: MessageId('direct-input'),
