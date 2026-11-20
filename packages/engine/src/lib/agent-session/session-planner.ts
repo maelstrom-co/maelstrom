@@ -2,6 +2,7 @@ import type {
   ChartRequest,
   MaelstromResponse,
   MessageId,
+  PlannerReasonVerdict,
   Result,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
@@ -27,13 +28,29 @@ export interface SessionPlanInput {
 export type PlanOutcome =
   | {
       readonly type: 'response';
-      /** The validated change, with `userMessage` only when the reply is not blank. */
+      /** The validated change, with `userMessage` only when the reply is not blank. Never carries verdicts. */
       readonly response: MaelstromResponse;
+      /**
+       * Verdicts on the request's `user_intent` reasons, kept by validation.
+       * A reason without one shares the response's outcome.
+       */
+      readonly reasons?: readonly PlannerReasonVerdict[];
     }
   | {
       readonly type: 'needs_clarification';
-      /** The question the Planner asked instead of planning a change. */
+      /** The question the Planner asked instead of planning the whole change. */
       readonly question: string;
+      /** Suggested answers to {@link question}. */
+      readonly options?: readonly string[];
+      /** The healed layout the Planner could already settle, applied before {@link executionPlan}. Absent keeps the current layout. */
+      readonly layout?: MaelstromResponse['layout'];
+      /** The healed Actions the Planner could already plan, in order. Absent means none. */
+      readonly executionPlan?: MaelstromResponse['executionPlan'];
+      /**
+       * Verdicts on the request's `user_intent` reasons, kept by validation.
+       * A reason without one shares the clarification's outcome.
+       */
+      readonly reasons?: readonly PlannerReasonVerdict[];
     };
 
 /** Plans for one Agent Session. The Engine builds one per connection from its Planner. */

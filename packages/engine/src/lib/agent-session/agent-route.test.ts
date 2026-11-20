@@ -815,7 +815,7 @@ describe('agent route through the Engine handle', () => {
       }
     });
 
-    test('a needs-clarification result sends no ui_change and answers every goal with the question alone, which is all of the Planner that reaches the model', async () => {
+    test('a clarification with partial changes and no verdicts sends one ui_change, and after its acknowledgement every goal answers needs_clarification with the question, options, change id and what is on screen', async () => {
       const goals = ['show my order', 'show the other one'];
       const model = scriptedTextAdapter([
         scriptedToolTurn(
@@ -832,40 +832,153 @@ describe('agent route through the Engine handle', () => {
         planner: clarifyingWithPartialChangesPlanner,
       });
 
-      await session.send(
+      void session.send(
         utterance('input-1', 'show my orders', calendarChart()),
+      );
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      expect(change.response.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ]);
+      expect(change.response).not.toHaveProperty('reasons');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
       );
 
       const results = model.requests[1]?.messages;
-      expect(toolResultOf(results, 'call-1')).toEqual({
-        status: 'needs_clarification',
-        summary: `needs clarification: "${goals[0]}"`,
-        question: QUESTION_SENTINEL,
-      });
-      expect(toolResultOf(results, 'call-2')).toEqual({
-        status: 'needs_clarification',
-        summary: `needs clarification: "${goals[1]}"`,
-        question: QUESTION_SENTINEL,
-      });
-      expect(
-        occurrencesIn(model.requests[1]?.messages, QUESTION_SENTINEL),
-      ).toBe(2);
-      expect(session.received.map(typeOf)).not.toContain('ui_change');
-      expect(session.received.map(typeOf)).not.toContain('error');
-      const surfaces = [
-        JSON.stringify(session.received),
-        serializeLoosely(session.internals().transcript.renderPriorMessages()),
-        ...model.requests.map(serializeLoosely),
-      ];
-      for (const surface of surfaces) {
-        expect(surface).not.toContain('addEvent');
-        expect(surface).not.toContain(CLARIFICATION_OPTION_SENTINEL);
+      for (const [index, providerCallId] of ['call-1', 'call-2'].entries()) {
+        expect(toolResultOf(results, providerCallId)).toEqual({
+          status: 'needs_clarification',
+          summary: `needs clarification: "${goals[index]}"`,
+          changeId: change.changeId,
+          question: QUESTION_SENTINEL,
+          options: [CLARIFICATION_OPTION_SENTINEL],
+          onScreen: ['calendar'],
+        });
       }
+      const types = session.received.map(typeOf);
+      expect(types.indexOf('finished')).toBeGreaterThan(
+        types.indexOf('ui_change'),
+      );
+      for (const request of model.requests)
+        expect(serializeLoosely(request)).not.toContain('addEvent');
       for (const event of session.diagnostics) {
         expect(serializeLoosely(event.metadata)).not.toContain(
           QUESTION_SENTINEL,
         );
       }
+    });
+
+    test('verdicts give each goal its own result: a planned goal answers applied and a clarification goal its own question, both with the change id and neither with onScreen', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', 'add the order to the calendar'),
+            changeScreenCall('call-2', 'show the matching toy'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which toy?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: clarifyingWithVerdictsPlanner,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      await session.connection.send(acknowledgementOf(change, calendarChart()));
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
+      );
+
+      const results = model.requests[1]?.messages;
+      expect(toolResultOf(results, 'call-1')).toEqual({
+        status: 'applied',
+        summary: 'applied: "add the order to the calendar"',
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-2')).toEqual({
+        status: 'needs_clarification',
+        summary: 'needs clarification: "show the matching toy"',
+        changeId: change.changeId,
+        question: 'Which toy do you mean?',
+        options: ['The squeaky bone'],
+      });
+    });
+
+    test('a clarification without partial changes sends nothing and answers needs_clarification with no change id and what the current layout shows', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [changeScreenCall('call-1', 'show my order')],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which order?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        planner: clarifyingPlanner,
+      });
+
+      await session.send(utterance('input-1', 'show it', calendarChart()));
+
+      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+        status: 'needs_clarification',
+        summary: 'needs clarification: "show my order"',
+        question: 'Which order do you mean?',
+        options: ['The latest order', 'The order from last week'],
+        onScreen: ['calendar'],
+      });
+      expect(session.received.map(typeOf)).not.toContain('ui_change');
+    });
+
+    test('an acknowledgement timeout on a partial change answers the planned goal unknown while the clarification goal keeps its question and the change id', async () => {
+      const time = createFakeAgentRunTime();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            changeScreenCall('call-1', 'add the order to the calendar'),
+            changeScreenCall('call-2', 'show the matching toy'),
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['Which toy?'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        time,
+        model: model.adapter,
+        planner: clarifyingWithVerdictsPlanner,
+        acknowledgementTimeoutMs: 1_000,
+      });
+
+      void session.send(utterance('input-1', 'do both', calendarChart()));
+      await waitUntil(() => uiChangesOf(session.received).length === 1);
+      const [change] = uiChangesOf(session.received);
+      if (change === undefined) throw new Error('no ui_change');
+      time.advance(1_000);
+      await waitUntil(() =>
+        session.received.some((event) => event.type === 'finished'),
+      );
+
+      const results = model.requests[1]?.messages;
+      expect(toolResultOf(results, 'call-1')).toEqual({
+        status: 'unknown',
+        summary:
+          'unknown (the screen did not confirm): "add the order to the calendar"',
+        changeId: change.changeId,
+      });
+      expect(toolResultOf(results, 'call-2')).toMatchObject({
+        status: 'needs_clarification',
+        changeId: change.changeId,
+        question: 'Which toy do you mean?',
+      });
     });
 
     test('a blank goal gets the sanitized invalid arguments failure and makes no Planner call', async () => {
@@ -1458,8 +1571,64 @@ describe('agent route through the Engine handle', () => {
           ok({
             type: 'needs_clarification',
             question: 'Which order do you mean?',
+            options: ['The latest order', 'The order from last week'],
           }),
         );
+      });
+
+      test('a clarification keeps its healed partial changes and the verdicts that name a request reason', async () => {
+        const session = openAgentSession({
+          planner: clarifyingWithVerdictsPlanner,
+        });
+
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput(undefined, ['r1', 'r2']));
+
+        expect(result).toEqual(
+          ok({
+            type: 'needs_clarification',
+            question: 'Which toy do you mean?',
+            options: ['The squeaky bone'],
+            executionPlan: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                action: ActionName('addEvent'),
+              },
+            ],
+            reasons: [
+              { id: 'r1', status: 'planned' },
+              {
+                id: 'r2',
+                status: 'needs_clarification',
+                question: 'Which toy do you mean?',
+                options: ['The squeaky bone'],
+              },
+            ],
+          }),
+        );
+      });
+
+      test('a plan keeps its verdicts beside the response, which carries none', async () => {
+        const session = openAgentSession({
+          planner: (input) =>
+            Promise.resolve(
+              ok({
+                ...addEventCandidate(input.request),
+                userMessage: undefined,
+                reasons: [{ id: 'r1', status: 'planned' }],
+              }),
+            ),
+        });
+
+        const result = await session
+          .internals()
+          .planner(directScreenChangeInput(undefined, ['r1']));
+
+        if (isErr(result) || result.value.type !== 'response')
+          throw new Error('expected a response');
+        expect(result.value.reasons).toEqual([{ id: 'r1', status: 'planned' }]);
+        expect('reasons' in result.value.response).toBe(false);
       });
 
       test('a failing planner comes back as its error', async () => {
@@ -2393,9 +2562,48 @@ const clarifyingWithPartialChangesPlanner: ClarifyingPlanner = () =>
     }),
   );
 
-function directScreenChangeInput(signal = new AbortController().signal) {
+const clarifyingWithVerdictsPlanner: ClarifyingPlanner = () =>
+  Promise.resolve(
+    ok({
+      type: 'needs_clarification',
+      question: 'Which toy do you mean?',
+      options: ['The squeaky bone'],
+      executionPlan: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('addEvent'),
+        },
+      ],
+      reasons: [
+        { id: 'r1', status: 'planned' },
+        {
+          id: 'r2',
+          status: 'needs_clarification',
+          question: 'Which toy do you mean?',
+          options: ['The squeaky bone'],
+        },
+      ],
+    }),
+  );
+
+function directScreenChangeInput(
+  signal = new AbortController().signal,
+  reasonIds: readonly string[] = [],
+) {
+  const chart = calendarChart();
   return {
-    request: { ...calendarChart(), skipReply: true },
+    request: {
+      ...chart,
+      skipReply: true,
+      context: {
+        ...chart.context,
+        updateReasons: reasonIds.map((id) => ({
+          type: 'user_intent' as const,
+          id,
+          intent: `goal ${id}`,
+        })),
+      },
+    },
     messageId: MessageId('direct-screen-change'),
     owner: {
       runId: RunId('direct-run'),

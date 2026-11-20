@@ -787,7 +787,7 @@ describe('createScreenChangeQueue', () => {
     expect(harness.planner.calls).toHaveLength(2);
   });
 
-  test('answers every goal needs_clarification with the capped Planner question, sends nothing and keeps the question out of diagnostics, logs and the wire', async () => {
+  test('answers every goal needs_clarification with the capped Planner question and what is on screen, sends nothing and keeps the question out of diagnostics, logs and the wire', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     const answers = harness.queue.request(screenChange(1, 1, 2));
@@ -804,11 +804,13 @@ describe('createScreenChangeQueue', () => {
         status: 'needs_clarification',
         summary: 'needs clarification: "Show order 1.1"',
         question: capped,
+        onScreen: ['calendar'],
       },
       {
         status: 'needs_clarification',
         summary: 'needs clarification: "Show order 1.2"',
         question: capped,
+        onScreen: ['calendar'],
       },
     ]);
     expect(harness.received).toEqual([]);
@@ -1524,6 +1526,214 @@ interface LogEntry {
 }
 
 type Harness = ReturnType<typeof createHarness>;
+
+describe('clarification changes and per-goal verdicts', () => {
+  const widerLayout: MaelstromResponse['layout'] = {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: InstanceId('calendar-main'),
+        position: { row: 0, column: 0 },
+        size: { width: 8, height: 4 },
+      },
+    ],
+  };
+  const question = 'Which order do you mean?';
+  const options = ['The latest order', 'The order from last week'];
+
+  test('a clarification with a partial layout sends it as a change and, once acknowledged, answers every goal with the question, options, change id and what the sent layout shows', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      options,
+      layout: widerLayout,
+    });
+    const change = await harness.nextUiChange();
+    expect(change.response.layout).toEqual(widerLayout);
+    expect(change.response.executionPlan).toEqual([]);
+    expect(change.response).not.toHaveProperty('userMessage');
+    expect(change.response).not.toHaveProperty('reasons');
+    harness.queue.acknowledge(applied(change.changeId, weekChart, []));
+
+    expect(await Promise.all(answers)).toEqual(
+      [1, 2].map((goal) => ({
+        status: 'needs_clarification',
+        summary: `needs clarification: "Show order 1.${goal}"`,
+        changeId: change.changeId,
+        question,
+        options,
+        onScreen: ['calendar'],
+      })),
+    );
+  });
+
+  test('a clarification with only an execution plan runs it on the current layout', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(screenChange(1));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      executionPlan: changeResponse(monthChart).executionPlan,
+    });
+    const change = await harness.nextUiChange();
+
+    expect(change.response.layout).toEqual(monthChart.layout);
+    expect(change.response.executionPlan).toEqual(
+      changeResponse(monthChart).executionPlan,
+    );
+  });
+
+  test('verdicts give each goal its own result on a partial change: planned is applied and a clarification keeps its own question and the change id, with no onScreen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      options,
+      layout: widerLayout,
+      reasons: [
+        { id: 'r1', status: 'planned' },
+        {
+          id: 'r2',
+          status: 'needs_clarification',
+          question: 'Which size?',
+          options: ['Small', 'Large'],
+        },
+      ],
+    });
+    const change = await harness.nextUiChange();
+    harness.queue.acknowledge(applied(change.changeId, weekChart, []));
+
+    expect(await Promise.all(answers)).toEqual([
+      {
+        status: 'applied',
+        summary: 'applied: "Show order 1.1"',
+        changeId: change.changeId,
+      },
+      {
+        status: 'needs_clarification',
+        summary: 'needs clarification: "Show order 1.2"',
+        changeId: change.changeId,
+        question: 'Which size?',
+        options: ['Small', 'Large'],
+      },
+    ]);
+  });
+
+  test('an acknowledgement timeout on a partial change answers planned goals unknown while clarification goals keep their question and the change id', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      layout: widerLayout,
+      reasons: [
+        { id: 'r1', status: 'planned' },
+        { id: 'r2', status: 'needs_clarification', question: 'Which size?' },
+      ],
+    });
+    const change = await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    expect(await Promise.all(answers)).toEqual([
+      {
+        status: 'unknown',
+        summary: 'unknown (the screen did not confirm): "Show order 1.1"',
+        changeId: change.changeId,
+      },
+      {
+        status: 'needs_clarification',
+        summary: 'needs clarification: "Show order 1.2"',
+        changeId: change.changeId,
+        question: 'Which size?',
+      },
+    ]);
+  });
+
+  test('a plan response with verdicts answers planned goals applied and failed goals failed', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'response',
+      response: changeResponse(monthChart),
+      reasons: [
+        { id: 'r1', status: 'planned' },
+        { id: 'r2', status: 'failed' },
+      ],
+    });
+    const change = await harness.nextUiChange();
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+
+    const [first, second] = await Promise.all(answers);
+    expect(first).toEqual({
+      status: 'applied',
+      summary: 'applied: "Show order 1.1"',
+      changeId: change.changeId,
+    });
+    expect(second?.status).toBe('failed');
+    expect(second?.summary).toBe('failed: "Show order 1.2"');
+  });
+
+  test('a goal without a verdict takes the top-level outcome, and a clarification with verdicts adds no onScreen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      reasons: [{ id: 'r1', status: 'failed' }],
+    });
+
+    expect(await Promise.all(answers)).toEqual([
+      { status: 'failed', summary: 'failed: "Show order 1.1"' },
+      {
+        status: 'needs_clarification',
+        summary: 'needs clarification: "Show order 1.2"',
+        question,
+      },
+    ]);
+    expect(harness.received).toEqual([]);
+  });
+
+  test('a planned verdict on a change whose Action failed answers failed with some steps not run', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+
+    harness.planner.outcome(0, {
+      type: 'needs_clarification',
+      question,
+      executionPlan: changeResponse(monthChart).executionPlan,
+      reasons: [{ id: 'r1', status: 'planned' }],
+    });
+    const change = await harness.nextUiChange();
+    harness.queue.acknowledge(
+      applied(change.changeId, monthChart, [{ ok: false, error: 'boom' }]),
+    );
+
+    const [first, second] = await Promise.all(answers);
+    expect(first?.summary).toBe(
+      'failed (some steps did not run): "Show order 1.1"',
+    );
+    expect(second?.status).toBe('needs_clarification');
+    expect(second?.changeId).toBe(change.changeId);
+  });
+});
 
 function createHarness({
   planningTimeoutMs,

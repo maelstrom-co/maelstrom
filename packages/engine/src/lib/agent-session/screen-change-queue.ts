@@ -8,6 +8,7 @@ import {
   isErr,
   type MaelstromResponse,
   MessageId,
+  type PlannerReasonVerdict,
   type Result,
   type RunId,
 } from '@maelstrom-co/protocol';
@@ -23,6 +24,7 @@ import type { AgentRunClock } from './agent-run.js';
 import type { OrderedEmitter } from './ordered-emitter.js';
 import { changeError } from './run-scheduler.js';
 import type { ScreenChangeBatchGoal } from './screen-change-batch.js';
+import { vesselIdsOnScreen } from './screen-change-on-screen.js';
 import { buildScreenChangeRequest } from './screen-change-request.js';
 import {
   describeScreenChangeResult,
@@ -103,6 +105,11 @@ export interface ScreenChangeQueueOptions {
  * A Planner failure and an acknowledgement timeout also send an agent `error`
  * event carrying the Screen Change's `changeId` and `runId`. An outcome that
  * settles after its run stopped waiting becomes a Screen Note instead.
+ *
+ * A clarification's partial `layout` and `executionPlan` go out as a change
+ * like any plan. Planner verdicts give each goal its own result by reason
+ * id, and a goal without one takes the outcome's own result. A
+ * clarification without verdicts also answers `onScreen`.
  */
 export interface ScreenChangeQueue {
   /**
@@ -212,7 +219,7 @@ export function createScreenChangeQueue({
         refuseUnknownChange(input.changeId);
         return;
       }
-      const { planned, event, cancelTimeout } = state;
+      const { planned, event, decision, cancelTimeout } = state;
       const { job } = planned.queued;
       const { executionPlan } = event.response;
       if (input.actionOutcomes.length !== executionPlan.length) {
@@ -254,12 +261,12 @@ export function createScreenChangeQueue({
           actionOutcomes: input.actionOutcomes,
         }),
       );
-      const outcome: ScreenChangeOutcome =
-        failed.length === 0 ? 'applied' : 'partially_failed';
-      settleEach(planned.queued, () => ({
-        outcome,
-        changeId: planned.changeId,
-      }));
+      settleEach(planned.queued, (goal) =>
+        settlementOf(decision, goal, {
+          outcome: failed.length === 0 ? 'applied' : 'partially_failed',
+          changeId: planned.changeId,
+        }),
+      );
       startNextScreenChange();
     },
     whenIdle() {
@@ -385,7 +392,11 @@ export function createScreenChangeQueue({
     planned.controller.abort();
   }
 
-  function emitChange(planned: PlannedScreenChange, plan: MaelstromResponse) {
+  function emitChange(
+    planned: PlannedScreenChange,
+    plan: MaelstromResponse,
+    decision: PlanDecision,
+  ) {
     const { userMessage: _reply, ...response } = plan;
     const { changeId } = planned;
     const { job } = planned.queued;
@@ -398,10 +409,10 @@ export function createScreenChangeQueue({
     };
     const cancelTimeout = scheduleTimeout(() => {
       if (state.phase === 'awaiting_ack' && state.event === event)
-        expireChange(planned);
+        expireChange(planned, decision);
     }, acknowledgementTimeoutMs);
     // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
-    state = { phase: 'awaiting_ack', planned, event, cancelTimeout };
+    state = { phase: 'awaiting_ack', planned, event, decision, cancelTimeout };
     observeUiChangeEmitted(
       event,
       job.inputId,
@@ -419,7 +430,7 @@ export function createScreenChangeQueue({
     events.emit(event);
   }
 
-  function expireChange(planned: PlannedScreenChange) {
+  function expireChange(planned: PlannedScreenChange, decision: PlanDecision) {
     const { changeId } = planned;
     const { job } = planned.queued;
     // Leave awaiting acknowledgement first so a late ui_applied is refused as unknown.
@@ -442,7 +453,9 @@ export function createScreenChangeQueue({
         turnId: job.turnId,
       },
     );
-    settleEach(planned.queued, () => ({ outcome: 'unknown', changeId }));
+    settleEach(planned.queued, (goal) =>
+      settlementOf(decision, goal, { outcome: 'unknown', changeId }),
+    );
     startNextScreenChange();
   }
 
@@ -505,25 +518,58 @@ export function createScreenChangeQueue({
     const outcome = result.value;
     switch (outcome.type) {
       case 'needs_clarification': {
-        state = { phase: 'idle' };
-        const question = capScreenNote(outcome.question);
-        settleEach(planned.queued, () => ({
-          outcome: 'needs_clarification',
-          question,
-        }));
-        startNextScreenChange();
+        const decision = decisionOf(outcome.reasons, {
+          question: capScreenNote(outcome.question),
+          ...(outcome.options === undefined
+            ? {}
+            : { options: outcome.options }),
+        });
+        if (outcome.layout === undefined && outcome.executionPlan === undefined)
+          settleUnsent(planned, decision);
+        else
+          ship(planned, decision, {
+            type: 'maelstrom_response',
+            requestId: planned.messageId,
+            rationale: '',
+            layout: outcome.layout ?? planned.request.layout,
+            executionPlan: outcome.executionPlan ?? [],
+          });
         return;
       }
       case 'response':
-        if (isNoScreenChange(outcome.response, planned.request)) {
-          state = { phase: 'idle' };
-          settleEach(planned.queued, () => ({ outcome: 'already_on_screen' }));
-          startNextScreenChange();
-        } else emitChange(planned, outcome.response);
+        ship(planned, decisionOf(outcome.reasons, undefined), outcome.response);
         return;
       default:
         assertNever(outcome, 'PlanOutcome');
     }
+  }
+
+  function ship(
+    planned: PlannedScreenChange,
+    decision: PlanDecision,
+    response: MaelstromResponse,
+  ) {
+    if (isNoScreenChange(response, planned.request))
+      settleUnsent(planned, decision);
+    else
+      emitChange(
+        planned,
+        response,
+        withOnScreen(decision, response.layout, planned.request),
+      );
+  }
+
+  function settleUnsent(planned: PlannedScreenChange, decision: PlanDecision) {
+    state = { phase: 'idle' };
+    const shown = withOnScreen(
+      decision,
+      planned.request.layout,
+      planned.request,
+    );
+    settleEach(planned.queued, (goal) =>
+      settlementOf(shown, goal, { outcome: 'already_on_screen' }),
+    );
+    startNextScreenChange();
   }
 
   async function plan(planned: PlannedScreenChange) {
@@ -672,8 +718,91 @@ type ScreenChangeQueueState =
       readonly phase: 'awaiting_ack';
       readonly planned: PlannedScreenChange;
       readonly event: AgentUiChangeEvent;
+      readonly decision: PlanDecision;
       readonly cancelTimeout: () => void;
     };
+
+/** What a Planner outcome decided for each goal, before the screen answers. */
+interface PlanDecision {
+  /** The top-level question, present when the outcome was a clarification. */
+  readonly clarification?: {
+    readonly question: string;
+    readonly options?: readonly string[];
+  };
+  /** Verdicts by reason id. */
+  readonly verdicts: ReadonlyMap<string, PlannerReasonVerdict>;
+  /** Vessel ids on screen, present only on a clarification without verdicts. */
+  readonly onScreen?: readonly string[];
+}
+
+/** How the change went for the goals it carried. */
+interface ChangeSettlement {
+  readonly outcome: Extract<
+    ScreenChangeOutcome,
+    'applied' | 'already_on_screen' | 'partially_failed' | 'unknown'
+  >;
+  readonly changeId?: ChangeId;
+}
+
+function decisionOf(
+  reasons: readonly PlannerReasonVerdict[] | undefined,
+  clarification: PlanDecision['clarification'],
+): PlanDecision {
+  return {
+    verdicts: new Map((reasons ?? []).map((verdict) => [verdict.id, verdict])),
+    ...(clarification === undefined ? {} : { clarification }),
+  };
+}
+
+function withOnScreen(
+  decision: PlanDecision,
+  layout: MaelstromResponse['layout'],
+  request: ChartRequest,
+): PlanDecision {
+  if (decision.clarification === undefined || decision.verdicts.size > 0)
+    return decision;
+  return { ...decision, onScreen: vesselIdsOnScreen(layout, request) };
+}
+
+// A goal's verdict wins. A goal without one shares the outcome's own: the
+// change for a plan, the question for a clarification.
+function settlementOf(
+  decision: PlanDecision,
+  goal: ScreenChangeBatchGoal,
+  change: ChangeSettlement,
+): GoalSettlement {
+  const verdict = decision.verdicts.get(goal.reasonId);
+  const { changeId } = change;
+  if (verdict === undefined) {
+    if (decision.clarification === undefined) return change;
+    return {
+      outcome: 'needs_clarification',
+      changeId,
+      question: decision.clarification.question,
+      options: decision.clarification.options,
+      onScreen: decision.onScreen,
+    };
+  }
+  switch (verdict.status) {
+    case 'failed':
+      return { outcome: 'failed', changeId };
+    case 'needs_clarification': {
+      const question =
+        verdict.question === undefined
+          ? decision.clarification?.question
+          : capScreenNote(verdict.question);
+      const options =
+        verdict.question === undefined
+          ? (verdict.options ?? decision.clarification?.options)
+          : verdict.options;
+      return { outcome: 'needs_clarification', changeId, question, options };
+    }
+    case 'planned':
+      return change;
+    default:
+      return assertNever(verdict.status, 'PlannerReasonVerdict status');
+  }
+}
 
 function isNoScreenChange(
   response: MaelstromResponse,
