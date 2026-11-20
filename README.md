@@ -231,6 +231,9 @@ drive. The comparison docs carry the full tables and
 
 ## Packages
 
+The [AG-UI library impact explanation](docs/agui-library-impact.md) describes
+the public experimental adapters, core-library changes, and compatibility limits.
+
 | Package | Use it for |
 | --- | --- |
 | [`@maelstrom-co/react`](https://docs.maelstrom-ai.co/reference/react/readme/) | React bindings: `createMaelstrom`, `vessel`, Provider, Chart, hooks |
@@ -253,6 +256,12 @@ one API key, one command — then the
 [voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) to pick a
 mode, and [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/)
 for why a voice model never plans your UI.
+
+The [`@maelstrom-co/agui` adapter](./packages/agui/README.md), `agui-server`,
+and `agui-protocol` are public experimental SDK packages. Their first npm
+publication is pending. The [dedicated AG-UI app](./apps/agui-demo/README.md)
+composes them with shared Vessel views, typed goals, GPT-Live, and durable
+records. The native demo remains a separate app.
 
 ## Get Involved
 
