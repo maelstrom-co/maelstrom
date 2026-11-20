@@ -437,6 +437,10 @@ function toChatTool(
         ? validatedArgs
         : (rawArgsOf(callId) ?? validatedArgs);
     const execute = () => {
+      // The call may have waited for its slot past the deadline, and the
+      // deadline timer cannot fire between two calls of one microtask chain.
+      if (!policy.beforeToolStart())
+        return Promise.resolve(stoppedToolResult());
       if (callId !== undefined) calls.markStarted(callId, rawArgs);
       return executions.track(
         entry,

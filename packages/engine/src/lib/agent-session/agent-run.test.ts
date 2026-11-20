@@ -2662,6 +2662,63 @@ describe('runAgent Server Tools in one turn', () => {
     ]);
     expectEveryCallSettledOnce(events);
   });
+
+  test('a queued tool whose slot comes up after the deadline never executes, even before the deadline timer fires', async () => {
+    const time = createFakeAgentRunTime();
+    const tools = orderTools({
+      latestOrder: () => {
+        time.advanceWithoutFiring(100);
+        return Promise.resolve(LATEST_ORDER);
+      },
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'latest_order', args: {} },
+          { id: 'c2', name: 'order_status', args: { orderId: 'o-1' } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+    const started: string[] = [];
+
+    const events = await collect(
+      runAgent(
+        runInput({
+          adapter: model.adapter,
+          registry: tools.registry,
+          budgets: { ...testBudgets, maxElapsedMs: 100 },
+          clock: time.clock,
+        }),
+        {
+          signal: new AbortController().signal,
+          onActivity: (activity) => {
+            if (activity.type === 'tool_started') started.push(activity.callId);
+          },
+        },
+      ),
+    );
+    await flushMacrotask();
+
+    expect(tools.statusCalls()).toBe(0);
+    expect(started).toEqual(['c1']);
+    expect(
+      events.find(
+        (event) => event.type === 'tool_result' && event.callId === 'c2',
+      ),
+    ).toEqual(stoppedResult('run-1:t1', 'c2', 'order_status'));
+    expect(events.filter((event) => event.type === 'finished')).toEqual([
+      expect.objectContaining({
+        reason: 'budget',
+        limit: 'elapsed',
+        metrics: expect.objectContaining({
+          toolCalls: { requested: 2, admitted: 2 },
+        }),
+      }),
+    ]);
+    expectEveryCallSettledOnce(events);
+  });
 });
 
 describe('runAgent session notes', () => {
