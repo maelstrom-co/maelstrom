@@ -70,6 +70,7 @@ vitest.config.*.timestamp*
 
 # Generated API reference (starlight-typedoc emits these on docs build)
 apps/docs/src/content/docs/reference/
+apps/docs/src/content/docs/dev/reference/
 
 # AI generated plans
 docs/superpowers/

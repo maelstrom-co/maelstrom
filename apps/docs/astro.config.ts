@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
@@ -17,7 +19,13 @@ import {
   createGitHubSourceLinkTemplate,
   resolveDocsSourceRef,
 } from './src/lib/docs-source-links.js';
+import { DEV_VERSION } from './src/lib/docs-versions';
+import {
+  docsVersions,
+  readDocsVersions,
+} from './src/lib/docs-versions-integration';
 import { llmDocs } from './src/lib/llm-docs-integration';
+import { versionSidebar } from './src/lib/versioned-sidebar';
 
 const [devtoolsTypeDoc, devtoolsTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -99,6 +107,167 @@ const multiEntryTypeDocOptions = {
 
 const docsSite = process.env.DOCS_SITE_URL ?? 'https://docs.maelstrom-ai.co';
 
+const docsRoot = fileURLToPath(new URL('./src/content/docs/', import.meta.url));
+const versions = readDocsVersions(docsRoot);
+const defaultVersion = versions.defaultVersion;
+
+// Written with unversioned slugs; versionSidebar points it at each folder.
+// Frozen versions have no generated API reference yet.
+function docsSidebar({
+  apiReference,
+}: {
+  apiReference: boolean;
+}): NonNullable<Parameters<typeof starlight>[0]['sidebar']> {
+  return [
+    {
+      label: 'Getting Started',
+      items: [
+        { slug: 'getting-started/introduction' },
+        { slug: 'getting-started/starter' },
+        { slug: 'getting-started/quick-start' },
+        { label: 'Build with an agent', link: '/agents/skills/' },
+        { slug: 'getting-started/core-concepts' },
+        { slug: 'getting-started/installation' },
+      ],
+    },
+    {
+      label: 'Tutorials',
+      items: [
+        { slug: 'tutorials/first-dashboard' },
+        { slug: 'tutorials/run-voice-locally' },
+        { slug: 'tutorials/run-the-cascade-locally' },
+        { slug: 'tutorials/deploy-to-production' },
+      ],
+    },
+    {
+      label: 'Guides',
+      items: [
+        { slug: 'guides/devtools' },
+        { slug: 'guides/devtools-mcp' },
+        {
+          label: 'Voice',
+          items: [
+            { slug: 'guides/voice/overview' },
+            { slug: 'guides/voice/openai-realtime' },
+            { slug: 'guides/voice/live-opening-recovery' },
+            { slug: 'guides/voice/livekit-cascade' },
+          ],
+        },
+        {
+          label: 'React',
+          items: [
+            { slug: 'guides/react/creating-vessels' },
+            { slug: 'guides/react/variants-and-actions' },
+            { slug: 'guides/react/lazy-loading' },
+            { slug: 'guides/react/layout-modes' },
+            { slug: 'guides/react/default-screen' },
+            { slug: 'guides/react/error-handling' },
+          ],
+        },
+        {
+          label: 'Engine',
+          items: [
+            { slug: 'guides/engine/custom-llm-providers' },
+            { slug: 'guides/engine/system-prompt' },
+            { slug: 'guides/engine/conversation-history' },
+          ],
+        },
+        {
+          label: 'Client',
+          items: [
+            { slug: 'guides/client/custom-connectors' },
+            { slug: 'guides/client/programmatic-layout' },
+          ],
+        },
+      ],
+    },
+    {
+      label: 'Evals',
+      items: [
+        { label: 'Architecture', slug: 'evals/architecture' },
+        { label: 'Langfuse', slug: 'evals/langfuse' },
+        { label: 'Cases', slug: 'evals/cases' },
+      ],
+    },
+    {
+      label: 'Understanding',
+      items: [
+        { slug: 'understanding/why-maelstrom' },
+        { slug: 'understanding/comparison' },
+        { slug: 'understanding/devtools-mcp' },
+        {
+          label: 'Architecture Overview',
+          link: '/understanding/architecture/',
+        },
+        { slug: 'understanding/voice-architecture' },
+        { slug: 'understanding/browser-vad-and-barge-in' },
+        { slug: 'understanding/engine' },
+        { slug: 'understanding/protocol' },
+        { slug: 'understanding/llm-orchestration' },
+        { slug: 'understanding/vessel-state-machine' },
+        { slug: 'understanding/connectors' },
+        { slug: 'understanding/grid-vs-tiling' },
+      ],
+    },
+    ...(apiReference
+      ? [
+          {
+            label: 'API Reference',
+            items: [
+              reactTypeDocSidebarGroup,
+              devtoolsTypeDocSidebarGroup,
+              devtoolsBridgeTypeDocSidebarGroup,
+              devtoolsMcpTypeDocSidebarGroup,
+              devtoolsProtocolTypeDocSidebarGroup,
+              reactDevtoolsTypeDocSidebarGroup,
+              clientTypeDocSidebarGroup,
+              connectorsTypeDocSidebarGroup,
+              protocolTypeDocSidebarGroup,
+              telemetryTypeDocSidebarGroup,
+              engineTypeDocSidebarGroup,
+              plannerLlmTypeDocSidebarGroup,
+              {
+                label: 'Voice',
+                items: [
+                  realtimeTypeDocSidebarGroup,
+                  realtimeProtocolTypeDocSidebarGroup,
+                  realtimeOpenaiTypeDocSidebarGroup,
+                  realtimeOpenaiLiveTypeDocSidebarGroup,
+                  realtimeOpenaiLiveServerTypeDocSidebarGroup,
+                  reactRealtimeTypeDocSidebarGroup,
+                  realtimeOpenaiServerTypeDocSidebarGroup,
+                  realtimeLivekitTypeDocSidebarGroup,
+                  realtimeLivekitServerTypeDocSidebarGroup,
+                  realtimeLivekitAgentTypeDocSidebarGroup,
+                  realtimeVadTypeDocSidebarGroup,
+                ],
+              },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: 'Coding agents',
+      items: [
+        { label: 'Prompts library', link: '/agents/prompts/' },
+        { label: 'Agent skills', link: '/agents/skills/' },
+        {
+          label: 'Testing prompts and skills',
+          link: '/agents/evaluations/',
+        },
+      ],
+    },
+    {
+      label: 'Community',
+      items: [
+        { slug: 'community/contributing' },
+        { slug: 'community/jsdoc-contract' },
+        { slug: 'community/changelog' },
+      ],
+    },
+  ];
+}
+
 export default defineConfig({
   site: docsSite,
   output: 'static',
@@ -108,13 +277,26 @@ export default defineConfig({
   compressHTML: true,
   server: { port: 4322 },
   redirects: {
-    '/': { destination: '/getting-started/introduction/', status: 301 },
+    '/': {
+      destination: `/${defaultVersion}/getting-started/introduction/`,
+      status: 302,
+    },
     '/guides/engine/evaluations/': {
-      destination: '/evals/architecture/',
+      destination: `/${defaultVersion}/evals/architecture/`,
       status: 301,
     },
+    ...Object.fromEntries(
+      versions.versions.map((version) => [
+        `/${version}/`,
+        {
+          destination: `/${version}/getting-started/introduction/`,
+          status: 302,
+        },
+      ]),
+    ),
   },
   integrations: [
+    docsVersions(docsRoot),
     llmDocs(),
     mermaid({
       autoTheme: true,
@@ -194,35 +376,35 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           customSets: [
             {
               label: 'Getting Started',
-              paths: ['getting-started/**'],
+              paths: ['dev/getting-started/**'],
               description:
                 'Introduction, quick start, core concepts, and installation',
             },
             {
               label: 'Guides',
-              paths: ['guides/**'],
+              paths: ['dev/guides/**'],
               description:
                 'Task-oriented how-tos for React, Engine, and Client',
             },
             {
               label: 'Evals',
-              paths: ['evals/**'],
+              paths: ['dev/evals/**'],
               description:
                 'Evaluation architecture, Langfuse workflow, cases, and coverage limits',
             },
             {
               label: 'API Reference',
-              paths: ['reference/**'],
+              paths: ['dev/reference/**'],
               description: 'Complete API documentation for all packages',
             },
           ],
           promote: [
-            'getting-started/introduction',
-            'getting-started/quick-start',
-            'getting-started/core-concepts',
+            'dev/getting-started/introduction',
+            'dev/getting-started/quick-start',
+            'dev/getting-started/core-concepts',
           ],
-          demote: ['community/changelog'],
-          exclude: ['!getting-started/**'],
+          demote: ['dev/community/changelog'],
+          exclude: ['!dev/getting-started/**'],
           minify: {
             note: false,
             tip: false,
@@ -238,21 +420,21 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             '../../packages/telemetry/src/integration.ts',
           ],
           tsconfig: '../../packages/telemetry/tsconfig.lib.json',
-          output: 'reference/telemetry',
+          output: 'dev/reference/telemetry',
           sidebar: { label: '@maelstrom-co/telemetry', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         devtoolsTypeDoc({
           entryPoints: ['../../packages/devtools/src/index.ts'],
           tsconfig: '../../packages/devtools/tsconfig.lib.json',
-          output: 'reference/devtools',
+          output: 'dev/reference/devtools',
           sidebar: { label: '@maelstrom-co/devtools', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         devtoolsBridgeTypeDoc({
           entryPoints: ['../../packages/devtools/src/mcp-bridge.ts'],
           tsconfig: '../../packages/devtools/tsconfig.lib.json',
-          output: 'reference/devtools-bridge',
+          output: 'dev/reference/devtools-bridge',
           sidebar: {
             label: '@maelstrom-co/devtools/mcp-bridge',
             collapsed: true,
@@ -262,14 +444,14 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         reactDevtoolsTypeDoc({
           entryPoints: ['../../packages/react-devtools/src/index.ts'],
           tsconfig: '../../packages/react-devtools/tsconfig.lib.json',
-          output: 'reference/react-devtools',
+          output: 'dev/reference/react-devtools',
           sidebar: { label: '@maelstrom-co/react-devtools', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         devtoolsMcpTypeDoc({
           entryPoints: ['../../packages/devtools-mcp-server/src/index.ts'],
           tsconfig: '../../packages/devtools-mcp-server/tsconfig.lib.json',
-          output: 'reference/devtools-mcp-server',
+          output: 'dev/reference/devtools-mcp-server',
           sidebar: {
             label: '@maelstrom-co/devtools-mcp-server',
             collapsed: true,
@@ -279,7 +461,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         devtoolsProtocolTypeDoc({
           entryPoints: ['../../packages/devtools-protocol/src/index.ts'],
           tsconfig: '../../packages/devtools-protocol/tsconfig.lib.json',
-          output: 'reference/devtools-protocol',
+          output: 'dev/reference/devtools-protocol',
           sidebar: {
             label: '@maelstrom-co/devtools-protocol',
             collapsed: true,
@@ -289,7 +471,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         reactTypeDoc({
           entryPoints: ['../../packages/react/src/index.ts'],
           tsconfig: '../../packages/react/tsconfig.lib.json',
-          output: 'reference/react',
+          output: 'dev/reference/react',
           sidebar: { label: '@maelstrom-co/react', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -300,7 +482,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         clientTypeDoc({
           entryPoints: ['../../packages/client/src/index.ts'],
           tsconfig: '../../packages/client/tsconfig.lib.json',
-          output: 'reference/client',
+          output: 'dev/reference/client',
           sidebar: { label: '@maelstrom-co/client', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -311,7 +493,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         connectorsTypeDoc({
           entryPoints: ['../../packages/connectors/src/index.ts'],
           tsconfig: '../../packages/connectors/tsconfig.lib.json',
-          output: 'reference/connectors',
+          output: 'dev/reference/connectors',
           sidebar: { label: '@maelstrom-co/connectors', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -322,7 +504,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         protocolTypeDoc({
           entryPoints: ['../../packages/protocol/src/index.ts'],
           tsconfig: '../../packages/protocol/tsconfig.lib.json',
-          output: 'reference/protocol',
+          output: 'dev/reference/protocol',
           sidebar: { label: '@maelstrom-co/protocol', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -333,7 +515,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         engineTypeDoc({
           entryPoints: ['../../packages/engine/src/index.ts'],
           tsconfig: '../../packages/engine/tsconfig.lib.json',
-          output: 'reference/engine',
+          output: 'dev/reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -344,7 +526,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         plannerLlmTypeDoc({
           entryPoints: ['../../packages/planner-llm/src/index.ts'],
           tsconfig: '../../packages/planner-llm/tsconfig.lib.json',
-          output: 'reference/planner-llm',
+          output: 'dev/reference/planner-llm',
           sidebar: { label: '@maelstrom-co/planner-llm', collapsed: true },
           typeDoc: {
             excludeInternal: true,
@@ -355,7 +537,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeTypeDoc({
           entryPoints: ['../../packages/realtime/src/index.ts'],
           tsconfig: '../../packages/realtime/tsconfig.lib.json',
-          output: 'reference/realtime',
+          output: 'dev/reference/realtime',
           sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
@@ -368,7 +550,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             '../../packages/realtime-protocol/src/livekit-wire.ts',
           ],
           tsconfig: '../../packages/realtime-protocol/tsconfig.lib.json',
-          output: 'reference/realtime-protocol',
+          output: 'dev/reference/realtime-protocol',
           sidebar: {
             label: '@maelstrom-co/realtime-protocol',
             collapsed: true,
@@ -378,14 +560,14 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeOpenaiTypeDoc({
           entryPoints: ['../../packages/realtime-openai/src/index.ts'],
           tsconfig: '../../packages/realtime-openai/tsconfig.lib.json',
-          output: 'reference/realtime-openai',
+          output: 'dev/reference/realtime-openai',
           sidebar: { label: '@maelstrom-co/realtime-openai', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         reactRealtimeTypeDoc({
           entryPoints: ['../../packages/react-realtime/src/index.ts'],
           tsconfig: '../../packages/react-realtime/tsconfig.lib.json',
-          output: 'reference/react-realtime',
+          output: 'dev/reference/react-realtime',
           sidebar: {
             label: '@maelstrom-co/react-realtime',
             collapsed: true,
@@ -395,7 +577,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeOpenaiLiveTypeDoc({
           entryPoints: ['../../packages/realtime-openai-live/src/index.ts'],
           tsconfig: '../../packages/realtime-openai-live/tsconfig.lib.json',
-          output: 'reference/realtime-openai-live',
+          output: 'dev/reference/realtime-openai-live',
           sidebar: {
             label: '@maelstrom-co/realtime-openai-live',
             collapsed: true,
@@ -408,7 +590,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           ],
           tsconfig:
             '../../packages/realtime-openai-live-server/tsconfig.lib.json',
-          output: 'reference/realtime-openai-live-server',
+          output: 'dev/reference/realtime-openai-live-server',
           sidebar: {
             label: '@maelstrom-co/realtime-openai-live-server',
             collapsed: true,
@@ -418,7 +600,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeOpenaiServerTypeDoc({
           entryPoints: ['../../packages/realtime-openai-server/src/index.ts'],
           tsconfig: '../../packages/realtime-openai-server/tsconfig.lib.json',
-          output: 'reference/realtime-openai-server',
+          output: 'dev/reference/realtime-openai-server',
           sidebar: {
             label: '@maelstrom-co/realtime-openai-server',
             collapsed: true,
@@ -428,7 +610,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeLivekitTypeDoc({
           entryPoints: ['../../packages/realtime-livekit/src/index.ts'],
           tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
-          output: 'reference/realtime-livekit',
+          output: 'dev/reference/realtime-livekit',
           sidebar: {
             label: '@maelstrom-co/realtime-livekit',
             collapsed: true,
@@ -438,7 +620,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeLivekitServerTypeDoc({
           entryPoints: ['../../packages/realtime-livekit-server/src/index.ts'],
           tsconfig: '../../packages/realtime-livekit-server/tsconfig.lib.json',
-          output: 'reference/realtime-livekit-server',
+          output: 'dev/reference/realtime-livekit-server',
           sidebar: {
             label: '@maelstrom-co/realtime-livekit-server',
             collapsed: true,
@@ -448,7 +630,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         realtimeLivekitAgentTypeDoc({
           entryPoints: ['../../packages/realtime-livekit-agent/src/index.ts'],
           tsconfig: '../../packages/realtime-livekit-agent/tsconfig.lib.json',
-          output: 'reference/realtime-livekit-agent',
+          output: 'dev/reference/realtime-livekit-agent',
           sidebar: {
             label: '@maelstrom-co/realtime-livekit-agent',
             collapsed: true,
@@ -461,7 +643,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             '../../packages/realtime-vad/src/vad-assets.ts',
           ],
           tsconfig: '../../packages/realtime-vad/tsconfig.lib.json',
-          output: 'reference/realtime-vad',
+          output: 'dev/reference/realtime-vad',
           sidebar: { label: '@maelstrom-co/realtime-vad', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
@@ -492,6 +674,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           },
         },
       },
+      routeMiddleware: './src/lib/docs-version-route.ts',
       components: {
         Header: './src/components/Header.astro',
         Sidebar: './src/components/Sidebar.astro',
@@ -499,150 +682,18 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
         Head: './src/components/Head.astro',
         Pagination: './src/components/Pagination.astro',
       },
-      sidebar: [
-        {
-          label: 'Getting Started',
-          items: [
-            { slug: 'getting-started/introduction' },
-            { slug: 'getting-started/starter' },
-            { slug: 'getting-started/quick-start' },
-            { label: 'Build with an agent', link: '/agents/skills/' },
-            { slug: 'getting-started/core-concepts' },
-            { slug: 'getting-started/installation' },
-          ],
-        },
-        {
-          label: 'Tutorials',
-          items: [
-            { slug: 'tutorials/first-dashboard' },
-            { slug: 'tutorials/run-voice-locally' },
-            { slug: 'tutorials/run-the-cascade-locally' },
-            { slug: 'tutorials/deploy-to-production' },
-          ],
-        },
-        {
-          label: 'Guides',
-          items: [
-            { slug: 'guides/devtools' },
-            { slug: 'guides/devtools-mcp' },
-            {
-              label: 'Voice',
-              items: [
-                { slug: 'guides/voice/overview' },
-                { slug: 'guides/voice/openai-realtime' },
-                { slug: 'guides/voice/live-opening-recovery' },
-                { slug: 'guides/voice/livekit-cascade' },
-              ],
-            },
-            {
-              label: 'React',
-              items: [
-                { slug: 'guides/react/creating-vessels' },
-                { slug: 'guides/react/variants-and-actions' },
-                { slug: 'guides/react/lazy-loading' },
-                { slug: 'guides/react/layout-modes' },
-                { slug: 'guides/react/default-screen' },
-                { slug: 'guides/react/error-handling' },
-              ],
-            },
-            {
-              label: 'Engine',
-              items: [
-                { slug: 'guides/engine/custom-llm-providers' },
-                { slug: 'guides/engine/system-prompt' },
-                { slug: 'guides/engine/conversation-history' },
-              ],
-            },
-            {
-              label: 'Client',
-              items: [
-                { slug: 'guides/client/custom-connectors' },
-                { slug: 'guides/client/programmatic-layout' },
-              ],
-            },
-          ],
-        },
-        {
-          label: 'Evals',
-          items: [
-            { label: 'Architecture', slug: 'evals/architecture' },
-            { label: 'Langfuse', slug: 'evals/langfuse' },
-            { label: 'Cases', slug: 'evals/cases' },
-          ],
-        },
-        {
-          label: 'Understanding',
-          items: [
-            { slug: 'understanding/why-maelstrom' },
-            { slug: 'understanding/comparison' },
-            { slug: 'understanding/devtools-mcp' },
-            {
-              label: 'Architecture Overview',
-              link: '/understanding/architecture/',
-            },
-            { slug: 'understanding/voice-architecture' },
-            { slug: 'understanding/browser-vad-and-barge-in' },
-            { slug: 'understanding/engine' },
-            { slug: 'understanding/protocol' },
-            { slug: 'understanding/llm-orchestration' },
-            { slug: 'understanding/vessel-state-machine' },
-            { slug: 'understanding/connectors' },
-            { slug: 'understanding/grid-vs-tiling' },
-          ],
-        },
-        {
-          label: 'API Reference',
-          items: [
-            reactTypeDocSidebarGroup,
-            devtoolsTypeDocSidebarGroup,
-            devtoolsBridgeTypeDocSidebarGroup,
-            devtoolsMcpTypeDocSidebarGroup,
-            devtoolsProtocolTypeDocSidebarGroup,
-            reactDevtoolsTypeDocSidebarGroup,
-            clientTypeDocSidebarGroup,
-            connectorsTypeDocSidebarGroup,
-            protocolTypeDocSidebarGroup,
-            telemetryTypeDocSidebarGroup,
-            engineTypeDocSidebarGroup,
-            plannerLlmTypeDocSidebarGroup,
-            {
-              label: 'Voice',
-              items: [
-                realtimeTypeDocSidebarGroup,
-                realtimeProtocolTypeDocSidebarGroup,
-                realtimeOpenaiTypeDocSidebarGroup,
-                realtimeOpenaiLiveTypeDocSidebarGroup,
-                realtimeOpenaiLiveServerTypeDocSidebarGroup,
-                reactRealtimeTypeDocSidebarGroup,
-                realtimeOpenaiServerTypeDocSidebarGroup,
-                realtimeLivekitTypeDocSidebarGroup,
-                realtimeLivekitServerTypeDocSidebarGroup,
-                realtimeLivekitAgentTypeDocSidebarGroup,
-                realtimeVadTypeDocSidebarGroup,
-              ],
-            },
-          ],
-        },
-        {
-          label: 'Coding agents',
-          items: [
-            { label: 'Prompts library', link: '/agents/prompts/' },
-            { label: 'Agent skills', link: '/agents/skills/' },
-            {
-              label: 'Testing prompts and skills',
-              link: '/agents/evaluations/',
-            },
-          ],
-        },
-        {
-          label: 'Community',
-          items: [
-            { slug: 'community/contributing' },
-            { slug: 'community/jsdoc-contract' },
-            { slug: 'community/changelog' },
-          ],
-        },
-      ],
+      // One group per version folder; docs-version-route shows the page's own.
+      sidebar: versions.versions.map((version) => ({
+        label: version,
+        items:
+          version === DEV_VERSION
+            ? versionSidebar(docsSidebar({ apiReference: true }), version)
+            : versionSidebar(
+                docsSidebar({ apiReference: false }),
+                version,
+                new Set(versions.pages[version]),
+              ),
+      })),
       lastUpdated: true,
       pagination: true,
     }),

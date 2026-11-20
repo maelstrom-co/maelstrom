@@ -39,7 +39,8 @@ describe('coding agent sidebar navigation', () => {
   });
 
   it('keeps the guide at its existing route and links readers to the evaluation source', () => {
-    expect(evaluationGuide).toContain('slug: agents/evaluations');
+    // A slug override would pin the page outside its version folder.
+    expect(evaluationGuide).not.toContain('slug:');
     expect(evaluationGuide).toContain(
       '`apps/docs/prompts/evaluation/README.md`',
     );

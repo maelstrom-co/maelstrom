@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 // jsdom proves the state machine; only a real browser proves the layout claim,
 // which rides entirely on Starlight's own CSS variables.
-const PAGE = '/getting-started/introduction/';
+const PAGE = '/dev/getting-started/introduction/';
 const SIDEBAR = '#starlight__sidebar';
 const HTML = 'html';
 const READY = 'data-sidebar-collapse-ready';

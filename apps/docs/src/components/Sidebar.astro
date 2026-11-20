@@ -9,6 +9,7 @@ import config from 'virtual:starlight/user-config';
 import { icons } from './icons';
 import MaelstromLogo from './MaelstromLogo.astro';
 import SidebarToggle from './SidebarToggle.astro';
+import VersionPicker from './VersionPicker.astro';
 
 const { sidebar } = Astro.locals.starlightRoute;
 
@@ -31,6 +32,8 @@ const frameworks = [
     </a>
     <SidebarToggle variant="collapse" />
   </div>
+
+  <VersionPicker />
 
   {shouldRenderSearch && (
     <div class="sidebar-search" transition:persist="search">

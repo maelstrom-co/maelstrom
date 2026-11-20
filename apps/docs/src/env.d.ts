@@ -30,3 +30,8 @@ declare module 'virtual:starlight/components/MobileMenuFooter' {
   const MobileMenuFooter: typeof import('@astrojs/starlight/components').MobileMenuFooter;
   export default MobileMenuFooter;
 }
+
+declare module 'virtual:maelstrom/docs-versions' {
+  const docs: import('./lib/docs-versions').DocsVersions;
+  export default docs;
+}
