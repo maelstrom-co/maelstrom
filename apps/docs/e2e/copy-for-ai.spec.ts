@@ -60,5 +60,7 @@ test('copied protocol tables retain the envelope and result relationships', asyn
   expect(markdown).toMatch(
     /\|\s*`chart_request`\s*\|\s*Successful `chart_response`\s*\|\s*`engine\.maelstrom\.response`/,
   );
-  expect(markdown).toContain(new URL('/dev/understanding/engine', page.url()).href);
+  expect(markdown).toContain(
+    new URL('/dev/understanding/engine', page.url()).href,
+  );
 });
