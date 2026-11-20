@@ -1,0 +1,184 @@
+---
+import docs from 'virtual:maelstrom/docs-versions';
+
+import { DEV_VERSION, versionOptions } from '../lib/docs-versions';
+import { icons } from './icons';
+
+// Releases newest first, then dev, so the default version heads the menu.
+const options = versionOptions(docs, Astro.locals.starlightRoute.id).sort(
+  (a, b) =>
+    Number(a.version === DEV_VERSION) - Number(b.version === DEV_VERSION),
+);
+const current = options.find((option) => option.current) ?? options[0];
+---
+
+<version-badge class="version-badge">
+  <button
+    type="button"
+    class="version-badge-trigger"
+    aria-haspopup="menu"
+    aria-expanded="false"
+    aria-label={`Docs version ${current?.label ?? ''}, change version`}
+    data-docs-version-badge
+  >
+    <span class="version-badge-label">{current?.label}</span>
+    <span class="version-badge-chevron" set:html={icons.chevronDown} />
+  </button>
+  <ul class="version-badge-menu" role="menu" aria-label="Docs version">
+    {options.map((option) => (
+      <li role="none">
+        <a
+          role="menuitem"
+          href={option.href}
+          tabindex="-1"
+          data-version={option.version}
+          aria-current={option.current ? 'page' : undefined}
+        >
+          <span class="version-badge-check" aria-hidden="true">
+            {option.current ? '✓' : ''}
+          </span>
+          <span class="version-badge-name">{option.version}</span>
+          {option.tag && <span class="version-badge-tag">{option.tag}</span>}
+        </a>
+      </li>
+    ))}
+  </ul>
+</version-badge>
+
+<style>
+  .version-badge {
+    position: relative;
+    display: inline-flex;
+    margin-right: auto;
+  }
+
+  .version-badge-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--sl-color-gray-2);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    cursor: pointer;
+  }
+
+  .version-badge-trigger:hover,
+  .version-badge-trigger[aria-expanded='true'] {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .version-badge-trigger:focus-visible,
+  .version-badge-menu a:focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 1px;
+  }
+
+  .version-badge-chevron {
+    display: flex;
+    align-items: center;
+    opacity: 0.5;
+  }
+
+  .version-badge-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 20;
+    min-width: 8.5rem;
+    white-space: nowrap;
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg-sidebar);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .version-badge-trigger[aria-expanded='true'] + .version-badge-menu {
+    display: block;
+  }
+
+  .version-badge-menu li {
+    margin: 0;
+  }
+
+  .version-badge-menu a {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    color: var(--sl-color-gray-3);
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+
+  .version-badge-menu a:hover,
+  .version-badge-menu a:focus-visible {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--sl-color-gray-1);
+  }
+
+  .version-badge-menu a[aria-current='page'] {
+    color: var(--color-accent-500);
+    background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+  }
+
+  .version-badge-check {
+    width: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .version-badge-name {
+    flex: 1;
+  }
+
+  .version-badge-tag {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.1em 0.5em;
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--sl-color-gray-4);
+  }
+
+  :global([data-theme='light']) .version-badge-trigger {
+    border-color: rgba(10, 30, 53, 0.1);
+    background: rgba(10, 30, 53, 0.02);
+  }
+
+  :global([data-theme='light']) .version-badge-trigger:hover,
+  :global([data-theme='light']) .version-badge-trigger[aria-expanded='true'] {
+    border-color: rgba(10, 30, 53, 0.18);
+    background: rgba(10, 30, 53, 0.04);
+  }
+
+  :global([data-theme='light']) .version-badge-menu {
+    border-color: rgba(10, 30, 53, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  :global([data-theme='light']) .version-badge-menu a:hover,
+  :global([data-theme='light']) .version-badge-menu a:focus-visible {
+    background: rgba(10, 30, 53, 0.04);
+  }
+
+  :global([data-theme='light']) .version-badge-tag {
+    background: rgba(10, 30, 53, 0.06);
+  }
+</style>
+
+<script>
+  import '../lib/version-badge';
+</script>

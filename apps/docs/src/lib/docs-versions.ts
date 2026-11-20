@@ -20,7 +20,10 @@ export interface DocsVersions {
 /** One entry of the version picker. */
 export interface VersionOption {
   version: string;
+  /** The short name the badge shows: `v0.2` for a release, `dev` for dev. */
   label: string;
+  /** `latest` on the default version, `unstable` on dev. */
+  tag?: 'latest' | 'unstable';
   href: string;
   current: boolean;
 }
@@ -152,7 +155,8 @@ export function versionOptions(
     const target = pages.includes(rest) ? rest : versionLanding(docs, version);
     return {
       version,
-      label: version === docs.defaultVersion ? `${version} (latest)` : version,
+      label: version === DEV_VERSION ? version : `v${version}`,
+      tag: versionTag(version, docs.defaultVersion),
       href: versionHref(version, target ?? ''),
       current: version === current,
     };
@@ -228,4 +232,13 @@ function versionedHref(
     return undefined;
   }
   return `/${version}${pathname}${suffix}`;
+}
+
+function versionTag(
+  version: string,
+  defaultVersion: string,
+): VersionOption['tag'] {
+  if (version === DEV_VERSION) return 'unstable';
+  if (version === defaultVersion) return 'latest';
+  return undefined;
 }
