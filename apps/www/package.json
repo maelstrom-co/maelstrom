@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test src",
-    "test:watch": "bun test src --watch"
+    "test": "bun test src tools",
+    "test:watch": "bun test src tools --watch"
   },
   "dependencies": {
     "@astrojs/mdx": "^8.1.0",
@@ -65,7 +65,8 @@
             "env": "PUBLIC_TURNSTILE_ENVIRONMENT"
           },
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
-          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ],
         "outputs": [
           "{projectRoot}/dist",
@@ -102,7 +103,8 @@
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
           "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
           "default",
-          "toolchain"
+          "toolchain",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ]
       },
       "e2e": {
@@ -132,8 +134,16 @@
           "^default",
           "toolchain",
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
-          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
+          "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"
         ]
+      },
+      "published-examples-typecheck": {
+        "command": "bun tools/verify-published-how-it-works-examples.ts",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": false
       }
     }
   }

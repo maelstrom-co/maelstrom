@@ -1,4 +1,11 @@
 ---
+import engineResponseSource from '../examples/how-it-works/engine-response.json?raw';
+import intentBarSource from '../examples/how-it-works/IntentBar.tsx?raw';
+import maelstromSource from '../examples/how-it-works/maelstrom.ts?raw';
+import ordersVesselSource from '../examples/how-it-works/orders.vessel.ts?raw';
+import ordersPanelSource from '../examples/how-it-works/OrdersPanel.tsx?raw';
+import { highlightTypeScript } from '../lib/highlight-typescript';
+
 type Step = {
   n: string;
   title: string;
@@ -11,108 +18,43 @@ const STEPS: Step[] = [
   {
     n: '01',
     title: 'Describe Your Components',
-    body: 'Each component gets a Vessel — a declaration that tells the AI everything it needs to know: available states, actions it can trigger, and minimum size requirements.',
+    body: "Each component gets a Vessel. It declares what the planner can use: the component's variants, the actions each variant offers, and its minimum size.",
     file: 'orders.vessel.ts',
-    code: [
-      '<span class="tk-key">import</span> { defineVessel } <span class="tk-key">from</span> <span class="tk-str">"@maelstrom-co/protocol"</span>;',
-      '',
-      '<span class="tk-key">export const</span> <span class="tk-var">ordersVessel</span> = <span class="tk-fn">defineVessel</span>({',
-      '  <span class="tk-att">id</span>: <span class="tk-str">"orders"</span>,',
-      '  <span class="tk-att">name</span>: <span class="tk-str">"Orders Panel"</span>,',
-      '  <span class="tk-att">description</span>: <span class="tk-str">"Displays a list of orders"</span>,',
-      '  <span class="tk-att">defaultVariant</span>: <span class="tk-str">"list"</span>,',
-      '  <span class="tk-att">variants</span>: {',
-      '    <span class="tk-att">list</span>: {',
-      '      <span class="tk-att">props</span>: {},',
-      '      <span class="tk-att">minSize</span>: { <span class="tk-att">width</span>: <span class="tk-num">4</span>, <span class="tk-att">height</span>: <span class="tk-num">3</span> },',
-      '      <span class="tk-att">actions</span>: [',
-      '        { <span class="tk-att">name</span>: <span class="tk-str">"selectOrder"</span>, <span class="tk-att">transitionsTo</span>: <span class="tk-str">"details"</span> },',
-      '      ],',
-      '    },',
-      '    <span class="tk-att">details</span>: {',
-      '      <span class="tk-att">props</span>: {},',
-      '      <span class="tk-att">minSize</span>: { <span class="tk-att">width</span>: <span class="tk-num">6</span>, <span class="tk-att">height</span>: <span class="tk-num">5</span> },',
-      '    },',
-      '  },',
-      '});',
-    ].join('\n'),
+    code: renderExample(ordersVesselSource),
   },
   {
     n: '02',
     title: 'Create Your Instance',
-    body: 'Wire vessels to components and create a typed Maelstrom instance. One factory call gives you everything — Provider, Chart, and fully typed hooks.',
+    body: 'Wire Vessels to components and create a typed Maelstrom instance. One factory call returns the Provider, the Chart, and fully typed hooks.',
     file: 'maelstrom.ts',
-    code: [
-      '<span class="tk-key">import</span> { createMaelstrom, vessel } <span class="tk-key">from</span> <span class="tk-str">"@maelstrom-co/react"</span>;',
-      '<span class="tk-key">import</span> { ordersVessel } <span class="tk-key">from</span> <span class="tk-str">"./orders.vessel"</span>;',
-      '<span class="tk-key">import</span> OrdersComponent <span class="tk-key">from</span> <span class="tk-str">"./OrdersComponent"</span>;',
-      '',
-      '<span class="tk-key">const</span> <span class="tk-var">ordersEntry</span> = <span class="tk-fn">vessel</span>(<span class="tk-var">ordersVessel</span>, <span class="tk-var">OrdersComponent</span>);',
-      '',
-      '<span class="tk-key">export const</span> <span class="tk-var">m</span> = <span class="tk-fn">createMaelstrom</span>({',
-      '  <span class="tk-att">vessels</span>: [<span class="tk-var">ordersEntry</span>],',
-      '});',
-    ].join('\n'),
+    code: renderExample(maelstromSource),
   },
   {
     n: '03',
     title: 'User Intent',
-    body: 'Voice or text — same API. The user says what they want, and the AI figures out the rest.',
-    file: 'Dashboard.tsx',
-    code: [
-      '<span class="tk-key">import</span> { m } <span class="tk-key">from</span> <span class="tk-str">"./maelstrom"</span>;',
-      '',
-      '<span class="tk-key">function</span> <span class="tk-fn">Dashboard</span>() {',
-      '  <span class="tk-key">const</span> { <span class="tk-fn">processIntent</span> } = <span class="tk-var">m</span>.<span class="tk-fn">useMaelstrom</span>();',
-      '',
-      '  <span class="tk-com">// "Show me pending orders"</span>',
-      '  <span class="tk-com">// "Open order 1847"</span>',
-      '  <span class="tk-key">await</span> <span class="tk-fn">processIntent</span>(<span class="tk-var">userMessage</span>);',
-      '}',
-    ].join('\n'),
+    body: 'Send a text intent with one call. With the optional voice integration, spoken intents take the same path. Your configured planner proposes a layout and declared actions for the goal.',
+    file: 'IntentBar.tsx',
+    code: renderExample(intentBarSource),
   },
   {
     n: '04',
-    title: 'Engine Decides',
-    body: 'The AI sees your entire UI — every vessel, every state, and all the space it has to work with. It returns a precise plan: which actions to fire and where to place each component.',
-    file: 'MaelstromResponse',
-    code: [
-      '<span class="tk-com">// Engine returns actions + layout</span>',
-      '{',
-      '  <span class="tk-att">userMessage</span>: <span class="tk-str">"Opening order #1847"</span>,',
-      '  <span class="tk-att">executionPlan</span>: [',
-      '    { <span class="tk-att">instanceId</span>: <span class="tk-str">"orders-1"</span>, <span class="tk-att">action</span>: <span class="tk-str">"selectOrder"</span> }',
-      '  ],',
-      '  <span class="tk-att">layout</span>: {',
-      '    <span class="tk-att">type</span>: <span class="tk-str">"tiling"</span>,',
-      '    <span class="tk-att">tree</span>: [<span class="tk-str">"orders-1"</span>],',
-      '    <span class="tk-att">instances</span>: [{ <span class="tk-att">variant</span>: <span class="tk-str">"details"</span> }],',
-      '  },',
-      '};',
-    ].join('\n'),
+    title: 'Engine Validates',
+    body: 'The planner receives your declared Vessels, their variants and actions, the current layout, and the Chart dimensions. It proposes an Execution Plan and a layout. The Engine validates that proposal at runtime before your app receives it.',
+    file: 'engine-response.json',
+    code: renderExample(engineResponseSource),
   },
   {
     n: '05',
     title: 'UI Responds',
-    body: 'Components transition, the layout shifts, everything updates — instantly and type-safe. Your code stays predictable while the AI orchestrates the experience.',
-    file: 'App.tsx',
-    code: [
-      '<span class="tk-key">import</span> { ok } <span class="tk-key">from</span> <span class="tk-str">"@maelstrom-co/protocol"</span>;',
-      '<span class="tk-key">import</span> { m } <span class="tk-key">from</span> <span class="tk-str">"./maelstrom"</span>;',
-      '',
-      '<span class="tk-key">function</span> <span class="tk-fn">OrdersVessel</span>({ <span class="tk-var">instanceId</span> }) {',
-      '  <span class="tk-var">m</span>.<span class="tk-fn">useActions</span>(<span class="tk-str">"orders"</span>, <span class="tk-var">instanceId</span>, {',
-      '    <span class="tk-fn">selectOrder</span>: <span class="tk-key">async</span> ({ <span class="tk-var">orderId</span> }) =&gt; {',
-      '      <span class="tk-fn">loadOrder</span>(<span class="tk-var">orderId</span>);',
-      '      <span class="tk-key">return</span> <span class="tk-fn">ok</span>(<span class="tk-var">undefined</span>);',
-      '    },',
-      '  });',
-      '',
-      '  <span class="tk-key">return</span> &lt;<span class="tk-ty">OrdersPanel</span> /&gt;;',
-      '}',
-    ].join('\n'),
+    body: 'The client applies the validated layout and runs your typed action handlers. TypeScript checks your Vessels and handlers at compile time. The Engine checks planner output at runtime.',
+    file: 'OrdersPanel.tsx',
+    code: renderExample(ordersPanelSource),
   },
 ];
+
+function renderExample(source: string): string {
+  return highlightTypeScript(source.replace(/\n$/, ''));
+}
 ---
 
 <section class="how" id="how">
@@ -156,6 +98,7 @@ const STEPS: Step[] = [
             <div
               class={`how-code-card win ${i === 0 ? 'active' : ''}`}
               data-card={i}
+              data-example-file={s.file}
             >
               <div class="win-bar">
                 <div class="dot r"></div>
@@ -174,6 +117,13 @@ const STEPS: Step[] = [
     </div>
   </div>
 </section>
+<style>
+  /* The fixed-height desktop card fits the longest example, orders.vessel.ts, without scrolling. */
+  .how-code-card pre.code {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+</style>
 <script>
   const steps = Array.from(
     document.querySelectorAll<HTMLElement>('.how-step[data-idx]'),
