@@ -1018,18 +1018,25 @@ describe('RealtimeSession — tool registration', () => {
     ]);
   });
 
-  it('handles an incoming deprecated update_ui call exactly like submit_intent', async () => {
+  it('rejects an incoming update_ui call as an unknown tool', async () => {
     const { session, adapter, instance } = makeHarness();
     await session.connect();
 
     adapter.emitToolCall({
-      callId: 'alias-call',
+      callId: 'removed-tool-call',
       name: 'update_ui',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
 
-    expect(instance.submitted).toEqual(['show labs']);
+    expect(instance.submitted).toEqual([]);
+    expect(adapter.toolResults).toContainEqual({
+      callId: 'removed-tool-call',
+      output: expect.objectContaining({
+        ok: false,
+        summary: 'Unknown tool "update_ui".',
+      }),
+    });
   });
 });
 

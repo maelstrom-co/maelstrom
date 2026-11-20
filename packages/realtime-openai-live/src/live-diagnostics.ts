@@ -80,12 +80,9 @@ export class LiveDiagnostics implements AdapterDiagnosticSource {
       const item = object(event.item ?? envelope.item);
       const tool =
         item.type === 'function_call' &&
-        [
-          'submit_intent',
-          'update_ui',
-          'get_ui_state',
-          'get_capabilities',
-        ].includes(String(item.name))
+        ['submit_intent', 'get_ui_state', 'get_capabilities'].includes(
+          String(item.name),
+        )
           ? String(item.name)
           : undefined;
       const metadata = sanitizeDiagnosticValue(

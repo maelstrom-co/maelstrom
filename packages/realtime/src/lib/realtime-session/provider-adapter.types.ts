@@ -182,11 +182,6 @@ export interface SubmitIntentToolResult {
 }
 
 /**
- * @deprecated Use {@link SubmitIntentToolResult}. Removed in 0.4.0.
- */
-export type UpdateUIToolResult = SubmitIntentToolResult;
-
-/**
  * Everything an adapter can receive at {@link RealtimeProviderAdapter.sendToolResult}:
  * either the dual-field {@link SubmitIntentToolResult} from `submit_intent`, or a raw
  * snapshot from the read-only `get_ui_state` / `get_capabilities` pulls (which

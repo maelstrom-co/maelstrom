@@ -68,16 +68,6 @@ const TOOL_NAMES = [
 ] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
-// Tool names providers may still send from before the rename to
-// `submit_intent`. Never advertised.
-const DEPRECATED_TOOL_ALIASES: Readonly<Record<string, ToolName>> = {
-  update_ui: 'submit_intent',
-};
-
-function canonicalToolName(name: string): string {
-  return DEPRECATED_TOOL_ALIASES[name] ?? name;
-}
-
 function isToolName(name: string): name is ToolName {
   return (TOOL_NAMES as readonly string[]).includes(name);
 }
@@ -1071,7 +1061,7 @@ export class RealtimeSession implements VoiceSession {
     }
 
     let ok = false;
-    const toolName = canonicalToolName(call.name);
+    const toolName = call.name;
     try {
       if (isToolName(toolName)) {
         ok = await this.#toolHandlers[toolName](

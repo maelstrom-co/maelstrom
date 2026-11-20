@@ -61,11 +61,7 @@ export interface DiagnosticEntry {
   /** Opaque tool or request correlation. */
   readonly id?: string;
   /** Recognized Maelstrom tool name. */
-  readonly tool?:
-    | 'submit_intent'
-    | 'update_ui'
-    | 'get_ui_state'
-    | 'get_capabilities';
+  readonly tool?: 'submit_intent' | 'get_ui_state' | 'get_capabilities';
   /** Observed tool outcome. */
   readonly ok?: boolean;
   /** Producer-reported local duration. */
@@ -206,7 +202,6 @@ export class VoiceDiagnostics {
     } else if (event.type === 'tool.called') {
       const tool =
         event.name === 'submit_intent' ||
-        event.name === 'update_ui' ||
         event.name === 'get_ui_state' ||
         event.name === 'get_capabilities'
           ? event.name
