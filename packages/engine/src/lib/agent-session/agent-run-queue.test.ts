@@ -11,7 +11,6 @@ import {
   type ChangeId,
   type DiagnosticMetadata,
   InstanceId,
-  type JsonValue,
   type MaelstromResponse,
   MessageId,
   ok,
@@ -1091,9 +1090,7 @@ describe('agent run queue', () => {
 
   describe('loop-driven shows', () => {
     test('a tool phase with a successful result records the queued note and requests one show for the utterance', async () => {
-      const order = orderTool({
-        intentFacts: (output) => ({ orderId: output.orderId }),
-      });
+      const order = orderTool();
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -1117,9 +1114,7 @@ describe('agent run queue', () => {
         turnId: `${runId}:t1`,
       });
       expect(plan?.request.skipReply).toBe(true);
-      expect(plan?.request.intentFacts).toEqual({
-        'latest_order:c1': { orderId: 'o-1' },
-      });
+      expect(plan?.request).not.toHaveProperty('intentFacts');
       expect(plan?.request.context.updateReasons).toEqual([
         { type: 'user_intent', intent: 'show my last order' },
       ]);
@@ -1538,9 +1533,6 @@ function orderTool(
     readonly latestOrder?: (
       signal: AbortSignal,
     ) => Promise<typeof LATEST_ORDER>;
-    readonly intentFacts?: (
-      order: typeof LATEST_ORDER,
-    ) => Readonly<Record<string, JsonValue>>;
   } = {},
 ) {
   const contexts: { user: unknown; token?: string }[] = [];
@@ -1559,9 +1551,6 @@ function orderTool(
       );
     },
     summarize: (output) => `Order ${output.orderId}`,
-    ...(options.intentFacts === undefined
-      ? {}
-      : { intentFacts: options.intentFacts }),
   });
   return { tool, contexts, args };
 }

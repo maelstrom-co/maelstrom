@@ -3,6 +3,7 @@ import type {
   GridResponseWithoutReply,
   MaelstromResponse,
   NeedsClarification,
+  PlannerReasonVerdict,
   TilingResponse,
   TilingResponseWithoutReply,
 } from '@maelstrom-co/protocol';
@@ -160,10 +161,17 @@ export type FullValidatedCandidate = ValidatedCandidate & {
 
 /**
  * A {@link ValidatedReplylessCandidate} as the Engine sees it, with full
- * diagnostics.
+ * diagnostics and the Planner verdicts validation kept.
  */
 export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
   readonly diagnostics: FullDiagnostics;
+  /**
+   * Planner verdicts whose `id` matches a `user_intent` reason id of the
+   * request, the first one per id, in the Planner's order. Absent when none
+   * matched or the request did not set `skipReply: true`. Never crosses the
+   * ship boundary: a shipped response carries no verdicts.
+   */
+  readonly reasons?: readonly PlannerReasonVerdict[];
 };
 
 /**
@@ -183,6 +191,12 @@ export type FullValidatedNeedsClarification = Omit<
   readonly layout?: MaelstromResponse['layout'];
   /** The Actions healing accepted, in order. */
   readonly executionPlan?: MaelstromResponse['executionPlan'];
+  /**
+   * Planner verdicts whose `id` matches a `user_intent` reason id of the
+   * request, the first one per id, in the Planner's order. Absent when none
+   * matched. Never crosses the ship boundary.
+   */
+  readonly reasons?: readonly PlannerReasonVerdict[];
   /** What healing repaired in the partial changes. */
   readonly diagnostics: FullDiagnostics;
 };

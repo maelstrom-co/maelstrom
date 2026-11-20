@@ -230,3 +230,46 @@ describe('NeedsClarification with partial changes', () => {
     ).toBe(false);
   });
 });
+
+describe('NeedsClarification with verdicts', () => {
+  const reasons = [
+    { id: 'r1', status: 'planned' },
+    {
+      id: 'r2',
+      status: 'needs_clarification',
+      question,
+      options: ['Class A (GOOGL)', 'Class C (GOOG)'],
+    },
+  ];
+
+  test.each([
+    ['NeedsClarificationSchema', NeedsClarificationSchema, gridLayout],
+    ['GridNeedsClarificationSchema', GridNeedsClarificationSchema, gridLayout],
+    [
+      'TilingNeedsClarificationSchema',
+      TilingNeedsClarificationSchema,
+      tilingLayout,
+    ],
+  ] as const)('%s keeps the verdicts it is given', (_name, schema, layout) => {
+    const value = {
+      type: 'needs_clarification',
+      question,
+      layout,
+      executionPlan,
+      reasons,
+    };
+    const result = schema.safeParse(value);
+    expect(result.success).toBe(true);
+    if (result.success) expect<unknown>(result.data.reasons).toEqual(reasons);
+  });
+
+  test('rejects a verdict with an unknown status', () => {
+    expect(
+      NeedsClarificationSchema.safeParse({
+        type: 'needs_clarification',
+        question,
+        reasons: [{ id: 'r1', status: 'applied' }],
+      }).success,
+    ).toBe(false);
+  });
+});

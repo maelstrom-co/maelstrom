@@ -25,11 +25,13 @@ import {
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import type { PlannerCandidate, ReplylessCandidate } from './candidate.js';
+import type { PlanValidationInput, PlanValidator } from './plan-validator.js';
 import { createCandidateValidator } from './validate-candidate.js';
 
 function validatorFor(
   logger: Logger,
   request: ChartRequest = makeGridRequest(),
+  validatePlan?: PlanValidator,
 ) {
   const input = makePlanningInput(request);
   return createCandidateValidator({
@@ -37,6 +39,7 @@ function validatorFor(
     enumSnapshot: buildActionParameterEnumSnapshot(input.request.vessels),
     messageId: input.messageId,
     logger,
+    ...(validatePlan === undefined ? {} : { validatePlan }),
   });
 }
 
@@ -838,5 +841,177 @@ describe('createCandidateValidator partial changes on a clarification', () => {
     expect(entries.map((e) => e.msg)).toEqual([
       'Planner returned a needs-clarification result without skipReply',
     ]);
+  });
+});
+
+describe('createCandidateValidator verdicts', () => {
+  const goalRequest = (skipReply?: boolean): ChartRequest => {
+    const base = makeGridRequest();
+    return {
+      ...base,
+      ...(skipReply === undefined ? {} : { skipReply }),
+      context: {
+        ...base.context,
+        updateReasons: [
+          { type: 'user_intent', id: 'r1', intent: 'Show my latest order' },
+          { type: 'user_intent', id: 'r2', intent: 'Add it to my calendar' },
+        ],
+      },
+    };
+  };
+
+  const replylessWith = (
+    reasons: ReplylessCandidate['reasons'],
+  ): ReplylessCandidate => {
+    const { userMessage: _omitted, ...rest } = buildGridResponse();
+    return { ...rest, reasons };
+  };
+
+  const clarificationWith = (
+    reasons: NeedsClarification['reasons'],
+  ): NeedsClarification => ({
+    type: 'needs_clarification',
+    question: 'Which calendar do you mean?',
+    reasons,
+  });
+
+  const planned = { id: 'r1', status: 'planned' } as const;
+  const asking = {
+    id: 'r2',
+    status: 'needs_clarification',
+    question: 'Which calendar do you mean?',
+    options: ['Work', 'Home'],
+  } as const;
+
+  test('verdicts naming a request reason survive on a validated replyless candidate', () => {
+    const { logger, entries } = spyLogger();
+    const validate = validatorFor(logger, goalRequest(true));
+
+    const result = validate(
+      replylessWith([planned, { id: 'r2', status: 'failed' }]),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
+    expect<unknown>(result.value.reasons).toEqual([
+      planned,
+      { id: 'r2', status: 'failed' },
+    ]);
+    expect(entries).toEqual([]);
+  });
+
+  test('verdicts naming a request reason survive on a validated clarification', () => {
+    const validate = validatorFor(spyLogger().logger, goalRequest(true));
+
+    const result = validate(clarificationWith([planned, asking]));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'needs_clarification') return;
+    expect<unknown>(result.value.reasons).toEqual([planned, asking]);
+  });
+
+  test.each([
+    ['a replyless candidate', () => replylessWith],
+    ['a clarification', () => clarificationWith],
+  ] as const)(
+    'on %s, an unknown id and a duplicate are dropped and logged by count only',
+    (_label, builder) => {
+      const { logger, entries } = spyLogger();
+      const validate = validatorFor(logger, goalRequest(true));
+
+      const result = validate(
+        builder()([
+          planned,
+          { id: 'r9', status: 'planned' },
+          { id: 'r1', status: 'failed' },
+          asking,
+        ]),
+      );
+
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      const kept = 'reasons' in result.value ? result.value.reasons : undefined;
+      expect<unknown>(kept).toEqual([planned, asking]);
+      expect(entries).toEqual([
+        {
+          level: 'warn',
+          msg: 'Planner verdicts dropped',
+          ctx: { messageId: 'req-1', droppedVerdictCount: 2 },
+        },
+      ]);
+    },
+  );
+
+  test('verdicts that all fail to match leave no reasons key', () => {
+    const validate = validatorFor(spyLogger().logger, goalRequest(true));
+
+    const result = validate(replylessWith([{ id: 'r9', status: 'planned' }]));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect('reasons' in result.value).toBe(false);
+  });
+
+  test('a request reason without an id matches no verdict', () => {
+    const validate = validatorFor(spyLogger().logger, {
+      ...makeGridRequest(),
+      skipReply: true,
+    });
+
+    const result = validate(replylessWith([planned]));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect('reasons' in result.value).toBe(false);
+  });
+
+  test('a validatePlan hook does not see verdicts, and verdicts survive it', () => {
+    const seen: PlanValidationInput[] = [];
+    const validate = validatorFor(
+      spyLogger().logger,
+      goalRequest(true),
+      (input) => {
+        seen.push(input);
+        return [];
+      },
+    );
+
+    const result = validate(replylessWith([planned]));
+
+    expect(seen).toHaveLength(1);
+    expect('reasons' in (seen[0]?.response ?? {})).toBe(false);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
+    expect<unknown>(result.value.reasons).toEqual([planned]);
+  });
+
+  test('verdicts survive alongside plan issues a validatePlan hook reports', () => {
+    const missingView = { code: 'missing-view', message: 'Show the order' };
+    const validate = validatorFor(spyLogger().logger, goalRequest(true), () => [
+      missingView,
+    ]);
+
+    const result = validate(replylessWith([planned]));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'maelstrom_response') return;
+    expect<unknown>(result.value.reasons).toEqual([planned]);
+    expect(result.value.diagnostics.planIssues).toEqual([missingView]);
+  });
+
+  test('a strict candidate ignores reasons', () => {
+    const { logger, entries } = spyLogger();
+    const validate = validatorFor(logger, goalRequest());
+    const candidate: ReplylessCandidate = {
+      ...buildGridResponse(),
+      reasons: [planned],
+    };
+
+    const result = validate(candidate);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect('reasons' in result.value).toBe(false);
+    expect(entries).toEqual([]);
   });
 });

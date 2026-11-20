@@ -2,6 +2,7 @@ import type {
   ChartRequest,
   MessageId,
   NeedsClarification,
+  PlannerReasonVerdict,
   Result,
 } from '@maelstrom-co/protocol';
 import {
@@ -194,7 +195,7 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  const { layout, executionPlan, ...clarification } = shape.data;
+  const { layout, executionPlan, reasons, ...clarification } = shape.data;
   const healed = guardInvariants(logger, messageId, () =>
     processPartialChanges({
       request,
@@ -229,7 +230,11 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  return ok({ ...clarification, ...healed.value });
+  return ok({
+    ...clarification,
+    ...matchedVerdicts(request, logger, messageId, reasons),
+    ...healed.value,
+  });
 }
 
 function validateApplicationPlan(
@@ -238,7 +243,7 @@ function validateApplicationPlan(
   validatePlan: PlanValidator,
 ): Result<FullValidatedReplylessCandidate, EngineError> {
   try {
-    const { diagnostics, ...response } = processed;
+    const { diagnostics, reasons, ...response } = processed;
     const returned: unknown = validatePlan({
       request: input.request,
       response,
@@ -253,6 +258,7 @@ function validateApplicationPlan(
     const planIssues = planIssuesSchema.parse(returned);
     return ok({
       ...response,
+      ...(reasons === undefined ? {} : { reasons }),
       diagnostics: buildDiagnostics({
         ...diagnostics,
         planIssues,
@@ -301,7 +307,39 @@ function processCandidate(
     );
     return err(failure);
   }
-  return guardInvariants(logger, messageId, () => processResponse(input));
+  const processed = guardInvariants(logger, messageId, () =>
+    processResponse(input),
+  );
+  if (isErr(processed) || !('reasons' in shape.data)) return processed;
+  return ok({
+    ...processed.value,
+    ...matchedVerdicts(request, logger, messageId, shape.data.reasons),
+  });
+}
+
+// A verdict counts only for a user_intent reason the request names, and only
+// the first verdict per id, so no consumer maps one onto a reason it was not
+// about. Dropped verdicts are logged by count: their text is Planner output.
+function matchedVerdicts(
+  request: ChartRequest,
+  logger: Logger,
+  messageId: MessageId,
+  verdicts: readonly PlannerReasonVerdict[] | undefined,
+): { readonly reasons?: readonly PlannerReasonVerdict[] } {
+  if (verdicts === undefined) return {};
+  const unclaimedIds = new Set(
+    request.context.updateReasons.flatMap((reason) =>
+      reason.type === 'user_intent' && reason.id !== undefined
+        ? [reason.id]
+        : [],
+    ),
+  );
+  const kept = verdicts.filter((verdict) => unclaimedIds.delete(verdict.id));
+  const droppedVerdictCount = verdicts.length - kept.length;
+  if (droppedVerdictCount > 0) {
+    logger.warn('Planner verdicts dropped', { messageId, droppedVerdictCount });
+  }
+  return kept.length === 0 ? {} : { reasons: kept };
 }
 
 // A layout entry healing dropped, an Action skipped for a reason a better

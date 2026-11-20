@@ -75,10 +75,6 @@ export const searchProductsTool = serverTool({
   sideEffect: 'read_only',
   execute: async (input) => searchCatalog(CATALOG_PRODUCTS, input),
   summarize: summarizeSearch,
-  intentFacts: (result) => ({
-    skus: result.products.map((product) => product.sku),
-    totalMatches: result.totalMatches,
-  }),
 });
 
 export function searchCatalog(

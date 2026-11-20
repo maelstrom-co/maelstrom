@@ -130,13 +130,25 @@ describe('withFallback', () => {
   });
 });
 
-describe('withFallback with skipReply and intentFacts', () => {
-  const skipReplyInput = (): PlanningInput =>
-    makePlanningInput({
-      ...makeGridRequest(),
+describe('withFallback with skipReply and user_intent referents', () => {
+  const skipReplyInput = (): PlanningInput => {
+    const request = makeGridRequest();
+    return makePlanningInput({
+      ...request,
       skipReply: true,
-      intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+      context: {
+        ...request.context,
+        updateReasons: [
+          {
+            type: 'user_intent',
+            id: 'r1',
+            intent: 'Show my latest order',
+            referents: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+          },
+        ],
+      },
     });
+  };
 
   const clarification: NeedsClarification = {
     type: 'needs_clarification',
@@ -156,7 +168,7 @@ describe('withFallback with skipReply and intentFacts', () => {
     return { stage, inputs };
   }
 
-  test('skipReply and intentFacts reach the primary and the fallback unchanged', async () => {
+  test('skipReply and user_intent referents reach the primary and the fallback unchanged', async () => {
     const primary = recordingStage(deferred('not mine'));
     const fallback = recordingStage(fallbackCandidate);
     const input = skipReplyInput();
@@ -169,8 +181,8 @@ describe('withFallback with skipReply and intentFacts', () => {
     expect(primary.inputs[0]).toBe(input);
     expect(fallback.inputs[0]).toBe(input);
     expect(fallback.inputs[0]?.request.skipReply).toBe(true);
-    expect(fallback.inputs[0]?.request.intentFacts).toBe(
-      input.request.intentFacts,
+    expect(fallback.inputs[0]?.request.context.updateReasons).toBe(
+      input.request.context.updateReasons,
     );
   });
 

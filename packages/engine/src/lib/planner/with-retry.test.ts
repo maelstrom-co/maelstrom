@@ -572,15 +572,27 @@ describe('withRetry', () => {
   });
 });
 
-describe('withRetry with skipReply and intentFacts', () => {
-  const skipReplyInput = (): PlanningInput =>
-    makePlanningInput({
-      ...makeGridRequest(),
+describe('withRetry with skipReply and user_intent referents', () => {
+  const skipReplyInput = (): PlanningInput => {
+    const request = makeGridRequest();
+    return makePlanningInput({
+      ...request,
       skipReply: true,
-      intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+      context: {
+        ...request.context,
+        updateReasons: [
+          {
+            type: 'user_intent',
+            id: 'r1',
+            intent: 'Show my latest order',
+            referents: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+          },
+        ],
+      },
     });
+  };
 
-  test('skipReply and intentFacts reach the inner stage unchanged on the first attempt and on retries', async () => {
+  test('skipReply and user_intent referents reach the inner stage unchanged on the first attempt and on retries', async () => {
     const rec = recordingStage([overflow, clean]);
     const input = skipReplyInput();
 
@@ -590,7 +602,9 @@ describe('withRetry with skipReply and intentFacts', () => {
     expect(rec.inputs[0]).toBe(input);
     expect(rec.inputs[1]?.request).toBe(input.request);
     expect(rec.inputs[1]?.request.skipReply).toBe(true);
-    expect(rec.inputs[1]?.request.intentFacts).toBe(input.request.intentFacts);
+    expect(rec.inputs[1]?.request.context.updateReasons).toBe(
+      input.request.context.updateReasons,
+    );
   });
 
   test('a needs-clarification result comes back as the same object without a retry', async () => {

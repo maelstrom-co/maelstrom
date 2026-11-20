@@ -53,9 +53,7 @@ describe('createPlannerShowQueue', () => {
 
     expect(harness.planner.calls).toHaveLength(1);
     const input = harness.planner.input(0);
-    expect(input.request).toEqual(
-      buildShowRequest(monthChart, show(1).intent, show(1).intentFacts),
-    );
+    expect(input.request).toEqual(buildShowRequest(monthChart, show(1).intent));
     expect(input.owner.runId).toBe(show(1).runId);
     expect(input.owner.inputId).toBe(show(1).inputId);
     expect(input.owner.turnId).toBe(show(1).turnId);
@@ -98,7 +96,7 @@ describe('createPlannerShowQueue', () => {
 
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).request).toEqual(
-      buildShowRequest(weekChart, show(2).intent, show(2).intentFacts),
+      buildShowRequest(weekChart, show(2).intent),
     );
     harness.planner.respond(1, changeResponse(weekChart));
     const second = await harness.nextUiChange();
@@ -301,7 +299,7 @@ describe('createPlannerShowQueue', () => {
     ]);
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).request).toEqual(
-      buildShowRequest(monthChart, show(2).intent, show(2).intentFacts),
+      buildShowRequest(monthChart, show(2).intent),
     );
 
     harness.queue.acknowledge(
@@ -343,7 +341,7 @@ describe('createPlannerShowQueue', () => {
     expect(replanned.owner.runId).toBe(show(1).runId);
     expect(replanned.owner.turnId).toBe(show(1).turnId);
     expect(replanned.request).toEqual(
-      buildShowRequest(weekChart, show(1).intent, show(1).intentFacts),
+      buildShowRequest(weekChart, show(1).intent),
     );
     expect(replanned.messageId).not.toBe(first.messageId);
     expect(replanned.signal.aborted).toBe(false);
@@ -823,7 +821,6 @@ describe('createPlannerShowQueue', () => {
     const [emitted, appliedEntry] = harness.observed;
     expect(emitted?.readContent?.()).toEqual({
       intent: show(1).intent,
-      intentFacts: show(1).intentFacts,
       response: change.response,
     });
     const screenNote = harness.notes[0]?.text;
@@ -1367,7 +1364,6 @@ function show(index: number, run = index): LoopDrivenShow {
     turnId: `run-${run}:turn-${index}`,
     intent: `Show my latest order number ${index}`,
     toolNames: ['latest_order'],
-    intentFacts: { [`latest_order:c${index}`]: { orderId: `ORD-${index}` } },
   };
 }
 

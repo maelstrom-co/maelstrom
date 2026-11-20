@@ -1073,6 +1073,38 @@ describe('buildUpdateTriggersSection', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildDefaultUserSections', () => {
+  test('renders user_intent reasons with an id and referents exactly as without them', () => {
+    const plain = makeGridRequest({
+      context: {
+        updateReasons: [
+          { type: 'user_intent', intent: 'Show my latest order' },
+          { type: 'user_intent', intent: 'Add it to my calendar' },
+        ],
+        chartDimensions: { columns: 12, rows: 8 },
+        layoutMode: 'grid',
+      },
+    });
+    const withGoalFields: ChartRequest = {
+      ...plain,
+      context: {
+        ...plain.context,
+        updateReasons: [
+          {
+            type: 'user_intent',
+            id: 'r1',
+            intent: 'Show my latest order',
+            referents: { orderId: 'ORD-42', quantities: [1, 2] },
+          },
+          { type: 'user_intent', id: 'r2', intent: 'Add it to my calendar' },
+        ],
+      },
+    };
+
+    expect(buildDefaultUserSections(withGoalFields)).toEqual(
+      buildDefaultUserSections(plain),
+    );
+  });
+
   test('returns sections keyed vessels / chartState / updateTriggers for grid', () => {
     const sections = buildDefaultUserSections(makeGridRequest());
     const keys = sections.map((s) => s.key);

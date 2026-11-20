@@ -1266,26 +1266,71 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     },
   );
 
-  test('skipReply and intentFacts reach the planner as the client sent them', async () => {
-    const intentFacts = {
-      latestOrderSku: 'A123',
-      similarSkus: ['B456'],
-      order: { shipped: false, total: 12.5, note: null },
-    };
+  test('skipReply and user_intent id and referents reach the planner as the client sent them', async () => {
+    const updateReasons = [
+      {
+        type: 'user_intent' as const,
+        id: 'r1',
+        intent: 'Show my latest order',
+        referents: {
+          orderId: 'ORD-42',
+          similarSkus: ['B456'],
+          order: { shipped: false, total: 12.5, note: null },
+        },
+      },
+      {
+        type: 'user_intent' as const,
+        id: 'r2',
+        intent: 'Add it to my calendar',
+      },
+    ];
     const { planner, inputs } = answering(buildGridResponse());
     const engine = createEngine({ planner, logger: silentLogger });
+    const request = makeGridRequest();
 
     await engine.handle(
       toChartRequestMessage({
-        ...makeGridRequest(),
+        ...request,
         skipReply: true,
-        intentFacts,
+        context: { ...request.context, updateReasons },
       }),
     );
 
     expect(inputs).toHaveLength(1);
     expect(inputs[0]?.request.skipReply).toBe(true);
-    expect<unknown>(inputs[0]?.request.intentFacts).toEqual(intentFacts);
+    expect<unknown>(inputs[0]?.request.context.updateReasons).toEqual(
+      updateReasons,
+    );
+  });
+
+  test('a replyless plan with verdicts ships a chart_response without a reasons key', async () => {
+    const request = makeGridRequest();
+    const candidate: ReplylessCandidate = {
+      ...replyless(),
+      reasons: [{ id: 'r1', status: 'planned' }],
+    };
+    const engine = createEngine({
+      planner: answering(candidate).planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage({
+        ...request,
+        skipReply: true,
+        context: {
+          ...request.context,
+          updateReasons: [
+            { type: 'user_intent', id: 'r1', intent: 'Show my calendar' },
+          ],
+        },
+      }),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.layout.type).toBe('grid');
+    expect('reasons' in result.value.response).toBe(false);
   });
 });
 

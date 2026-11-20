@@ -107,15 +107,26 @@ describe('ClientEnvelope round-trip', () => {
     }
   });
 
-  test('chart_request with skipReply and intentFacts', () => {
+  test('chart_request with skipReply and a reason carrying an id and referents', () => {
+    const base = validChartRequest();
     const msg = ChartRequestMessage({
       sessionId: SessionId('s-1'),
       request: {
-        ...validChartRequest(),
+        ...base,
         skipReply: true,
-        intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+        context: {
+          ...base.context,
+          updateReasons: [
+            {
+              type: 'user_intent',
+              id: 'r1',
+              intent: 'show my latest order',
+              referents: { orderId: 'ORD-42', similarSkus: ['B456'] },
+            },
+          ],
+        },
       },
-      id: MessageId('m-cr-facts'),
+      id: MessageId('m-cr-referents'),
       timestamp: 1_700_000_000_000,
     });
     const decoded = decodeClientEnvelope(encodeEnvelope(msg));
