@@ -207,11 +207,12 @@ export const noScreenChangePlanner: ClarifyingPlanner = (input) =>
   );
 
 /**
- * A read-only `latest_order` Server Tool that records the arguments and
- * context of every call.
+ * A read-only Server Tool, named `latest_order` unless `name` is given, that
+ * records the arguments and context of every call.
  */
 export function orderTool(
   options: {
+    readonly name?: string;
     readonly latestOrder?: (
       signal: AbortSignal,
     ) => Promise<typeof LATEST_ORDER>;
@@ -220,7 +221,7 @@ export function orderTool(
   const contexts: { user: unknown; token?: string }[] = [];
   const args: unknown[] = [];
   const tool = serverTool({
-    name: 'latest_order',
+    name: options.name ?? 'latest_order',
     description: 'Returns the latest order of the user',
     input: z.object({}),
     output: z.object({

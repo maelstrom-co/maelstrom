@@ -72,7 +72,10 @@ import {
 } from './__test-helpers__/scripted-text-adapter.js';
 import { type AgentModelFactory, resolveAgentConfig } from './agent-config.js';
 import { NOT_RUN_TOOL_SUMMARY } from './agent-run-policy.js';
-import { BUDGET_CLOSING_MESSAGE } from './agent-run.js';
+import {
+  BUDGET_CLOSING_MESSAGE,
+  DEFAULT_AGENT_RUN_BUDGETS,
+} from './agent-run.js';
 import { toolCallRef } from './transcript.js';
 
 const PLANNER_PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
@@ -342,23 +345,27 @@ describe('agent route through the Engine handle', () => {
     });
 
     test('Server Tools in a turn with a change_screen call still run one at a time in written order, and the Screen Change waits for both', async () => {
-      const releases = [defer<void>(), defer<void>()];
-      let lookups = 0;
-      const order = orderTool({
-        latestOrder: async () => {
-          const release = releases[lookups];
-          lookups += 1;
-          if (release === undefined) throw new Error('two lookups scripted');
-          await release.promise;
-          return LATEST_ORDER;
-        },
-      });
+      const started: string[] = [];
+      const gatedTool = (name: string) => {
+        const release = defer<void>();
+        const { tool } = orderTool({
+          name,
+          latestOrder: async () => {
+            started.push(name);
+            await release.promise;
+            return LATEST_ORDER;
+          },
+        });
+        return { tool, release };
+      };
+      const writtenFirst = gatedTool('latest_order');
+      const writtenSecond = gatedTool('earlier_order');
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [
             { id: 'call-1', name: 'latest_order', args: {} },
             changeScreenCall('call-2', 'show my last order'),
-            { id: 'call-3', name: 'latest_order', args: {} },
+            { id: 'call-3', name: 'earlier_order', args: {} },
           ],
           scriptedUsage(1, 1),
         ),
@@ -366,25 +373,26 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [order.tool],
+        tools: [writtenSecond.tool, writtenFirst.tool],
         planner: addEventPlanner,
       });
 
       const sent = session.send(
         utterance('input-1', 'show my last order', calendarChart()),
       );
-      await waitUntil(() => lookups === 1);
+      await waitUntil(() => started.length === 1);
       await settle();
-      expect(lookups).toBe(1);
+      expect(started).toEqual(['latest_order']);
       expect(session.plannerCalls()).toBe(0);
 
-      releases[0]?.resolve();
-      await waitUntil(() => lookups === 2);
+      writtenFirst.release.resolve();
+      await waitUntil(() => started.length === 2);
       await settle();
+      expect(started).toEqual(['latest_order', 'earlier_order']);
       expect(session.plannerCalls()).toBe(0);
       const runId = runIdOf(session.received, 'input-1');
 
-      releases[1]?.resolve();
+      writtenSecond.release.resolve();
       await waitUntil(() => uiChangesOf(session.received).length === 1);
       expect(session.plannerCalls()).toBe(1);
       const [change] = uiChangesOf(session.received);
@@ -392,7 +400,7 @@ describe('agent route through the Engine handle', () => {
       await session.connection.send(acknowledgementOf(change, calendarChart()));
       await sent;
 
-      expect(lookups).toBe(2);
+      expect(started).toEqual(['latest_order', 'earlier_order']);
       expect(session.plannerCalls()).toBe(1);
       expect(lastFinishedOf(session.received, runId)).toMatchObject({
         reason: 'completed',
@@ -1110,7 +1118,7 @@ describe('agent route through the Engine handle', () => {
         model: model.adapter,
         tools: [order.tool],
         planner: addEventPlanner,
-        budgets: { maxToolCalls: 24 },
+        budgets: { maxToolCalls: DEFAULT_AGENT_RUN_BUDGETS.maxToolCalls },
       });
 
       await session.send(
@@ -1535,10 +1543,10 @@ describe('agent route through the Engine handle', () => {
       );
       const diagnosticsBeforeClose = session.diagnostics.length;
       session.connection.close();
+      expect(signals[0]?.aborted).toBe(true);
       time.advance(30_000);
       await sent;
       await settle();
-      expect(signals[0]?.aborted).toBe(true);
       gate.resolve(addEventCandidate(calendarChart()));
       await settle();
 

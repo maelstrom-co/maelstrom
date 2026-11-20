@@ -113,41 +113,42 @@ test('typed "show my last order" runs the demo agent and opens the order', async
   expect(runErrors).toEqual([]);
   expect(finished).toMatchObject({ ok: true });
 
-  const toolCallAt = timeOf(
+  const toolCall = timedFrameOf(
     timedReceivedAgentEvents(frames),
     (event) =>
       event.type === 'tool_call' && event.callId === changeScreenCall.callId,
   );
-  const uiChangeAt = timeOf(
+  const uiChange = timedFrameOf(
     timedReceivedAgentEvents(frames),
     (event) => event.type === 'ui_change' && event.changeId === changeId,
   );
-  const uiAppliedAt = timeOf(
+  const uiAppliedFrame = timedFrameOf(
     timedSentAgentInputs(frames),
     (input) => input.type === 'ui_applied' && input.changeId === changeId,
   );
-  const toolResultAt = timeOf(
+  const toolResult = timedFrameOf(
     timedReceivedAgentEvents(frames),
     (event) =>
       event.type === 'tool_result' && event.callId === changeScreenCall.callId,
   );
-  const finishedAt = timeOf(
+  const finishedFrame = timedFrameOf(
     timedReceivedAgentEvents(frames),
     (event) => event.type === 'finished' && event.runId === runId,
   );
-  const utteranceAt = timeOf(
+  const utteranceFrame = timedFrameOf(
     timedSentAgentInputs(frames),
     (input) => input.type === 'utterance' && input.inputId === inputId,
   );
-  expect(uiChangeAt).toBeGreaterThanOrEqual(toolCallAt);
-  expect(uiAppliedAt).toBeGreaterThanOrEqual(uiChangeAt);
-  expect(finishedAt).toBeGreaterThanOrEqual(uiAppliedAt);
-  expect(eventIndexOf(frames, 'finished', runId)).toBeGreaterThan(
-    eventIndexOf(frames, 'ui_change', runId),
-  );
-  console.log(`utterance to finished: ${finishedAt - utteranceAt} ms`);
+  // Frame order, not timestamps: two frames can share a millisecond.
+  expect(uiChange.position).toBeGreaterThan(toolCall.position);
+  expect(uiAppliedFrame.position).toBeGreaterThan(uiChange.position);
+  expect(toolResult.position).toBeGreaterThan(uiAppliedFrame.position);
+  expect(finishedFrame.position).toBeGreaterThan(toolResult.position);
   console.log(
-    `change_screen tool_call to tool_result: ${toolResultAt - toolCallAt} ms`,
+    `utterance to finished: ${finishedFrame.at - utteranceFrame.at} ms`,
+  );
+  console.log(
+    `change_screen tool_call to tool_result: ${toolResult.at - toolCall.at} ms`,
   );
 });
 
@@ -163,23 +164,13 @@ function changeScreenCallFor(
   );
 }
 
-function timeOf<T extends AgentEvent | AgentInput>(
+function timedFrameOf<T extends AgentEvent | AgentInput>(
   timed: readonly Timed<T>[],
   matches: (value: T) => boolean,
-): number {
+): Timed<T> {
   return found(
     timed.find(({ value }) => matches(value)),
     'timed frame',
-  ).at;
-}
-
-function eventIndexOf(
-  frames: readonly CollectedFrame[],
-  type: AgentEvent['type'],
-  runId: RunId | null,
-): number {
-  return receivedAgentEvents(frames).findIndex(
-    (event) => event.type === type && 'runId' in event && event.runId === runId,
   );
 }
 

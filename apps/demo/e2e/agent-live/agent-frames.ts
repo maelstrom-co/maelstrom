@@ -9,10 +9,12 @@ export interface CollectedFrame {
   readonly at: number;
 }
 
-/** An agent input or event with the time its frame was seen. */
+/** An agent input or event with the time and order its frame was seen in. */
 export interface Timed<T> {
   readonly value: T;
   readonly at: number;
+  /** Index of the frame among all collected frames, sent and received. */
+  readonly position: number;
 }
 
 /**
@@ -56,7 +58,10 @@ export function timedSentAgentInputs(
   frames: readonly CollectedFrame[],
 ): Timed<AgentInput>[] {
   return innerObjects(frames, 'sent', 'client.agent.input', 'input').map(
-    ({ value, at }) => ({ value: value as unknown as AgentInput, at }),
+    ({ value, ...seen }) => ({
+      value: value as unknown as AgentInput,
+      ...seen,
+    }),
   );
 }
 
@@ -64,7 +69,10 @@ export function timedReceivedAgentEvents(
   frames: readonly CollectedFrame[],
 ): Timed<AgentEvent>[] {
   return innerObjects(frames, 'received', 'engine.agent.event', 'event').map(
-    ({ value, at }) => ({ value: value as unknown as AgentEvent, at }),
+    ({ value, ...seen }) => ({
+      value: value as unknown as AgentEvent,
+      ...seen,
+    }),
   );
 }
 
@@ -74,12 +82,12 @@ function innerObjects(
   envelopeType: string,
   field: string,
 ): Timed<Record<string, unknown>>[] {
-  return frames.flatMap((frame) => {
+  return frames.flatMap((frame, position) => {
     if (frame.direction !== direction) return [];
     if (frame.payload.type !== envelopeType) return [];
     const inner = frame.payload[field];
     if (!isRecord(inner) || typeof inner.type !== 'string') return [];
-    return [{ value: inner, at: frame.at }];
+    return [{ value: inner, at: frame.at, position }];
   });
 }
 
