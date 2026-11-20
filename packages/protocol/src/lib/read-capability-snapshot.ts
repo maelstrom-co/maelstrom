@@ -31,8 +31,6 @@ type NonEmptyArray<T> = readonly [T, ...T[]];
  *
  * In the two omitted states `type` is the only remaining signal about the
  * values that aren't listed, which is why it is always projected.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface VesselCapabilityParameter {
   readonly name: string;
@@ -80,8 +78,6 @@ export interface VesselCapabilityParameter {
  * option list can consume — a parameter whose enum exceeds this count has
  * its options omitted rather than truncated; see
  * {@link VesselCapabilityParameter.optionsOmitted}.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const MAX_CAPABILITY_OPTION_COUNT = 100;
 
@@ -91,8 +87,6 @@ export const MAX_CAPABILITY_OPTION_COUNT = 100;
  * `options`. Applied independently of {@link MAX_CAPABILITY_OPTION_COUNT} — a
  * handful of very long values can blow the context budget well before the
  * count limit is reached.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const MAX_CAPABILITY_OPTIONS_TOTAL_CHARS = 2000;
 
@@ -102,8 +96,6 @@ export const MAX_CAPABILITY_OPTIONS_TOTAL_CHARS = 2000;
  * variant happens to expose the action. Its `parameters` are unioned across
  * those same variants, so an action never appears to take fewer arguments
  * than it can.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface VesselCapabilityAction {
   readonly name: ActionName;
@@ -117,11 +109,7 @@ export interface VesselCapabilityAction {
   readonly parameters?: NonEmptyArray<VesselCapabilityParameter>;
 }
 
-/**
- * A variant a vessel can be shown in.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
- */
+/** A variant a vessel can be shown in. */
 export interface VesselCapabilityVariant {
   readonly name: VariantName;
   readonly description?: string;
@@ -132,8 +120,6 @@ export interface VesselCapabilityVariant {
  * variants it can be shown in, and the actions that can transform it.
  * Deliberately excludes size constraints and props — this answers "what can
  * be shown and which values an action accepts", not "how to plan a layout".
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface VesselCapability {
   readonly vesselId: VesselId;
@@ -146,8 +132,6 @@ export interface VesselCapability {
  * The full capability catalog: every registered vessel's purpose, variants,
  * and actions. Source of truth for model tools that answer "what can you
  * show me?", for example the `get_capabilities` voice tool.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface CapabilitySnapshot {
   readonly vessels: readonly VesselCapability[];
@@ -162,8 +146,6 @@ export interface CapabilitySnapshot {
  * side of that signal. Without it an enum that quietly grew past the budget —
  * or that carries values with no text form — is invisible until the model
  * starts guessing values it was never offered.
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface CapabilityOptionOmission {
   readonly vesselId: VesselId;
@@ -194,8 +176,6 @@ export interface CapabilityOptionOmission {
  * own lossiness rather than logging it, leaving the caller to decide how
  * loudly to surface it (for example, `Orchestrator.getCapabilitySnapshot()`
  * warns once, then debugs).
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface CapabilitySnapshotProjection {
   readonly snapshot: CapabilitySnapshot;
@@ -219,8 +199,6 @@ export interface CapabilitySnapshotProjection {
  *   console.warn('some declared option values never reached the model', optionOmissions);
  * }
  * ```
- *
- * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export function readCapabilitySnapshot(
   vessels: readonly Vessel[],
