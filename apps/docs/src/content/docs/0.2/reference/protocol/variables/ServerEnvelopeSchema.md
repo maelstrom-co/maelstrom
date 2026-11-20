@@ -1,0 +1,13 @@
+---
+editUrl: false
+next: false
+prev: false
+title: "ServerEnvelopeSchema"
+---
+
+> `const` **ServerEnvelopeSchema**: `ZodDiscriminatedUnion`\<\[`ZodObject`\<\{ `requestId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `response`: `ZodObject`\<\{ `executionPlan`: `ZodArray`\<`ZodObject`\<\{ `action`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `instanceId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `params`: `ZodOptional`\<`ZodRecord`\<..., ...\>\>; \}, `$strip`\>\>; `layout`: `ZodDiscriminatedUnion`\<\[`ZodObject`\<\{ `positions`: `ZodArray`\<...\>; `type`: `ZodLiteral`\<...\>; \}, `$strip`\>, `ZodObject`\<\{ `instances`: `ZodArray`\<...\>; `tree`: `ZodArray`\<...\>; `type`: `ZodLiteral`\<...\>; \}, `$strip`\>\], `"type"`\>; `rationale`: `ZodString`; `requestId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `type`: `ZodLiteral`\<`"maelstrom_response"`\>; `userMessage`: `ZodString`; \}, `$strip`\>; `sessionId`: `ZodOptional`\<`ZodPipe`\<`ZodString`, `ZodTransform`\<[`SessionId`](/reference/protocol/type-aliases/sessionid/), `string`\>\>\>; `type`: `ZodLiteral`\<`"engine.maelstrom.response"`\>; \}, `$strip`\>, `ZodObject`\<\{ `entries`: `ZodArray`\<`ZodDiscriminatedUnion`\<\[`ZodObject`\<\{ `assistantMessage`: `ZodString`; `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `kind`: `ZodLiteral`\<`"turn"`\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `timestamp`: `ZodNumber`; `userIntent`: `ZodString`; \}, `$strip`\>, `ZodObject`\<\{ `content`: `ZodString`; `id`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `kind`: `ZodLiteral`\<`"injection"`\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<..., ...\>\>; `timestamp`: `ZodNumber`; \}, `$strip`\>\], `"kind"`\>\>; `requestId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `type`: `ZodLiteral`\<`"engine.history.response"`\>; \}, `$strip`\>, `ZodObject`\<\{ `outcome`: `ZodUnion`\<readonly \[`ZodLiteral`\<`"inserted"`\>, `ZodLiteral`\<`"deduped"`\>\]\>; `requestId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`MessageId`](/reference/protocol/type-aliases/messageid/), `string`\>\>; `sessionId`: `ZodPipe`\<`ZodString`, `ZodTransform`\<[`SessionId`](/reference/protocol/type-aliases/sessionid/), `string`\>\>; `type`: `ZodLiteral`\<`"engine.assistant_message.result"`\>; \}, `$strip`\>\], `"type"`\>
+
+Defined in: packages/protocol/src/lib/envelope.ts:464
+
+Wire-format Zod parser for the [ServerEnvelope](/reference/protocol/type-aliases/serverenvelope/) union, dispatching on
+`type`.

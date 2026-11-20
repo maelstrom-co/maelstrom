@@ -1,0 +1,70 @@
+---
+title: Overview
+description: Choose a speech pipeline and provider, then find its browser and server setup.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../../../components/PromptDisclosure.astro';
+
+Voice lets people speak to a Maelstrom interface, and lets the interface speak back.
+
+A person says what they want out loud. The UI adapts to it, the same way it adapts to typed input. Nothing about your Vessels changes.
+
+## Choose a voice mode
+
+Maelstrom ships two pipeline kinds and three provider choices. Pick the pipeline by deciding where the conversation, speech-to-text (STT), and text-to-speech (TTS) should run; then choose a provider.
+
+**Speech-native** sends audio straight to a provider-owned pipeline. Choose **OpenAI Live** (with a managed Responses tool backend) or **OpenAI Realtime**. These are different APIs, not interchangeable model names or token endpoints. The demo defaults to GPT-Live; its local Realtime tutorial explicitly selects Realtime.
+
+**Cascade** splits STT and TTS into a worker you operate. The shipped worker uses Deepgram and Cartesia, while the browser owns automatic turn detection and manual fallback. Replacing the worker enables other speech providers but requires a custom integration. The extra stages add operational work and may add latency.
+
+Whichever you choose, the client — never the voice provider — builds the Chart snapshot the Engine plans from. Read [The voice boundary](/understanding/voice-architecture/) for why that is structural rather than a rule you follow, and for the full comparison of latency, provider control, specialization, operations, observability, and privacy.
+
+## Wire voice into your UI
+
+Both modes reach your application the same way. Choose a provider adapter, then pass its factory to the provider-neutral extension. React is the binding available today, and your existing Vessels are untouched:
+
+```tsx title="src/maelstrom.ts"
+export const m = createMaelstrom({ vessels }).with(
+  maelstromRealtime({ createAdapter }),
+);
+```
+
+Every adapter then reaches your UI through the same `m.useVoice()` hook and `m.VoiceOrb` component. See the [React voice API reference](/reference/react-realtime/readme/) for the session contract those expose, and the [Voice API reference](/reference/realtime/readme/) for the provider-neutral session underneath. Your chosen guide below builds the full control.
+
+## Know the package boundaries
+
+The browser adapter and server credential service have separate packages. Application-owned provider keys stay on the server; the browser receives a Live SDP answer, a Realtime client secret, or a LiveKit room grant. The demo's visitor-owned-key mode is a separate explicit choice, not permission to bundle server secrets. Your chosen guide lists the packages that provider needs.
+
+| Package                                                                                                    | Runtime | Responsibility                                          |
+| ---------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
+| [`@maelstrom-co/realtime`](/reference/realtime/readme/)                                                    | Browser | Provider-neutral session and intent routing             |
+| [`@maelstrom-co/realtime-openai-live`](/reference/realtime-openai-live/readme/) | Browser | Live WebRTC and managed Responses tool integration |
+| [`@maelstrom-co/realtime-openai-live-server`](/reference/realtime-openai-live-server/readme/) | Server | Exchange a Live SDP offer using a server-held key |
+| [`@maelstrom-co/realtime-openai`](/reference/realtime-openai/classes/openaiadapter/)                      | Browser | OpenAI WebRTC transport                                 |
+| [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/)                                        | Browser | React binding: `useVoice()`, transcripts, and `VoiceOrb` |
+| [`@maelstrom-co/realtime-openai-server`](/reference/realtime-openai-server/readme/)                        | Server  | Mint a short-lived OpenAI client credential             |
+| [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/)                                    | Browser | LiveKit room transport and turn control                 |
+| [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/)                      | Server  | Sign a short-lived grant for one LiveKit room           |
+| [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/)                        | Worker  | Run Deepgram STT and Cartesia TTS, with no LLM          |
+
+## Inspect voice events
+
+Inspect voice with [DevTools](/guides/devtools/#find-voice-and-connection-events).
+In **Requests**, choose **All events** and search for `voice.`.
+**Connections** separates voice provider lifetimes and connection generations.
+Transcripts require explicit recording; raw audio is never retained.
+
+## Work with a coding agent
+
+Voice remains an optional input to the Engine's normal intent flow. When voice is part of the product goal, use the [voice integration prompt](/agents/prompts/maelstrom-voice-integration/) for a standalone task or select the optional voice lead skill from the [portable skill bundle](/agents/skills/). The workflow keeps provider-specific behavior and the browser/server/worker boundaries explicit.
+
+<PromptDisclosure id="maelstrom-voice-integration" />
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="OpenAI Live" href="/guides/voice/live-opening-recovery/" description="Browser/server session exchange, managed Responses tools, generated introductions, and explicit reconnect." />
+  <LinkCard title="OpenAI Realtime" href="/guides/voice/openai-realtime/" description="Speech-native conversation over browser-direct WebRTC. Your server mints a short-lived credential; OpenAI owns turn detection and the speech pipeline." />
+  <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="An STT/TTS pipeline you operate. You choose the recognition model and the voice, and run a model-free worker alongside a signed room grant." />
+</CardGrid>

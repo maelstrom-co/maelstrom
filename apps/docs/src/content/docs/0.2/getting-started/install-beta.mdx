@@ -1,0 +1,48 @@
+---
+title: Migrate to npm
+description: Remove the former GitHub Packages configuration and install Maelstrom from npm.
+sidebar:
+  hidden: true
+---
+
+Maelstrom packages use the public npm registry. No repository invitation or
+GitHub token is required. This page preserves the former installation link for
+existing users.
+
+## Remove the old registry configuration
+
+Remove the `@maelstrom-co` GitHub Packages registry and authentication entries
+from your project and user `.npmrc` files. For Yarn, remove the matching
+`npmScopes.maelstrom-co` configuration from `.yarnrc.yml`.
+
+If your project explicitly configures a registry for this scope, use:
+
+```ini title=".npmrc"
+@maelstrom-co:registry=https://registry.npmjs.org
+```
+
+Remove `GH_PACKAGES_TOKEN` from your shell and CI configuration when no other
+package needs it. Revoke tokens created only for the former package setup in
+[GitHub token settings](https://github.com/settings/tokens).
+
+## Install the current release
+
+Run this command in your application directory:
+
+```bash
+bun add @maelstrom-co/react
+```
+
+Use the same release version for all Maelstrom packages. Check the registry:
+
+```bash
+npm view @maelstrom-co/react version --registry https://registry.npmjs.org
+```
+
+For a PR preview, use the exact version from the PR's package publication
+comment. A `pr-<number>` tag follows the most recent published preview for that
+PR. Preview packages use the same public registry.
+
+Continue with [Installation](/getting-started/installation/) for package choices
+and peer dependencies, then [Quick Start](/getting-started/quick-start/) to build
+your first Chart.

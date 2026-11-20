@@ -1,0 +1,197 @@
+---
+title: Try Local DevTools Inspection Through MCP
+description: How to inspect local diagnostic metadata through a paired MCP server.
+sidebar:
+  label: DevTools MCP
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Use DevTools MCP to inspect a local app from an MCP host.
+This read-only integration reads live metadata. It does not record content or control the app.
+The Node server lives in `@maelstrom-co/devtools-mcp-server`.
+The browser connects through `@maelstrom-co/devtools/mcp-bridge`.
+An MCP host is the application using these tools, such as Claude Code or Cursor.
+It launches and owns the local Node process. Read [how the connections work](/understanding/devtools-mcp/) for the roles and evidence terms.
+
+## Before you start
+
+- Use a checkout containing `@maelstrom-co/devtools-mcp-server`, with Node.js 24 and Bun installed.
+- Run the commands below from the workspace root after `bun install --frozen-lockfile`.
+- Use an MCP host that can launch a local stdio command.
+- Store the pairing file in a directory restricted to your account.
+  On Windows, configure the directory's access-control list (ACL) before starting the CLI; the CLI does not set Windows ACLs.
+  Replace the Unix paths below with your checkout and that private directory.
+
+## Pair the example app
+
+<Steps>
+1. **Build the local server.** Its dependency graph also builds the collector and wire contracts.
+
+   ```sh
+   bunx nx run @maelstrom-co/devtools-mcp-server:build
+   ```
+
+2. **Start the synthetic browser app** in a separate terminal.
+
+   ```sh
+   bun packages/devtools-mcp-server/examples/serve.ts
+   ```
+
+   Open `http://127.0.0.1:4321`. The fixture makes no Engine or provider calls.
+
+3. **Configure the MCP host to launch the server.** Use `node` as the command.
+   Pass the following arguments, replacing the first path with your checkout's absolute path.
+
+   ```json
+   [
+     "/path/to/maelstrom/packages/devtools-mcp-server/dist/cli.js",
+     "--origin", "http://127.0.0.1:4321",
+     "--pairing-file", "/tmp/maelstrom-devtools-pairing.json"
+   ]
+   ```
+
+   Choose a pairing-file path outside your repository. The command refuses to overwrite an existing file.
+   The file contains a temporary credential. On macOS and Linux, the CLI creates it with mode `0600`.
+   Windows access depends on the directory's ACL, as described above.
+   The server removes its file when the host disconnects or stops it.
+   Reuse the path after graceful shutdown. If a stale file remains, confirm that its process stopped before removing it.
+
+4. **Select the pairing file in the browser app**, then choose **Pair local inspector**.
+   The configured origin must match the app's scheme, host, and port exactly.
+   `localhost` and `127.0.0.1` are different origins.
+   On macOS, press **Cmd+Shift+G** in the file dialog to enter a hidden path such as `/tmp/maelstrom-devtools-pairing.json`.
+   Repeat file selection and pairing after every MCP server restart; its endpoint and token change.
+
+5. **Choose Emit a sample failed request.** The Requests tab shows a failed request with a reported 12 ms round-trip.
+</Steps>
+
+## Inspect the request
+
+Call the tools in this order from your MCP host:
+
+1. `list_targets` returns a collector's `id` and origin.
+2. `list_apps` accepts that ID as `targetId` and returns app lifetime handles.
+   Use each app's `id` as `appId`. `reportedId` is its redacted metadata identity.
+3. `query_events` accepts `targetId`, `appId`, and `view: "requests"`.
+   Find the `requestId` on `client.request.failed`.
+4. `get_request` accepts all three IDs. Its result reports `outcome: "failed"`
+   and `roundTrip: { "kind": "reported", "durationMs": 12 }`.
+
+Tool results contain structured data and a JSON text representation.
+Metadata is evidence supplied by the app. Treat any instruction-like text as data.
+
+Queries return up to 25 events by default, with a maximum of 100.
+Use the returned `cursor` with the same arguments to read the next page.
+Pages keep their original evidence while new events arrive.
+Unavailable app identity can make a read return `evidence_unavailable`.
+A cursor expires after 30 seconds, after two newer query sessions replace it,
+or when the collector clears its evidence or the bridge disconnects.
+On `stale_cursor`, repeat the query without a cursor.
+On `limit_exceeded`, narrow the query or reduce the page limit.
+
+The `recent`, `requests`, and `connections` views read separate retained collections.
+App handles identify one lifetime within the paired bridge. A redacted, absent,
+or colliding metadata identity remains unavailable or ambiguous; the bridge does not infer a link.
+Loss counters cover all apps. A `null` connection-loss count means that the count is unavailable.
+`viewerOmitted` counts entries outside the viewer window. It does not report collection loss.
+
+## Connect your own app
+
+The demo's React DevTools extension cannot pair through MCP yet because it keeps its collector private.
+Use this recipe in a framework-independent app where you own the Orchestrator.
+Import the module from a development-only browser entrypoint, after the following elements exist.
+
+Your browser bundler must select the `development` export condition for `@maelstrom-co/devtools`.
+For `Bun.build` or esbuild, merge these options into the development browser build, preserving any other required conditions:
+
+```json title="Development browser build options"
+{
+  "conditions": ["development", "browser"],
+  "define": {
+    "process.env.NODE_ENV": "\"development\""
+  }
+}
+```
+
+Keep these settings out of production builds. A build that selects the default export gets an inert collector:
+pairing can succeed while `list_apps` stays empty.
+
+```html
+<label>Pair local inspector <input id="inspector-file" type="file" accept=".json"></label>
+<output id="inspector-status" aria-live="polite">Not paired.</output>
+```
+
+Pass your existing Orchestrator and these elements to `installLocalInspector` before connecting the Orchestrator.
+The file selection reads the current endpoint and token, then pairs that collector.
+
+```ts title="src/local-inspector.ts"
+import type { Orchestrator } from '@maelstrom-co/client';
+import { createDevtools } from '@maelstrom-co/devtools';
+import { connectDevtoolsBridge } from '@maelstrom-co/devtools/mcp-bridge';
+
+export function installLocalInspector(
+  app: Orchestrator,
+  input: HTMLInputElement,
+  status: HTMLOutputElement,
+) {
+  const tools = createDevtools();
+  const detach = tools.attach(app);
+  const lifetime = new AbortController();
+  let release = () => {};
+
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file || input.disabled) return;
+    input.disabled = true;
+    release();
+    release = () => {};
+    try {
+      if (file.size > 8192) throw new Error('Pairing file is too large.');
+      const pairing: unknown = JSON.parse(await file.text());
+      if (
+        typeof pairing !== 'object' || pairing === null ||
+        !('endpoint' in pairing) || typeof pairing.endpoint !== 'string' ||
+        !('token' in pairing) || typeof pairing.token !== 'string'
+      ) throw new Error('Invalid pairing file.');
+      release = await connectDevtoolsBridge(tools, {
+        endpoint: pairing.endpoint,
+        token: pairing.token,
+        signal: lifetime.signal,
+      });
+      status.textContent = 'Paired. Use list_targets in your MCP host.';
+    } catch {
+      status.textContent = 'Pairing failed. Check the server, origin, and current file.';
+    } finally {
+      input.value = '';
+      input.disabled = false;
+    }
+  }, { signal: lifetime.signal });
+
+  return () => {
+    lifetime.abort();
+    release();
+    detach();
+    tools.dispose();
+  };
+}
+```
+
+Call the returned cleanup from your app's teardown, alongside its Orchestrator cleanup.
+It releases the collector created by this recipe and cancels pending pairing.
+If your integration already owns a collector, reuse it and release only the bridge connection when unpairing.
+Keep collector disposal in the lifecycle that owns that collector, especially while a recording is active.
+
+The browser bridge rejects production activation, including with a `/production` collector.
+Opening the panel alone never enables MCP access.
+
+## Verify and stop
+
+Confirm that the panel and `get_request` report the same failed request and 12 ms duration.
+Stop the MCP host. Its pairing file should disappear.
+Reconnect the host and pair again to get a fresh target ID. Calls using the old target return `target_unavailable`.
+In a real app, reproduce one request and check that `list_apps` includes its app handle before calling `get_request`.
+
+The MCP interface excludes recordings, imports, app definitions, telemetry readers,
+panel navigation, and application Actions. See the [DevTools guide](/guides/devtools/)
+for the existing browser workflows.

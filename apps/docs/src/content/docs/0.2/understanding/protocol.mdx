@@ -1,0 +1,129 @@
+---
+title: The Protocol
+description: The shared types, branded IDs, and message envelopes that both sides of Maelstrom speak.
+---
+
+`@maelstrom-co/protocol` defines the shared types and schemas used by the client and Engine host. It includes Chart state, Vessel definitions, Engine inputs and outputs, and the envelopes exchanged over a duplex transport.
+
+These contracts let applications replace the [Engine](/understanding/engine) or choose a transport while keeping the client compatible. Transport adapters map between wire envelopes and Engine calls.
+
+## Branded IDs
+
+A branded string is a normal string with a compile-time label attached. The label disappears at runtime, but TypeScript can still prevent you from passing a `VesselId` where a `SessionId` belongs.
+
+The comparison in this type-level example intentionally fails typechecking:
+
+```ts
+import { SessionId, VesselId } from '@maelstrom-co/protocol';
+
+const session = SessionId('user-42');     // SessionId
+const vessel = VesselId('calendar');      // VesselId
+session === vessel;  // type error — different brands
+```
+
+Brands disappear at compilation, so IDs are plain strings on the wire. The constructors still validate supplied values and reject empty or whitespace-only IDs.
+
+Common IDs include `SessionId`, `MessageId`, `InstanceId`, `VesselId`, `VariantName`, and `ActionName`. `MessageId()` generates a Nano ID when called without a value; `SessionId()` generates one with a `session-` prefix. The other four constructors require a supplied value.
+
+## Message envelopes
+
+`Engine.handle()` accepts two message kinds. Both carry session identity, message identity, and a timestamp. In abbreviated shape notation:
+
+```text
+type EngineMessage =
+  | { type: 'chart_request';     sessionId; id; timestamp; request }
+  | { type: 'assistant_message'; sessionId; id; timestamp; content };
+```
+
+`ChartRequestMessage` asks the Engine to plan a Chart update. `AssistantInjectionMessage` records developer-supplied content in configured history without invoking the Planner. Successful `EngineOutput` values echo the input's `sessionId` and `id`.
+
+The duplex wire contract has a wider set of messages: `ClientEnvelope` also includes history queries and Agent Session inputs. `ServerEnvelope` carries response, error, history, and Agent Session envelopes.
+
+The Engine-side `handleEnvelope` adapter maps between these contracts:
+
+| Client envelope | Engine result | Server envelope |
+| --- | --- | --- |
+| `chart_request` | Successful `chart_response` | `engine.maelstrom.response`, with the input ID in `requestId` |
+| `chart_request` | `EngineError` | `engine.error`, correlated through `requestId` |
+| `assistant_message` | `assistant_message_result` | No reply for this one-way message |
+
+Callers that need an injection receipt use `client.assistant_message.acknowledged`. The host maps it to an assistant injection and returns a correlated success or error envelope. The [duplex wire reference](https://github.com/maelstrom-co/maelstrom/blob/main/packages/protocol/README.md#duplex-wire-envelopes) describes the injection, receipt, response, and error shapes.
+
+The protocol owns `encodeEnvelope`, `decodeClientEnvelope`, and `decodeServerEnvelope`. The client `WebSocketConnector` uses these codecs to send and receive envelopes. The server's `handleEnvelope` adapter decodes the incoming frame and resolves to a `ServerEnvelope` or `null`. The host must encode each non-null reply with `encodeEnvelope` before sending it through the socket.
+
+Smart constructors fill in defaults. This fragment assumes `buildChartRequest()` supplies the current Chart snapshot:
+
+```ts
+import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
+
+const message = ChartRequestMessage({
+  sessionId: SessionId('user-42'),
+  request: buildChartRequest(),
+  // id and timestamp auto-fill unless passed.
+});
+```
+
+## Vessel definitions
+
+A `Vessel` describes the Variants and Actions available to the Planner, together with the metadata used to choose between them.
+
+```ts
+import { defineVessel, validateVessel } from '@maelstrom-co/protocol';
+
+const calendar = defineVessel({
+  id: 'calendar',
+  name: 'Calendar',
+  description: 'Shows calendar views.',
+  defaultVariant: 'month',
+  variants: {
+    month: {
+      props: { view: 'month' },
+      minSize: { width: 6, height: 4 },
+      actions: [{ name: 'showWeek', description: 'Show a week.', transitionsTo: 'week' }],
+    },
+    week: {
+      props: { view: 'week' },
+      minSize: { width: 4, height: 3 },
+      actions: [],
+    },
+  },
+});
+
+const result = validateVessel(calendar);
+if (result.valid) {
+  // result.vessel is fully branded
+}
+```
+
+Validation checks that `defaultVariant` exists, Action names are unique within a Variant, and `transitionsTo` targets resolve. Validated definitions carry branded IDs.
+
+## Layouts
+
+The response can use either layout mode:
+
+- `GridLayout` uses explicit `(row, column, width, height)` placements in integer cells.
+- `TilingLayout` uses a tree of horizontal and vertical splits, with Instances at its leaves. A split divides space equally between two children by default. Integer weights can set the child count and proportions. The separate `instances` array retains identity and Variant data, including Instances hidden from the tree.
+
+The layout type must match the request's `layoutMode`. The Engine returns the accepted layout inside `MaelstromResponse`, and the client applies it before running the Actions.
+
+## Result type
+
+`Result` represents success or failure as a discriminated union. `Engine.handle()` returns `Promise<Result<EngineOutput, EngineError>>`, so callers inspect the result to handle request failures.
+
+```ts
+type Result<T, E> =
+  | { ok: true;  value: T }
+  | { ok: false; error: E };
+```
+
+Use `isOk` / `isErr` to narrow, or `unwrap` when you've already checked.
+
+## Drift guards
+
+Compile-time checks compare the handwritten TypeScript interfaces with their Zod schemas. A mismatch fails the build. These checks cover the code contracts; documentation examples need separate verification.
+
+## Next steps
+
+- [The Engine](/understanding/engine): how requests reach the Planner and how the Engine validates its output.
+- [Architecture Overview](/understanding/architecture): how the client applies a response.
+- [Protocol package README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/protocol/README.md): the complete message and type reference.
