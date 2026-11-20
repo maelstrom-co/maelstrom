@@ -6,7 +6,7 @@ const MAX_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_TOTAL_BUDGET_MS = 600_000;
 const MAX_RECONCILIATION_CANDIDATES = 200;
 const PREVIEW_WORKER_PATTERN =
-  /^maelstrom-(?:www|docs|playground)(?:-alchemy)?-pr-([1-9]\d*)$/;
+  /^maelstrom-(?:(?:www|docs|playground)(?:-alchemy)?|agui-alchemy)-pr-([1-9]\d*)$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,6 +19,9 @@ const validatePrNumber = (prNumber: string) => {
     throw new Error(`Invalid pull request number: ${prNumber}`);
   }
 };
+
+const aguiWorkerName = (prNumber: string) =>
+  `maelstrom-agui-alchemy-pr-${prNumber}`;
 
 /** Returns Worker names that predate the Alchemy preview stacks. */
 export const legacyPreviewWorkerNames = (prNumber: string) => {
@@ -37,6 +40,7 @@ export const currentPreviewWorkerNames = (prNumber: string) => {
     `maelstrom-www-alchemy-pr-${prNumber}`,
     `maelstrom-docs-alchemy-pr-${prNumber}`,
     `maelstrom-playground-alchemy-pr-${prNumber}`,
+    aguiWorkerName(prNumber),
   ];
 };
 
@@ -143,7 +147,7 @@ export interface DeletePreviewWorkersOptions {
   /** Maximum simultaneous deletions within one pass. */
   readonly concurrency?: number;
   /** Name generation to use for migration cleanup or complete teardown. */
-  readonly workerScope?: 'all' | 'current' | 'legacy';
+  readonly workerScope?: 'all' | 'current' | 'legacy' | 'legacy-and-agui';
   /** Revalidates authority immediately before each direct deletion request. */
   readonly authorize?: (workerName: string) => Promise<boolean>;
 }
@@ -199,16 +203,18 @@ export const deletePreviewWorkers = async (
   );
   validateInteger('totalBudgetMs', totalBudgetMs, 1, MAX_TOTAL_BUDGET_MS);
   validateInteger('concurrency', concurrency, 1, MAX_CONCURRENCY);
-  if (!['all', 'current', 'legacy'].includes(workerScope)) {
-    throw new Error('workerScope must be all, current, or legacy');
+  if (!['all', 'current', 'legacy', 'legacy-and-agui'].includes(workerScope)) {
+    throw new Error('Unknown preview Worker scope');
   }
 
   const workers =
-    workerScope === 'legacy'
-      ? legacyPreviewWorkerNames(prNumber)
-      : workerScope === 'current'
-        ? currentPreviewWorkerNames(prNumber)
-        : previewWorkerNames(prNumber);
+    workerScope === 'legacy-and-agui'
+      ? [...legacyPreviewWorkerNames(prNumber), aguiWorkerName(prNumber)]
+      : workerScope === 'legacy'
+        ? legacyPreviewWorkerNames(prNumber)
+        : workerScope === 'current'
+          ? currentPreviewWorkerNames(prNumber)
+          : previewWorkerNames(prNumber);
   const deadline = dependencies.now() + totalBudgetMs;
   let finalPassFailed = false;
 
