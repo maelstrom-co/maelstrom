@@ -312,7 +312,11 @@ for (const route of GUIDE_ROUTES) {
   test(`${route.name} is reachable from the sidebar`, async ({ page }) => {
     await page.goto(route.path);
     const sidebar = page.getByRole('navigation', { name: 'Main' });
-    await expect(sidebar.locator(`a[href="${route.path}"]`)).toHaveCount(1);
+    // The version badge menu also links to the current page as its current
+    // version, so count only the curated sidebar entries.
+    await expect(
+      sidebar.locator(`a[href="${route.path}"]:not([role="menuitem"])`),
+    ).toHaveCount(1);
   });
 }
 
