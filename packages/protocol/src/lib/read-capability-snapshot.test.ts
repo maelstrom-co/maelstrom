@@ -1,15 +1,18 @@
-import { describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 
-import type { Vessel, VesselVariantDefinition } from '@maelstrom-co/protocol';
-import { ActionName, VariantName, VesselId } from '@maelstrom-co/protocol';
-
-import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
-import { createTestVessel } from '../../../test-utils/vessel-fixtures.js';
+import { ActionName } from './action-name.js';
 import {
   MAX_CAPABILITY_OPTION_COUNT,
   MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
   readCapabilitySnapshot,
-} from './capability-snapshot.js';
+} from './read-capability-snapshot.js';
+import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
+import type {
+  Vessel,
+  VesselDefinition,
+  VesselVariantDefinition,
+} from './vessel.js';
 
 describe('readCapabilitySnapshot', () => {
   it('projects vessel purpose, variants, and actions', () => {
@@ -211,7 +214,7 @@ describe('readCapabilitySnapshot', () => {
   it('omits the parameters key for an action that declares an empty parameters array', () => {
     // projectParameters() treats `parameters: []` the same as "no parameters
     // declared" — both must be absent from the snapshot, since an empty
-    // array would read to the voice model as "accepts an empty parameter
+    // array would read to the model as "accepts an empty parameter
     // list" for an action that actually takes no arguments. The companion
     // 'omits parameters entirely' test below only covers the no-key case;
     // this covers the empty-array case end-to-end through the real
@@ -242,19 +245,6 @@ describe('readCapabilitySnapshot', () => {
       description: 'Show the hourly forecast',
     });
     expect(action && 'parameters' in action).toBe(false);
-  });
-
-  it('is exposed via Orchestrator.getCapabilitySnapshot()', () => {
-    const { orchestrator } = createTestOrchestrator();
-    orchestrator.vesselManager.registerVessel(createTestVessel());
-
-    // The orchestrator unwraps the projection: callers get the catalog, not
-    // the developer-facing omission report that travels beside it.
-    expect(orchestrator.getCapabilitySnapshot()).toEqual(
-      readCapabilitySnapshot(orchestrator.vesselManager.getAll()).snapshot,
-    );
-
-    orchestrator.dispose();
   });
 
   it('projects action parameters with their enumerated options', () => {
@@ -343,7 +333,7 @@ describe('readCapabilitySnapshot', () => {
     // ActionParameterSchema allows `enum: z.array(z.unknown())`, so a vessel
     // can declare a non-string enum. `String({...})` collapses every object
     // value to the literal string "[object Object]", making every option
-    // indistinguishable to the voice model.
+    // indistinguishable to the model.
     const { snapshot } = readCapabilitySnapshot([
       createTestVessel({
         id: 'map',
@@ -505,7 +495,7 @@ describe('readCapabilitySnapshot', () => {
     // `destination` on the compact overview and add `avoidTolls` once
     // there's room on the full route view. First-variant-wins would report
     // only whichever set Object.values(variants) happens to yield first,
-    // silently hiding avoidTolls from the voice model on some vessels and
+    // silently hiding avoidTolls from the model on some vessels and
     // not others depending on object key order.
     const vessel = createTestVessel({
       variants: {
@@ -1040,7 +1030,7 @@ describe('readCapabilitySnapshot', () => {
 
   it('collapses a numeric enum value and the string that projects the same way', () => {
     // `1` and `'1'` are distinct raw values, so the union keeps both, but the
-    // voice surface is textual and both project as "1" — listing it twice
+    // model surface is textual and both project as "1" — listing it twice
     // would tell the model there are two choices where it can only express
     // one.
     const { snapshot } = readCapabilitySnapshot([
@@ -1143,32 +1133,6 @@ describe('readCapabilitySnapshot', () => {
 
     expect(optionOmissions).toEqual([]);
   });
-
-  it('warns once through the orchestrator logger about omitted options, then debugs', () => {
-    const values = ['x'.repeat(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS + 1)];
-    const { orchestrator } = createTestOrchestrator(undefined, { debug: true });
-    orchestrator.vesselManager.registerVessel(vesselWithEnum(values));
-
-    const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    const debug = spyOn(console, 'debug').mockImplementation(() => {});
-    try {
-      orchestrator.getCapabilitySnapshot();
-      orchestrator.getCapabilitySnapshot();
-
-      expect(warn).toHaveBeenCalledTimes(1);
-      const [, warnedMessage] = warn.mock.calls[0] ?? [];
-      expect(typeof warnedMessage).toBe('string');
-      // Repeated at debug level rather than dropped — a snapshot is read on
-      // every voice turn, so warning each time would flood the console.
-      expect(
-        debug.mock.calls.filter(([, message]) => message === warnedMessage),
-      ).toHaveLength(1);
-    } finally {
-      warn.mockRestore();
-      debug.mockRestore();
-      orchestrator.dispose();
-    }
-  });
 });
 
 function vesselWithEnum(values: readonly unknown[]): Vessel {
@@ -1215,4 +1179,40 @@ function variantDeclaringEnum(
       },
     ],
   };
+}
+
+// Pre-validation author shape (raw strings); cast to `Vessel` at the
+// boundary so fixtures stay readable while the projection under test still
+// receives the branded post-validation type.
+function createTestVessel(overrides?: Partial<VesselDefinition>): Vessel {
+  const vessel: VesselDefinition = {
+    id: 'test-vessel',
+    name: 'Test Vessel',
+    description: 'A test vessel for validation',
+    defaultVariant: 'default',
+    variants: {
+      default: {
+        description: 'Default variant',
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [
+          {
+            name: 'testAction',
+            description: 'Test action',
+            effect: 'any',
+            parameters: [
+              {
+                name: 'param1',
+                type: 'string',
+                description: 'A string parameter',
+                required: true,
+              },
+            ],
+          },
+        ],
+      },
+    },
+    ...overrides,
+  };
+  return vessel as Vessel;
 }

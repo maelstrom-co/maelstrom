@@ -756,7 +756,7 @@ describe('cleanTitles', () => {
   // against a live session accumulating enough long-titled options that the
   // count cap (MAX_CAPABILITY_OPTION_COUNT) is satisfied but the character budget
   // (MAX_CAPABILITY_OPTIONS_TOTAL_CHARS) the package enforces in
-  // capability-snapshot.ts is not — which would otherwise make the package
+  // read-capability-snapshot.ts is not — which would otherwise make the package
   // omit the parameter's options entirely (`optionsOmitted: true`) instead
   // of the demo handing it a list it can actually accept.
   it('truncates to the character budget when titles pass the count cap but blow the character budget (hardening: not reachable with shipped seed data)', () => {

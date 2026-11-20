@@ -232,12 +232,12 @@ export type {
   VesselCapabilityAction,
   VesselCapabilityParameter,
   VesselCapabilityVariant,
-} from './lib/voice-session/capability-snapshot.js';
+} from '@maelstrom-co/protocol';
 export {
   MAX_CAPABILITY_OPTION_COUNT,
   MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
   readCapabilitySnapshot,
-} from './lib/voice-session/capability-snapshot.js';
+} from '@maelstrom-co/protocol';
 export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export type {

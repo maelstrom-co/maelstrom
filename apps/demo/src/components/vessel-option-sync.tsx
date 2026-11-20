@@ -15,7 +15,7 @@ import { taskReferenceLabel, useTasksStore } from '../vessels/tasks.store';
 import { tasksVessel } from '../vessels/tasks.vessel';
 
 // The two caps are imported rather than a local copy of the same numbers:
-// the package (packages/client/src/lib/voice-session/capability-snapshot.ts)
+// the package (packages/protocol/src/lib/read-capability-snapshot.ts)
 // applies these same two limits when it projects a vessel's `enum` into
 // voice `options`, dropping the parameter's options entirely
 // (`optionsOmitted: true`) if either is exceeded. A hardcoded copy here

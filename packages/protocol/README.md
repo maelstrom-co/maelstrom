@@ -527,6 +527,19 @@ Validation enforces:
 - Action names are unique within a variant
 - Every `transitionsTo` target resolves to an existing variant
 
+### Capability snapshot
+
+`readCapabilitySnapshot(vessels)` projects validated Vessels into the catalog a model reads to learn what the app can show: each Vessel's purpose, Variants, Actions and parameters, with control characters stripped and long enum lists capped. The projection is pure. It returns `{ snapshot, optionOmissions }`, where `optionOmissions` lists the declared enum values it had to leave out. Send `snapshot` to the model and log `optionOmissions` for developers.
+
+```ts
+import { readCapabilitySnapshot, vesselOnlyShows } from '@maelstrom-co/protocol';
+
+const { snapshot, optionOmissions } = readCapabilitySnapshot(vessels);
+const showOnly = vessels.filter(vesselOnlyShows).map((vessel) => vessel.id);
+```
+
+`vesselOnlyShows(vessel)` is true when the Vessel can only change what is shown: no Variant offers an Action, or every Action declares `effect: 'none'`. An `idempotent` Action, an `any` Action and an Action that omits `effect` all count as able to change data.
+
 ---
 
 ## Result
