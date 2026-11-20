@@ -76,8 +76,8 @@ const screenChangeResultSchema = z.object({
 
 const DESCRIPTION = [
   'Changes what the user sees on screen.',
-  'State the goal in plain words, as the user would, and put exact values such as ids and quantities in referents.',
-  'Never name a Vessel, an Action or any other internal screen part.',
+  'The goal itself must contain the exact values the user gave or your tools returned, such as ids and quantities, and the same values also go in referents.',
+  "Word the goal in the user's words and never name a Vessel, an Action or any other internal screen part in it. Vessel ids are only for describe_capabilities.",
   'Calls in one turn are planned together after your other tools finish.',
   'Always wait for the result before saying anything is on screen: only an applied status means it is.',
   'When the result needs clarification, ask the user its question in plain text.',
