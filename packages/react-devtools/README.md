@@ -30,6 +30,13 @@ metadata by app lifetime and request ID. Select a request and an observed stage
 to read its outcome beside the JSON. All events includes voice, connection, and
 uncorrelated observations.
 
+The Agent tab groups Agent Run diagnostics by app lifetime and run ID. It shows
+run status, duration, tool-call counts and token usage, with run and per-turn
+event timelines. Client input and UI-application events are linked to a run when
+their `inputId` or `changeId` matches; events that belong to no run stay in a
+per-client session timeline. This view uses metadata. Content requires an explicit
+recording or content subscription.
+
 Inspector shows a schematic Chart and the selected Instance's Variant and
 registered Actions. Selecting a live Instance highlights its owning Chart.
 Connections separates app lifetimes, Engine connection state, and voice evidence.
@@ -64,10 +71,17 @@ const m = createMaelstrom({ vessels }).with(devtools({
   position: 'bottom-left',
   theme: 'dark',
   maxActivityEvents: 250,
+  maxRunEvents: 500,
   capture: { maxEvents: 2000, maxCharacters: 4000000 },
   redact: value => redactApplicationData(value),
 }));
 ```
+
+`maxRunEvents` defaults to 1000 and bounds Agent Run and session-level agent
+evidence independently of recent activity and request history. The collector
+exposes retained events and the number removed in `getSnapshot().runActivity` and
+`getSnapshot().droppedRunEvents`. See the [core package guide](../devtools/README.md#inspect-agent-runs)
+for the eviction and partial-evidence rules.
 
 `redactApplicationData` is application-owned. It receives detached data and
 returns the representation that may be retained. Defaults remove common
