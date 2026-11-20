@@ -1034,6 +1034,7 @@ describe('agent route through the Engine handle', () => {
       expect(session.diagnostics.map((event) => event.kind)).not.toContain(
         'engine.agent.screen_change.batch_fill_timeout',
       );
+      session.connection.close();
     });
 
     test('change_screen calls count toward the tool call cap:a turn over it is refused as a whole with no Planner call, while the same count of Server Tools alone runs', async () => {
