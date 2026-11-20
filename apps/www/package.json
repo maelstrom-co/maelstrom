@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test src",
-    "test:watch": "bun test src --watch"
+    "test": "bun test src tools",
+    "test:watch": "bun test src tools --watch"
   },
   "dependencies": {
     "@astrojs/mdx": "^8.1.0",
@@ -134,6 +134,13 @@
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
           "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
         ]
+      },
+      "published-examples-typecheck": {
+        "command": "bun tools/verify-published-how-it-works-examples.ts",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": false
       }
     }
   }
