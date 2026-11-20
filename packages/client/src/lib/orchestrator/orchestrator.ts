@@ -1,6 +1,8 @@
 import {
   type ActionExecution,
   type ActionName,
+  type CapabilityOptionOmission,
+  type CapabilitySnapshot,
   type ChartRequest,
   ChartRequestMessage,
   type ChartResizeReason,
@@ -14,6 +16,7 @@ import {
   type MaelstromResponse,
   MessageId,
   parseTilingSplitToken,
+  readCapabilitySnapshot,
   type SessionHistoryEntry,
   type SessionId,
   type TilingLayout,
@@ -46,11 +49,6 @@ import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
-import {
-  type CapabilityOptionOmission,
-  type CapabilitySnapshot,
-  readCapabilitySnapshot,
-} from '../voice-session/capability-snapshot.js';
 import {
   readStructuralSnapshot,
   type UIStructuralSnapshot,

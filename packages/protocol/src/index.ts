@@ -161,6 +161,20 @@ export {
   tilingLeafInstanceId,
   tilingLeafToken,
 } from './lib/response.ts';
+export type {
+  CapabilityOptionOmission,
+  CapabilitySnapshot,
+  CapabilitySnapshotProjection,
+  VesselCapability,
+  VesselCapabilityAction,
+  VesselCapabilityParameter,
+  VesselCapabilityVariant,
+} from './lib/read-capability-snapshot.ts';
+export {
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
+  readCapabilitySnapshot,
+} from './lib/read-capability-snapshot.ts';
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';
 export { sanitizeControlChars } from './lib/sanitize-control-chars.ts';
@@ -211,3 +225,4 @@ export {
   validateVessel,
 } from './lib/vessel.ts';
 export { VesselId } from './lib/vessel-id.ts';
+export { vesselOnlyShows } from './lib/vessel-only-shows.ts';

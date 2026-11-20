@@ -199,6 +199,7 @@ Illustrative grid-mode response payload:
 - **Request-level flow.** A chart request passes through history loading, the configured Planner (with retries when enabled), response healing and validation, and history recording when configured.
 - **No direct UI mutation.** The Engine returns a response; the client applies its layout and executes accepted Actions. Configured history stores, loggers, instrumentation, and planner code may perform their own side effects.
 - **Planner stays the only path to the screen.** The loop model asks for a screen change only through the built-in `change_screen` tool. The Agent Session plans one turn's calls as one Planner request, sends the change as `ui_change`, and the browser still applies it and acknowledges with `ui_applied`.
+- **The loop knows what the app can show.** The loop's system prompt carries a capability index of the utterance Chart's Vessels: each Vessel's description and whether it only shows or can also change data, with no Action names. The built-in read-only `describe_capabilities` tool returns the full capability snapshot of the same Vessels when the model needs more.
 - **Transport agnostic**: The protocol can travel over WebSocket, HTTP, or another compatible transport.
 - **Testable**: Engine behavior can be tested with mock inputs and planner results.
 
@@ -492,8 +493,8 @@ WORKER    realtime-livekit-agent
 - **telemetry**: optional operational contract and bounded application-owned sink delivery; usable from every layer without browser, framework, or exporter dependencies
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
-- **engine**: Server-side only; planner seam, validation and orchestration, with no LLM provider dependency
-- **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns the `@tanstack/ai` dependency the engine dropped. Depends on `engine` and `protocol`; the engine never depends on it
+- **engine**: Server-side only; planner seam, validation and orchestration. Depends on `@tanstack/ai` for the Agent Run loop, with no LLM provider adapter
+- **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns LLM planning; the caller supplies the TanStack AI provider adapter. Depends on `engine` and `protocol`; the engine never depends on it
 - **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
 - **evals**: private, unpublished live evals for the planners (whole-planner arms and single-stage evals). Depends on `planner-jev` (through its internal `_internal` and `_testing` subpaths), `planner-llm`, `engine` and `protocol`; nothing depends on it
 - **react** / **react-realtime**: React-specific bindings, optional

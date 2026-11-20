@@ -394,6 +394,7 @@ export function createAgentRunQueue({
         adapter: setup.adapter,
         instructions: agent.instructions,
         registry: agent.registry,
+        vessels: run.input.chart.vessels,
         budgets: setup.budgets,
         ...(agent.retry === undefined ? {} : { retry: agent.retry }),
         priorMessages,

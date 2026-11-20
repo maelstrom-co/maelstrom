@@ -1,19 +1,15 @@
-import type {
-  ActionName,
-  ActionParameter,
-  VariantName,
-  Vessel,
-  VesselAction,
-  VesselId,
-} from '@maelstrom-co/protocol';
-import { sanitizeControlChars } from '@maelstrom-co/protocol';
+import type { ActionName } from './action-name.ts';
+import { sanitizeControlChars } from './sanitize-control-chars.ts';
+import type { VariantName } from './variant-name.ts';
+import type { VesselId } from './vessel-id.ts';
+import type { ActionParameter, Vessel, VesselAction } from './vessel.ts';
 
 /**
  * An array carrying at least one element.
  *
  * Local to this projection rather than shared, because it exists for one
  * reason: here an empty array is a *different* claim than an absent field.
- * `options: []` reads to a voice model as "no valid values exist" and
+ * `options: []` reads to a model as "no valid values exist" and
  * `parameters: []` as "takes an empty argument list" — neither of which the
  * projection ever means, so it drops the field instead. This type is what
  * stops a later edit from quietly emitting the empty version.
@@ -21,7 +17,7 @@ import { sanitizeControlChars } from '@maelstrom-co/protocol';
 type NonEmptyArray<T> = readonly [T, ...T[]];
 
 /**
- * A parameter an action accepts, as the voice model sees it: what to call it,
+ * A parameter an action accepts, as the model sees it: what to call it,
  * what it means, what kind of value it takes, and — when the vessel declared
  * an enumerated set — which values it will accept.
  *
@@ -78,7 +74,7 @@ export interface VesselCapabilityParameter {
 
 /**
  * Maximum number of enum values a parameter may project into `options`.
- * Bounds how much of a voice model's context budget a single parameter's
+ * Bounds how much of a model's context budget a single parameter's
  * option list can consume — a parameter whose enum exceeds this count has
  * its options omitted rather than truncated; see
  * {@link VesselCapabilityParameter.optionsOmitted}.
@@ -134,9 +130,8 @@ export interface VesselCapability {
 
 /**
  * The full capability catalog: every registered vessel's purpose, variants,
- * and actions. Source of truth for the `get_capabilities` voice tool —
- * answers "what can you show me?" the way {@link UIStructuralSnapshot}
- * answers "what's on screen right now?".
+ * and actions. Source of truth for model tools that answer "what can you
+ * show me?", for example the `get_capabilities` voice tool.
  */
 export interface CapabilitySnapshot {
   readonly vessels: readonly VesselCapability[];
@@ -179,8 +174,8 @@ export interface CapabilityOptionOmission {
  *
  * The two travel together because the projection is pure — it reports its
  * own lossiness rather than logging it, leaving the caller to decide how
- * loudly to surface it (`Orchestrator.getCapabilitySnapshot()` warns once,
- * then debugs).
+ * loudly to surface it (for example, `Orchestrator.getCapabilitySnapshot()`
+ * warns once, then debugs).
  */
 export interface CapabilitySnapshotProjection {
   readonly snapshot: CapabilitySnapshot;
@@ -193,9 +188,9 @@ export interface CapabilitySnapshotProjection {
  * could not carry into it.
  *
  * Nothing is logged here — the omissions are returned so the projection stays
- * pure and callers choose how to surface them. Most callers want
- * `Orchestrator.getCapabilitySnapshot()`, which unwraps the snapshot and
- * reports the omissions through the orchestrator's logger.
+ * pure and callers choose how to surface them. For example,
+ * `Orchestrator.getCapabilitySnapshot()` unwraps the snapshot and reports the
+ * omissions through the orchestrator's logger.
  *
  * @example
  * ```ts
@@ -281,7 +276,7 @@ function hasNonEmptyEnum<T extends { readonly enum?: readonly unknown[] }>(
   return parameter.enum !== undefined && isNonEmpty(parameter.enum);
 }
 
-// Renders one enum value the way it will actually reach the voice model: a
+// Renders one enum value the way it will actually reach the model: a
 // string projects as itself (the payload is later `JSON.stringify`d by the
 // realtime adapter, which quotes it), while a non-string value — objects and
 // arrays are both legal per `ActionParameterSchema`'s `enum: unknown[]` —
@@ -381,7 +376,7 @@ function projectParameters(
     const description = sanitizeControlChars(parameter.description);
     if (!hasNonEmptyEnum(parameter)) return { name, description, type };
 
-    // `enum` is `unknown[]` on the schema; the voice surface is textual.
+    // `enum` is `unknown[]` on the schema; the model surface is textual.
     const { projected: optionFields, omitted } = projectOptions(parameter.enum);
     if (omitted) reportOmission(name, omitted);
     return { name, description, type, ...optionFields };
@@ -443,7 +438,7 @@ function mergeParametersAcrossVariants(
 // as schema-derived when it isn't.
 //
 // `type` stays because the projection genuinely needs it — it is the only
-// signal a parameter with no listed options gives the voice model. Variants
+// signal a parameter with no listed options gives the model. Variants
 // that disagree on a parameter's `type` are a definition bug this projection
 // can't resolve, so it doesn't try: `name`, `type` and `description` are all
 // taken from a single variant (the last to contribute enum values, or the
