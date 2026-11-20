@@ -12,6 +12,8 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime @maelstrom-co/
 
 ## What it does
 
+The agent path of `submit_intent`, where an instance provides `sendAgentMessage`, is experimental in 0.3 and may change in any minor release, without deprecation aliases. The intent path is stable.
+
 This package hosts the provider-neutral session logic that turns adapter events
 into Maelstrom intents, waits for successful UI updates to render before
 returning their result, and keeps structural grounding separate from Engine

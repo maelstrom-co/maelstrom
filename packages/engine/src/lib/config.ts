@@ -64,6 +64,8 @@ export interface EngineConfig {
    * connections keep the `ui_only` route. A static model, static budgets and
    * tools are validated when the Engine is created, and invalid values throw.
    * See {@link AgentConfig}.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   readonly agent?: AgentConfig;
 }

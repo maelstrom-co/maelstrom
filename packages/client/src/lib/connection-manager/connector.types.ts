@@ -517,6 +517,8 @@ export class WireEngineError extends Error {
  * The error {@link EngineConnector.sendInput} rejects with when the
  * transport cannot carry Agent Session inputs at all, as opposed to a
  * transient failure such as a closed connection.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export class AgentWireUnsupportedError extends Error {
   /** Creates the error with a message naming the unsupported transport. */

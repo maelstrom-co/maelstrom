@@ -8,7 +8,11 @@ import { useCallback, useMemo } from 'react';
 
 import type { MaelstromContextPair } from './context.js';
 
-/** What `useAgentRun()` returns: the Agent Run snapshot plus a way to send input. */
+/**
+ * What `useAgentRun()` returns: the Agent Run snapshot plus a way to send input.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type UseAgentRunResult = AgentRunsSnapshot & {
   /**
    * Sends text to the agent through `Orchestrator.sendMessage` and returns

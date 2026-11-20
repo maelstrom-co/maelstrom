@@ -60,6 +60,8 @@ Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 
 ## Agent conversation
 
+The agent loop is experimental in 0.3 and may change in any minor release, without deprecation aliases.
+
 ```ts
 const { inputId, result } = orchestrator.sendMessage('show me a greeting');
 const run = await result;

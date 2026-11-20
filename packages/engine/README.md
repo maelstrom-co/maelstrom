@@ -83,6 +83,8 @@ The protocol's factories and codecs own the message shapes. A host supplies tran
 
 ### Streaming connections
 
+The agent loop is experimental in 0.3 and may change in any minor release, without deprecation aliases.
+
 `engine.openConnection(options)` returns an isolated `AgentConnection` with `send`, `subscribe`, and `close`. The host supplies the authorized `sessionId` and `user` (`null` for anonymous sessions). Optional `token` and `capabilities` are host context, not Planner inputs. Provider API keys do not belong in `token`.
 
 `send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves when planning ends or the connection closes, without waiting for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.

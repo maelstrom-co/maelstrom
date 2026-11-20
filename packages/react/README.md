@@ -66,6 +66,8 @@ export function App() {
 
 ## Rendering an Agent Run
 
+The agent loop is experimental in 0.3 and may change in any minor release, without deprecation aliases.
+
 `m.useAgentRun()` returns the Agent Run state of the Provider's Orchestrator, read from `orchestrator.agent.store`, and a stable `sendMessage`. `run` is the run of the most recently sent input. Branch on `run.status` to render each stage.
 
 ```tsx

@@ -13,7 +13,11 @@ import {
 
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** A Server Tool with its input and output types erased so tools of different types share one list. */
+/**
+ * A Server Tool with its input and output types erased so tools of different types share one list.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface RegistrableServerTool {
   /** Name the model calls the tool by. Must match `^[A-Za-z0-9_-]{1,64}$`. */
   readonly name: string;

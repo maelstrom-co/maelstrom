@@ -20,6 +20,8 @@ import type { ToolRegistry } from './tool-registry.js';
  * {@link BUDGET_CLOSING_MESSAGE} and a `budget` {@link AgentRunFinished}.
  * The values are frozen for the run and never reach a prompt or tool
  * arguments. A zero or `NaN` cap refuses the run before any model call.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentRunBudgets {
   /** Most model turns the run may take. */
@@ -57,6 +59,8 @@ export type AgentRunBudgetLimit = 'turns' | 'elapsed' | 'tokens' | 'toolCalls';
 /**
  * Rate-limit retry for each model call of a run, the same shape as the
  * `retry` option of TanStack AI `chat()`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunRetry = NonNullable<TextOptions['retry']>;
 

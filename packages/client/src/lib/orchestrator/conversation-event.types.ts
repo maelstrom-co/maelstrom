@@ -18,6 +18,8 @@ import type { AgentRunsSnapshot, SettledAgentRun } from './agent-run-state.js';
 /**
  * Emitted when the agent accepts an input. It is the only link from the
  * `inputId` that `sendMessage` returned to the Agent Run that handles it.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentInputAcceptedEvent = {
   /** Discriminant, always `'accepted'`. */
@@ -42,6 +44,8 @@ export type AgentInputAcceptedEvent = {
  * Agent Session ended or the send failed, and its outcomes may report failed
  * Actions. A change still applying when the conversation is lost to
  * `disconnected` or `connector_replaced` is applied but reports no event.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentUiChangeAppliedEvent = {
   /** Discriminant, always `'ui_change'`. */
@@ -133,6 +137,8 @@ export type StaleInputLostEvent = {
 /**
  * Events the Orchestrator emits for the Agent Session conversation.
  * Subscribe through `orchestrator.agent.events.on(...)`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentConversationEvents = {
   /** Fires when the agent accepts an input, naming the run that handles it. */
@@ -165,13 +171,19 @@ export type AgentConversationEvents = {
 
 /**
  * Options for `orchestrator.sendMessage`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type SendMessageOptions = {
   /** How the user produced the message. Defaults to `'text'`. */
   source?: AgentInputSource;
 };
 
-/** The Orchestrator's view of its Agent Session conversation. */
+/**
+ * The Orchestrator's view of its Agent Session conversation.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type OrchestratorAgent = {
   /** Raw agent events, subscribed through `events.on(type, handler)`. */
   readonly events: EventSubscriber<AgentConversationEvents>;
@@ -182,7 +194,11 @@ export type OrchestratorAgent = {
   readonly store: Store<AgentRunsSnapshot>;
 };
 
-/** What `orchestrator.sendMessage` returns. */
+/**
+ * What `orchestrator.sendMessage` returns.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentMessageSubmission = {
   /** The input id the agent's events for this message carry. */
   readonly inputId: MessageId;

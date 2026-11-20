@@ -13,7 +13,11 @@ import type {
   ConversationLostReason,
 } from './conversation-event.types.js';
 
-/** A failure reported for an Agent Run or the conversation. */
+/**
+ * A failure reported for an Agent Run or the conversation.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunError = {
   /** Human-readable failure description. */
   readonly message: string;
@@ -21,7 +25,11 @@ export type AgentRunError = {
   readonly code?: string;
 };
 
-/** How an Agent Run ended, as the agent reported it. */
+/**
+ * How an Agent Run ended, as the agent reported it.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunOutcome = {
   /** Why the run ended. */
   readonly reason: AgentFinishReason;
@@ -29,7 +37,11 @@ export type AgentRunOutcome = {
   readonly metrics: Readonly<AgentRunMetrics>;
 };
 
-/** A UI change the Orchestrator applied for an Agent Run. */
+/**
+ * A UI change the Orchestrator applied for an Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunChange = {
   /** The change the agent sent. */
   readonly changeId: ChangeId;
@@ -38,6 +50,8 @@ export type AgentRunChange = {
 /**
  * A loop-driven UI change of an Agent Run that failed to plan or apply. It does
  * not end the run and can arrive after the run finished.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunChangeError = {
   /**
@@ -58,10 +72,16 @@ export type AgentRunChangeError = {
  *
  * `stale_run` and `send_failed` are recoverable: later events for the input
  * still move its state on. `disconnected` and `connector_replaced` are final.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunLostReason = ConversationLostReason | 'send_failed';
 
-/** Fields every Agent Run state carries, whatever its status. */
+/**
+ * Fields every Agent Run state carries, whatever its status.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunBase = {
   /** The input that started the run, as returned by `sendMessage`. */
   readonly inputId: MessageId;
@@ -83,7 +103,11 @@ export type AgentRunBase = {
   readonly changeErrors: readonly AgentRunChangeError[];
 };
 
-/** Acceptance fields of an input the agent accepted into an Agent Run. */
+/**
+ * Acceptance fields of an input the agent accepted into an Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunAccepted = {
   /** The Agent Run that handles the input. */
   readonly runId: RunId;
@@ -93,7 +117,11 @@ export type AgentRunAccepted = {
   readonly ack: string;
 };
 
-/** Acceptance fields of an input the agent has not accepted. */
+/**
+ * Acceptance fields of an input the agent has not accepted.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunNotAccepted = {
   /** Always `null`, no run handles the input yet. */
   readonly runId: null;
@@ -103,21 +131,33 @@ export type AgentRunNotAccepted = {
   readonly ack: null;
 };
 
-/** The input was sent and the agent has not accepted it yet. */
+/**
+ * The input was sent and the agent has not accepted it yet.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunPending = AgentRunBase &
   AgentRunNotAccepted & {
     /** Discriminant, always `'pending'`. */
     readonly status: 'pending';
   };
 
-/** The agent accepted the input and its Agent Run is working. */
+/**
+ * The agent accepted the input and its Agent Run is working.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunWorking = AgentRunBase &
   AgentRunAccepted & {
     /** Discriminant, always `'working'`. */
     readonly status: 'working';
   };
 
-/** The Agent Run is streaming a reply. */
+/**
+ * The Agent Run is streaming a reply.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunStreaming = AgentRunBase &
   AgentRunAccepted & {
     /** Discriminant, always `'streaming'`. */
@@ -127,6 +167,8 @@ export type AgentRunStreaming = AgentRunBase &
 /**
  * The Agent Run ended as intended. Its UI changes may still be applying, and
  * a failed loop-driven UI change can still arrive in `changeErrors`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunFinished = AgentRunBase &
   AgentRunAccepted & {
@@ -136,7 +178,11 @@ export type AgentRunFinished = AgentRunBase &
     readonly outcome: AgentRunOutcome;
   };
 
-/** The agent accepted the input as noise and started no Agent Run. */
+/**
+ * The agent accepted the input as noise and started no Agent Run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunIgnored = AgentRunBase & {
   /** Discriminant, always `'ignored'`. */
   readonly status: 'ignored';
@@ -151,6 +197,8 @@ export type AgentRunIgnored = AgentRunBase & {
 /**
  * The agent rejected the input or its Agent Run ended without reaching its
  * goal. A rejected input was never accepted.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunFailed = AgentRunBase &
   (AgentRunAccepted | AgentRunNotAccepted) & {
@@ -168,6 +216,8 @@ export type AgentRunFailed = AgentRunBase &
 /**
  * The input or its Agent Run was lost, so its outcome is unknown and its side
  * effects may have happened. Never resend it automatically.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type AgentRunLost = AgentRunBase &
   (AgentRunAccepted | AgentRunNotAccepted) & {
@@ -177,7 +227,11 @@ export type AgentRunLost = AgentRunBase &
     readonly lostReason: AgentRunLostReason;
   };
 
-/** The input never left the client, so it had no side effect. */
+/**
+ * The input never left the client, so it had no side effect.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunNotSubmitted = AgentRunBase &
   AgentRunNotAccepted & {
     /** Discriminant, always `'not_submitted'`. */
@@ -186,7 +240,11 @@ export type AgentRunNotSubmitted = AgentRunBase &
     readonly error: AgentRunError;
   };
 
-/** Everything known about one input and the Agent Run that handles it. */
+/**
+ * Everything known about one input and the Agent Run that handles it.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunState =
   | AgentRunPending
   | AgentRunWorking
@@ -197,10 +255,18 @@ export type AgentRunState =
   | AgentRunLost
   | AgentRunNotSubmitted;
 
-/** How far an input and its Agent Run have progressed. */
+/**
+ * How far an input and its Agent Run have progressed.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunStatus = AgentRunState['status'];
 
-/** An Agent Run state whose status no longer changes on its own. */
+/**
+ * An Agent Run state whose status no longer changes on its own.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type SettledAgentRun =
   | AgentRunFinished
   | AgentRunIgnored
@@ -208,7 +274,11 @@ export type SettledAgentRun =
   | AgentRunLost
   | AgentRunNotSubmitted;
 
-/** Agent Run state of one Orchestrator, folded from its agent events. */
+/**
+ * Agent Run state of one Orchestrator, folded from its agent events.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export type AgentRunsSnapshot = {
   /** The run of the most recently sent input. */
   readonly run: AgentRunState | null;
@@ -225,6 +295,8 @@ export type AgentRunsSnapshot = {
  * Returns whether the run reached a settled status. A run lost to
  * `stale_run` or `send_failed` counts as settled even though later events
  * may still move it on.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export function isSettled(run: AgentRunState): run is SettledAgentRun {
   switch (run.status) {

@@ -126,6 +126,8 @@ export const AcknowledgedAssistantMessageSchema =
  * Wire-format Zod parser for {@link AgentInputMessage}. Validates the
  * discriminator, the branded `id` / `sessionId`, and the inner
  * {@link AgentInput}, including its `version`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentInputMessageSchema = z.object({
   type: z.literal('client.agent.input'),
@@ -138,6 +140,8 @@ export const AgentInputMessageSchema = z.object({
  * A `client.agent.input` frame: carries one {@link AgentInput} from a client
  * to the Agent Session of `sessionId`. The inner input keeps its own `type`
  * discriminator, which cannot collide with transport frame types.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentInputMessage {
   /** Frame discriminator. */
@@ -397,6 +401,8 @@ export const EngineErrorMessageSchema = z.object({
  * Wire-format Zod parser for {@link AgentEventMessage}. Validates the
  * discriminator, the branded `id` / `sessionId`, and the inner
  * {@link AgentEvent}, including its `version`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const AgentEventMessageSchema = z.object({
   type: z.literal('engine.agent.event'),
@@ -410,6 +416,8 @@ export const AgentEventMessageSchema = z.object({
  * Session of `sessionId` to its client. Events are streamed and correlate to
  * inputs through the inner event's `inputId` or `changeId`, not to a request,
  * so the frame carries its own `id` rather than a `requestId`.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export interface AgentEventMessage {
   /** Frame discriminator. */

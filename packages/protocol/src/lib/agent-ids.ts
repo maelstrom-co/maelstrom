@@ -6,6 +6,8 @@ import { type Brand, requireNonEmptyBrand } from './brand.ts';
  * Identifies one Agent Run: a single pass of the agent loop from the input
  * that starts it to its `finished` event. Every event a run emits carries it,
  * so a client can group streamed text, UI changes and the outcome by run.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type RunId = Brand<string, 'RunId'>;
 
@@ -29,6 +31,8 @@ export const RunId = (value: string): RunId => {
 /**
  * Wire-format Zod parser for {@link RunId}. Rejects empty and whitespace-only
  * strings like {@link RunId} does and carries the brand on its output.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const RunIdSchema = z
   .string()
@@ -44,6 +48,8 @@ export const RunIdSchema = z
  * answer-awaiting calls share one id space within a run. Deliberately distinct from
  * {@link ToolCallId}: a realtime provider's tool call ids and agent loop call
  * ids are separate id spaces that can meet in one session.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type CallId = Brand<string, 'CallId'>;
 
@@ -68,6 +74,8 @@ export const CallId = (value: string): CallId => {
  * Wire-format Zod parser for {@link CallId}. Rejects empty and
  * whitespace-only strings like {@link CallId} does and carries the brand on
  * its output.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const CallIdSchema = z
   .string()
@@ -81,6 +89,8 @@ export const CallIdSchema = z
  * Identifies one UI change the Engine asks the browser to apply. The browser
  * echoes it in its `ui_applied` acknowledgement so the loop can pair the
  * applied Chart state with the change that produced it.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type ChangeId = Brand<string, 'ChangeId'>;
 
@@ -105,6 +115,8 @@ export const ChangeId = (value: string): ChangeId => {
  * Wire-format Zod parser for {@link ChangeId}. Rejects empty and
  * whitespace-only strings like {@link ChangeId} does and carries the brand on
  * its output.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export const ChangeIdSchema = z
   .string()
