@@ -232,7 +232,7 @@ describe('NeedsClarification with partial changes', () => {
 });
 
 describe('NeedsClarification with verdicts', () => {
-  const reasons = [
+  const verdicts = [
     { id: 'r1', status: 'planned' },
     {
       id: 'r2',
@@ -256,11 +256,11 @@ describe('NeedsClarification with verdicts', () => {
       question,
       layout,
       executionPlan,
-      reasons,
+      verdicts,
     };
     const result = schema.safeParse(value);
     expect(result.success).toBe(true);
-    if (result.success) expect<unknown>(result.data.reasons).toEqual(reasons);
+    if (result.success) expect<unknown>(result.data.verdicts).toEqual(verdicts);
   });
 
   test('rejects a verdict with an unknown status', () => {
@@ -268,7 +268,7 @@ describe('NeedsClarification with verdicts', () => {
       NeedsClarificationSchema.safeParse({
         type: 'needs_clarification',
         question,
-        reasons: [{ id: 'r1', status: 'applied' }],
+        verdicts: [{ id: 'r1', status: 'applied' }],
       }).success,
     ).toBe(false);
   });

@@ -171,7 +171,7 @@ export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
    * matched or the request did not set `skipReply: true`. Never crosses the
    * ship boundary: a shipped response carries no verdicts.
    */
-  readonly reasons?: readonly PlannerReasonVerdict[];
+  readonly verdicts?: readonly PlannerReasonVerdict[];
 };
 
 /**
@@ -196,7 +196,7 @@ export type FullValidatedNeedsClarification = Omit<
    * request, the first one per id, in the Planner's order. Absent when none
    * matched. Never crosses the ship boundary.
    */
-  readonly reasons?: readonly PlannerReasonVerdict[];
+  readonly verdicts?: readonly PlannerReasonVerdict[];
   /** What healing repaired in the partial changes. */
   readonly diagnostics: FullDiagnostics;
 };

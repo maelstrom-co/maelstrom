@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 
+import * as protocol from '@maelstrom-co/protocol';
 import {
   type Vessel,
   type VesselActionDefinition,
@@ -12,6 +13,10 @@ import {
 } from './capability-index.js';
 
 describe('buildCapabilityIndex', () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
   test('gives no block for an empty Vessel list', () => {
     expect(buildCapabilityIndex([])).toBeUndefined();
   });
@@ -23,6 +28,22 @@ describe('buildCapabilityIndex', () => {
         { name: 'setQuantity', description: 'Set it', effect: 'idempotent' },
       ]),
     ]);
+
+    expect(index?.split('\n').slice(1)).toEqual([
+      '- catalog: Browse products. Shows only.',
+      '- cart: The shopping cart. Can also change data.',
+    ]);
+  });
+
+  test('marks each line by the Vessel with its id, not by its position', () => {
+    const cart = vessel('cart', 'The shopping cart.', [
+      { name: 'setQuantity', description: 'Set it', effect: 'idempotent' },
+    ]);
+    const catalog = vessel('catalog', 'Browse products', [showDetail]);
+    const projection = protocol.readCapabilitySnapshot([catalog, cart]);
+    spyOn(protocol, 'readCapabilitySnapshot').mockReturnValue(projection);
+
+    const index = buildCapabilityIndex([cart, catalog]);
 
     expect(index?.split('\n').slice(1)).toEqual([
       '- catalog: Browse products. Shows only.',

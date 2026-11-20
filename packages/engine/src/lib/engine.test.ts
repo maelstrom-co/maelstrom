@@ -1303,11 +1303,11 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     );
   });
 
-  test('a replyless plan with verdicts ships a chart_response without a reasons key', async () => {
+  test('a replyless plan with verdicts ships a chart_response without a verdicts key', async () => {
     const request = makeGridRequest();
     const candidate: ReplylessCandidate = {
       ...replyless(),
-      reasons: [{ id: 'r1', status: 'planned' }],
+      verdicts: [{ id: 'r1', status: 'planned' }],
     };
     const engine = createEngine({
       planner: answering(candidate).planner,
@@ -1330,7 +1330,7 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
     expect(result.value.response.layout.type).toBe('grid');
-    expect('reasons' in result.value.response).toBe(false);
+    expect('verdicts' in result.value.response).toBe(false);
   });
 });
 

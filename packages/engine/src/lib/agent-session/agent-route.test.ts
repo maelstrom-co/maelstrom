@@ -852,7 +852,7 @@ describe('agent route through the Engine handle', () => {
           action: ActionName('addEvent'),
         },
       ]);
-      expect(change.response).not.toHaveProperty('reasons');
+      expect(change.response).not.toHaveProperty('verdicts');
       await session.connection.send(acknowledgementOf(change, calendarChart()));
       await waitUntil(() =>
         session.received.some((event) => event.type === 'finished'),
@@ -1631,7 +1631,7 @@ describe('agent route through the Engine handle', () => {
                 action: ActionName('addEvent'),
               },
             ],
-            reasons: [
+            verdicts: [
               { id: 'r1', status: 'planned' },
               {
                 id: 'r2',
@@ -1651,7 +1651,7 @@ describe('agent route through the Engine handle', () => {
               ok({
                 ...addEventCandidate(input.request),
                 userMessage: undefined,
-                reasons: [{ id: 'r1', status: 'planned' }],
+                verdicts: [{ id: 'r1', status: 'planned' }],
               }),
             ),
         });
@@ -1662,8 +1662,10 @@ describe('agent route through the Engine handle', () => {
 
         if (isErr(result) || result.value.type !== 'response')
           throw new Error('expected a response');
-        expect(result.value.reasons).toEqual([{ id: 'r1', status: 'planned' }]);
-        expect('reasons' in result.value.response).toBe(false);
+        expect(result.value.verdicts).toEqual([
+          { id: 'r1', status: 'planned' },
+        ]);
+        expect('verdicts' in result.value.response).toBe(false);
       });
 
       test('a failing planner comes back as its error', async () => {
@@ -2626,7 +2628,7 @@ describe('agent route through the Engine handle', () => {
       });
       expect(toolResultEventOf(session.received, 'c2')).toMatchObject({
         ok: true,
-        summary: 'described 1 Vessels',
+        summary: 'described 1 Vessel',
       });
       expect(lastFinished(session.received)).toMatchObject({
         reason: 'completed',
@@ -2728,7 +2730,7 @@ const clarifyingWithVerdictsPlanner: ClarifyingPlanner = () =>
           action: ActionName('addEvent'),
         },
       ],
-      reasons: [
+      verdicts: [
         { id: 'r1', status: 'planned' },
         {
           id: 'r2',

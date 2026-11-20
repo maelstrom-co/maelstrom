@@ -102,9 +102,12 @@ export {
 export type {
   ChartRequest,
   ChartResizeReason,
+  ClarificationReasonVerdict,
+  FailedReasonVerdict,
   GridModelOutput,
   GridResponse,
   GridResponseWithoutReply,
+  PlannedReasonVerdict,
   PlannerOutputFor,
   PlannerReasonVerdict,
   TilingModelOutput,

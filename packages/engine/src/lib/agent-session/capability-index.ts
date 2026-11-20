@@ -26,11 +26,14 @@ export function buildCapabilityIndex(
 ): string | undefined {
   if (vessels.length === 0) return undefined;
   const { snapshot } = readCapabilitySnapshot(vessels);
-  const lines = snapshot.vessels.map((capability, index) => {
-    const vessel = vessels[index] as Vessel;
-    const marking = vesselOnlyShows(vessel)
-      ? 'Shows only.'
-      : 'Can also change data.';
+  const vesselsById = new Map(vessels.map((vessel) => [vessel.id, vessel]));
+  const lines = snapshot.vessels.map((capability) => {
+    const vessel = vesselsById.get(capability.vesselId);
+    // An unmatched Vessel is never claimed to only show.
+    const marking =
+      vessel !== undefined && vesselOnlyShows(vessel)
+        ? 'Shows only.'
+        : 'Can also change data.';
     return `- ${sanitizeControlChars(capability.vesselId)}: ${capability.description.trim().replace(/\.$/, '')}. ${marking}`;
   });
   const complete = [HEADER, ...lines].join('\n');

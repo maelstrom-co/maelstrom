@@ -765,12 +765,12 @@ function shipPlanOutcome(
       return ok(clarification);
     }
     case 'maelstrom_response': {
-      // Widened so `reasons` destructures on both members of the union.
+      // Widened so `verdicts` destructures on both members of the union.
       const replyless: FullValidatedReplylessCandidate = outcome;
       const {
         userMessage,
         diagnostics: _diagnostics,
-        reasons,
+        verdicts,
         ...withoutReply
       } = replyless;
       return ok({
@@ -779,7 +779,7 @@ function shipPlanOutcome(
           userMessage === undefined || userMessage.trim() === ''
             ? withoutReply
             : { ...withoutReply, userMessage },
-        ...(reasons === undefined ? {} : { reasons }),
+        ...(verdicts === undefined ? {} : { verdicts }),
       });
     }
     default:

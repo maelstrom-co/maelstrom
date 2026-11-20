@@ -276,15 +276,10 @@ export function createScreenChangeQueue({
         }),
       );
       settleEach(planned.queued, (goal) =>
-        settlementOf(
-          decision,
-          goal,
-          {
-            outcome: failed.length === 0 ? 'applied' : 'partially_failed',
-            changeId: planned.changeId,
-          },
-          logger,
-        ),
+        settlementOf(decision, goal, {
+          outcome: failed.length === 0 ? 'applied' : 'partially_failed',
+          changeId: planned.changeId,
+        }),
       );
       startNextScreenChange();
     },
@@ -488,7 +483,7 @@ export function createScreenChangeQueue({
     // The screen never confirmed the layout sent, so nothing is known to be on it.
     const { onScreen: _unconfirmed, ...unconfirmed } = decision;
     settleEach(planned.queued, (goal) =>
-      settlementOf(unconfirmed, goal, { outcome: 'unknown', changeId }, logger),
+      settlementOf(unconfirmed, goal, { outcome: 'unknown', changeId }),
     );
     startNextScreenChange();
   }
@@ -552,7 +547,7 @@ export function createScreenChangeQueue({
     const outcome = result.value;
     switch (outcome.type) {
       case 'needs_clarification': {
-        const decision = decisionOf(outcome.reasons, {
+        const decision = decisionOf(outcome.verdicts, {
           question: capScreenNote(outcome.question),
           ...(outcome.options === undefined
             ? {}
@@ -571,7 +566,11 @@ export function createScreenChangeQueue({
         return;
       }
       case 'response':
-        ship(planned, decisionOf(outcome.reasons, undefined), outcome.response);
+        ship(
+          planned,
+          decisionOf(outcome.verdicts, undefined),
+          outcome.response,
+        );
         return;
       default:
         assertNever(outcome, 'PlanOutcome');
@@ -601,12 +600,9 @@ export function createScreenChangeQueue({
       ? withOnScreen(decision, planned.request.layout, planned.request)
       : decision;
     settleEach(planned.queued, (goal) =>
-      settlementOf(
-        shown,
-        goal,
-        { outcome: confirmed ? 'already_on_screen' : 'unknown' },
-        logger,
-      ),
+      settlementOf(shown, goal, {
+        outcome: confirmed ? 'already_on_screen' : 'unknown',
+      }),
     );
     startNextScreenChange();
   }
@@ -784,11 +780,11 @@ interface ChangeSettlement {
 }
 
 function decisionOf(
-  reasons: readonly PlannerReasonVerdict[] | undefined,
+  verdicts: readonly PlannerReasonVerdict[] | undefined,
   clarification: PlanDecision['clarification'],
 ): PlanDecision {
   return {
-    verdicts: new Map((reasons ?? []).map((verdict) => [verdict.id, verdict])),
+    verdicts: new Map((verdicts ?? []).map((verdict) => [verdict.id, verdict])),
     ...(clarification === undefined ? {} : { clarification }),
   };
 }
@@ -809,7 +805,6 @@ function settlementOf(
   decision: PlanDecision,
   goal: ScreenChangeBatchGoal,
   change: ChangeSettlement,
-  logger: Logger,
 ): GoalSettlement {
   const verdict = decision.verdicts.get(goal.reasonId);
   const { changeId } = change;
@@ -826,28 +821,17 @@ function settlementOf(
   switch (verdict.status) {
     case 'failed':
       return { outcome: 'failed', changeId };
-    case 'needs_clarification': {
-      const question =
-        verdict.question === undefined
-          ? decision.clarification?.question
-          : capScreenNote(verdict.question);
-      if (question === undefined) {
-        logger.warn(
-          'Screen Change verdict asked for clarification without a question',
-          { changeId, reasonId: goal.reasonId },
-        );
-        return { outcome: 'failed', changeId };
-      }
-      const options =
-        verdict.question === undefined
-          ? (verdict.options ?? decision.clarification?.options)
-          : verdict.options;
-      return { outcome: 'needs_clarification', changeId, question, options };
-    }
+    case 'needs_clarification':
+      return {
+        outcome: 'needs_clarification',
+        changeId,
+        question: capScreenNote(verdict.question),
+        options: verdict.options,
+      };
     case 'planned':
       return change;
     default:
-      return assertNever(verdict.status, 'PlannerReasonVerdict status');
+      return assertNever(verdict, 'PlannerReasonVerdict status');
   }
 }
 

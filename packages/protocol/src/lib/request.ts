@@ -292,41 +292,74 @@ export type TilingResponse = z.infer<typeof TilingResponseSchema>;
 
 /**
  * One Planner verdict on a `user_intent` reason it can name by
- * {@link UserIntentReason.id}. `planned` means the result plans for that
- * reason, `needs_clarification` means the Planner needs the user to answer
- * `question` first, and `failed` means it cannot plan for it. A result
- * without verdicts gives every reason the result's own outcome. Only a
- * replyless result or a {@link NeedsClarification} carries verdicts.
+ * {@link UserIntentReason.id}, discriminated by `status`. `planned` means the
+ * result plans for that reason, `needs_clarification` means the Planner needs
+ * the user to answer `question` first, and `failed` means it cannot plan for
+ * it. A result without verdicts gives every reason the result's own outcome.
+ * Only a replyless result or a {@link NeedsClarification} carries verdicts.
  */
-export interface PlannerReasonVerdict {
+export type PlannerReasonVerdict =
+  | PlannedReasonVerdict
+  | FailedReasonVerdict
+  | ClarificationReasonVerdict;
+
+/** A {@link PlannerReasonVerdict} saying the result plans for the reason. */
+export interface PlannedReasonVerdict {
   /** The {@link UserIntentReason.id} this verdict is about. Never blank. */
   readonly id: string;
-  /** What the Planner could do for the reason. */
-  readonly status: 'planned' | 'needs_clarification' | 'failed';
+  /** The result plans for the reason. */
+  readonly status: 'planned';
+}
+
+/** A {@link PlannerReasonVerdict} saying the Planner cannot plan for the reason. */
+export interface FailedReasonVerdict {
+  /** The {@link UserIntentReason.id} this verdict is about. Never blank. */
+  readonly id: string;
+  /** The Planner cannot plan for the reason. */
+  readonly status: 'failed';
+}
+
+/**
+ * A {@link PlannerReasonVerdict} saying the Planner needs the user to answer
+ * a question about the reason first.
+ */
+export interface ClarificationReasonVerdict {
+  /** The {@link UserIntentReason.id} this verdict is about. Never blank. */
+  readonly id: string;
+  /** The Planner needs an answer before it can plan for the reason. */
+  readonly status: 'needs_clarification';
   /** The question to ask the user about this reason. Never blank. */
-  readonly question?: string;
+  readonly question: string;
   /** Suggested answers to {@link question}. Each one is non-blank. */
   readonly options?: readonly string[];
 }
 
+const verdictId = z
+  .string()
+  .refine(isNonBlank, { message: 'id must not be blank' });
+
 /**
- * Zod parser for a {@link PlannerReasonVerdict}. Rejects a blank `id` or
- * `question`, a blank entry in `options` and any status outside `planned`,
- * `needs_clarification` and `failed`.
+ * Zod parser for a {@link PlannerReasonVerdict}. Rejects a blank `id`, any
+ * status outside `planned`, `needs_clarification` and `failed`, and a
+ * `needs_clarification` verdict whose `question` is missing or blank or whose
+ * `options` hold a blank entry.
  */
-export const PlannerReasonVerdictSchema = z.object({
-  id: z.string().refine(isNonBlank, { message: 'id must not be blank' }),
-  status: z.enum(['planned', 'needs_clarification', 'failed']),
-  question: z
-    .string()
-    .refine(isNonBlank, { message: 'question must not be blank' })
-    .optional(),
-  options: z
-    .array(
-      z.string().refine(isNonBlank, { message: 'options must not be blank' }),
-    )
-    .optional(),
-});
+export const PlannerReasonVerdictSchema = z.discriminatedUnion('status', [
+  z.object({ id: verdictId, status: z.literal('planned') }),
+  z.object({ id: verdictId, status: z.literal('failed') }),
+  z.object({
+    id: verdictId,
+    status: z.literal('needs_clarification'),
+    question: z
+      .string()
+      .refine(isNonBlank, { message: 'question must not be blank' }),
+    options: z
+      .array(
+        z.string().refine(isNonBlank, { message: 'options must not be blank' }),
+      )
+      .optional(),
+  }),
+]);
 
 const optionalReasonVerdicts = z
   .array(PlannerReasonVerdictSchema)
@@ -337,13 +370,13 @@ const optionalReasonVerdicts = z
 
 /**
  * {@link GridResponseSchema} with an optional `userMessage` and optional
- * {@link PlannerReasonVerdict} `reasons`, for a request that set
+ * {@link PlannerReasonVerdict} `verdicts`, for a request that set
  * {@link ChartRequest.skipReply}. Every other field, `type` included, keeps
  * the strict schema's rules.
  */
 export const GridResponseWithoutReplySchema = GridResponseSchema.extend({
   userMessage: optionalUserMessage,
-  reasons: optionalReasonVerdicts,
+  verdicts: optionalReasonVerdicts,
 });
 
 /** Grid-mode plan result for a request that set `skipReply: true`. */
@@ -353,13 +386,13 @@ export type GridResponseWithoutReply = z.infer<
 
 /**
  * {@link TilingResponseSchema} with an optional `userMessage` and optional
- * {@link PlannerReasonVerdict} `reasons`, for a request that set
+ * {@link PlannerReasonVerdict} `verdicts`, for a request that set
  * {@link ChartRequest.skipReply}. Every other field, `type` included, keeps
  * the strict schema's rules.
  */
 export const TilingResponseWithoutReplySchema = TilingResponseSchema.extend({
   userMessage: optionalUserMessage,
-  reasons: optionalReasonVerdicts,
+  verdicts: optionalReasonVerdicts,
 });
 
 /** Tiling-mode plan result for a request that set `skipReply: true`. */
@@ -377,7 +410,7 @@ export type TilingResponseWithoutReply = z.infer<
  *   both with a required `userMessage`
  * - flag `true`: {@link GridResponseWithoutReply},
  *   {@link TilingResponseWithoutReply} or {@link NeedsClarification}, each
- *   of which may carry {@link PlannerReasonVerdict} `reasons`
+ *   of which may carry {@link PlannerReasonVerdict} `verdicts`
  * - flag only known as `boolean`: the `true` case, since the request may
  *   have set it
  *

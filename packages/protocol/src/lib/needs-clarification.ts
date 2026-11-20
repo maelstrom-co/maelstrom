@@ -55,14 +55,14 @@ export interface NeedsClarification<M extends LayoutMode = LayoutMode> {
    * Planner can name. A reason without a verdict shares this result's
    * outcome. Absent means every reason does.
    */
-  readonly reasons?: readonly PlannerReasonVerdict[];
+  readonly verdicts?: readonly PlannerReasonVerdict[];
 }
 
 /**
  * Zod parser for a grid-mode {@link NeedsClarification}. Rejects a blank
  * `question`, any blank or non-string entry in `options`, a tiling `layout`,
  * an execution plan longer than a plan result allows, and a malformed
- * verdict in `reasons`.
+ * verdict in `verdicts`.
  */
 export const GridNeedsClarificationSchema =
   clarificationSchemaWithLayout(GridLayoutSchema);
@@ -71,7 +71,7 @@ export const GridNeedsClarificationSchema =
  * Zod parser for a tiling-mode {@link NeedsClarification}. Rejects a blank
  * `question`, any blank or non-string entry in `options`, a grid `layout`,
  * an execution plan longer than a plan result allows, and a malformed
- * verdict in `reasons`.
+ * verdict in `verdicts`.
  */
 export const TilingNeedsClarificationSchema =
   clarificationSchemaWithLayout(TilingLayoutSchema);
@@ -110,7 +110,7 @@ function clarificationSchemaWithLayout<Layout extends z.ZodType>(
       .array(ActionExecutionSchema)
       .max(MAX_EXECUTION_PLAN_ENTRIES)
       .optional(),
-    reasons: z.array(PlannerReasonVerdictSchema).optional(),
+    verdicts: z.array(PlannerReasonVerdictSchema).optional(),
   });
 }
 
