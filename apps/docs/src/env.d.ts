@@ -11,6 +11,20 @@ declare module 'virtual:starlight/user-config' {
   export default config;
 }
 
+declare module 'virtual:starlight/project-context' {
+  const project: Pick<import('astro').AstroConfig, 'trailingSlash'>;
+  export default project;
+}
+
+declare module 'virtual:starlight/pagefind-config' {
+  export const pagefindUserConfig: Partial<
+    Extract<
+      import('@astrojs/starlight/types').StarlightConfig['pagefind'],
+      object
+    >
+  >;
+}
+
 declare module 'virtual:starlight/components/Search' {
   const Search: typeof import('@astrojs/starlight/components').Search;
   export default Search;

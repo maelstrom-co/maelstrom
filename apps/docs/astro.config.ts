@@ -708,6 +708,7 @@ export default defineConfig({
         ThemeSelect: './src/components/ThemeSelect.astro',
         Head: './src/components/Head.astro',
         Pagination: './src/components/Pagination.astro',
+        Search: './src/components/Search.astro',
       },
       // One group per version folder; docs-version-route shows the page's own.
       sidebar: versions.versions.map((version) => ({
