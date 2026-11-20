@@ -1,14 +1,16 @@
 ---
 import MaelstromLogo from './MaelstromLogo.astro';
 import SidebarToggle from './SidebarToggle.astro';
-import VersionPicker from './VersionPicker.astro';
+import VersionBadge from './VersionBadge.astro';
 ---
 
 <div class="header">
-  <a href="/" class="site-logo">
-    <MaelstromLogo height={18} />
-  </a>
-  <VersionPicker />
+  <div class="header-brand">
+    <a href="/" class="site-logo">
+      <MaelstromLogo height={18} />
+    </a>
+    <VersionBadge />
+  </div>
 </div>
 
 {/* Mounted here, not in Sidebar.astro: the expand button has to outlive the
@@ -22,6 +24,12 @@ import VersionPicker from './VersionPicker.astro';
     align-items: center;
     justify-content: space-between;
     height: 100%;
+    gap: 0.5rem;
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
     gap: 0.5rem;
   }
 
