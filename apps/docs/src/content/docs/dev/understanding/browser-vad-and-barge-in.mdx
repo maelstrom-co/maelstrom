@@ -3,10 +3,10 @@ title: Turn detection in the browser
 description: Why the LiveKit cascade decides where a turn starts and ends in the browser, and what that buys.
 ---
 
-import OwnershipDiagram from '../../../components/ownership/OwnershipDiagram.astro';
-import SequenceDiagram from '../../../components/sequence/SequenceDiagram.astro';
-import { LIVEKIT_TURN_OWNERSHIP } from '../../../components/ownership/livekit-turn-ownership';
-import { LIVEKIT_BARGE_IN } from '../../../components/sequence/livekit-barge-in';
+import OwnershipDiagram from '../../../../components/ownership/OwnershipDiagram.astro';
+import SequenceDiagram from '../../../../components/sequence/SequenceDiagram.astro';
+import { LIVEKIT_TURN_OWNERSHIP } from '../../../../components/ownership/livekit-turn-ownership';
+import { LIVEKIT_BARGE_IN } from '../../../../components/sequence/livekit-barge-in';
 
 A speech-native model hears where your sentence ended. A cascade has no such thing: a speech-to-text worker receives audio and returns words, and nothing in that exchange knows when you stopped talking.
 

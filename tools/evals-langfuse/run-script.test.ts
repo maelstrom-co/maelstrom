@@ -17,7 +17,10 @@ test('docs fragments: link modes never run providers and bind the same saved tar
   try {
     const text = [
       ...(
-        await readFile('apps/docs/src/content/docs/evals/langfuse.mdx', 'utf8')
+        await readFile(
+          'apps/docs/src/content/docs/dev/evals/langfuse.mdx',
+          'utf8',
+        )
       ).matchAll(/```bash title="\d\.[^\n]*\n([\s\S]*?)\n```/g),
     ]
       .map((m) => m[1])
