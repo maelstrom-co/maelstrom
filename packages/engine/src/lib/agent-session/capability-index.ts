@@ -33,17 +33,15 @@ export function buildCapabilityIndex(
       : 'Can also change data.';
     return `- ${sanitizeControlChars(capability.vesselId)}: ${capability.description.trim().replace(/\.$/, '')}. ${marking}`;
   });
+  const complete = [HEADER, ...lines].join('\n');
+  if (complete.length <= CAPABILITY_INDEX_MAX_CHARS) return complete;
   const kept = [HEADER];
-  let length = HEADER.length;
-  for (const [index, line] of lines.entries()) {
-    const isLast = index === lines.length - 1;
-    const reserve = isLast ? 0 : POINTER.length + 1;
-    if (length + 1 + line.length + reserve > CAPABILITY_INDEX_MAX_CHARS) {
-      kept.push(POINTER);
-      return kept.join('\n');
-    }
+  let length = HEADER.length + 1 + POINTER.length;
+  for (const line of lines) {
+    if (length + 1 + line.length > CAPABILITY_INDEX_MAX_CHARS) break;
     kept.push(line);
     length += 1 + line.length;
   }
+  kept.push(POINTER);
   return kept.join('\n');
 }

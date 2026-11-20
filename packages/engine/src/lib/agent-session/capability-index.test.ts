@@ -110,6 +110,23 @@ describe('buildCapabilityIndex', () => {
       `- last: ${'x'.repeat(padding)}. Shows only.`,
     ]);
   });
+
+  test('keeps every Vessel when a long first line still lets the whole index fit', () => {
+    const long = 'x'.repeat(3_900);
+
+    const index =
+      buildCapabilityIndex([
+        vessel('a', long, [showDetail]),
+        vessel('b', 'B', [showDetail]),
+      ]) ?? '';
+
+    expect(index.length).toBeLessThanOrEqual(CAPABILITY_INDEX_MAX_CHARS);
+    expect(index).not.toContain('describe_capabilities');
+    expect(index.split('\n').slice(1)).toEqual([
+      `- a: ${long}. Shows only.`,
+      '- b: B. Shows only.',
+    ]);
+  });
 });
 
 const showDetail: VesselActionDefinition = {
