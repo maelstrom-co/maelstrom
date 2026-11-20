@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,6 @@ import { markdownPath } from './markdown-path';
 
 const VIRTUAL_MODULE_ID = 'virtual:maelstrom/docs-versions';
 const RESOLVED_VIRTUAL_MODULE_ID = `\0${VIRTUAL_MODULE_ID}`;
-const SAFE_REST = /^[a-z0-9][a-z0-9._/-]*$/i;
 
 /** Read the version folders under the docs content root. */
 export function readDocsVersions(
@@ -41,21 +40,6 @@ export function readDocsVersions(
       versions.map((version) => [version, listPages(join(root, version))]),
     ),
   };
-}
-
-/** Whether a version folder holds the page for a version-relative slug. */
-export function hasVersionPage(
-  root: string,
-  version: string,
-  rest: string,
-): boolean {
-  if (!rest || !SAFE_REST.test(rest) || rest.split('/').includes('..')) {
-    return false;
-  }
-  const base = join(root, version, rest);
-  return ['.md', '.mdx', `${sep}index.md`, `${sep}index.mdx`].some((suffix) =>
-    existsSync(base + suffix),
-  );
 }
 
 /** The static page that sends an unversioned URL to its versioned page. */
@@ -86,6 +70,9 @@ export function docsVersions(root: string): AstroIntegration {
     name: 'maelstrom-docs-versions',
     hooks: {
       'astro:config:setup': ({ updateConfig }) => {
+        // The API reference used to be generated here. A leftover copy would
+        // be served at the bare paths in place of their redirects.
+        rmSync(join(root, 'reference'), { recursive: true, force: true });
         updateConfig({
           vite: {
             plugins: [
@@ -120,10 +107,14 @@ export function docsVersions(root: string): AstroIntegration {
             markdown ? url.pathname.slice(0, -3) : url.pathname
           ).replace(/^\/+|\/+$/g, '');
           if (!rest || !isPageRest(rest)) return next();
-          const { versions, defaultVersion } = readDocsVersions(root);
+          const { versions, defaultVersion, pages } = readDocsVersions(root);
           if (splitVersion(rest, versions)) return next();
-          const target = bareTarget(rest, versions, defaultVersion, (v, r) =>
-            hasVersionPage(root, v, r),
+          const target = bareTarget(
+            rest,
+            versions,
+            defaultVersion,
+            (version, candidate) =>
+              pages[version]?.includes(candidate) ?? false,
           );
           if (!target) return next();
           response.statusCode = 302;

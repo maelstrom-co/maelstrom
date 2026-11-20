@@ -4,11 +4,11 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, posix, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -180,7 +180,10 @@ export async function snapshotDocs(
     );
   }
 
-  const scratch = await mkdtemp(join(tmpdir(), 'docs-snapshot-'));
+  // Beside the docs root, so the finished copy moves into place by rename.
+  const scratch = await mkdtemp(join(resolve(root, '..'), '.docs-snapshot-'));
+  const destination = join(root, target.folder);
+  const backup = join(scratch, 'replaced');
   try {
     const source =
       options.from === undefined
@@ -199,11 +202,9 @@ export async function snapshotDocs(
       );
     }
 
-    const destination = join(root, target.folder);
     const reference = await freezeReference(staging, destination);
     const replaced = existing.includes(target.folder);
-    await rm(destination, { recursive: true, force: true });
-    await cp(staging, destination, { recursive: true });
+    await replaceFolder(staging, destination, backup);
     return {
       kind: 'snapshot',
       release: target.release,
@@ -215,7 +216,37 @@ export async function snapshotDocs(
       reference,
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    const stranded =
+      (await isDirectory(backup)) && !(await isDirectory(destination));
+    if (!stranded) await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Put `replacement` where `destination` is, by renames on one filesystem.
+ * The previous folder waits at `backup` and returns when the swap fails, so
+ * `destination` is never left partly written.
+ */
+export async function replaceFolder(
+  replacement: string,
+  destination: string,
+  backup: string,
+  move: (from: string, to: string) => Promise<void> = rename,
+): Promise<void> {
+  const previous = await isDirectory(destination);
+  if (previous) await move(destination, backup);
+  try {
+    await move(replacement, destination);
+  } catch (error) {
+    if (previous) {
+      await move(backup, destination).catch(() => {
+        throw new Error(
+          `Could not restore ${destination}. Its previous content is in ${backup}.`,
+          { cause: error },
+        );
+      });
+    }
+    throw error;
   }
 }
 
@@ -318,15 +349,12 @@ async function freezeReference(
 ): Promise<'frozen' | 'kept' | 'none'> {
   const staged = join(staging, REFERENCE_FOLDER);
   if (await isDirectory(staged)) {
-    const devLink = new RegExp(
-      `(?<=[("'])/${DEV_VERSION}/${REFERENCE_FOLDER}/`,
-      'g',
-    );
+    const devLink = new RegExp(`(?<=[("'])/${DEV_VERSION}/(?=[^/])`, 'g');
     for (const file of await readdir(staged, { recursive: true })) {
       if (!/\.mdx?$/.test(file)) continue;
       const path = join(staged, file);
       const text = await readFile(path, 'utf8');
-      const unversioned = text.replace(devLink, `/${REFERENCE_FOLDER}/`);
+      const unversioned = text.replace(devLink, '/');
       if (unversioned !== text) await writeFile(path, unversioned);
     }
     return 'frozen';
