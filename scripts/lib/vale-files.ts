@@ -38,7 +38,8 @@ async function walkMarkdown(
 
     if (
       entry.isDirectory() &&
-      repoPath === 'apps/docs/src/content/docs/reference'
+      (repoPath === 'apps/docs/src/content/docs/reference' ||
+        repoPath === 'apps/docs/src/content/docs/dev/reference')
     ) {
       continue;
     }

@@ -1,12 +1,14 @@
 ---
 import MaelstromLogo from './MaelstromLogo.astro';
 import SidebarToggle from './SidebarToggle.astro';
+import VersionPicker from './VersionPicker.astro';
 ---
 
 <div class="header">
   <a href="/" class="site-logo">
     <MaelstromLogo height={18} />
   </a>
+  <VersionPicker />
 </div>
 
 {/* Mounted here, not in Sidebar.astro: the expand button has to outlive the

@@ -33,9 +33,10 @@ describe('evals navigation', () => {
       /\{\s*label: 'Evals',\s*items: \[\s*\{ label: 'Architecture', slug: 'evals\/architecture' \},\s*\{ label: 'Langfuse', slug: 'evals\/langfuse' \},\s*\{ label: 'Cases', slug: 'evals\/cases' \},\s*\],\s*\},\s*\{\s*label: 'Understanding'/,
     );
     expect(config).not.toContain("slug: 'guides/engine/evaluations'");
-    expect(architecture).toContain('slug: evals/architecture');
-    expect(langfuse).toContain('slug: evals/langfuse');
-    expect(cases).toContain('slug: evals/cases');
+    // A slug override would pin a page outside its version folder.
+    expect(architecture).not.toContain('slug:');
+    expect(langfuse).not.toContain('slug:');
+    expect(cases).not.toContain('slug:');
     expect(
       existsSync(
         new URL(
@@ -49,9 +50,9 @@ describe('evals navigation', () => {
 
   it('redirects the old route permanently and exports the new LLM text set', () => {
     expect(config).toMatch(
-      /'\/guides\/engine\/evaluations\/': \{\s*destination: '\/evals\/architecture\/',\s*status: 301,\s*\}/,
+      /'\/guides\/engine\/evaluations\/': \{\s*destination: `\/\$\{defaultVersion\}\/evals\/architecture\/`,\s*status: 301,\s*\}/,
     );
-    expect(config).toMatch(/label: 'Evals',\s*paths: \['evals\/\*\*'\]/);
+    expect(config).toMatch(/label: 'Evals',\s*paths: \['dev\/evals\/\*\*'\]/);
   });
 
   it('keeps architecture focused and links the dedicated Langfuse workflow', () => {

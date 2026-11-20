@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test';
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 for (const [path, expected] of [
-  ['/getting-started/quick-start/', 'greetingVessel'],
-  ['/guides/react/variants-and-actions/', 'setName'],
-  ['/reference/react/readme/', '@maelstrom-co/react'],
+  ['/dev/getting-started/quick-start/', 'greetingVessel'],
+  ['/dev/guides/react/variants-and-actions/', 'setName'],
+  ['/dev/reference/react/readme/', '@maelstrom-co/react'],
   ['/agents/skills/', 'Install the complete bundle'],
   ['/understanding/architecture/', 'The round-trip, in words'],
 ]) {
@@ -42,8 +42,8 @@ test('direct retrieval and copying use the same page representation', async ({
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/getting-started/quick-start/?from=docs#wire-the-provider');
-  const response = await request.get('/getting-started/quick-start.md');
+  await page.goto('/dev/getting-started/quick-start/?from=docs#wire-the-provider');
+  const response = await request.get('/dev/getting-started/quick-start.md');
   const button = page.getByRole('button', {
     name: 'Copy for AI as markdown',
     exact: true,

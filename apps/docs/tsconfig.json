@@ -12,6 +12,7 @@
     "tools/prompts/**/*.ts",
     "prompts/evaluation/**/*.ts",
     "tools/skills/**/*.ts",
+    "tools/versions/**/*.ts",
     "astro.config.ts"
   ],
   "exclude": [

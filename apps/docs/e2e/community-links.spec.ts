@@ -5,7 +5,7 @@ for (const width of [1440, 390]) {
     page,
   }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto('/getting-started/introduction/');
+    await page.goto('/dev/getting-started/introduction/');
 
     if (width < 800) {
       await page
