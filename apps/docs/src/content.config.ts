@@ -5,6 +5,7 @@ import { defineCollection } from 'astro:content';
 
 import { createPromptCollectionLoader } from '../tools/prompts/collection-loader';
 import type { PromptMetadata } from '../tools/prompts/library';
+import { docsEntryId } from './lib/docs-versions';
 
 type DocsCollectionConfig = Extract<
   Parameters<typeof defineCollection>[0],
@@ -27,20 +28,3 @@ export const collections = {
     }),
   }),
 };
-
-// github-slugger, which Astro applies to entry ids, removes these on ASCII names.
-const SLUG_REMOVED = /[!-,./:-@[-^`{-~]/g;
-
-// Astro's default entry id, minus the dev/ folder, so pages keep their routes.
-function docsEntryId(entry: string, slug: unknown): string {
-  if (typeof slug === 'string' && slug) return slug;
-  return entry
-    .replace(/^dev\//, '')
-    .replace(/\.[^./]+$/, '')
-    .split('/')
-    .map((segment) =>
-      segment.toLowerCase().replace(SLUG_REMOVED, '').replace(/ /g, '-'),
-    )
-    .join('/')
-    .replace(/\/index$/, '');
-}

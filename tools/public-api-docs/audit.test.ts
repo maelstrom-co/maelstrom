@@ -141,10 +141,10 @@ async function runTypedocAudit(generated: 'missing' | 'empty' | 'valid') {
     join(workspace, 'node_modules'),
   );
   await write(
-    join(workspace, 'apps/docs/src/content/docs/reference/index.md'),
+    join(workspace, 'apps/docs/src/content/docs/dev/reference/index.md'),
     '# Supplemental source reference\n',
   );
-  const generatedRoot = join(workspace, 'apps/docs/dist/reference');
+  const generatedRoot = join(workspace, 'apps/docs/dist/dev/reference');
   if (generated === 'empty') {
     await write(join(generatedRoot, 'ignored.txt'), 'not generated HTML');
   } else if (generated === 'valid') {
@@ -216,7 +216,7 @@ describe('generated TypeDoc prerequisite', () => {
     expect(result.stderr.toString()).toBe('');
     expect(JSON.parse(result.stdout.toString()).errors).toEqual([
       {
-        path: 'apps/docs/dist/reference',
+        path: 'apps/docs/dist/dev/reference',
         rule: 'missing-typedoc-html',
         message:
           'Generated TypeDoc output contains no HTML; build the documentation site before running the TypeDoc audit.',
@@ -231,7 +231,7 @@ describe('generated TypeDoc prerequisite', () => {
     expect(result.stderr.toString()).toBe('');
     expect(JSON.parse(result.stdout.toString()).errors).toEqual([
       {
-        path: 'apps/docs/dist/reference',
+        path: 'apps/docs/dist/dev/reference',
         rule: 'missing-typedoc-html',
         message:
           'Generated TypeDoc output contains no HTML; build the documentation site before running the TypeDoc audit.',
@@ -249,8 +249,10 @@ describe('generated TypeDoc prerequisite', () => {
     expect(
       report.scanned.map((path: string) => path.replaceAll('\\', '/')),
     ).toEqual([
-      expect.stringContaining('/apps/docs/dist/reference/index.html'),
-      expect.stringContaining('/apps/docs/src/content/docs/reference/index.md'),
+      expect.stringContaining('/apps/docs/dist/dev/reference/index.html'),
+      expect.stringContaining(
+        '/apps/docs/src/content/docs/dev/reference/index.md',
+      ),
     ]);
   });
 });

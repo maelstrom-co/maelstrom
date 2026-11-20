@@ -43,7 +43,7 @@ export default defineConfig({
     // the first page compiles (measured warm; CI is colder, since the 362
     // generated reference pages are gitignored). It would move that compile out
     // of this 120s budget and into the first test's much smaller one.
-    url: 'http://localhost:4324/getting-started/introduction/',
+    url: 'http://localhost:4324/dev/getting-started/introduction/',
     reuseExistingServer: false,
     timeout: 120_000,
     // ASTRO_DEV_BACKGROUND: Astro detaches `astro dev` into a background daemon

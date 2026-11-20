@@ -92,44 +92,44 @@ interface DocsRoute {
 const GUIDE_ROUTES: readonly DocsRoute[] = [
   {
     name: 'voice overview',
-    path: '/guides/voice/overview/',
+    path: '/dev/guides/voice/overview/',
     // The sidebar group is already labelled "Voice"; titling the page "Voice"
     // too rendered a "Voice > Voice" nesting.
     heading: 'Overview',
   },
   {
     name: 'OpenAI guide',
-    path: '/guides/voice/openai-realtime/',
+    path: '/dev/guides/voice/openai-realtime/',
     heading: 'OpenAI Realtime',
   },
   {
     name: 'Live setup and recovery guide',
-    path: '/guides/voice/live-opening-recovery/',
+    path: '/dev/guides/voice/live-opening-recovery/',
     heading: 'Add a Live opening and explicit reconnect',
   },
   {
     name: 'LiveKit guide',
-    path: '/guides/voice/livekit-cascade/',
+    path: '/dev/guides/voice/livekit-cascade/',
     heading: 'LiveKit cascade',
   },
   {
     name: 'voice boundary explanation',
-    path: '/understanding/voice-architecture/',
+    path: '/dev/understanding/voice-architecture/',
     heading: 'The voice boundary',
   },
   {
     name: 'turn detection explanation',
-    path: '/understanding/browser-vad-and-barge-in/',
+    path: '/dev/understanding/browser-vad-and-barge-in/',
     heading: 'Turn detection in the browser',
   },
   {
     name: 'realtime voice tutorial',
-    path: '/tutorials/run-voice-locally/',
+    path: '/dev/tutorials/run-voice-locally/',
     heading: 'Run the voice demo locally',
   },
   {
     name: 'cascade voice tutorial',
-    path: '/tutorials/run-the-cascade-locally/',
+    path: '/dev/tutorials/run-the-cascade-locally/',
     heading: 'Run the cascade demo locally',
   },
 ];
@@ -140,111 +140,111 @@ const GUIDE_ROUTES: readonly DocsRoute[] = [
 const REFERENCE_ROUTES: readonly DocsRoute[] = [
   {
     name: '@maelstrom-co/realtime landing',
-    path: '/reference/realtime/readme/',
+    path: '/dev/reference/realtime/readme/',
     heading: '@maelstrom-co/realtime',
   },
   {
     name: '@maelstrom-co/react-realtime landing',
-    path: '/reference/react-realtime/readme/',
+    path: '/dev/reference/react-realtime/readme/',
     heading: '@maelstrom-co/react-realtime',
   },
   {
     name: '@maelstrom-co/realtime-openai-live landing',
-    path: '/reference/realtime-openai-live/readme/',
+    path: '/dev/reference/realtime-openai-live/readme/',
     heading: '@maelstrom-co/realtime-openai-live',
   },
   {
     name: '@maelstrom-co/realtime-openai-live-server landing',
-    path: '/reference/realtime-openai-live-server/readme/',
+    path: '/dev/reference/realtime-openai-live-server/readme/',
     heading: '@maelstrom-co/realtime-openai-live-server',
   },
   {
     name: '@maelstrom-co/realtime-openai-server landing',
-    path: '/reference/realtime-openai-server/readme/',
+    path: '/dev/reference/realtime-openai-server/readme/',
     heading: '@maelstrom-co/realtime-openai-server',
   },
   {
     name: 'RealtimeSession',
-    path: '/reference/realtime/classes/realtimesession/',
+    path: '/dev/reference/realtime/classes/realtimesession/',
     heading: 'RealtimeSession',
     context: 'packages/realtime/src',
   },
   {
     name: 'AdapterTurnControl',
-    path: '/reference/realtime/interfaces/adapterturncontrol/',
+    path: '/dev/reference/realtime/interfaces/adapterturncontrol/',
     heading: 'AdapterTurnControl',
     context:
       'packages/realtime/src/lib/realtime-session/provider-adapter.types.ts',
   },
   {
     name: 'OpenAIAdapter',
-    path: '/reference/realtime-openai/classes/openaiadapter/',
+    path: '/dev/reference/realtime-openai/classes/openaiadapter/',
     heading: 'OpenAIAdapter',
     context: 'packages/realtime-openai/src/openai-adapter.ts',
   },
   {
     name: 'OpenAITokenGrantSchema',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/openai/variables/openaitokengrantschema/',
+    path: '/dev/reference/realtime-protocol/packages/realtime-protocol/src/openai/variables/openaitokengrantschema/',
     heading: 'OpenAITokenGrantSchema',
     context: 'packages/realtime-protocol/src/lib/openai-token.ts',
     entryPoint: 'packages/realtime-protocol/src/openai',
   },
   {
     name: 'maelstromRealtime',
-    path: '/reference/react-realtime/functions/maelstromrealtime/',
+    path: '/dev/reference/react-realtime/functions/maelstromrealtime/',
     heading: 'maelstromRealtime',
     context: 'packages/react-realtime/src/lib/maelstrom-realtime.ts',
   },
   {
     name: 'UseVoiceResult',
-    path: '/reference/react-realtime/interfaces/usevoiceresult/',
+    path: '/dev/reference/react-realtime/interfaces/usevoiceresult/',
     heading: 'UseVoiceResult',
     context: 'packages/react-realtime/src/lib/maelstrom-realtime.ts',
   },
   {
     name: 'createOpenAIMinter',
-    path: '/reference/realtime-openai-server/functions/createopenaiminter/',
+    path: '/dev/reference/realtime-openai-server/functions/createopenaiminter/',
     heading: 'createOpenAIMinter',
     context: 'packages/realtime-openai-server/src/lib/openai-mint.ts',
   },
   {
     name: '@maelstrom-co/realtime-livekit landing',
-    path: '/reference/realtime-livekit/readme/',
+    path: '/dev/reference/realtime-livekit/readme/',
     heading: '@maelstrom-co/realtime-livekit',
   },
   {
     name: '@maelstrom-co/realtime-livekit-server landing',
-    path: '/reference/realtime-livekit-server/readme/',
+    path: '/dev/reference/realtime-livekit-server/readme/',
     heading: '@maelstrom-co/realtime-livekit-server',
   },
   {
     name: '@maelstrom-co/realtime-livekit-agent landing',
-    path: '/reference/realtime-livekit-agent/readme/',
+    path: '/dev/reference/realtime-livekit-agent/readme/',
     heading: '@maelstrom-co/realtime-livekit-agent',
   },
   {
     name: 'LiveKitAdapter',
-    path: '/reference/realtime-livekit/classes/livekitadapter/',
+    path: '/dev/reference/realtime-livekit/classes/livekitadapter/',
     heading: 'LiveKitAdapter',
     context: 'packages/realtime-livekit/src/livekit-adapter.ts',
   },
   {
     name: 'SPEAK_TOPIC',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
+    path: '/dev/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
     heading: 'SPEAK_TOPIC',
     context: 'packages/realtime-protocol/src/lib/livekit-wire.ts',
     entryPoint: 'packages/realtime-protocol/src/livekit',
   },
   {
     name: 'TtsDoneMessage',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/interfaces/ttsdonemessage/',
+    path: '/dev/reference/realtime-protocol/packages/realtime-protocol/src/livekit/interfaces/ttsdonemessage/',
     heading: 'TtsDoneMessage',
     context: 'packages/realtime-protocol/src/lib/livekit-wire.ts',
     entryPoint: 'packages/realtime-protocol/src/livekit',
   },
   {
     name: 'LiveKitTokenGrantSchema',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
+    path: '/dev/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
     heading: 'LiveKitTokenGrantSchema',
     context: 'packages/realtime-protocol/src/lib/livekit-token.ts',
     entryPoint: 'packages/realtime-protocol/src/livekit',
@@ -254,32 +254,32 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
     // reference page. A published subpath missing from the TypeDoc entry points
     // documents an import that lands nowhere.
     name: 'copyBrowserVadAssets',
-    path: '/reference/realtime-vad/packages/realtime-vad/src/vad-assets/functions/copybrowservadassets/',
+    path: '/dev/reference/realtime-vad/packages/realtime-vad/src/vad-assets/functions/copybrowservadassets/',
     heading: 'copyBrowserVadAssets',
     context: 'packages/realtime-vad/src/vad-assets.ts',
     entryPoint: 'packages/realtime-vad/src/vad-assets',
   },
   {
     name: 'mintLiveKitToken',
-    path: '/reference/realtime-livekit-server/functions/mintlivekittoken/',
+    path: '/dev/reference/realtime-livekit-server/functions/mintlivekittoken/',
     heading: 'mintLiveKitToken',
     context: 'packages/realtime-livekit-server/src/lib/livekit-mint.ts',
   },
   {
     name: 'LiveKitTokenRequestSchema',
-    path: '/reference/realtime-livekit-server/variables/livekittokenrequestschema/',
+    path: '/dev/reference/realtime-livekit-server/variables/livekittokenrequestschema/',
     heading: 'LiveKitTokenRequestSchema',
     context: 'packages/realtime-livekit-server/src/lib/livekit-mint.ts',
   },
   {
     name: 'runVoiceAgent',
-    path: '/reference/realtime-livekit-agent/functions/runvoiceagent/',
+    path: '/dev/reference/realtime-livekit-agent/functions/runvoiceagent/',
     heading: 'runVoiceAgent',
     context: 'packages/realtime-livekit-agent/src/agent.ts',
   },
   {
     name: 'default LiveKit agent definition',
-    path: '/reference/realtime-livekit-agent/variables/default/',
+    path: '/dev/reference/realtime-livekit-agent/variables/default/',
     heading: 'default',
     context: 'packages/realtime-livekit-agent/src/agent.ts',
   },
@@ -312,7 +312,11 @@ for (const route of GUIDE_ROUTES) {
   test(`${route.name} is reachable from the sidebar`, async ({ page }) => {
     await page.goto(route.path);
     const sidebar = page.getByRole('navigation', { name: 'Main' });
-    await expect(sidebar.locator(`a[href="${route.path}"]`)).toHaveCount(1);
+    // The version badge menu also links to the current page as its current
+    // version, so count only the curated sidebar entries.
+    await expect(
+      sidebar.locator(`a[href="${route.path}"]:not([role="menuitem"])`),
+    ).toHaveCount(1);
   });
 }
 
@@ -323,19 +327,19 @@ for (const route of GUIDE_ROUTES) {
 const OWNERSHIP_DIAGRAMS = [
   {
     name: 'OpenAI',
-    path: '/guides/voice/openai-realtime/',
+    path: '/dev/guides/voice/openai-realtime/',
     model: OPENAI_REALTIME_OWNERSHIP,
     secret: 'OPENAI_API_KEY',
   },
   {
     name: 'LiveKit',
-    path: '/guides/voice/livekit-cascade/',
+    path: '/dev/guides/voice/livekit-cascade/',
     model: LIVEKIT_CASCADE_OWNERSHIP,
     secret: 'LIVEKIT_API_SECRET',
   },
   {
     name: 'voice boundary',
-    path: '/understanding/voice-architecture/',
+    path: '/dev/understanding/voice-architecture/',
     model: VOICE_BOUNDARY,
     // Not a credential here: the claim this page turns on is an absence, and a
     // struck path is invisible to a screen reader unless the text says so.
@@ -343,7 +347,7 @@ const OWNERSHIP_DIAGRAMS = [
   },
   {
     name: 'turn ownership',
-    path: '/understanding/browser-vad-and-barge-in/',
+    path: '/dev/understanding/browser-vad-and-barge-in/',
     model: LIVEKIT_TURN_OWNERSHIP,
     secret: 'has no path to LiveKit room',
   },
@@ -387,7 +391,7 @@ for (const diagram of OWNERSHIP_DIAGRAMS) {
 test('the barge-in sequence renders every participant, step, and its order', async ({
   page,
 }) => {
-  await page.goto('/understanding/browser-vad-and-barge-in/');
+  await page.goto('/dev/understanding/browser-vad-and-barge-in/');
   const canvas = page.locator('.seq-canvas');
   await expect(canvas).toBeVisible();
 
@@ -450,7 +454,7 @@ test('voice consumer imports resolve from roots and documented subpaths', async 
     }).success,
   ).toBe(true);
 
-  await page.goto('/reference/realtime-protocol/readme/');
+  await page.goto('/dev/reference/realtime-protocol/readme/');
   const rootReference = page.locator('main');
   await expect(
     rootReference.getByText('packages/realtime-protocol/src/livekit-wire', {
@@ -464,7 +468,7 @@ test('voice consumer imports resolve from roots and documented subpaths', async 
   ).toBeVisible();
 
   await page.goto(
-    '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
+    '/dev/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
   );
   const sidebar = page.getByRole('navigation', { name: 'Main' });
   await expect(
@@ -477,7 +481,7 @@ test('voice consumer imports resolve from roots and documented subpaths', async 
   ).toBeVisible();
 
   await page.goto(
-    '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
+    '/dev/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
   );
   await expect(
     sidebar.getByText('packages/realtime-protocol/src/livekit', {
@@ -509,7 +513,7 @@ test('provider-neutral fixture is compile checked and rendered verbatim', async 
     expect(controls).toContain(surface);
   }
 
-  await page.goto('/guides/voice/overview/');
+  await page.goto('/dev/guides/voice/overview/');
   const rendered = (await page.locator('main pre').allTextContents()).join(
     '\n',
   );
@@ -540,7 +544,7 @@ test('OpenAI fixture regions are compile checked and rendered verbatim', async (
     'openai-voice-control',
   );
 
-  await page.goto('/guides/voice/openai-realtime/');
+  await page.goto('/dev/guides/voice/openai-realtime/');
   const rendered = asRendered(
     (await page.locator('main pre').allTextContents()).join('\n'),
   );
@@ -572,7 +576,7 @@ test('LiveKit browser fixture covers turn control and renders verbatim', async (
     ),
   );
 
-  await page.goto('/tutorials/run-the-cascade-locally/');
+  await page.goto('/dev/tutorials/run-the-cascade-locally/');
   const rendered = asRendered(
     (await page.locator('main pre').allTextContents()).join('\n'),
   );
@@ -603,7 +607,7 @@ test('LiveKit production fixture is compile checked and rendered verbatim', asyn
     ),
   );
 
-  await page.goto('/guides/voice/livekit-cascade/');
+  await page.goto('/dev/guides/voice/livekit-cascade/');
   const rendered = asRendered(
     (await page.locator('main pre').allTextContents()).join('\n'),
   );

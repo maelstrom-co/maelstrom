@@ -21,7 +21,7 @@ const evaluationReadme = readFileSync(
 describe('coding agent sidebar navigation', () => {
   it('keeps readable agent links and exposes the first-use guide near Quick Start', () => {
     expect(config).toMatch(
-      /\{\s*label: 'Coding agents',\s*items: \[\s*\{ label: 'Prompts library', link: '\/agents\/prompts\/' \},\s*\{ label: 'Agent skills', link: '\/agents\/skills\/' \},\s*\{\s*label: 'Testing prompts and skills',\s*link: '\/agents\/evaluations\/',\s*\},\s*\],\s*\},\s*\{\s*label: 'Community'/,
+      /\{\s*label: 'Coding agents',\s*items: \[\s*\{ label: 'Prompts library', link: '\/agents\/prompts\/' \},\s*\{ label: 'Agent skills', link: '\/agents\/skills\/' \},\s*\{ label: 'Testing prompts and skills', slug: 'agents\/evaluations' \},\s*\],\s*\},\s*\{\s*label: 'Community'/,
     );
     expect(config.match(/label: 'Coding agents'/g)).toHaveLength(1);
     expect(config.match(/label: 'Prompts library'/g)).toHaveLength(1);
@@ -35,11 +35,12 @@ describe('coding agent sidebar navigation', () => {
     expect(config).toMatch(
       /slug: 'getting-started\/quick-start'[\s\S]*?label: 'Build with an agent', link: '\/agents\/skills\/'/,
     );
-    expect(config.match(/link: '\/agents\/evaluations\/'/g)).toHaveLength(1);
+    expect(config.match(/slug: 'agents\/evaluations'/g)).toHaveLength(1);
   });
 
   it('keeps the guide at its existing route and links readers to the evaluation source', () => {
-    expect(evaluationGuide).toContain('slug: agents/evaluations');
+    // A slug override would pin the page outside its version folder.
+    expect(evaluationGuide).not.toContain('slug:');
     expect(evaluationGuide).toContain(
       '`apps/docs/prompts/evaluation/README.md`',
     );

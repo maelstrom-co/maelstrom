@@ -101,7 +101,7 @@ tests were run or a failure reproduced when they were not.
 
 ## Published APIs
 
-The `@maelstrom-co/*` packages serve external consumers. The full contract is `apps/docs/src/content/docs/community/jsdoc-contract.mdx`.
+The `@maelstrom-co/*` packages serve external consumers. The full contract is `apps/docs/src/content/docs/dev/community/jsdoc-contract.mdx`.
 
 - Add JSDoc to every public function, type, class, and exported field.
 - Default internal code to no comments. Keep only non-obvious constraints and rationale.

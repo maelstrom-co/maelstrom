@@ -15,7 +15,7 @@ async function copyPage(page: Page): Promise<string> {
 test('copied guides keep source links and still work after client navigation', async ({
   page,
 }) => {
-  await page.goto('/getting-started/introduction/');
+  await page.goto('/dev/getting-started/introduction/');
   await expect(page.locator('.sl-markdown-content')).toContainText(
     'an open-source framework for building intent-driven apps',
   );
@@ -23,7 +23,7 @@ test('copied guides keep source links and still work after client navigation', a
   const introduction = await copyPage(page);
   expect(introduction).toContain('# Introduction');
   expect(introduction).toContain(
-    `[Quick Start](${new URL('/getting-started/quick-start', page.url()).href})`,
+    `[Quick Start](${new URL('/dev/getting-started/quick-start', page.url()).href})`,
   );
   expect(introduction).toContain('```tsx');
   expect(introduction).toContain('const m = createMaelstrom({');
@@ -51,7 +51,7 @@ test('copied guides keep source links and still work after client navigation', a
 test('copied protocol tables retain the envelope and result relationships', async ({
   page,
 }) => {
-  await page.goto('/understanding/protocol/');
+  await page.goto('/dev/understanding/protocol/');
 
   const markdown = await copyPage(page);
   expect(markdown).toMatch(
@@ -60,5 +60,7 @@ test('copied protocol tables retain the envelope and result relationships', asyn
   expect(markdown).toMatch(
     /\|\s*`chart_request`\s*\|\s*Successful `chart_response`\s*\|\s*`engine\.maelstrom\.response`/,
   );
-  expect(markdown).toContain(new URL('/understanding/engine', page.url()).href);
+  expect(markdown).toContain(
+    new URL('/dev/understanding/engine', page.url()).href,
+  );
 });

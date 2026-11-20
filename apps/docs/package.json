@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prompts:check": "bun tools/prompts/check.ts",
+    "versions:snapshot": "bun tools/versions/snapshot.ts",
     "skills:install": "bun tools/skills/cli.ts install",
     "skills:update": "bun tools/skills/cli.ts update",
     "skills:remove": "bun tools/skills/cli.ts remove",
@@ -20,6 +21,7 @@
     "@astrojs/starlight-tailwind": "^5.0.0",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@pagefind/default-ui": "^1.5.2",
     "astro": "catalog:",
     "jsonc-parser": "3.3.1",
     "react": "catalog:",
@@ -221,7 +223,7 @@
         "dependsOn": [
           "^build"
         ],
-        "command": "bun test src tools/prompts tools/skills prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
+        "command": "bun test src tools/prompts tools/skills tools/versions prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",

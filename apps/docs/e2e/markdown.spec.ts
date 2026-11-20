@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test';
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 for (const [path, expected] of [
-  ['/getting-started/quick-start/', 'greetingVessel'],
-  ['/guides/react/variants-and-actions/', 'setName'],
-  ['/reference/react/readme/', '@maelstrom-co/react'],
+  ['/dev/getting-started/quick-start/', 'greetingVessel'],
+  ['/dev/guides/react/variants-and-actions/', 'setName'],
+  ['/dev/reference/react/readme/', '@maelstrom-co/react'],
   ['/agents/skills/', 'Install the complete bundle'],
   ['/understanding/architecture/', 'The round-trip, in words'],
 ]) {
@@ -29,8 +29,11 @@ for (const [path, expected] of [
     expect(body).toContain('Documentation revision:');
     expect(body).toContain('@maelstrom-co/react@');
     expect(body).not.toContain('<astro-island');
+    const version = /^\/(dev|\d+(?:\.\d+)?)\//.exec(path)?.[1];
     await expect(
-      page.locator('link[rel="alternate"][href="/llms.txt"]'),
+      page.locator(
+        `link[rel="alternate"][href="${version ? `/${version}` : ''}/llms.txt"]`,
+      ),
     ).toHaveCount(1);
     expect(errors).toEqual([]);
   });
@@ -42,8 +45,10 @@ test('direct retrieval and copying use the same page representation', async ({
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/getting-started/quick-start/?from=docs#wire-the-provider');
-  const response = await request.get('/getting-started/quick-start.md');
+  await page.goto(
+    '/dev/getting-started/quick-start/?from=docs#wire-the-provider',
+  );
+  const response = await request.get('/dev/getting-started/quick-start.md');
   const button = page.getByRole('button', {
     name: 'Copy for AI as markdown',
     exact: true,
@@ -82,4 +87,26 @@ test('missing Markdown pages retain a not-found response', async ({
   expect(
     (await request.get('/missing-page-for-markdown-test.md')).status(),
   ).toBe(404);
+});
+
+test('dev serves its own machine docs and bare Markdown serves the npm version', async ({
+  request,
+}) => {
+  const dev = await request.get('/dev/_llms-txt/guides.txt');
+  expect(dev.ok()).toBe(true);
+  expect(await dev.text()).toContain('sendInput');
+
+  const index = await (await request.get('/llms.txt')).text();
+  const defaultVersion = /^# Maelstrom (\S+)$/m.exec(index)?.[1];
+  expect(defaultVersion).toBeDefined();
+  expect(index).toContain(`/${defaultVersion}/llms-full.txt`);
+  expect(await (await request.get(`/${defaultVersion}/llms.txt`)).text()).toBe(
+    index,
+  );
+
+  const bare = await request.get('/guides/client/custom-connectors.md');
+  expect(bare.status()).toBe(200);
+  expect(await bare.text()).toContain(
+    `/${defaultVersion}/guides/client/custom-connectors/`,
+  );
 });

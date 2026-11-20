@@ -893,7 +893,7 @@ async function main(): Promise<number> {
       }
     }
     if (typedoc) {
-      const generatedRootPath = 'apps/docs/dist/reference';
+      const generatedRootPath = 'apps/docs/dist/dev/reference';
       const generatedFiles = await filesRecursively(
         join(root, generatedRootPath),
         ['.html'],
@@ -913,7 +913,7 @@ async function main(): Promise<number> {
         });
       } else {
         const sourceFiles = await filesRecursively(
-          join(root, 'apps/docs/src/content/docs/reference'),
+          join(root, 'apps/docs/src/content/docs/dev/reference'),
           ['.md'],
         );
         reports.push(

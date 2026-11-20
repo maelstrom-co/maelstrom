@@ -9,6 +9,7 @@ import config from 'virtual:starlight/user-config';
 import { icons } from './icons';
 import MaelstromLogo from './MaelstromLogo.astro';
 import SidebarToggle from './SidebarToggle.astro';
+import VersionBadge from './VersionBadge.astro';
 
 const { sidebar } = Astro.locals.starlightRoute;
 
@@ -29,6 +30,7 @@ const frameworks = [
     <a href="https://maelstrom-ai.co" class="sidebar-logo">
       <MaelstromLogo height={20} />
     </a>
+    <VersionBadge />
     <SidebarToggle variant="collapse" />
   </div>
 

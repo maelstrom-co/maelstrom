@@ -11,6 +11,20 @@ declare module 'virtual:starlight/user-config' {
   export default config;
 }
 
+declare module 'virtual:starlight/project-context' {
+  const project: Pick<import('astro').AstroConfig, 'trailingSlash'>;
+  export default project;
+}
+
+declare module 'virtual:starlight/pagefind-config' {
+  export const pagefindUserConfig: Partial<
+    Extract<
+      import('@astrojs/starlight/types').StarlightConfig['pagefind'],
+      object
+    >
+  >;
+}
+
 declare module 'virtual:starlight/components/Search' {
   const Search: typeof import('@astrojs/starlight/components').Search;
   export default Search;
@@ -29,4 +43,26 @@ declare module 'virtual:starlight/components/ThemeSelect' {
 declare module 'virtual:starlight/components/MobileMenuFooter' {
   const MobileMenuFooter: typeof import('@astrojs/starlight/components').MobileMenuFooter;
   export default MobileMenuFooter;
+}
+
+declare module 'virtual:maelstrom/docs-versions' {
+  const docs: import('./lib/docs-versions').DocsVersions;
+  export default docs;
+}
+
+declare module 'virtual:maelstrom/versioned-llms' {
+  const config: import('./lib/versioned-llms').VersionedLlmsConfig;
+  export default config;
+}
+
+declare module 'virtual:maelstrom/llms-txt-generator' {
+  export function generateLlmsTxt(
+    context: import('astro').APIContext,
+    options: {
+      minify: boolean;
+      description: string | undefined;
+      exclude?: string[] | undefined;
+      include?: string[] | undefined;
+    },
+  ): Promise<string>;
 }
