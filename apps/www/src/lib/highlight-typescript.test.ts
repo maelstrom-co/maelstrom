@@ -21,6 +21,10 @@ const EXAMPLE_FILES = [
 const STYLED_TOKEN_TAG =
   /^(?:<span class="tk-(?:key|fn|str|num|com|ty|pn|var|att)">|<\/span>)$/;
 
+// Stripping only token spans leaves any other markup in the visible text, so
+// the round-trip checks fail on it.
+const TOKEN_SPAN_TAGS = /<span class="tk-[a-z]+">|<\/span>/g;
+
 describe('highlightTypeScript', () => {
   for (const file of EXAMPLE_FILES) {
     const source = readFileSync(join(EXAMPLES_DIRECTORY, file), 'utf8');
@@ -48,7 +52,7 @@ describe('highlightTypeScript', () => {
     const source =
       "if (a < b && c > d) render('</code><script>alert(1)</script>');";
     const html = highlightTypeScript(source);
-    const text = html.replace(/<span class="tk-[a-z]+">|<\/span>/g, '');
+    const text = html.replace(TOKEN_SPAN_TAGS, '');
 
     expect(html).toContain('&lt;');
     expect(html).toContain('&gt;');
@@ -142,9 +146,9 @@ describe('highlightTypeScript', () => {
   });
 });
 
-// Reverses the highlighter: drop the markup, then decode the entities it may emit.
+// Reverses the highlighter: drop the token spans, then decode the entities it may emit.
 function visibleText(html: string): string {
-  return unescapeEntities(html.replace(/<[^>]*>/g, ''));
+  return unescapeEntities(html.replace(TOKEN_SPAN_TAGS, ''));
 }
 
 function tokensOf(html: string): { className: string; text: string }[] {
