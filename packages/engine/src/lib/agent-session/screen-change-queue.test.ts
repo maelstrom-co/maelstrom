@@ -27,13 +27,13 @@ import type { Logger } from '../logger.js';
 import { createFakeAgentRunTime } from './__test-helpers__/fake-agent-run-time.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
 import {
-  createPlannerShowQueue,
-  type LoopDrivenShow,
-  SHOW_PLANNING_TIMEOUT_MS,
-} from './planner-show-queue.js';
+  createScreenChangeQueue,
+  type ScreenChangeJob,
+  SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
+} from './screen-change-queue.js';
+import { buildScreenChangeRequest } from './screen-change-request.js';
 import { describeScreenUpdate } from './screen-note.js';
 import type { PlanOutcome, SessionPlanInput } from './session-planner.js';
-import { buildShowRequest } from './show-request.js';
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
 const PROSE_SENTINEL = 'PLANNER PROSE SENTINEL';
@@ -44,27 +44,29 @@ const monthChart = makeGridRequest();
 const weekChart = calendarChart('week');
 const dayChart = calendarChart('day');
 
-describe('createPlannerShowQueue', () => {
+describe('createScreenChangeQueue', () => {
   test('starts planning at once on the latest Chart with fresh ids', () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
 
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     expect(harness.planner.calls).toHaveLength(1);
     const input = harness.planner.input(0);
-    expect(input.request).toEqual(buildShowRequest(monthChart, show(1).intent));
-    expect(input.owner.runId).toBe(show(1).runId);
-    expect(input.owner.inputId).toBe(show(1).inputId);
-    expect(input.owner.turnId).toBe(show(1).turnId);
-    expect(input.messageId).not.toBe(show(1).inputId);
+    expect(input.request).toEqual(
+      buildScreenChangeRequest(monthChart, screenChange(1).intent),
+    );
+    expect(input.owner.runId).toBe(screenChange(1).runId);
+    expect(input.owner.inputId).toBe(screenChange(1).inputId);
+    expect(input.owner.turnId).toBe(screenChange(1).turnId);
+    expect(input.messageId).not.toBe(screenChange(1).inputId);
     expect(input.signal.aborted).toBe(false);
   });
 
   test('emits the planned change with its run id and change id', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
@@ -72,18 +74,18 @@ describe('createPlannerShowQueue', () => {
     expect(change).toEqual({
       type: 'ui_change',
       version: AGENT_WIRE_VERSION,
-      runId: show(1).runId,
+      runId: screenChange(1).runId,
       changeId: change.changeId,
       response: changeResponse(monthChart),
     });
     expect(change.changeId.length).toBeGreaterThan(0);
   });
 
-  test('plans the next show only after the matching acknowledgement, on the acknowledged Chart', async () => {
+  test('plans the next Screen Change only after the matching acknowledgement, on the acknowledged Chart', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
 
     expect(harness.planner.calls).toHaveLength(1);
     harness.planner.respond(0, changeResponse(monthChart));
@@ -96,19 +98,19 @@ describe('createPlannerShowQueue', () => {
 
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).request).toEqual(
-      buildShowRequest(weekChart, show(2).intent),
+      buildScreenChangeRequest(weekChart, screenChange(2).intent),
     );
     harness.planner.respond(1, changeResponse(weekChart));
     const second = await harness.nextUiChange();
-    expect(second.runId).toBe(show(2).runId);
+    expect(second.runId).toBe(screenChange(2).runId);
     expect(second.changeId).not.toBe(first.changeId);
   });
 
-  test('mints a distinct change id and message id per show when planning starts', async () => {
+  test('mints a distinct change id and message id per Screen Change when planning starts', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     harness.planner.respond(0, changeResponse(monthChart));
     const first = await harness.nextUiChange();
     harness.queue.acknowledge(
@@ -126,14 +128,14 @@ describe('createPlannerShowQueue', () => {
   test('accepts an acknowledgement sent synchronously from inside the ui_change listener', async () => {
     const harness = createHarness();
     harness.events.subscribe((event) => {
-      if (event.type === 'ui_change' && event.runId === show(1).runId)
+      if (event.type === 'ui_change' && event.runId === screenChange(1).runId)
         harness.queue.acknowledge(
           applied(event.changeId, weekChart, [{ ok: true }]),
         );
     });
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
 
     harness.planner.respond(0, changeResponse(monthChart));
     await harness.planner.nextCall();
@@ -151,7 +153,7 @@ describe('createPlannerShowQueue', () => {
       applied(ChangeId('nothing-pending'), weekChart, []),
     );
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
 
@@ -183,8 +185,8 @@ describe('createPlannerShowQueue', () => {
   test('refuses a wrong outcome count while the change stays pending until a valid acknowledgement', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
 
@@ -206,12 +208,12 @@ describe('createPlannerShowQueue', () => {
         .map(({ readContent: _, ...entry }) => entry),
     ).toEqual([
       {
-        runId: show(1).runId,
-        inputId: show(1).inputId,
+        runId: screenChange(1).runId,
+        inputId: screenChange(1).inputId,
         kind: 'engine.agent.ui_applied.rejected',
         metadata: {
           changeId: change.changeId,
-          turnId: show(1).turnId,
+          turnId: screenChange(1).turnId,
           code: 'invalid_action_outcomes',
         },
       },
@@ -228,10 +230,10 @@ describe('createPlannerShowQueue', () => {
     expect(harness.planner.calls).toHaveLength(2);
   });
 
-  test('records the screen note of a valid acknowledgement for the run and turn that asked for the show', async () => {
+  test('records the screen note of a valid acknowledgement for the run and turn that asked for the Screen Change', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const response = changeResponse(monthChart, 2);
     harness.planner.respond(0, response);
     const change = await harness.nextUiChange();
@@ -248,21 +250,21 @@ describe('createPlannerShowQueue', () => {
       chart: weekChart,
     });
     expect(harness.notes).toEqual([
-      { runId: show(1).runId, turnId: show(1).turnId, text },
+      { runId: screenChange(1).runId, turnId: screenChange(1).turnId, text },
     ]);
     expect(text).toStartWith('Screen updated: ran showWeek on calendar → week');
     expect(harness.time.pending()).toBe(0);
   });
 
-  test('reports an acknowledgement timeout with an error event, a not-confirmed note and a diagnostic, then plans the next show on the last known Chart', async () => {
+  test('reports an acknowledgement timeout with an error event, a not-confirmed note and a diagnostic, then plans the next Screen Change on the last known Chart', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
     expect(harness.time.scheduled()).toEqual([
-      SHOW_PLANNING_TIMEOUT_MS,
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
       ACKNOWLEDGEMENT_TIMEOUT_MS,
     ]);
 
@@ -276,16 +278,16 @@ describe('createPlannerShowQueue', () => {
         type: 'error',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
-        runId: show(1).runId,
+        runId: screenChange(1).runId,
         code: 'ui_ack_timeout',
         error: 'The UI acknowledgement did not arrive.',
       },
     ]);
     expect(harness.notes).toEqual([
       {
-        runId: show(1).runId,
-        turnId: show(1).turnId,
-        text: 'Show not confirmed: the screen did not acknowledge the latest_order change.',
+        runId: screenChange(1).runId,
+        turnId: screenChange(1).turnId,
+        text: 'Screen change not confirmed: the screen did not acknowledge the latest_order change.',
       },
     ]);
     expect(
@@ -294,12 +296,12 @@ describe('createPlannerShowQueue', () => {
       expect.objectContaining({ kind: 'engine.agent.ui_change.emitted' }),
       {
         kind: 'engine.agent.ui_change.timed_out',
-        metadata: { changeId: change.changeId, turnId: show(1).turnId },
+        metadata: { changeId: change.changeId, turnId: screenChange(1).turnId },
       },
     ]);
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.planner.input(1).request).toEqual(
-      buildShowRequest(monthChart, show(2).intent),
+      buildScreenChangeRequest(monthChart, screenChange(2).intent),
     );
 
     harness.queue.acknowledge(
@@ -314,12 +316,12 @@ describe('createPlannerShowQueue', () => {
   test('ignores a Chart noted while a change awaits acknowledgement', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart));
     await harness.nextUiChange();
 
     harness.queue.noteChart(dayChart);
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(2));
     harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
 
     expect(harness.planner.input(1).request.instances).toEqual(
@@ -327,10 +329,10 @@ describe('createPlannerShowQueue', () => {
     );
   });
 
-  test('plans a show in planning again on a newer Chart that changes its request, with fresh ids', async () => {
+  test('plans a Screen Change in planning again on a newer Chart that changes its request, with fresh ids', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const first = harness.planner.input(0);
 
     harness.queue.noteChart(weekChart);
@@ -338,10 +340,10 @@ describe('createPlannerShowQueue', () => {
     expect(first.signal.aborted).toBe(true);
     expect(harness.planner.calls).toHaveLength(2);
     const replanned = harness.planner.input(1);
-    expect(replanned.owner.runId).toBe(show(1).runId);
-    expect(replanned.owner.turnId).toBe(show(1).turnId);
+    expect(replanned.owner.runId).toBe(screenChange(1).runId);
+    expect(replanned.owner.turnId).toBe(screenChange(1).turnId);
     expect(replanned.request).toEqual(
-      buildShowRequest(weekChart, show(1).intent),
+      buildScreenChangeRequest(weekChart, screenChange(1).intent),
     );
     expect(replanned.messageId).not.toBe(first.messageId);
     expect(replanned.signal.aborted).toBe(false);
@@ -356,7 +358,7 @@ describe('createPlannerShowQueue', () => {
       (event) => event.type === 'ui_change',
     );
     expect(changes).toHaveLength(1);
-    expect(changes[0]?.runId).toBe(show(1).runId);
+    expect(changes[0]?.runId).toBe(screenChange(1).runId);
     expect(harness.observed[0]?.metadata).toMatchObject({
       changeId: changes[0]?.changeId,
     });
@@ -367,7 +369,7 @@ describe('createPlannerShowQueue', () => {
   test('keeps planning when the Chart noted during planning leaves the request unchanged', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const { signal } = harness.planner.input(0);
 
     harness.queue.noteChart(structuredClone(monthChart));
@@ -383,22 +385,22 @@ describe('createPlannerShowQueue', () => {
     expect(harness.planner.calls).toHaveLength(1);
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
-    expect(change.runId).toBe(show(1).runId);
+    expect(change.runId).toBe(screenChange(1).runId);
   });
 
-  test('keeps queue order when a show in planning is planned again', async () => {
+  test('keeps queue order when a Screen Change in planning is planned again', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
 
     harness.queue.noteChart(weekChart);
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(1).runId);
-    harness.planner.respond(1, nothingToShow(weekChart));
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(1).runId);
+    harness.planner.respond(1, noScreenChange(weekChart));
     await harness.planner.nextCall();
-    expect(harness.planner.input(2).owner.runId).toBe(show(2).runId);
+    expect(harness.planner.input(2).owner.runId).toBe(screenChange(2).runId);
     expect(harness.planner.input(2).request.instances).toEqual(
       weekChart.instances,
     );
@@ -407,12 +409,12 @@ describe('createPlannerShowQueue', () => {
   test('takes a Chart noted after the slot is free', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.planner.respond(0, nothingToShow(monthChart));
+    harness.queue.request(screenChange(1));
+    harness.planner.respond(0, noScreenChange(monthChart));
     await flushMicrotasks();
 
     harness.queue.noteChart(dayChart);
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(2));
 
     expect(harness.planner.input(1).request.instances).toEqual(
       dayChart.instances,
@@ -445,22 +447,22 @@ describe('createPlannerShowQueue', () => {
       code: 'planning_timeout',
       errorContext: {},
       fail: (harness: Harness) =>
-        harness.time.advance(SHOW_PLANNING_TIMEOUT_MS),
+        harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS),
     },
   ])(
-    'reports a show whose Planner call $failure with an error event, a failed note, a diagnostic and one warning, then plans the next show',
+    'reports a Screen Change whose Planner call $failure with an error event, a failed note, a diagnostic and one warning, then plans the next Screen Change',
     async ({ code, errorContext, fail }) => {
       const harness = createHarness();
       harness.queue.noteChart(monthChart);
-      harness.queue.request(show(1));
-      harness.queue.request(show(2));
+      harness.queue.request(screenChange(1));
+      harness.queue.request(screenChange(2));
 
       const nextCall = harness.planner.nextCall();
       fail(harness);
       await nextCall;
 
       const failed = harness.observed.find(
-        (entry) => entry.kind === 'engine.agent.show.failed',
+        (entry) => entry.kind === 'engine.agent.screen_change.failed',
       );
       const changeId = failed?.metadata.changeId;
       expect(changeId).toEqual(expect.any(String));
@@ -469,43 +471,43 @@ describe('createPlannerShowQueue', () => {
           type: 'error',
           version: AGENT_WIRE_VERSION,
           changeId: ChangeId(String(changeId)),
-          runId: show(1).runId,
+          runId: screenChange(1).runId,
           code,
           error: 'The screen could not be updated.',
         },
       ]);
       expect(harness.notes).toEqual([
         {
-          runId: show(1).runId,
-          turnId: show(1).turnId,
-          text: 'Show failed: latest_order result could not be shown.',
+          runId: screenChange(1).runId,
+          turnId: screenChange(1).turnId,
+          text: 'Screen change failed: latest_order result could not be shown.',
         },
       ]);
       expect(harness.observed).toEqual([
         {
-          runId: show(1).runId,
-          inputId: show(1).inputId,
-          kind: 'engine.agent.show.failed',
-          metadata: { changeId, turnId: show(1).turnId, code },
+          runId: screenChange(1).runId,
+          inputId: screenChange(1).inputId,
+          kind: 'engine.agent.screen_change.failed',
+          metadata: { changeId, turnId: screenChange(1).turnId, code },
           readContent: undefined,
         },
       ]);
       expect(harness.warnings()).toEqual([
         {
-          message: 'Loop-driven show failed',
+          message: 'Screen Change failed',
           data: {
             changeId,
             messageId: harness.planner.input(0).messageId,
-            runId: show(1).runId,
-            turnId: show(1).turnId,
-            toolNames: show(1).toolNames,
+            runId: screenChange(1).runId,
+            turnId: screenChange(1).turnId,
+            toolNames: screenChange(1).toolNames,
             code,
             ...errorContext,
           },
         },
       ]);
       expect(harness.planner.calls).toHaveLength(2);
-      expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
+      expect(harness.planner.input(1).owner.runId).toBe(screenChange(2).runId);
       expect(
         JSON.stringify([
           harness.received,
@@ -520,12 +522,14 @@ describe('createPlannerShowQueue', () => {
   test('aborts the Planner call at the planning timeout and discards its late outcome', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const { signal } = harness.planner.input(0);
-    expect(SHOW_PLANNING_TIMEOUT_MS).toBe(30_000);
-    expect(harness.time.scheduled()).toEqual([SHOW_PLANNING_TIMEOUT_MS]);
+    expect(SCREEN_CHANGE_PLANNING_TIMEOUT_MS).toBe(30_000);
+    expect(harness.time.scheduled()).toEqual([
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
+    ]);
 
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS - 1);
     expect(signal.aborted).toBe(false);
     expect(harness.received).toEqual([]);
     harness.time.advance(1);
@@ -545,7 +549,7 @@ describe('createPlannerShowQueue', () => {
   test('honours a planning timeout overridden through the factory options', () => {
     const harness = createHarness({ planningTimeoutMs: 100 });
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     harness.time.advance(100);
 
@@ -558,11 +562,11 @@ describe('createPlannerShowQueue', () => {
   test('cancels the planning timer once the Planner settles', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
-    harness.planner.respond(0, nothingToShow(monthChart));
+    harness.planner.respond(0, noScreenChange(monthChart));
     await flushMicrotasks();
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS);
 
     expect(harness.time.pending()).toBe(0);
     expect(harness.errors()).toEqual([]);
@@ -571,14 +575,14 @@ describe('createPlannerShowQueue', () => {
   test('a restart on a newer Chart cancels the first planning timer and arms a fresh one, with no failed note or error event', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    harness.queue.request(screenChange(1));
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS - 1);
 
     harness.queue.noteChart(weekChart);
 
     expect(harness.time.scheduled()).toEqual([
-      SHOW_PLANNING_TIMEOUT_MS,
-      SHOW_PLANNING_TIMEOUT_MS,
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
     ]);
     expect(harness.time.pending()).toBe(1);
     harness.time.advance(1);
@@ -587,7 +591,7 @@ describe('createPlannerShowQueue', () => {
     expect(harness.notes).toEqual([]);
     expect(harness.warnings()).toEqual([]);
 
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS - 1);
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS - 1);
     expect(harness.planner.input(1).signal.aborted).toBe(true);
     expect(harness.errors().map((event) => event.code)).toEqual([
       'planning_timeout',
@@ -595,18 +599,18 @@ describe('createPlannerShowQueue', () => {
     expect(harness.notes).toHaveLength(1);
   });
 
-  test('a restart on a newer Chart keeps whenIdle waiting until the replanned show settles', async () => {
+  test('a restart on a newer Chart keeps whenIdle waiting until the replanned Screen Change settles', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const idle = trackSettled(harness.queue.whenIdle());
 
     harness.queue.noteChart(weekChart);
-    harness.planner.respond(0, nothingToShow(monthChart));
+    harness.planner.respond(0, noScreenChange(monthChart));
     await flushMicrotasks();
     expect(idle.settled).toBe(false);
 
-    harness.planner.respond(1, nothingToShow(weekChart));
+    harness.planner.respond(1, noScreenChange(weekChart));
     await flushMicrotasks();
     expect(idle.settled).toBe(true);
   });
@@ -614,7 +618,7 @@ describe('createPlannerShowQueue', () => {
   test('close after a restart aborts the replanned call and records or emits nothing', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.queue.noteChart(weekChart);
 
     harness.queue.close();
@@ -625,7 +629,7 @@ describe('createPlannerShowQueue', () => {
     harness.planner.respond(0, changeResponse(monthChart));
     harness.planner.respond(1, changeResponse(weekChart));
     await flushMicrotasks();
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS);
     expect(harness.planner.calls).toHaveLength(2);
     expect(harness.received).toEqual([]);
     expect(harness.observed).toEqual([]);
@@ -635,20 +639,20 @@ describe('createPlannerShowQueue', () => {
   test('logs a thrown Planner call once with its error name but without its message', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     harness.planner.throws(0, new TypeError(`thrown ${ERROR_SENTINEL}`));
     await flushMicrotasks();
 
     expect(harness.warnings()).toEqual([
       {
-        message: 'Loop-driven show failed',
+        message: 'Screen Change failed',
         data: {
           changeId: harness.errors()[0]?.changeId,
           messageId: harness.planner.input(0).messageId,
-          runId: show(1).runId,
-          turnId: show(1).turnId,
-          toolNames: show(1).toolNames,
+          runId: screenChange(1).runId,
+          turnId: screenChange(1).turnId,
+          toolNames: screenChange(1).toolNames,
           code: 'internal_error',
           errorName: 'TypeError',
         },
@@ -657,39 +661,39 @@ describe('createPlannerShowQueue', () => {
     expect(JSON.stringify(harness.logs)).not.toContain(ERROR_SENTINEL);
   });
 
-  test('records a skipped note and a diagnostic when there is nothing to show, sends nothing and plans the next show', async () => {
+  test('records a skipped note and a diagnostic when there is nothing to show, sends nothing and plans the next Screen Change', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
 
-    harness.planner.respond(0, nothingToShow(monthChart));
+    harness.planner.respond(0, noScreenChange(monthChart));
     await harness.planner.nextCall();
 
     expect(harness.received).toEqual([]);
     expect(harness.notes).toEqual([
       {
-        runId: show(1).runId,
-        turnId: show(1).turnId,
-        text: 'Show skipped: nothing new to show for latest_order result.',
+        runId: screenChange(1).runId,
+        turnId: screenChange(1).turnId,
+        text: 'Screen change skipped: nothing new to show for latest_order result.',
       },
     ]);
     expect(harness.observed).toEqual([
       {
-        runId: show(1).runId,
-        inputId: show(1).inputId,
-        kind: 'engine.agent.show.skipped',
+        runId: screenChange(1).runId,
+        inputId: screenChange(1).inputId,
+        kind: 'engine.agent.screen_change.skipped',
         metadata: {
           changeId: expect.any(String),
-          turnId: show(1).turnId,
+          turnId: screenChange(1).turnId,
           reason: 'nothing_to_show',
         },
         readContent: undefined,
       },
     ]);
     expect(harness.time.scheduled()).toEqual([
-      SHOW_PLANNING_TIMEOUT_MS,
-      SHOW_PLANNING_TIMEOUT_MS,
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
+      SCREEN_CHANGE_PLANNING_TIMEOUT_MS,
     ]);
     expect(harness.planner.calls).toHaveLength(2);
   });
@@ -697,8 +701,8 @@ describe('createPlannerShowQueue', () => {
   test('records the Planner question in a skipped note but never in diagnostics, logs or the wire', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     const question = `Which order do you mean? ${QUESTION_SENTINEL}`;
 
     harness.planner.outcome(0, { type: 'needs_clarification', question });
@@ -707,19 +711,19 @@ describe('createPlannerShowQueue', () => {
     expect(harness.received).toEqual([]);
     expect(harness.notes).toEqual([
       {
-        runId: show(1).runId,
-        turnId: show(1).turnId,
-        text: `Show skipped: the Planner needs more detail to show latest_order result. Question: ${question}`,
+        runId: screenChange(1).runId,
+        turnId: screenChange(1).turnId,
+        text: `Screen change skipped: the Planner needs more detail to show latest_order result. Question: ${question}`,
       },
     ]);
     expect(
       harness.observed.map(({ kind, metadata }) => ({ kind, metadata })),
     ).toEqual([
       {
-        kind: 'engine.agent.show.skipped',
+        kind: 'engine.agent.screen_change.skipped',
         metadata: {
           changeId: expect.any(String),
-          turnId: show(1).turnId,
+          turnId: screenChange(1).turnId,
           reason: 'needs_clarification',
         },
       },
@@ -733,10 +737,10 @@ describe('createPlannerShowQueue', () => {
   test('emits a change whose plan is empty but whose layout differs from the request', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     harness.planner.respond(0, {
-      ...nothingToShow(monthChart),
+      ...noScreenChange(monthChart),
       layout: { type: 'grid', positions: [] },
     });
     const change = await harness.nextUiChange();
@@ -744,26 +748,26 @@ describe('createPlannerShowQueue', () => {
     expect(change.response.executionPlan).toEqual([]);
   });
 
-  test('drops a show when no Chart is known yet and moves on', async () => {
+  test('drops a Screen Change when no Chart is known yet and moves on', async () => {
     const harness = createHarness();
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     expect(harness.planner.calls).toHaveLength(0);
     expect(harness.warnings()).toEqual([
       {
-        message: 'Dropped a loop-driven show with no known Chart',
-        data: { runId: show(1).runId, turnId: show(1).turnId },
+        message: 'Dropped a Screen Change with no known Chart',
+        data: { runId: screenChange(1).runId, turnId: screenChange(1).turnId },
       },
     ]);
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(2));
     expect(harness.planner.calls).toHaveLength(1);
   });
 
   test('never lets Planner prose reach events, notes, logs or diagnostic metadata', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
 
     harness.planner.respond(0, {
       ...changeResponse(monthChart),
@@ -786,7 +790,7 @@ describe('createPlannerShowQueue', () => {
   test('observes the emitted and applied change with ids in metadata and text and the response behind readContent', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart, 2));
     const change = await harness.nextUiChange();
     const outcomes: AgentActionOutcome[] = [{ ok: true }, { ok: false }];
@@ -797,22 +801,22 @@ describe('createPlannerShowQueue', () => {
       harness.observed.map(({ readContent: _, ...entry }) => entry),
     ).toEqual([
       {
-        runId: show(1).runId,
-        inputId: show(1).inputId,
+        runId: screenChange(1).runId,
+        inputId: screenChange(1).inputId,
         kind: 'engine.agent.ui_change.emitted',
         metadata: {
           changeId: change.changeId,
-          turnId: show(1).turnId,
+          turnId: screenChange(1).turnId,
           actions: 2,
         },
       },
       {
-        runId: show(1).runId,
-        inputId: show(1).inputId,
+        runId: screenChange(1).runId,
+        inputId: screenChange(1).inputId,
         kind: 'engine.agent.ui_change.applied',
         metadata: {
           changeId: change.changeId,
-          turnId: show(1).turnId,
+          turnId: screenChange(1).turnId,
           actions: 2,
           failed: 1,
         },
@@ -820,7 +824,7 @@ describe('createPlannerShowQueue', () => {
     ]);
     const [emitted, appliedEntry] = harness.observed;
     expect(emitted?.readContent?.()).toEqual({
-      intent: show(1).intent,
+      intent: screenChange(1).intent,
       response: change.response,
     });
     const screenNote = harness.notes[0]?.text;
@@ -832,7 +836,7 @@ describe('createPlannerShowQueue', () => {
     const metadataJson = JSON.stringify(
       harness.observed.map((entry) => entry.metadata),
     );
-    expect(metadataJson).not.toContain(show(1).intent);
+    expect(metadataJson).not.toContain(screenChange(1).intent);
     expect(metadataJson).not.toContain('ORD-1');
     expect(metadataJson).not.toContain(screenNote ?? 'missing note');
   });
@@ -857,12 +861,12 @@ describe('createPlannerShowQueue', () => {
         }),
     },
   ])(
-    'close aborts the Planner call in flight and discards its later $outcome and the queued shows',
+    'close aborts the Planner call in flight and discards its later $outcome and the queued Screen Changes',
     async ({ settle }) => {
       const harness = createHarness();
       harness.queue.noteChart(monthChart);
-      harness.queue.request(show(1));
-      harness.queue.request(show(2));
+      harness.queue.request(screenChange(1));
+      harness.queue.request(screenChange(2));
       const { signal } = harness.planner.input(0);
 
       harness.queue.close();
@@ -870,8 +874,8 @@ describe('createPlannerShowQueue', () => {
       expect(harness.time.pending()).toBe(0);
       settle(harness);
       await flushMicrotasks();
-      harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
-      harness.queue.request(show(3));
+      harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS);
+      harness.queue.request(screenChange(3));
       harness.queue.noteChart(weekChart);
 
       expect(harness.planner.calls).toHaveLength(1);
@@ -884,12 +888,12 @@ describe('createPlannerShowQueue', () => {
   test('close resolves idle waiters and ignores a later dropRun', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     const idle = trackSettled(harness.queue.whenIdle());
 
     harness.queue.close();
-    harness.queue.dropRun(show(1).runId);
+    harness.queue.dropRun(screenChange(1).runId);
     await flushMicrotasks();
 
     expect(idle.settled).toBe(true);
@@ -909,11 +913,11 @@ describe('createPlannerShowQueue', () => {
     expect(idle.settled).toBe(true);
   });
 
-  test('whenIdle waits through planning and acknowledgement of every queued show', async () => {
+  test('whenIdle waits through planning and acknowledgement of every queued Screen Change', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     const first = trackSettled(harness.queue.whenIdle());
     const second = trackSettled(harness.queue.whenIdle());
 
@@ -928,16 +932,16 @@ describe('createPlannerShowQueue', () => {
     await flushMicrotasks();
     expect(first.settled).toBe(false);
 
-    harness.planner.respond(1, nothingToShow(weekChart));
+    harness.planner.respond(1, noScreenChange(weekChart));
     await flushMicrotasks();
     expect(first.settled).toBe(true);
     expect(second.settled).toBe(true);
   });
 
-  test('whenIdle resolves when the acknowledgement timeout ends the last show', async () => {
+  test('whenIdle resolves when the acknowledgement timeout ends the last Screen Change', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart));
     await harness.nextUiChange();
     const idle = trackSettled(harness.queue.whenIdle());
@@ -951,91 +955,122 @@ describe('createPlannerShowQueue', () => {
     expect(idle.settled).toBe(true);
   });
 
-  test('whenIdle resolves when a failed show ends the last show', async () => {
+  test('whenIdle resolves when a failed Screen Change ends the last Screen Change', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const idle = trackSettled(harness.queue.whenIdle());
 
-    harness.time.advance(SHOW_PLANNING_TIMEOUT_MS);
+    harness.time.advance(SCREEN_CHANGE_PLANNING_TIMEOUT_MS);
     await flushMicrotasks();
 
     expect(idle.settled).toBe(true);
   });
 
-  test('dropRun aborts the run planning show and drops its queued shows with cancelled notes and diagnostics while other runs move on', async () => {
+  test('dropRun aborts the run planning Screen Change and drops its queued Screen Changes with cancelled notes and diagnostics while other runs move on', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1, 1));
-    harness.queue.request(show(2, 2));
-    harness.queue.request(show(3, 1));
+    harness.queue.request(screenChange(1, 1));
+    harness.queue.request(screenChange(2, 2));
+    harness.queue.request(screenChange(3, 1));
     const { signal } = harness.planner.input(0);
 
-    harness.queue.dropRun(show(1, 1).runId);
+    harness.queue.dropRun(screenChange(1, 1).runId);
 
     expect(signal.aborted).toBe(true);
     expect(harness.notes).toEqual([
       {
-        runId: show(1, 1).runId,
-        turnId: show(1, 1).turnId,
-        text: 'Show cancelled: latest_order result.',
+        runId: screenChange(1, 1).runId,
+        turnId: screenChange(1, 1).turnId,
+        text: 'Screen change cancelled: latest_order result.',
       },
       {
-        runId: show(3, 1).runId,
-        turnId: show(3, 1).turnId,
-        text: 'Show cancelled: latest_order result.',
+        runId: screenChange(3, 1).runId,
+        turnId: screenChange(3, 1).turnId,
+        text: 'Screen change cancelled: latest_order result.',
       },
     ]);
     expect(harness.observed).toEqual([
       {
-        runId: show(1, 1).runId,
-        inputId: show(1, 1).inputId,
-        kind: 'engine.agent.show.cancelled',
-        metadata: { turnId: show(1, 1).turnId, changeId: expect.any(String) },
+        runId: screenChange(1, 1).runId,
+        inputId: screenChange(1, 1).inputId,
+        kind: 'engine.agent.screen_change.cancelled',
+        metadata: {
+          turnId: screenChange(1, 1).turnId,
+          changeId: expect.any(String),
+        },
         readContent: undefined,
       },
       {
-        runId: show(3, 1).runId,
-        inputId: show(3, 1).inputId,
-        kind: 'engine.agent.show.cancelled',
-        metadata: { turnId: show(3, 1).turnId },
+        runId: screenChange(3, 1).runId,
+        inputId: screenChange(3, 1).inputId,
+        kind: 'engine.agent.screen_change.cancelled',
+        metadata: { turnId: screenChange(3, 1).turnId },
         readContent: undefined,
       },
     ]);
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(2, 2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(2, 2).runId);
     expect(harness.time.pending()).toBe(1);
 
     harness.planner.respond(0, changeResponse(monthChart));
     harness.planner.respond(1, changeResponse(monthChart));
     const change = await harness.nextUiChange();
 
-    expect(change.runId).toBe(show(2, 2).runId);
+    expect(change.runId).toBe(screenChange(2, 2).runId);
     expect(harness.received).toEqual([change]);
     expect(harness.observed.map((entry) => entry.kind)).toEqual([
-      'engine.agent.show.cancelled',
-      'engine.agent.show.cancelled',
+      'engine.agent.screen_change.cancelled',
+      'engine.agent.screen_change.cancelled',
       'engine.agent.ui_change.emitted',
     ]);
     expect(harness.planner.calls).toHaveLength(2);
   });
 
+  test('observes failed, skipped and cancelled outcomes under Screen Change kinds only', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
+    harness.queue.request(screenChange(3));
+    harness.queue.request(screenChange(4));
+
+    harness.planner.throws(0, new Error('planner failed'));
+    await harness.planner.nextCall();
+    harness.planner.respond(1, noScreenChange(monthChart));
+    await harness.planner.nextCall();
+    harness.queue.dropRun(screenChange(3).runId);
+    harness.queue.close();
+
+    const kinds = harness.observed.map((entry) => entry.kind);
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        'engine.agent.screen_change.failed',
+        'engine.agent.screen_change.skipped',
+        'engine.agent.screen_change.cancelled',
+      ]),
+    );
+    expect(
+      kinds.filter((kind) => kind.startsWith('engine.agent.show.')),
+    ).toEqual([]);
+  });
+
   test('dropRun keeps the run change already emitted awaiting its acknowledgement and records its screen note', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1, 1));
-    harness.queue.request(show(2, 1));
-    harness.queue.request(show(3, 3));
+    harness.queue.request(screenChange(1, 1));
+    harness.queue.request(screenChange(2, 1));
+    harness.queue.request(screenChange(3, 3));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
 
-    harness.queue.dropRun(show(1, 1).runId);
+    harness.queue.dropRun(screenChange(1, 1).runId);
 
     expect(harness.notes).toEqual([
       {
-        runId: show(2, 1).runId,
-        turnId: show(2, 1).turnId,
-        text: 'Show cancelled: latest_order result.',
+        runId: screenChange(2, 1).runId,
+        turnId: screenChange(2, 1).turnId,
+        text: 'Screen change cancelled: latest_order result.',
       },
     ]);
     expect(harness.planner.calls).toHaveLength(1);
@@ -1047,33 +1082,33 @@ describe('createPlannerShowQueue', () => {
 
     expect(harness.errors()).toEqual([]);
     expect(harness.notes[1]).toEqual({
-      runId: show(1, 1).runId,
-      turnId: show(1, 1).turnId,
+      runId: screenChange(1, 1).runId,
+      turnId: screenChange(1, 1).turnId,
       text: expect.stringMatching(/^Screen updated: /),
     });
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(3, 3).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(3, 3).runId);
   });
 
-  test('dropRun of a run without shows leaves the queue untouched', async () => {
+  test('dropRun of a run without Screen Changes leaves the queue untouched', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
 
     harness.queue.dropRun(RunId('another-run'));
 
     expect(harness.planner.input(0).signal.aborted).toBe(false);
     expect(harness.notes).toEqual([]);
     harness.planner.respond(0, changeResponse(monthChart));
-    expect((await harness.nextUiChange()).runId).toBe(show(1).runId);
+    expect((await harness.nextUiChange()).runId).toBe(screenChange(1).runId);
   });
 
   test('close cancels the acknowledgement timer and ignores a later acknowledgement', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     harness.planner.respond(0, changeResponse(monthChart));
     const change = await harness.nextUiChange();
 
@@ -1089,41 +1124,41 @@ describe('createPlannerShowQueue', () => {
     expect(harness.notes).toEqual([]);
   });
 
-  test('a show requested from inside the error listener of a failed show is planned and keeps whenIdle waiting', async () => {
+  test('a Screen Change requested from inside the error listener of a failed Screen Change is planned and keeps whenIdle waiting', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     let requested = false;
     harness.events.subscribe((event) => {
       if (
         event.type === 'error' &&
-        event.runId === show(1).runId &&
+        event.runId === screenChange(1).runId &&
         !requested
       ) {
         requested = true;
-        harness.queue.request(show(2));
+        harness.queue.request(screenChange(2));
       }
     });
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     const idle = trackSettled(harness.queue.whenIdle());
 
     harness.planner.fail(0, providerError('provider detail', 'provider'));
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(2).runId);
     expect(idle.settled).toBe(false);
     expect(harness.notes).toEqual([
       {
-        runId: show(1).runId,
-        turnId: show(1).turnId,
-        text: 'Show failed: latest_order result could not be shown.',
+        runId: screenChange(1).runId,
+        turnId: screenChange(1).turnId,
+        text: 'Screen change failed: latest_order result could not be shown.',
       },
     ]);
 
     const nextChange = harness.nextUiChange();
     harness.planner.respond(1, changeResponse(monthChart));
     const change = await nextChange;
-    expect(change.runId).toBe(show(2).runId);
+    expect(change.runId).toBe(screenChange(2).runId);
 
     harness.queue.acknowledge(
       applied(change.changeId, weekChart, [{ ok: true }]),
@@ -1133,14 +1168,14 @@ describe('createPlannerShowQueue', () => {
     expect(harness.notes).toHaveLength(2);
     expect(harness.notes[1]).toEqual(
       expect.objectContaining({
-        runId: show(2).runId,
-        turnId: show(2).turnId,
+        runId: screenChange(2).runId,
+        turnId: screenChange(2).turnId,
         text: expect.stringMatching(/^Screen updated: /),
       }),
     );
   });
 
-  test('a show requested from inside the error listener of an acknowledgement timeout is planned and keeps whenIdle waiting', async () => {
+  test('a Screen Change requested from inside the error listener of an acknowledgement timeout is planned and keeps whenIdle waiting', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     let requested = false;
@@ -1148,14 +1183,14 @@ describe('createPlannerShowQueue', () => {
       if (
         event.type === 'error' &&
         event.code === 'ui_ack_timeout' &&
-        event.runId === show(1).runId &&
+        event.runId === screenChange(1).runId &&
         !requested
       ) {
         requested = true;
-        harness.queue.request(show(2));
+        harness.queue.request(screenChange(2));
       }
     });
-    harness.queue.request(show(1));
+    harness.queue.request(screenChange(1));
     harness.planner.respond(0, changeResponse(monthChart));
     await harness.nextUiChange();
     const idle = trackSettled(harness.queue.whenIdle());
@@ -1164,38 +1199,42 @@ describe('createPlannerShowQueue', () => {
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(2).runId);
     expect(idle.settled).toBe(false);
 
     const nextChange = harness.nextUiChange();
     harness.planner.respond(1, changeResponse(monthChart));
-    expect((await nextChange).runId).toBe(show(2).runId);
+    expect((await nextChange).runId).toBe(screenChange(2).runId);
   });
 
-  test('dropRun from inside the error listener keeps the queued show of another run', async () => {
+  test('dropRun from inside the error listener keeps the queued Screen Change of another run', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     let dropped = false;
     harness.events.subscribe((event) => {
-      if (event.type === 'error' && event.runId === show(1).runId && !dropped) {
+      if (
+        event.type === 'error' &&
+        event.runId === screenChange(1).runId &&
+        !dropped
+      ) {
         dropped = true;
-        harness.queue.dropRun(show(1).runId);
+        harness.queue.dropRun(screenChange(1).runId);
       }
     });
-    harness.queue.request(show(1));
-    harness.queue.request(show(2));
+    harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
     const idle = trackSettled(harness.queue.whenIdle());
 
     harness.planner.fail(0, providerError('provider detail', 'provider'));
     await flushMicrotasks();
 
     expect(harness.planner.calls).toHaveLength(2);
-    expect(harness.planner.input(1).owner.runId).toBe(show(2).runId);
+    expect(harness.planner.input(1).owner.runId).toBe(screenChange(2).runId);
     expect(idle.settled).toBe(false);
 
     const nextChange = harness.nextUiChange();
     harness.planner.respond(1, changeResponse(monthChart));
-    expect((await nextChange).runId).toBe(show(2).runId);
+    expect((await nextChange).runId).toBe(screenChange(2).runId);
   });
 
   test.each([
@@ -1226,8 +1265,8 @@ describe('createPlannerShowQueue', () => {
         if (event.type === 'error' && event.code === code)
           harness.queue.close();
       });
-      harness.queue.request(show(1));
-      harness.queue.request(show(2));
+      harness.queue.request(screenChange(1));
+      harness.queue.request(screenChange(2));
 
       await end(harness);
 
@@ -1285,7 +1324,7 @@ function createHarness({
       logs.push({ level: 'error', message, data: { error, data } }),
   };
   const planner = createControlledPlanner();
-  const queue = createPlannerShowQueue({
+  const queue = createScreenChangeQueue({
     planner: planner.plan,
     events,
     diagnostics: {
@@ -1293,7 +1332,7 @@ function createHarness({
         observed.push({ runId, inputId, kind, metadata, readContent }),
       session: (kind, metadata) => sessionObserved.push({ kind, metadata }),
     },
-    recordShowNote: (runId, turnId, text) =>
+    recordScreenNote: (runId, turnId, text) =>
       notes.push({ runId, turnId, text }),
     logger,
     scheduleTimeout: time.clock.scheduleTimeout,
@@ -1357,7 +1396,7 @@ function createControlledPlanner() {
   };
 }
 
-function show(index: number, run = index): LoopDrivenShow {
+function screenChange(index: number, run = index): ScreenChangeJob {
   return {
     runId: RunId(`run-${run}`),
     inputId: MessageId(`input-${run}`),
@@ -1380,7 +1419,7 @@ function changeResponse(request: ChartRequest, actions = 1): MaelstromResponse {
   };
 }
 
-function nothingToShow(request: ChartRequest): MaelstromResponse {
+function noScreenChange(request: ChartRequest): MaelstromResponse {
   return {
     ...changeResponse(request, 0),
     layout: structuredClone(request.layout) as MaelstromResponse['layout'],

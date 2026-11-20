@@ -16,11 +16,11 @@ export function toolCallRef(runId: RunId, callId: CallId): ToolCallRef {
 }
 
 /**
- * Renders a show note as the line a {@link Transcript} renders it,
- * `[show <turnId>] <text>`, for handing the same line to a run in progress.
+ * Renders a screen note as the line a {@link Transcript} renders it,
+ * `[screen <turnId>] <text>`, for handing the same line to a run in progress.
  */
-export function renderShowNote(turnId: string, text: string): string {
-  return `[show ${turnId}] ${text}`;
+export function renderScreenNote(turnId: string, text: string): string {
+  return `[screen ${turnId}] ${text}`;
 }
 
 /**
@@ -53,17 +53,17 @@ export interface Transcript {
     summary: string,
   ): void;
   /**
-   * Records a one-line note about a show the run asked the Planner for, such
+   * Records a one-line note about a Screen Change the run asked the Planner for, such
    * as that it is queued or what the screen then displays. It belongs to the
    * run, so it leaves with that run on eviction. A note recorded after its
    * run was evicted is kept until the bound evicts it.
    */
-  recordShowNote(runId: RunId, turnId: string, text: string): void;
+  recordScreenNote(runId: RunId, turnId: string, text: string): void;
   /**
-   * Calls `listener` with each show note recorded from now on, right after
+   * Calls `listener` with each screen note recorded from now on, right after
    * recording it. Returns a function that stops the calls.
    */
-  onShowNote(
+  onScreenNote(
     listener: (runId: RunId, turnId: string, text: string) => void,
   ): () => void;
   /** Records the closing message a run sent when a budget ran out. */
@@ -76,7 +76,7 @@ export interface Transcript {
   recordEnding(runId: RunId, finished: AgentRunFinished): void;
   /**
    * Renders every retained entry, oldest first. User inputs become
-   * `user` messages, and so do show notes. Reply text, tool calls, tool summaries, closing messages
+   * `user` messages, and so do screen notes. Reply text, tool calls, tool summaries, closing messages
    * and abnormal endings become `assistant` content, with consecutive
    * entries of the same role joined by newlines into one message.
    */
@@ -108,7 +108,7 @@ export function createTranscript({
 }: TranscriptOptions = {}): Transcript {
   const entries: TranscriptEntry[] = [];
   const runsWithReplyText = new Set<RunId>();
-  const showNoteListeners = new Set<
+  const screenNoteListeners = new Set<
     (runId: RunId, turnId: string, text: string) => void
   >();
   let totalChars = 0;
@@ -171,14 +171,14 @@ export function createTranscript({
         summary,
       });
     },
-    recordShowNote(runId, turnId, text) {
-      append({ kind: 'show_note', runId, turnId, text });
-      for (const listener of showNoteListeners) listener(runId, turnId, text);
+    recordScreenNote(runId, turnId, text) {
+      append({ kind: 'screen_note', runId, turnId, text });
+      for (const listener of screenNoteListeners) listener(runId, turnId, text);
     },
-    onShowNote(listener) {
-      showNoteListeners.add(listener);
+    onScreenNote(listener) {
+      screenNoteListeners.add(listener);
       return () => {
-        showNoteListeners.delete(listener);
+        screenNoteListeners.delete(listener);
       };
     },
     recordClosingMessage(runId, text) {
@@ -196,7 +196,7 @@ export function createTranscript({
       const messages: ModelMessage<string>[] = [];
       for (const entry of entries) {
         const role =
-          entry.kind === 'user_input' || entry.kind === 'show_note'
+          entry.kind === 'user_input' || entry.kind === 'screen_note'
             ? 'user'
             : 'assistant';
         const content = renderEntry(entry);
@@ -239,7 +239,7 @@ type TranscriptEntry =
       readonly summary: string;
     }
   | {
-      readonly kind: 'show_note';
+      readonly kind: 'screen_note';
       readonly runId: RunId;
       readonly turnId: string;
       readonly text: string;
@@ -264,8 +264,8 @@ function renderEntry(entry: TranscriptEntry): string {
       return `[tool call ${entry.ref}] ${entry.name} ${entry.args}`;
     case 'tool_result':
       return `[tool result ${entry.ref}] ${entry.ok ? 'ok' : 'failed'}: ${entry.summary}`;
-    case 'show_note':
-      return renderShowNote(entry.turnId, entry.text);
+    case 'screen_note':
+      return renderScreenNote(entry.turnId, entry.text);
     case 'closing_message':
       return `[closing message ${entry.runId}] ${entry.text}`;
     case 'ending':

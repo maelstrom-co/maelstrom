@@ -25,8 +25,8 @@ import {
   buildRunEnding,
   type RunFailure,
 } from './run-events.js';
+import { userIntentRequest } from './screen-change-request.js';
 import { requireResponse, type SessionPlanner } from './session-planner.js';
-import { userIntentRequest } from './show-request.js';
 
 export interface RunSchedulerOptions {
   readonly planner: SessionPlanner;

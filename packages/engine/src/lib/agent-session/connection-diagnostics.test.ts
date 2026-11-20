@@ -35,7 +35,7 @@ import {
   addEventPlanner,
   calendarChart,
   capturingAgentRunQueueModule,
-  capturingPlannerShowQueueModule,
+  capturingScreenChangeQueueModule,
   LATEST_ORDER,
   openAgentSession,
   orderTool,
@@ -57,7 +57,7 @@ import {
   scriptedUsage,
 } from './__test-helpers__/scripted-text-adapter.js';
 
-void mock.module('./planner-show-queue.js', capturingPlannerShowQueueModule);
+void mock.module('./screen-change-queue.js', capturingScreenChangeQueueModule);
 void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('session-level input diagnostics', () => {
@@ -353,7 +353,7 @@ describe('run.finished durationMs', () => {
 });
 
 describe('agent run diagnostics', () => {
-  test('a two-turn run with a loop-driven show reports its run, turns and tool call, and its Planner events carry the run owner and the turn id', async () => {
+  test('a two-turn run with a Screen Change reports its run, turns and tool call, and its Planner events carry the run owner and the turn id', async () => {
     const model = scriptedTextAdapter([
       scriptedToolTurn(
         [{ id: 'provider-call-1', name: 'latest_order', args: {} }],

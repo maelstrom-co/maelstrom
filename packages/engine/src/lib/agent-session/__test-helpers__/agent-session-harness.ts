@@ -32,8 +32,8 @@ import type {
   AgentRunQueueOptions,
 } from '../agent-run-queue.js';
 import type { AgentRunBudgets } from '../agent-run.js';
-import * as plannerShowQueueModule from '../planner-show-queue.js';
-import type { PlannerShowQueueOptions } from '../planner-show-queue.js';
+import * as screenChangeQueueModule from '../screen-change-queue.js';
+import type { ScreenChangeQueueOptions } from '../screen-change-queue.js';
 import type { SessionPlanner } from '../session-planner.js';
 import type { ToolResultStore } from '../tool-result-store.js';
 import type { Transcript } from '../transcript.js';
@@ -74,23 +74,23 @@ export interface SessionInternals {
 
 /**
  * Every agent connection's internals, in creation order. Filled only when the
- * test file replaces both queue modules with {@link capturingPlannerShowQueueModule}
+ * test file replaces both queue modules with {@link capturingScreenChangeQueueModule}
  * and {@link capturingAgentRunQueueModule} through `mock.module`.
  */
 export const sessionInternals: SessionInternals[] = [];
 
 const realCreateAgentRunQueue = agentRunQueueModule.createAgentRunQueue;
-const realCreatePlannerShowQueue =
-  plannerShowQueueModule.createPlannerShowQueue;
-let lastShowPlanner: SessionPlanner | undefined;
+const realCreateScreenChangeQueue =
+  screenChangeQueueModule.createScreenChangeQueue;
+let lastScreenChangePlanner: SessionPlanner | undefined;
 
-/** The Planner show queue module, recording the planner each connection's show queue receives. */
-export function capturingPlannerShowQueueModule() {
+/** The Screen Change queue module, recording the planner each connection's Screen Change queue receives. */
+export function capturingScreenChangeQueueModule() {
   return {
-    ...plannerShowQueueModule,
-    createPlannerShowQueue: (options: PlannerShowQueueOptions) => {
-      lastShowPlanner = options.planner;
-      return realCreatePlannerShowQueue(options);
+    ...screenChangeQueueModule,
+    createScreenChangeQueue: (options: ScreenChangeQueueOptions) => {
+      lastScreenChangePlanner = options.planner;
+      return realCreateScreenChangeQueue(options);
     },
   };
 }
@@ -100,10 +100,10 @@ export function capturingAgentRunQueueModule() {
   return {
     ...agentRunQueueModule,
     createAgentRunQueue: (options: AgentRunQueueOptions): AgentRunQueue => {
-      const planner = lastShowPlanner;
+      const planner = lastScreenChangePlanner;
       if (planner === undefined)
-        throw new Error('the connection created no show queue');
-      lastShowPlanner = undefined;
+        throw new Error('the connection created no Screen Change queue');
+      lastScreenChangePlanner = undefined;
       const queue = realCreateAgentRunQueue(options);
       sessionInternals.push({
         queue,
@@ -136,7 +136,7 @@ export function openAgentSession(overrides: AgentSessionOverrides = {}) {
   const received: AgentEvent[] = [];
   const user = { id: USER_SENTINEL };
   const plannerInputs: PlanningInput[] = [];
-  const planner = overrides.planner ?? nothingToShowPlanner;
+  const planner = overrides.planner ?? noScreenChangePlanner;
   const createdBefore = sessionInternals.length;
   const engine = createEngine({
     logger: silentLogger,
@@ -193,7 +193,7 @@ export function openAgentSession(overrides: AgentSessionOverrides = {}) {
 }
 
 /** A Planner that keeps the screen as it is. */
-export const nothingToShowPlanner: ClarifyingPlanner = (input) =>
+export const noScreenChangePlanner: ClarifyingPlanner = (input) =>
   Promise.resolve(
     ok({
       type: 'plan',

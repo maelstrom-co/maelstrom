@@ -36,6 +36,8 @@ describe('createDemoAgentConfig', () => {
     expect(config.model).toBe(adapter);
     expect(config.instructions).toMatch(/pet shop/);
     expect(config.instructions).toContain('Screen updated');
+    expect(config.instructions).toContain('Screen change queued');
+    expect(config.instructions).not.toMatch(/\bshow\b/i);
     expect(config.instructions).toMatch(/offered to the screen automatically/);
     expect(config.budgets).toBeUndefined();
     expect(config.tools).toHaveLength(2);

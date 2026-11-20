@@ -400,7 +400,7 @@ request cap, which stay request-only. Forwarding stays disabled in production.
 | `engine.agent.tool.completed` | Run | A tool call settled as `succeeded`, `failed` or `not_run`, with `durationMs` only when it started. |
 | `engine.agent.ui_change.emitted` | Run, or Session without a run | A UI change was sent to the client. |
 | `engine.agent.ui_change.applied` | Run | The client acknowledged the change. |
-| `engine.agent.show.failed`, `.show.skipped`, `.show.cancelled`, `.ui_change.timed_out` | Run | A loop-driven show did not reach the screen. |
+| `engine.agent.screen_change.failed`, `.screen_change.skipped`, `.screen_change.cancelled`, `.ui_change.timed_out` | Run | A Screen Change did not reach the screen. |
 | `engine.agent.run.finished` | Run | The run ended, with the counters of the wire `finished.metrics` and `durationMs` equal to `elapsedMs`. Metadata holds scalars only, so `metrics.toolCalls.requested` and `.admitted` appear as `toolCallsRequested` and `toolCallsAdmitted`. |
 | `engine.agent.input.ignored`, `.input.rejected` | Session | An input was a duplicate or was refused. |
 | `engine.agent.ui_applied.rejected` | Run for a known change, Session for an unknown one | An acknowledgement named an unknown change or the wrong outcome count. |

@@ -42,7 +42,7 @@ const DEMO_AGENT_INSTRUCTIONS = [
   'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.',
   'Each successful tool result is offered to the screen automatically.',
   'Describe the data in your reply. You may say you are bringing it up.',
-  'Notes in the conversation tell you what happened to each show, such as "Show queued" or "Screen updated".',
+  'Notes in the conversation tell you what happened to each Screen Change, such as "Screen change queued" or "Screen updated".',
   'Say something is on screen only after a "Screen updated" note says so.',
 ].join(' ');
 

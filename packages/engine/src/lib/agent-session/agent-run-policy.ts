@@ -140,6 +140,14 @@ export interface AgentRunPolicy {
    */
   beforeToolCall(callId: string): AgentRunToolCallAdmission;
   /**
+   * Runs when an admitted tool call is about to execute, which can be later
+   * than its admission when it waited behind other calls. Returns `false`
+   * when an ending is latched or the deadline passed, after latching the
+   * elapsed ending and aborting {@link abortController}. It counts nothing,
+   * so the call stays counted once by {@link beforeToolCall}.
+   */
+  beforeToolStart(): boolean;
+  /**
    * Sink for `withUsage`: appends `call` to the ledger, ends one call noted
    * by {@link noteProviderCallStarted} and warns through the logger when a
    * completed call reported no usage, which points at an adapter that drops
@@ -217,9 +225,7 @@ export function createAgentRunPolicy(
       if (Number.isFinite(budgets.maxElapsedMs)) {
         cancelDeadline = clock.scheduleTimeout(() => {
           latch({ reason: 'budget', limit: 'elapsed' });
-          abortRun(
-            new DOMException('Agent run deadline reached', 'TimeoutError'),
-          );
+          abortRun(deadlineReached());
         }, budgets.maxElapsedMs);
       }
       return undefined;
@@ -288,6 +294,13 @@ export function createAgentRunPolicy(
       toolCallsAdmitted += 1;
       return { admitted: true };
     },
+    beforeToolStart() {
+      if (ending !== undefined) return false;
+      if (!deadlinePassed()) return true;
+      latch({ reason: 'budget', limit: 'elapsed' });
+      abortRun(deadlineReached());
+      return false;
+    },
     noteProviderCallStarted() {
       activeProviderCalls += 1;
     },
@@ -351,12 +364,7 @@ export function createAgentRunPolicy(
   }
 
   function elapsedOrTokenRefusal(): AgentRunEnding | undefined {
-    if (
-      startedAt !== undefined &&
-      clock.now() - startedAt >= budgets.maxElapsedMs
-    ) {
-      return { reason: 'budget', limit: 'elapsed' };
-    }
+    if (deadlinePassed()) return { reason: 'budget', limit: 'elapsed' };
     if (!Number.isFinite(budgets.maxTokens)) return undefined;
     const total = totalTokens(ledger.snapshot());
     if (total === undefined) {
@@ -365,6 +373,16 @@ export function createAgentRunPolicy(
     return total >= budgets.maxTokens
       ? { reason: 'budget', limit: 'tokens' }
       : undefined;
+  }
+
+  function deadlinePassed(): boolean {
+    return (
+      startedAt !== undefined && clock.now() - startedAt >= budgets.maxElapsedMs
+    );
+  }
+
+  function deadlineReached(): DOMException {
+    return new DOMException('Agent run deadline reached', 'TimeoutError');
   }
 
   function refuseTurn(refusal?: AgentRunEnding): false {
@@ -406,8 +424,9 @@ export function createAgentRunPolicy(
 
 /**
  * Adapts `policy` to TanStack AI `chat()` middleware. Install it first in
- * the middleware array, and pass `toolExecution: 'sequential'` so each
- * refusal happens before the next call starts.
+ * the middleware array. `chat()` prepares every call of a turn in call order
+ * before any of them starts, in `'parallel'` mode too, so each refusal
+ * happens before any call of the turn starts.
  *
  * - `onConfig` at the `beforeModel` phase runs
  *   {@link AgentRunPolicy.beforeModelTurn} and aborts the chat on refusal.

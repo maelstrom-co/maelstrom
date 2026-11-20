@@ -11,8 +11,8 @@ import {
   createOrderedEmitter,
   type OrderedEmitter,
 } from './ordered-emitter.js';
-import { createPlannerShowQueue } from './planner-show-queue.js';
 import { createRunScheduler, type RunScheduler } from './run-scheduler.js';
+import { createScreenChangeQueue } from './screen-change-queue.js';
 import type { SessionPlanner } from './session-planner.js';
 import { createToolResultStore } from './tool-result-store.js';
 import { createTranscript, TRANSCRIPT_MAX_CHARS } from './transcript.js';
@@ -42,7 +42,7 @@ export interface OpenConnectionOptions {
    * UI-only route, when it elapses, the run finishes with code
    * `ui_ack_timeout`, every queued utterance finishes as `cancelled`, and the
    * next utterance plans against its own Chart. A loop-driven change of an
-   * Agent Run waits as long, then the next queued show starts on the last
+   * Agent Run waits as long, then the next queued Screen Change starts on the last
    * acknowledged Chart while the runs carry on.
    */
   readonly acknowledgementTimeoutMs?: number;
@@ -63,7 +63,7 @@ export interface OpenConnectionOptions {
  *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
  *   default. On the UI-only route a timeout fails the run and cancels queued
  *   work. On an agent connection a timeout of a loop-driven change only lets
- *   the next queued show start.
+ *   the next queued Screen Change start.
  */
 export interface AgentConnection {
   /**
@@ -203,12 +203,12 @@ function createAgentRoute({
 }): AgentRunQueue {
   const scheduleTimeout = options.scheduleTimeout ?? scheduleGlobalTimeout;
   const transcript = createTranscript({ maxChars: TRANSCRIPT_MAX_CHARS });
-  const shows = createPlannerShowQueue({
+  const screenChanges = createScreenChangeQueue({
     planner,
     events,
     diagnostics,
-    recordShowNote: (runId, turnId, text) =>
-      transcript.recordShowNote(runId, turnId, text),
+    recordScreenNote: (runId, turnId, text) =>
+      transcript.recordScreenNote(runId, turnId, text),
     logger,
     scheduleTimeout,
     acknowledgementTimeoutMs,
@@ -224,8 +224,8 @@ function createAgentRoute({
     logger,
     clock,
     scheduleTimeout,
-    shows,
-    showsSettleTimeoutMs: acknowledgementTimeoutMs,
+    screenChanges,
+    screenChangesSettleTimeoutMs: acknowledgementTimeoutMs,
     transcript,
     toolResults: createToolResultStore(),
   });

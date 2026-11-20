@@ -469,6 +469,43 @@ describe('deadline', () => {
     },
   );
 
+  test('an admitted tool whose start comes at the deadline does not start, without a second admission', async () => {
+    const run = setup({ budgets: { ...roomyBudgets, maxElapsedMs: 100 } });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+    run.policy.noteToolCallRequested('c1');
+    run.policy.noteToolCallRequested('c2');
+    expect(run.policy.beforeToolCall('c1')).toEqual({ admitted: true });
+    expect(run.policy.beforeToolCall('c2')).toEqual({ admitted: true });
+
+    run.time.advanceWithoutFiring(99);
+    expect(run.policy.beforeToolStart()).toBe(true);
+    expect(run.policy.abortController.signal.aborted).toBe(false);
+
+    run.time.advanceWithoutFiring(1);
+    expect(run.policy.beforeToolStart()).toBe(false);
+
+    expect(run.policy.ending).toEqual({ reason: 'budget', limit: 'elapsed' });
+    const { signal } = run.policy.abortController;
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as DOMException).name).toBe('TimeoutError');
+    expect(run.policy.metrics().metrics.toolCalls.admitted).toBe(2);
+  });
+
+  test('an admitted tool does not start once an ending is latched', async () => {
+    const run = setup({ budgets: roomyBudgets });
+    run.policy.start();
+    await run.policy.beforeModelTurn();
+    expect(run.policy.beforeToolCall('c1')).toEqual({ admitted: true });
+    run.policy.latch({ reason: 'cancelled', cause: 'user stopped' });
+
+    expect(run.policy.beforeToolStart()).toBe(false);
+    expect(run.policy.ending).toEqual({
+      reason: 'cancelled',
+      cause: 'user stopped',
+    });
+  });
+
   test('the deadline timer latches elapsed and aborts the run controller', () => {
     const run = setup({ budgets: { ...roomyBudgets, maxElapsedMs: 100 } });
     run.policy.start();
