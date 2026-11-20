@@ -1,12 +1,15 @@
 ---
 import { Font } from 'astro:assets';
 import { ClientRouter } from 'astro:transitions';
+import docs from 'virtual:maelstrom/docs-versions';
 
 import { docsRevision, sdkVersions } from '../lib/docs-build-info';
+import { splitVersion } from '../lib/docs-versions';
 import { markdownPath } from '../lib/markdown-path';
 import PostHog from './PostHog.astro';
 
 const { head } = Astro.locals.starlightRoute;
+const version = splitVersion(Astro.url.pathname, docs.versions)?.version;
 ---
 
 {head.map(({ tag: Tag, attrs, content }) => (
@@ -23,7 +26,7 @@ const { head } = Astro.locals.starlightRoute;
 <link
   rel="alternate"
   type="text/plain"
-  href="/llms.txt"
+  href={version ? `/${version}/llms.txt` : '/llms.txt'}
   title="LLM documentation index"
 />
 <meta name="maelstrom-docs-revision" content={docsRevision} />

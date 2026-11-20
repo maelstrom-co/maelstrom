@@ -52,7 +52,7 @@ describe('evals navigation', () => {
     expect(config).toMatch(
       /'\/guides\/engine\/evaluations\/': \{\s*destination: `\/\$\{defaultVersion\}\/evals\/architecture\/`,\s*status: 301,\s*\}/,
     );
-    expect(config).toMatch(/label: 'Evals',\s*paths: \['dev\/evals\/\*\*'\]/);
+    expect(config).toMatch(/label: 'Evals',\s*directory: 'evals'/);
   });
 
   it('keeps architecture focused and links the dedicated Langfuse workflow', () => {

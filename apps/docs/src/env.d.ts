@@ -35,3 +35,20 @@ declare module 'virtual:maelstrom/docs-versions' {
   const docs: import('./lib/docs-versions').DocsVersions;
   export default docs;
 }
+
+declare module 'virtual:maelstrom/versioned-llms' {
+  const config: import('./lib/versioned-llms').VersionedLlmsConfig;
+  export default config;
+}
+
+declare module 'virtual:maelstrom/llms-txt-generator' {
+  export function generateLlmsTxt(
+    context: import('astro').APIContext,
+    options: {
+      minify: boolean;
+      description: string | undefined;
+      exclude?: string[] | undefined;
+      include?: string[] | undefined;
+    },
+  ): Promise<string>;
+}
