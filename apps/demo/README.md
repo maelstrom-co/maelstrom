@@ -217,7 +217,7 @@ Voice has three provider choices across two pipeline kinds: speech-native Live/R
 
 Browser-key mode also supplies the key separately to the Engine for planning. Never expose an application-owned provider key in a browser build.
 
-Every provider reaches the same plain-text `update_ui` intent path. Accepted voice and typed requests share the client's bounded FIFO. The Engine plans against the app snapshot captured at dispatch, never the voice model's beliefs. Successful tool results wait for layout and Action settlement. Interrupting audio does not cancel submitted UI work; disconnect retires only that voice connection's pending requests. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
+Every provider reaches the same plain-text `submit_intent` intent path. Accepted voice and typed requests share the client's bounded FIFO. The Engine plans against the app snapshot captured at dispatch, never the voice model's beliefs. Successful tool results wait for layout and Action settlement. Interrupting audio does not cancel submitted UI work; disconnect retires only that voice connection's pending requests. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
 
 The local Realtime and LiveKit mint routes are development-only, not production authentication boundaries. The Live exchange has a separate authenticated local-only mode. For deployment, use the provider guides and enforce host authentication, authorization, configuration policy, HTTPS, and rate limits.
 

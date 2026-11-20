@@ -14,7 +14,7 @@ LiveKit transport.
 
 ## The idea
 
-`LiveKitAdapter` **synthesizes an `update_ui` tool call from each final user
+`LiveKitAdapter` **synthesizes an `submit_intent` tool call from each final user
 transcript**, so a cascaded pipeline drives the exact same `RealtimeSession`
 machinery (speak-after-render, barge-in, sidechannel events) as the OpenAI
 realtime adapter — with no voice-side LLM in the worker or adapter. The
@@ -22,7 +22,7 @@ synthesized intent still flows through Maelstrom's engine LLM via
 `RealtimeSession`, exactly as an OpenAI-realtime session would.
 
 - **Transcripts in:** `RoomEvent.TranscriptionReceived` → `transcript` event +
-  a synthesized `update_ui` `tool_call`.
+  a synthesized `submit_intent` `tool_call`.
 - **Speak out:** the worker has no model, so `sendToolResult` picks the words:
   the engine's `userMessage` when present, else the structural `summary`. It
   goes over the `speak` text stream and the worker synthesizes it via Cartesia.
@@ -103,7 +103,7 @@ three booleans or `unavailable`; no device identity, complete settings object,
 track, stream, or audio is logged. These values do not prove acoustic behavior.
 The publication stays muted and upstream-paused until `startTurn()`; `vad: false`
 keeps this gate and changes only turn detection. Each non-empty final transcript
-becomes one `update_ui` intent. An empty turn returns from `thinking` to `connected` after the bounded
+becomes one `submit_intent` intent. An empty turn returns from `thinking` to `connected` after the bounded
 `thinkingFallbackMs` interval (10 seconds by default).
 
 ## Deploy browser VAD assets

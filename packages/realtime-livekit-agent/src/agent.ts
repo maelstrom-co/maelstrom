@@ -6,7 +6,7 @@
  *   → published back to the room as an audio track the client attaches and plays.
  *
  * No agent LLM — the Maelstrom engine is the only orchestrator. The client receives the
- * transcript (synthesized into an update_ui tool call) and, once the UI settles, sends
+ * transcript (synthesized into an submit_intent tool call) and, once the UI settles, sends
  * the spoken reply back to speak.
  */
 

@@ -73,7 +73,7 @@ test('diagnostics distinguish overlapping reused tool IDs without exposing invoc
   const call = {
     type: 'tool_call',
     callId: ToolCallId('reused'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"change"}',
   } as const;
   h.emit(call);
@@ -131,7 +131,7 @@ test('a successfully applied queued voice tool links only its authoritative Engi
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"change"}',
   });
   await tick();
@@ -321,7 +321,7 @@ test.each(['same_generation', 'reconnect'] as const)(
     const call = {
       type: 'tool_call' as const,
       callId: ToolCallId('CANARY_reused'),
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"CANARY_intent"}',
     };
     h.emit(call);
@@ -381,7 +381,7 @@ test('a full pending-observation budget reports loss without evicting an accepte
   const call = {
     type: 'tool_call' as const,
     callId: ToolCallId('CANARY_reused'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"CANARY_intent"}',
   };
   h.emit(call);
@@ -419,7 +419,7 @@ test('retirement bounds never-settling tool observation and ignores completion a
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('CANARY_call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"CANARY_intent"}',
   });
   await tick();
@@ -456,7 +456,7 @@ test('undispatched cancellation reports no invented duration or provider failure
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('CANARY_call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"CANARY_intent"}',
   });
   await tick();
@@ -485,7 +485,7 @@ test('an uncertain application result remains unknown instead of becoming a tool
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('CANARY_call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"CANARY_intent"}',
   });
   await tick();
@@ -764,7 +764,7 @@ test('accepted results retain their generation when call IDs repeat across recon
   const call = {
     type: 'tool_call',
     callId: ToolCallId('reused-call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"one change"}',
   } as const;
   h.emit(call);
@@ -888,7 +888,7 @@ test('late application outcomes retain call identity without inventing a current
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('old-call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"old work"}',
   });
   await tick();
@@ -919,7 +919,7 @@ test('voice shutdown waits for accepted tool results before the final flush', as
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('drain-call'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"test"}',
   });
   await tick();
@@ -964,7 +964,7 @@ test('successful voice drain cancels its timer and releases the only telemetry s
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('drain-success'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"test"}',
   });
   await tick();
@@ -1006,7 +1006,7 @@ test('accepted voice outcomes remain visible as refusals after delivery disposal
   h.emit({
     type: 'tool_call',
     callId: ToolCallId('disposed-delivery'),
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"test"}',
   });
   await tick();

@@ -2775,7 +2775,7 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
     mockMicCloneTrack.stop.mockClear();
   });
 
-  test('a final transcript emits a transcript event then an update_ui tool call', async () => {
+  test('a final transcript emits a transcript event then an submit_intent tool call', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
@@ -2794,7 +2794,10 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
     });
 
     const toolCall = events.find((e) => e.type === 'tool_call');
-    expect(toolCall).toMatchObject({ type: 'tool_call', name: 'update_ui' });
+    expect(toolCall).toMatchObject({
+      type: 'tool_call',
+      name: 'submit_intent',
+    });
     if (toolCall?.type !== 'tool_call') throw new Error('expected tool_call');
     expect(JSON.parse(toolCall.argumentsJson)).toEqual({
       intent: 'show the weather',
@@ -2983,7 +2986,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
       summary: 'Done.',
     });
 
-    // The update_ui already applied and nothing waits on the spoken read-back —
+    // The submit_intent already applied and nothing waits on the spoken read-back —
     // so a send failure is surfaced as a plain Error (logged, non-fatal), never a
     // session-fatal RealtimeVoiceError. Mirrors the OpenAI adapter's parallel case.
     const err = events.find((e) => e.type === 'error');
@@ -3003,7 +3006,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
   test('with no active room, is non-fatal: no error event, no throw, and no send', async () => {
     const { adapter, events } = makeAdapter();
     // Never connected — no room. A `#room` unset here means an intentional
-    // teardown raced this in-flight read-back of an already-applied update_ui;
+    // teardown raced this in-flight read-back of an already-applied submit_intent;
     // real connection loss is surfaced by the room's connection-state events.
     // So this must not tear the session down.
     await expect(
@@ -4210,7 +4213,7 @@ describe('LiveKitAdapter misc surface', () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
-    // The update_ui already rendered; only its spoken read-back failed.
+    // The submit_intent already rendered; only its spoken read-back failed.
     await adapter.sendToolResult('call-1' as never, {
       ok: true,
       summary: 'Done.',

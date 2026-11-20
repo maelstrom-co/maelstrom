@@ -58,7 +58,7 @@ it('keeps late tool outcomes on their measured generation rather than the replac
   const diagnostics = new VoiceDiagnostics();
   const callId = ToolCallId('call-1');
   diagnostics.onSessionEvent(
-    { type: 'tool.called', callId, name: 'update_ui', argumentsJson: '{}' },
+    { type: 'tool.called', callId, name: 'submit_intent', argumentsJson: '{}' },
     { provider: 'live', providerInstanceId: 'adapter-1', generation: 1 },
   );
   diagnostics.onSessionEvent(
@@ -103,7 +103,7 @@ it('projects metadata before retention and excludes transcript, tool payloads, a
   diagnostics.onSessionEvent({
     type: 'tool.called',
     callId,
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"private-intent"}',
   });
   diagnostics.onSessionEvent({
@@ -126,7 +126,7 @@ it('projects metadata before retention and excludes transcript, tool payloads, a
       kind: 'tool_call',
       at: 2,
       id: callId,
-      tool: 'update_ui',
+      tool: 'submit_intent',
     },
     {
       entryId: expect.any(String),

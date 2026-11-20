@@ -105,7 +105,7 @@ describe('local diagnostic capture', () => {
     const event = {
       type: 'tool.called' as const,
       callId: ToolCallId('call'),
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: JSON.stringify({
         intent: 'Create a journal titled today’s date',
       }),

@@ -755,7 +755,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
         const args: unknown = JSON.parse(call.argumentsJson);
         valid =
           record(args) &&
-          (call.name === 'update_ui'
+          (call.name === 'submit_intent'
             ? Object.keys(args).length === 1 &&
               typeof args.intent === 'string' &&
               args.intent.trim().length > 0

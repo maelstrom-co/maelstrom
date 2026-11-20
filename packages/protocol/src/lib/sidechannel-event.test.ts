@@ -21,11 +21,11 @@ describe('SidechannelEventSchema', () => {
     const e = SidechannelEventSchema.parse({
       ...base,
       type: 'tool_call',
-      name: 'update_ui',
+      name: 'submit_intent',
       callId: 'call_1',
       argumentsJson: '{"intent":"show labs"}',
     });
-    if (e.type === 'tool_call') expect(e.name).toBe('update_ui');
+    if (e.type === 'tool_call') expect(e.name).toBe('submit_intent');
   });
 
   it('accepts a tool_result event with measured latency', () => {
@@ -91,7 +91,7 @@ describe('SidechannelEventSchema', () => {
     const e = SidechannelEventSchema.parse({
       ...base,
       type: 'tool_call',
-      name: 'update_ui',
+      name: 'submit_intent',
       callId: 'call_1',
       argumentsJson: '{"intent":"show labs"}',
       requestId: 'req-123',

@@ -37,7 +37,7 @@ import type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   TurnModeEvent,
-  UpdateUIToolResult,
+  SubmitIntentToolResult,
 } from './provider-adapter.types.js';
 import { RealtimeSessionMemory } from './realtime-session-memory.js';
 import { RealtimeSession } from './realtime-session.js';
@@ -498,7 +498,7 @@ describe('additive continuous capabilities', () => {
     expect(adapter.connectOptions[0].conversationInstructions).toBe(
       'Be brief.',
     );
-    expect(adapter.connectOptions[0].instructions).toContain('update_ui');
+    expect(adapter.connectOptions[0].instructions).toContain('submit_intent');
     expect(adapter.connectOptions[0].tools).toHaveLength(3);
     expect(
       await session.requestGeneratedOpening('Introduce yourself naturally.'),
@@ -1007,15 +1007,36 @@ function makeHarness(
 // ============================================================================
 
 describe('RealtimeSession — tool registration', () => {
-  it('passes update_ui, get_ui_state, and get_capabilities to the adapter on connect', async () => {
+  it('passes submit_intent, get_ui_state, and get_capabilities to the adapter on connect', async () => {
     const { session, adapter } = makeHarness();
     await session.connect();
 
     expect(adapter.lastConnectTools?.map((t) => t.name)).toEqual([
-      'update_ui',
+      'submit_intent',
       'get_ui_state',
       'get_capabilities',
     ]);
+  });
+
+  it('rejects an incoming update_ui call as an unknown tool', async () => {
+    const { session, adapter, instance } = makeHarness();
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'removed-tool-call',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    expect(instance.submitted).toEqual([]);
+    expect(adapter.toolResults).toContainEqual({
+      callId: 'removed-tool-call',
+      output: expect.objectContaining({
+        ok: false,
+        summary: 'Unknown tool "update_ui".',
+      }),
+    });
   });
 });
 
@@ -1023,7 +1044,7 @@ describe('RealtimeSession — tool registration', () => {
 // Behavior 1: speak-after-render (withhold tool result until settle)
 // ============================================================================
 
-describe('RealtimeSession — update_ui speak-after-render', () => {
+describe('RealtimeSession — submit_intent speak-after-render', () => {
   it('rejects malformed arguments without logging their contents', async () => {
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -1038,7 +1059,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
 
       adapter.emitToolCall({
         callId: 'malformed-call',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: sensitiveArguments,
       });
       await flushMicrotasks();
@@ -1060,13 +1081,13 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     }
   });
 
-  it('withholds the update_ui tool-result until the render settles', async () => {
+  it('withholds the submit_intent tool-result until the render settles', async () => {
     const { session, adapter, instance } = makeHarness();
     await session.connect();
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1089,7 +1110,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     const adapter = makeMockAdapter();
     // Snapshot mutates in place between submit and settle, the way a real
     // Orchestrator's live store would — the summary must reflect the value
-    // read after settle(), not whatever was true when update_ui fired.
+    // read after settle(), not whatever was true when submit_intent fired.
     let liveSnapshot = emptySnapshot;
     const instance = makeMockInstance(emptySnapshot);
     const wrappedInstance: RealtimeInstance = {
@@ -1105,7 +1126,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1114,7 +1135,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    const output = adapter.toolResults[0].output as SubmitIntentToolResult;
     expect(output.ok).toBe(true);
     expect(output.summary).toContain('1 vessel');
     expect(output.summary).toContain('weather');
@@ -1180,7 +1201,7 @@ describe('RealtimeSession — refused settle', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1215,7 +1236,7 @@ describe('RealtimeSession — refused settle', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1235,7 +1256,7 @@ describe('RealtimeSession — refused settle', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1569,7 +1590,7 @@ describe('RealtimeSession — domain-data boundary', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1617,7 +1638,7 @@ describe('RealtimeSession — legacy immediate admission', () => {
       await session.connect();
       adapter.emitToolCall({
         callId: 'busy',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"show labs"}',
       });
       await flushMicrotasks();
@@ -1670,7 +1691,7 @@ describe('RealtimeSession — legacy immediate admission', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1721,7 +1742,7 @@ describe('RealtimeSession — defensive outcome normalization', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -1753,14 +1774,14 @@ describe('RealtimeSession — engine userMessage precedence', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"how are you"}',
     });
     await flushMicrotasks();
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    const output = adapter.toolResults[0].output as SubmitIntentToolResult;
     expect(output.ok).toBe(true);
     expect(output.userMessage).toBe(engineReply);
     // The structural summary is not collapsed away — it rides along as the
@@ -1780,14 +1801,14 @@ describe('RealtimeSession — engine userMessage precedence', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    const output = adapter.toolResults[0].output as SubmitIntentToolResult;
     expect(output.ok).toBe(true);
     expect(output.userMessage).toBeUndefined(); // whitespace-only reply omitted
     expect(output.summary).toContain('1 vessel');
@@ -1805,14 +1826,14 @@ describe('RealtimeSession — engine userMessage precedence', () => {
 
     adapter.emitToolCall({
       callId: 'c1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    const output = adapter.toolResults[0].output as SubmitIntentToolResult;
     expect(output.userMessage).toBe(engineReply);
     expect(output.summary).toContain('1 vessel');
     expect(output.summary).toContain('weather');
@@ -1889,14 +1910,14 @@ describe('RealtimeSession — sidechannel events', () => {
       now = 1_040;
       adapter.emitToolCall({
         callId: 'malformed-1',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: 'not json',
       });
       await flushMicrotasks();
       now = 1_100;
       adapter.emitToolCall({
         callId: 'update-1',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"show labs"}',
       });
       await flushMicrotasks();
@@ -1911,7 +1932,7 @@ describe('RealtimeSession — sidechannel events', () => {
       });
       adapter.emitToolCall({
         callId: 'update-2',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"show weather"}',
       });
       await flushMicrotasks();
@@ -1986,7 +2007,7 @@ describe('RealtimeSession — sidechannel events', () => {
           ...base,
           type: 'tool_call',
           at: 1_040,
-          name: 'update_ui',
+          name: 'submit_intent',
           callId: ToolCallId('malformed-1'),
           argumentsJson: 'not json',
         },
@@ -2002,7 +2023,7 @@ describe('RealtimeSession — sidechannel events', () => {
           ...base,
           type: 'tool_call',
           at: 1_100,
-          name: 'update_ui',
+          name: 'submit_intent',
           callId: ToolCallId('update-1'),
           argumentsJson: '{"intent":"show labs"}',
         },
@@ -2025,7 +2046,7 @@ describe('RealtimeSession — sidechannel events', () => {
           ...base,
           type: 'tool_call',
           at: 1_300,
-          name: 'update_ui',
+          name: 'submit_intent',
           callId: ToolCallId('update-2'),
           argumentsJson: '{"intent":"show weather"}',
         },
@@ -3386,14 +3407,14 @@ describe('RealtimeSession tool events on the session event stream', () => {
     return seen;
   }
 
-  it('brackets update_ui recovery outcomes between tool.called and tool.result', async () => {
+  it('brackets submit_intent recovery outcomes between tool.called and tool.result', async () => {
     const { session, adapter, instance } = makeHarness();
     const seen = recordTools(session);
     await session.connect();
 
     adapter.emitToolCall({
       callId: 'update-1',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
     await flushMicrotasks();
@@ -3406,7 +3427,7 @@ describe('RealtimeSession tool events on the session event stream', () => {
         type: 'tool.called',
         generation: 1,
         callId,
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"show labs"}',
       },
       { type: 'tool.submitted', callId, intent: 'show labs', retry: false },
@@ -3576,7 +3597,7 @@ describe('RealtimeSession initially settled scoped tickets', () => {
         await session.connect();
         adapter.emitToolCall({
           callId: 'settled-call',
-          name: 'update_ui',
+          name: 'submit_intent',
           argumentsJson: JSON.stringify({ intent: 'clear screen' }),
         });
         await flushMicrotasks();
@@ -3668,7 +3689,7 @@ describe('RealtimeSession initially settled scoped tickets', () => {
       await session.connect();
       adapter.emitToolCall({
         callId: 'pending-call',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"clear screen"}',
       });
       store.setState(() => ({ status: 'queued', queuePosition: 1 }));
@@ -3733,13 +3754,13 @@ describe('RealtimeSession observation and recovery equivalence', () => {
       feed({ type: 'media', media: { microphone: 'active' } });
       adapter.emitToolCall({
         callId: 'equivalence-1',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: JSON.stringify({ intent: 'show labs' }),
       });
       await flushMicrotasks();
       adapter.emitToolCall({
         callId: 'equivalence-2',
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: JSON.stringify({ intent: 'show weather' }),
       });
       await flushMicrotasks();
@@ -3829,7 +3850,7 @@ describe('RealtimeSession observation and recovery equivalence', () => {
     await retired.connect();
     retiredAdapter.emitToolCall({
       callId: 'retired-call',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: JSON.stringify({ intent: 'show labs' }),
     });
     await flushMicrotasks();
@@ -3854,7 +3875,7 @@ describe('RealtimeSession observation and recovery equivalence', () => {
     await replacement.connect();
     replacementAdapter.emitToolCall({
       callId: 'replacement-call',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: JSON.stringify({ intent: 'show weather' }),
     });
     await flushMicrotasks();
@@ -3884,7 +3905,7 @@ describe('RealtimeSession observation and recovery equivalence', () => {
     await session.connect();
     adapter.emitToolCall({
       callId: 'late-call',
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: JSON.stringify({ intent: 'show labs' }),
     });
     await flushMicrotasks();

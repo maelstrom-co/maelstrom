@@ -153,7 +153,7 @@ describe('RealtimeSession agent message submission', () => {
     });
   }
 
-  it('sends an update_ui intent once through sendAgentMessage and never through the scope or legacy admission', async () => {
+  it('sends an submit_intent intent once through sendAgentMessage and never through the scope or legacy admission', async () => {
     const state = await setup();
 
     state.provider.call('call-1', 'show my last order');
@@ -467,7 +467,7 @@ describe('RealtimeSession agent message submission', () => {
       expect(
         warn.mock.calls.some(
           (args) =>
-            args.includes('update_ui: sendAgentMessage rejected') &&
+            args.includes('submit_intent: sendAgentMessage rejected') &&
             args.includes(rejection),
         ),
       ).toBe(true);
@@ -678,7 +678,7 @@ function adapter() {
         handler({
           type: 'tool_call',
           callId: ToolCallId(id),
-          name: 'update_ui',
+          name: 'submit_intent',
           argumentsJson: JSON.stringify({ intent }),
         });
     },

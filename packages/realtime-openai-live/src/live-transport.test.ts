@@ -180,7 +180,7 @@ test('provider diagnostics keep arguments lazy and project only supported native
       item: {
         type: 'function_call',
         call_id: 'call-1',
-        name: 'update_ui',
+        name: 'submit_intent',
         arguments: JSON.stringify({
           intent: `private words sk-${'a'.repeat(40)}`,
           apiKey: 'provider-secret',
@@ -195,10 +195,10 @@ test('provider diagnostics keep arguments lazy and project only supported native
     delegationId: 'delegation-1',
     responseId: 'response-1',
     callId: 'call-1',
-    tool: 'update_ui',
+    tool: 'submit_intent',
   });
   expect(JSON.stringify(observations)).not.toMatch(
-    /private words|provider-secret|unrelated-content|arguments|intent/,
+    /private words|provider-secret|unrelated-content|arguments|\bintent\b/,
   );
   expect(observations[0]?.readContent?.()).toEqual({
     intent: 'private words [REDACTED]',

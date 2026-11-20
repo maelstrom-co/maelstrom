@@ -151,7 +151,7 @@ function booleanAudioSetting(
 /**
  * A {@link RealtimeProviderAdapter} backed by a LiveKit cascaded STT/TTS
  * pipeline instead of a speech-native realtime model. It joins a LiveKit room,
- * publishes an upstream-gated mic, and synthesizes an `update_ui` tool call
+ * publishes an upstream-gated mic, and synthesizes an `submit_intent` tool call
  * from each final user transcript so a
  * cascaded pipeline drives the exact same {@link RealtimeSession} machinery
  * (speak-after-render, barge-in, sidechannel events) as the OpenAI realtime
@@ -367,7 +367,7 @@ export class LiveKitAdapter
    *
    * Phase-1 degeneracy: `opts.tools` and `opts.instructions` are intentionally
    * ignored. There is no LLM in the worker to configure — this adapter always
-   * synthesizes a single `update_ui` tool call per transcript regardless of
+   * synthesizes a single `submit_intent` tool call per transcript regardless of
    * the declared tool set. When a worker-side LLM lands, `tools`/`instructions`
    * become its session config (declared tools + system prompt), matching how
    * {@link RealtimeProviderAdapter}'s speech-native implementations consume
@@ -563,7 +563,7 @@ export class LiveKitAdapter
    * Relays a tool result back to the user as speech over the `speak` text
    * stream, where the worker synthesizes it via Cartesia and plays it into the
    * room. The companion worker has no LLM and receives no UI grounding, so the
-   * adapter picks the words itself: for an `update_ui` result it voices the
+   * adapter picks the words itself: for an `submit_intent` result it voices the
    * engine's `userMessage` when present, else the structural `summary`; a
    * read-only snapshot (get_ui_state / get_capabilities) is serialized. The
    * Maelstrom Engine remains the planning LLM. Speak-after-render ordering is
@@ -575,7 +575,7 @@ export class LiveKitAdapter
    * finishes, and {@link collapseSpeaking} reacts to that — so the state tracks
    * real audio end, not text hand-off.
    *
-   * Sending the spoken confirmation is best-effort because `update_ui` has already
+   * Sending the spoken confirmation is best-effort because `submit_intent` has already
    * applied and nothing downstream waits for this read-back. If no room is active,
    * an intentional teardown raced the result: the adapter warns once, collapses
    * any transient `speaking` state, and returns without emitting an adapter error.
@@ -600,7 +600,7 @@ export class LiveKitAdapter
     });
     const room = this.#room;
     if (!room) {
-      // Non-fatal: the update_ui this reads back already applied, and nothing
+      // Non-fatal: the submit_intent this reads back already applied, and nothing
       // downstream waits on the spoken confirmation. A missing room here means
       // an intentional teardown raced this in-flight result; genuine connection
       // loss is surfaced by the room's connection-state events, which own
@@ -850,7 +850,7 @@ export class LiveKitAdapter
   // Worker→client TTS status on TTS_TOPIC: an accepted terminal status clears the
   // outstanding utterance, and `tts_done` collapses `speaking` (guarded, so a
   // barge-in that already moved to `listening` isn't stomped). An accepted
-  // `tts_error` or malformed packet is non-fatal — the `update_ui` it was reading
+  // `tts_error` or malformed packet is non-fatal — the `submit_intent` it was reading
   // back already rendered, so only the spoken confirmation was lost; raising a
   // RealtimeVoiceError would tear the whole session down over lost audio. Warn
   // once per distinct kind and collapse `speaking` so the UI does not hang
@@ -970,12 +970,12 @@ export class LiveKitAdapter
       this.#transcripts.complete(`user-${this.#userTurnSeq}`, 'user', text);
     }
     // The spike's core: a cascaded final transcript is turned into the same
-    // `update_ui` tool call a speech-native model would emit, so RealtimeSession
+    // `submit_intent` tool call a speech-native model would emit, so RealtimeSession
     // drives it through the identical path (submitIntent → speak-after-render).
     this.#emit({
       type: 'tool_call',
       callId: this.#nextCallId(),
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: JSON.stringify({ intent: text }),
     });
   }

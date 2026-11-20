@@ -47,7 +47,7 @@ export type RealtimeVoiceErrorCode =
  *   function.
  * - **Non-fatal** (never raise a `RealtimeVoiceError`) — a failure that leaves
  *   the already-applied UI change intact and the session usable. Failing to
- *   deliver the spoken read-back of a tool result is non-fatal: the `update_ui`
+ *   deliver the spoken read-back of a tool result is non-fatal: the `submit_intent`
  *   already rendered, nothing downstream waits on the confirmation, and a
  *   transport that is truly down is either already surfaced as connection loss
  *   or an intentional teardown. This covers a worker-reported TTS synthesis

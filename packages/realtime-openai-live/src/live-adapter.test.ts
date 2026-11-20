@@ -85,7 +85,7 @@ class Channel extends EventTarget {
   }
   call(
     id: string,
-    name = 'update_ui',
+    name = 'submit_intent',
     args = '{"intent":"show labs"}',
     delegation = 'delegation',
     outputIndex = this.callIndexes.get(id) ?? this.callIndexes.size,
@@ -548,8 +548,8 @@ test('End voice drops the latest unsubmitted slot, retains a late known outcome 
     { memory },
   );
   first.channel.begin();
-  first.channel.call('first', 'update_ui', '{"intent":"first"}');
-  first.channel.call('queued', 'update_ui', '{"intent":"queued"}');
+  first.channel.call('first', 'submit_intent', '{"intent":"first"}');
+  first.channel.call('queued', 'submit_intent', '{"intent":"queued"}');
   first.channel.done();
   await tick();
   await first.session.disconnect();
@@ -629,7 +629,7 @@ test.each(['readiness', 'exhaustion', 'superseded'] as const)(
       h.channel.begin('new-response', 'new-delegation');
       h.channel.call(
         'new-call',
-        'update_ui',
+        'submit_intent',
         '{"intent":"newer"}',
         'new-delegation',
       );
@@ -776,7 +776,7 @@ test('all three session tools use managed configuration and settled results befo
     h
       .config()
       .delegation.responses.tools?.map((t) => ('name' in t ? t.name : '')),
-  ).toEqual(['update_ui', 'get_ui_state', 'get_capabilities']);
+  ).toEqual(['submit_intent', 'get_ui_state', 'get_capabilities']);
   expect(h.config().delegation.responses.instructions).toContain(
     'Only report a UI change as complete',
   );
@@ -886,9 +886,9 @@ test('empty terminal output with no collected functions does not trigger a backe
 });
 
 for (const [name, args] of [
-  ['update_ui', 'null'],
-  ['update_ui', '{'],
-  ['update_ui', '{"intent":"x","extra":true}'],
+  ['submit_intent', 'null'],
+  ['submit_intent', '{'],
+  ['submit_intent', '{"intent":"x","extra":true}'],
   ['get_ui_state', '[]'],
   ['get_capabilities', '{"intent":"x"}'],
   ['unknown', '{}'],
@@ -931,7 +931,7 @@ test('missing delegation and response correlation fails before any function exec
 test('a response identity cannot masquerade as the delegation identity', async () => {
   const h = await harness();
   h.channel.begin();
-  h.channel.call('wrong', 'update_ui', '{"intent":"x"}', 'response');
+  h.channel.call('wrong', 'submit_intent', '{"intent":"x"}', 'response');
   await tick();
   expect(h.submissions).toHaveLength(0);
   expect(h.session.lastError).toBeDefined();
@@ -1019,10 +1019,16 @@ for (const sameIdentity of [false, true]) {
   test(`conflicting output slots reject ${sameIdentity ? 'one identity at two indexes' : 'two identities at one index'} before application dispatch`, async () => {
     const h = await harness();
     h.channel.begin();
-    h.channel.call('first', 'update_ui', '{"intent":"first"}', 'delegation', 0);
+    h.channel.call(
+      'first',
+      'submit_intent',
+      '{"intent":"first"}',
+      'delegation',
+      0,
+    );
     h.channel.call(
       sameIdentity ? 'first' : 'second',
-      'update_ui',
+      'submit_intent',
       '{"intent":"first"}',
       'delegation',
       sameIdentity ? 1 : 0,
@@ -1039,8 +1045,20 @@ for (const sameIdentity of [false, true]) {
 test('an exact duplicate function identity at the same output slot dispatches once', async () => {
   const h = await harness();
   h.channel.begin();
-  h.channel.call('first', 'update_ui', '{"intent":"first"}', 'delegation', 0);
-  h.channel.call('first', 'update_ui', '{"intent":"first"}', 'delegation', 0);
+  h.channel.call(
+    'first',
+    'submit_intent',
+    '{"intent":"first"}',
+    'delegation',
+    0,
+  );
+  h.channel.call(
+    'first',
+    'submit_intent',
+    '{"intent":"first"}',
+    'delegation',
+    0,
+  );
   h.channel.done();
   await tick();
   expect(h.session.lastError).toBeUndefined();
@@ -1107,8 +1125,8 @@ test('scoped Live calls wait behind application work and apply in FIFO order wit
   const blocker = h.orchestrator.enqueueIntent('typed blocker');
   await tick();
   h.channel.begin();
-  h.channel.call('first', 'update_ui', '{"intent":"first"}');
-  h.channel.call('last', 'update_ui', '{"intent":"last"}');
+  h.channel.call('first', 'submit_intent', '{"intent":"first"}');
+  h.channel.call('last', 'submit_intent', '{"intent":"last"}');
   h.channel.done();
   await tick();
   expect(h.dispatched()).toEqual(['typed blocker']);
@@ -1398,8 +1416,8 @@ test('results completing out of order still precede the single batch continuatio
       intent === 'one' ? first.promise : second.promise,
   });
   h.channel.begin();
-  h.channel.call('one', 'update_ui', '{"intent":"one"}');
-  h.channel.call('two', 'update_ui', '{"intent":"two"}');
+  h.channel.call('one', 'submit_intent', '{"intent":"one"}');
+  h.channel.call('two', 'submit_intent', '{"intent":"two"}');
   h.channel.done();
   second.resolve({ userMessage: 'two' });
   await tick();
@@ -1475,7 +1493,7 @@ test('a reused call ID explicitly attributed to another response cannot repeat a
       type: 'function_call',
       id: 'item_same',
       call_id: 'same',
-      name: 'update_ui',
+      name: 'submit_intent',
       arguments: '{"intent":"show labs"}',
       status: 'completed',
     },
@@ -1543,7 +1561,7 @@ for (const conflict of ['delegation', 'item', 'completed'] as const) {
     else if (conflict === 'item')
       h.channel.call(
         'original',
-        'update_ui',
+        'submit_intent',
         '{"intent":"conflicting effect"}',
       );
     else
@@ -1618,7 +1636,7 @@ test('conflicting duplicate call contents never overwrite or execute the first c
   const h = await harness();
   h.channel.begin();
   h.channel.call('same');
-  h.channel.call('same', 'update_ui', '{"intent":"other"}');
+  h.channel.call('same', 'submit_intent', '{"intent":"other"}');
   h.channel.done();
   await tick();
   expect(h.submissions).toHaveLength(0);

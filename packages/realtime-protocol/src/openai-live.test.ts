@@ -26,7 +26,7 @@ test('startup recovery accepts text roles but rejects executable history and bou
       {
         type: 'function_call',
         call_id: 'old',
-        name: 'update_ui',
+        name: 'submit_intent',
         arguments: '{}',
       },
     ],

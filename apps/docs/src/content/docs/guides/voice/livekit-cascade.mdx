@@ -7,7 +7,7 @@ import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import OwnershipDiagram from "../../../../components/ownership/OwnershipDiagram.astro";
 import { LIVEKIT_CASCADE_OWNERSHIP } from "../../../../components/ownership/livekit-cascade";
 
-The LiveKit cascade adds browser-detected voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `update_ui` intent. If automatic detection is disabled or safely degrades, the adapter exposes manual turn controls instead.
+The LiveKit cascade adds browser-detected voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `submit_intent` intent. If automatic detection is disabled or safely degrades, the adapter exposes manual turn controls instead.
 
 You mint a room grant on your server, run a model-free worker, connect the browser adapter, then harden the route before it ships.
 
@@ -60,7 +60,7 @@ Two absences in that picture matter. Audio reaches the room over the top of your
 
 Routing every transcript back through the browser is also what decides when the worker speaks. A successful UI update waits for rendering to settle before the result returns through LiveKit for TTS. Malformed tool arguments and genuine submission failures return immediately, without waiting for render settlement.
 
-One detected turn goes: microphone → LiveKit room → worker STT → final transcript → `update_ui` intent → Engine → settled UI → worker TTS. Automatic mode detects the boundary in the browser; manual mode uses the same path after the user ends the turn. [The voice boundary](/understanding/voice-architecture/) walks each stage.
+One detected turn goes: microphone → LiveKit room → worker STT → final transcript → `submit_intent` intent → Engine → settled UI → worker TTS. Automatic mode detects the boundary in the browser; manual mode uses the same path after the user ends the turn. [The voice boundary](/understanding/voice-architecture/) walks each stage.
 
 ## Mint a room grant on your server
 
@@ -544,7 +544,7 @@ Monitor room creation, mint failures, and worker failures. Never log room tokens
 
 Two behaviors are wired by the time a turn completes. Neither needs configuration, and both are easy to break by working around them.
 
-**Speak-after-render.** Each final transcript becomes one `update_ui` call. For a successful UI update, `RealtimeSession` waits for rendering to settle before it calls `sendToolResult()`, so the Cartesia read-back describes the rendered result rather than a prediction. Malformed tool arguments and genuine submission failures return failure results immediately. Failed TTS is non-fatal, because the UI update has already applied.
+**Speak-after-render.** Each final transcript becomes one `submit_intent` call. For a successful UI update, `RealtimeSession` waits for rendering to settle before it calls `sendToolResult()`, so the Cartesia read-back describes the rendered result rather than a prediction. Malformed tool arguments and genuine submission failures return failure results immediately. Failed TTS is non-fatal, because the UI update has already applied.
 
 **A worker that cannot plan.** Unlike the OpenAI mode, the LiveKit worker has no model session to ground. Settled structural summaries may reach `LiveKitAdapter.injectGrounding()`, but the method deliberately does nothing. Do not forward Chart structure or Vessel domain data to the worker.
 

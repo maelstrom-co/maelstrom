@@ -101,7 +101,7 @@ on another.
 
 ### Send voice intents to the agent
 
-By default each voice `update_ui` intent goes to the intent scheduler. Pass
+By default each voice `submit_intent` intent goes to the intent scheduler. Pass
 `sendAgentMessage(orchestrator, text)` to send it to the agent instead, so voice
 takes the same path as typed text sent with `sendMessage`. It returns the
 submission that `orchestrator.sendMessage` returns:

@@ -22,7 +22,7 @@ realtime voice provider (OpenAI, LiveKit, …) ships as its own sibling package.
 `OpenAIAdapter` mints an ephemeral client secret via the injected `mintToken`,
 exchanges SDP with `POST /v1/realtime/calls`, and drives tool calls and
 grounding pushes over the `oai-events` data channel. The model's only write
-path is `update_ui { intent: string }`; the same `RealtimeSession` machinery
+path is `submit_intent { intent: string }`; the same `RealtimeSession` machinery
 handles speak-after-render, barge-in, and sidechannel events regardless of
 provider.
 
