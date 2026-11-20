@@ -406,8 +406,9 @@ export function createAgentRunPolicy(
 
 /**
  * Adapts `policy` to TanStack AI `chat()` middleware. Install it first in
- * the middleware array, and pass `toolExecution: 'sequential'` so each
- * refusal happens before the next call starts.
+ * the middleware array. `chat()` prepares every call of a turn in call order
+ * before any of them starts, in `'parallel'` mode too, so each refusal
+ * happens before any call of the turn starts.
  *
  * - `onConfig` at the `beforeModel` phase runs
  *   {@link AgentRunPolicy.beforeModelTurn} and aborts the chat on refusal.

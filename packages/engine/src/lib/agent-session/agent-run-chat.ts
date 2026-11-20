@@ -47,6 +47,10 @@ import {
   BUDGET_CLOSING_MESSAGE,
 } from './agent-run.js';
 import {
+  createServerToolQueue,
+  type ServerToolQueue,
+} from './server-tool-queue.js';
+import {
   executeToolCall,
   toModelToolPayload,
   type ToolCallResult,
@@ -116,6 +120,7 @@ async function* streamAgentRun(
     policy,
   );
   const executions = createToolExecutionFence();
+  const serverTools = createServerToolQueue(policy.abortController.signal);
   let chunks: AsyncIterator<StreamChunk> | undefined;
   let reachedEnd = false;
   try {
@@ -126,6 +131,7 @@ async function* streamAgentRun(
         policy,
         calls,
         executions,
+        serverTools,
         instrumentation,
       )[Symbol.asyncIterator]();
       const runAborted = abortedPromise(policy.abortController.signal);
@@ -236,6 +242,7 @@ function startChat(
   policy: AgentRunPolicy,
   calls: RunActivityTracker,
   executions: ToolExecutionFence,
+  serverTools: ServerToolQueue,
   instrumentation: AgentRunChatInstrumentation,
 ): AsyncIterable<StreamChunk> {
   const adapter = admittingProviderCalls(
@@ -276,14 +283,21 @@ function startChat(
     },
   };
   // Last in the array, so it sees every other middleware's substitution and
-  // the call's settlement is final once it has run.
+  // the call's settlement is final once it has run. Its guard reserves the
+  // Server Tool slot last too, so no later guard can skip a reserved call.
   const resultGuardMiddleware: ChatMiddleware = {
     name: 'maelstrom-agent-run-result-guard',
+    onGuardToolCall: (_ctx, hookCtx) => {
+      if (input.registry.get(hookCtx.toolName) !== undefined)
+        serverTools.reserve(hookCtx.toolCallId);
+      return undefined;
+    },
     onAfterToolCall: async (_ctx, info) => {
       try {
         return await guardResult(info);
       } finally {
         calls.completeCall(info.toolCallId);
+        serverTools.finish(info.toolCallId);
       }
     },
   };
@@ -298,11 +312,17 @@ function startChat(
     tools: input.registry
       .entries()
       .map((entry) =>
-        toChatTool(entry, input, policy, calls, executions, (callId) =>
-          rawArgsByCall.get(callId),
+        toChatTool(
+          entry,
+          input,
+          policy,
+          calls,
+          executions,
+          serverTools,
+          (callId) => rawArgsByCall.get(callId),
         ),
       ),
-    toolExecution: 'sequential',
+    toolExecution: 'parallel',
     agentLoopStrategy: () => true,
     abortController: policy.abortController,
     middleware: [
@@ -398,6 +418,7 @@ function toChatTool(
   policy: AgentRunPolicy,
   calls: RunActivityTracker,
   executions: ToolExecutionFence,
+  serverTools: ServerToolQueue,
   rawArgsOf: (callId: string) => unknown,
 ): Tool {
   return toolDefinition({
@@ -412,17 +433,26 @@ function toChatTool(
       callId === undefined
         ? validatedArgs
         : (rawArgsOf(callId) ?? validatedArgs);
-    if (callId !== undefined) calls.markStarted(callId, rawArgs);
-    const result = await executions.track(
-      entry,
-      executeToolCall(
+    const execute = () => {
+      if (callId !== undefined) calls.markStarted(callId, rawArgs);
+      return executions.track(
         entry,
-        rawArgs,
-        input.identity,
-        context?.abortSignal ?? policy.abortController.signal,
-      ),
-    );
-    const settled = policy.ending === undefined ? result : stoppedToolResult();
+        executeToolCall(
+          entry,
+          rawArgs,
+          input.identity,
+          context?.abortSignal ?? policy.abortController.signal,
+        ),
+      );
+    };
+    const outcome =
+      callId === undefined
+        ? { type: 'ran' as const, value: await execute() }
+        : await serverTools.run(callId, execute);
+    const settled =
+      outcome.type === 'ran' && policy.ending === undefined
+        ? outcome.value
+        : stoppedToolResult();
     if (callId !== undefined) calls.settle(callId, settled);
     return toModelToolPayload(settled);
   }) as Tool;

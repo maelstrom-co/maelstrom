@@ -2524,6 +2524,146 @@ describe('runAgent budgets and stops on chat()', () => {
   });
 });
 
+describe('runAgent Server Tools in one turn', () => {
+  test('TanStack prepares every call, before and guard hooks in call order, before the first tool executes', async () => {
+    const log: string[] = [];
+    const tools = orderTools({ log });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'latest_order', args: {} },
+          { id: 'c2', name: 'order_status', args: { orderId: 'o-1' } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['Shipped.'], usage(4, 1)),
+    ]);
+    const recorder = {
+      name: 'test-preparation-order',
+      onBeforeToolCall: (_ctx, hookCtx) => {
+        log.push(`before ${hookCtx.toolCallId}`);
+      },
+      onGuardToolCall: (_ctx, hookCtx) => {
+        log.push(`guard ${hookCtx.toolCallId}`);
+      },
+    } satisfies ChatMiddleware;
+
+    const events = await collect(
+      runAgentChat(
+        runInput({ adapter: model.adapter, registry: tools.registry }),
+        { signal: new AbortController().signal },
+        { middleware: [recorder] },
+      ),
+    );
+
+    expect(log).toEqual([
+      'before c1',
+      'guard c1',
+      'before c2',
+      'guard c2',
+      'start latest_order',
+      'end latest_order',
+      'start order_status',
+      'end order_status',
+    ]);
+    expect(lastEvent(events)).toMatchObject({ reason: 'completed' });
+    expectEveryCallSettledOnce(events);
+  });
+
+  test('a second read_only tool starts only after a slow first one settles, in written order', async () => {
+    const log: string[] = [];
+    const firstGate = defer<typeof LATEST_ORDER>();
+    const tools = orderTools({ log, latestOrder: () => firstGate.promise });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'latest_order', args: {} },
+          { id: 'c2', name: 'order_status', args: { orderId: 'o-1' } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['Shipped.'], usage(4, 1)),
+    ]);
+    const started: string[] = [];
+    const firstStarted = defer<void>();
+
+    const run = collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: new AbortController().signal,
+        onActivity: (activity) => {
+          if (activity.type !== 'tool_started') return;
+          started.push(activity.callId);
+          if (activity.callId === 'c1') firstStarted.resolve();
+        },
+      }),
+    );
+    await firstStarted.promise;
+    await flushMacrotask();
+
+    expect(started).toEqual(['c1']);
+    expect(tools.statusCalls()).toBe(0);
+
+    firstGate.resolve(LATEST_ORDER);
+    const events = await run;
+
+    expect(started).toEqual(['c1', 'c2']);
+    expect(log).toEqual([
+      'start latest_order',
+      'end latest_order',
+      'start order_status',
+      'end order_status',
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === 'tool_result')
+        .map((event) => event.callId),
+    ).toEqual([CallId('c1'), CallId('c2')]);
+    expectEveryCallSettledOnce(events);
+  });
+
+  test('an abort while the second tool waits for its slot never executes it and ends the run with one finished', async () => {
+    const controller = new AbortController();
+    const tools = orderTools({
+      latestOrder: () => {
+        controller.abort('user stopped');
+        return Promise.resolve(LATEST_ORDER);
+      },
+    });
+    const model = scriptedAdapter([
+      toolTurn(
+        [
+          { id: 'c1', name: 'latest_order', args: {} },
+          { id: 'c2', name: 'order_status', args: { orderId: 'o-1' } },
+        ],
+        usage(4, 1),
+      ),
+      textTurn(['never sent'], usage(4, 1)),
+    ]);
+
+    const events = await collect(
+      runAgent(runInput({ adapter: model.adapter, registry: tools.registry }), {
+        signal: controller.signal,
+      }),
+    );
+    await flushMacrotask();
+
+    expect(tools.statusCalls()).toBe(0);
+    const second = events.find(
+      (event): event is AgentRunToolResultEvent =>
+        event.type === 'tool_result' && event.callId === 'c2',
+    );
+    if (second === undefined) throw new Error('c2 never settled');
+    expect([
+      stoppedResult('run-1:t1', 'c2', 'order_status'),
+      notRunResult('run-1:t1', 'c2', 'order_status'),
+    ]).toContainEqual(second);
+    expect(events.filter((event) => event.type === 'finished')).toEqual([
+      expect.objectContaining({ reason: 'cancelled', cause: 'user stopped' }),
+    ]);
+    expectEveryCallSettledOnce(events);
+  });
+});
+
 describe('runAgent session notes', () => {
   test('the consumer receives tool_phase_ended before the next gate, so a note recorded on it reaches that turn', async () => {
     const order: string[] = [];
