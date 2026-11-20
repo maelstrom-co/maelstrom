@@ -149,10 +149,11 @@ describe('snapshotDocs', () => {
     return root;
   }
 
-  test('copies dev into a new folder without generated reference pages', async () => {
+  test('copies dev into a new folder and freezes its generated reference', async () => {
     const root = await docsRoot({
       'dev/guides/a.mdx': '# A\n',
-      'dev/reference/api.md': '# API\n',
+      'dev/reference/api/README.md':
+        '- [Api](/dev/reference/api/classes/api/)\n- [Guide](/dev/guides/a/)\n',
       '0.2/guides/a.mdx': '# Old A\n',
     });
 
@@ -162,14 +163,48 @@ describe('snapshotDocs', () => {
       kind: 'snapshot',
       folder: '0.3',
       replaced: false,
+      reference: 'frozen',
     });
-    expect(await readdir(join(root, '0.3'))).toEqual(['guides']);
+    expect((await readdir(join(root, '0.3'))).sort()).toEqual([
+      'guides',
+      'reference',
+    ]);
     expect(await readFile(join(root, '0.3/guides/a.mdx'), 'utf8')).toBe(
       '# A\n',
     );
+    expect(
+      await readFile(join(root, '0.3/reference/api/README.md'), 'utf8'),
+    ).toBe('- [Api](/reference/api/classes/api/)\n- [Guide](/dev/guides/a/)\n');
     expect(await readFile(join(root, '0.2/guides/a.mdx'), 'utf8')).toBe(
       '# Old A\n',
     );
+  });
+
+  test('keeps the folder reference when the source has none', async () => {
+    const root = await docsRoot({
+      'dev/guides/a.mdx': '# A\n',
+      '0.3/guides/a.mdx': '# Old A\n',
+      '0.3/reference/api/README.md': '# API 0.3.0\n',
+    });
+
+    const result = await snapshotDocs('0.3.1', { root });
+
+    expect(result).toMatchObject({ folder: '0.3', reference: 'kept' });
+    expect(
+      await readFile(join(root, '0.3/reference/api/README.md'), 'utf8'),
+    ).toBe('# API 0.3.0\n');
+    expect(await readFile(join(root, '0.3/guides/a.mdx'), 'utf8')).toBe(
+      '# A\n',
+    );
+  });
+
+  test('a new folder without a generated reference reports none', async () => {
+    const root = await docsRoot({ 'dev/guides/a.mdx': '# A\n' });
+
+    expect(await snapshotDocs('0.3.0', { root })).toMatchObject({
+      reference: 'none',
+    });
+    expect(await readdir(join(root, '0.3'))).toEqual(['guides']);
   });
 
   test('a patch release replaces its minor folder', async () => {
@@ -243,6 +278,11 @@ describe('snapshotDocs', () => {
     await git('commit', '--quiet', '-m', 'docs');
     await git('tag', 'v0.2.1');
     await mkdir(join(repo, 'docs/dev'), { recursive: true });
+    await mkdir(join(repo, 'docs/0.2/reference/api'), { recursive: true });
+    await writeFile(
+      join(repo, 'docs/0.2/reference/api/README.md'),
+      '# API 0.2.1\n',
+    );
 
     const result = await snapshotDocs('0.2.1', {
       root: join(repo, 'docs'),
@@ -252,7 +292,11 @@ describe('snapshotDocs', () => {
     expect(result).toMatchObject({
       folder: '0.2',
       fixups: { slug: 1, imports: 1 },
+      reference: 'kept',
     });
+    expect(
+      await readFile(join(repo, 'docs/0.2/reference/api/README.md'), 'utf8'),
+    ).toBe('# API 0.2.1\n');
     expect(await readFile(join(repo, 'docs/0.2/guides/a.mdx'), 'utf8')).toBe(
       [
         '---',

@@ -13,6 +13,10 @@ const recursiveRoots = ['docs', 'apps/docs/src/content/docs'] as const;
 
 const readmeRoots = ['packages', 'tools'] as const;
 
+// TypeDoc output, generated for dev and frozen with each released version.
+const generatedReference =
+  /^apps\/docs\/src\/content\/docs\/(?:(?:dev|\d+(?:\.\d+)?)\/)?reference$/;
+
 function toRepoPath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/');
 }
@@ -36,11 +40,7 @@ async function walkMarkdown(
     const path = join(root, directory, entry.name);
     const repoPath = toRepoPath(root, path);
 
-    if (
-      entry.isDirectory() &&
-      (repoPath === 'apps/docs/src/content/docs/reference' ||
-        repoPath === 'apps/docs/src/content/docs/dev/reference')
-    ) {
+    if (entry.isDirectory() && generatedReference.test(repoPath)) {
       continue;
     }
 

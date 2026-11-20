@@ -191,13 +191,112 @@ ${versionNote}
 ${version === DEV_VERSION ? overview : ''}`;
 }
 
+type SidebarItem = NonNullable<
+  Parameters<typeof starlight>[0]['sidebar']
+>[number];
+
+// Dev's reference is generated on every build by the starlight-typedoc plugins.
+const generatedApiReference: SidebarItem[] = [
+  reactTypeDocSidebarGroup,
+  devtoolsTypeDocSidebarGroup,
+  devtoolsBridgeTypeDocSidebarGroup,
+  devtoolsMcpTypeDocSidebarGroup,
+  devtoolsProtocolTypeDocSidebarGroup,
+  reactDevtoolsTypeDocSidebarGroup,
+  clientTypeDocSidebarGroup,
+  connectorsTypeDocSidebarGroup,
+  protocolTypeDocSidebarGroup,
+  telemetryTypeDocSidebarGroup,
+  engineTypeDocSidebarGroup,
+  plannerLlmTypeDocSidebarGroup,
+  {
+    label: 'Voice',
+    items: [
+      realtimeTypeDocSidebarGroup,
+      realtimeProtocolTypeDocSidebarGroup,
+      realtimeOpenaiTypeDocSidebarGroup,
+      realtimeOpenaiLiveTypeDocSidebarGroup,
+      realtimeOpenaiLiveServerTypeDocSidebarGroup,
+      reactRealtimeTypeDocSidebarGroup,
+      realtimeOpenaiServerTypeDocSidebarGroup,
+      realtimeLivekitTypeDocSidebarGroup,
+      realtimeLivekitServerTypeDocSidebarGroup,
+      realtimeLivekitAgentTypeDocSidebarGroup,
+      realtimeVadTypeDocSidebarGroup,
+    ],
+  },
+];
+
+const frozenReferencePackages = [
+  ['react', '@maelstrom-co/react'],
+  ['devtools', '@maelstrom-co/devtools'],
+  ['devtools-bridge', '@maelstrom-co/devtools/mcp-bridge'],
+  ['devtools-mcp-server', '@maelstrom-co/devtools-mcp-server'],
+  ['devtools-protocol', '@maelstrom-co/devtools-protocol'],
+  ['react-devtools', '@maelstrom-co/react-devtools'],
+  ['client', '@maelstrom-co/client'],
+  ['connectors', '@maelstrom-co/connectors'],
+  ['protocol', '@maelstrom-co/protocol'],
+  ['telemetry', '@maelstrom-co/telemetry'],
+  ['engine', '@maelstrom-co/engine'],
+  ['planner-llm', '@maelstrom-co/planner-llm'],
+] as const;
+
+const frozenVoiceReferencePackages = [
+  'realtime',
+  'realtime-protocol',
+  'realtime-openai',
+  'realtime-openai-live',
+  'realtime-openai-live-server',
+  'react-realtime',
+  'realtime-openai-server',
+  'realtime-livekit',
+  'realtime-livekit-server',
+  'realtime-livekit-agent',
+  'realtime-vad',
+].map((directory) => [directory, `@maelstrom-co/${directory}`] as const);
+
+// A frozen version keeps the reference generated for its release in
+// <version>/reference/<package>/, so its groups come from those folders.
+function frozenApiReference(pages: readonly string[]): SidebarItem[] {
+  const present = new Set(
+    pages
+      .filter((page) => page.startsWith('reference/'))
+      .map((page) => page.split('/')[1] ?? ''),
+  );
+  const known = new Set(
+    [...frozenReferencePackages, ...frozenVoiceReferencePackages].map(
+      ([directory]) => directory,
+    ),
+  );
+  const groups = (packages: ReadonlyArray<readonly [string, string]>) =>
+    packages
+      .filter(([directory]) => present.has(directory))
+      .map(([directory, label]) => ({
+        label,
+        collapsed: true,
+        items: [
+          {
+            autogenerate: {
+              directory: `reference/${directory}`,
+              collapsed: true,
+            },
+          },
+        ],
+      }));
+  const unknown = [...present]
+    .filter((directory) => !known.has(directory))
+    .sort()
+    .map((directory) => [directory, `@maelstrom-co/${directory}`] as const);
+  const voice = groups(frozenVoiceReferencePackages);
+  return [
+    ...groups([...frozenReferencePackages, ...unknown]),
+    ...(voice.length > 0 ? [{ label: 'Voice', items: voice }] : []),
+  ];
+}
+
 // Written with unversioned slugs; versionSidebar points it at each folder.
-// Frozen versions have no generated API reference yet.
-function docsSidebar({
-  apiReference,
-}: {
-  apiReference: boolean;
-}): NonNullable<Parameters<typeof starlight>[0]['sidebar']> {
+function docsSidebar(apiReference: SidebarItem[]): SidebarItem[] {
   return [
     {
       label: 'Getting Started',
@@ -289,42 +388,8 @@ function docsSidebar({
         { slug: 'understanding/grid-vs-tiling' },
       ],
     },
-    ...(apiReference
-      ? [
-          {
-            label: 'API Reference',
-            items: [
-              reactTypeDocSidebarGroup,
-              devtoolsTypeDocSidebarGroup,
-              devtoolsBridgeTypeDocSidebarGroup,
-              devtoolsMcpTypeDocSidebarGroup,
-              devtoolsProtocolTypeDocSidebarGroup,
-              reactDevtoolsTypeDocSidebarGroup,
-              clientTypeDocSidebarGroup,
-              connectorsTypeDocSidebarGroup,
-              protocolTypeDocSidebarGroup,
-              telemetryTypeDocSidebarGroup,
-              engineTypeDocSidebarGroup,
-              plannerLlmTypeDocSidebarGroup,
-              {
-                label: 'Voice',
-                items: [
-                  realtimeTypeDocSidebarGroup,
-                  realtimeProtocolTypeDocSidebarGroup,
-                  realtimeOpenaiTypeDocSidebarGroup,
-                  realtimeOpenaiLiveTypeDocSidebarGroup,
-                  realtimeOpenaiLiveServerTypeDocSidebarGroup,
-                  reactRealtimeTypeDocSidebarGroup,
-                  realtimeOpenaiServerTypeDocSidebarGroup,
-                  realtimeLivekitTypeDocSidebarGroup,
-                  realtimeLivekitServerTypeDocSidebarGroup,
-                  realtimeLivekitAgentTypeDocSidebarGroup,
-                  realtimeVadTypeDocSidebarGroup,
-                ],
-              },
-            ],
-          },
-        ]
+    ...(apiReference.length > 0
+      ? [{ label: 'API Reference', items: apiReference }]
       : []),
     {
       label: 'Coding agents',
@@ -715,9 +780,9 @@ export default defineConfig({
         label: version,
         items:
           version === DEV_VERSION
-            ? versionSidebar(docsSidebar({ apiReference: true }), version)
+            ? versionSidebar(docsSidebar(generatedApiReference), version)
             : versionSidebar(
-                docsSidebar({ apiReference: false }),
+                docsSidebar(frozenApiReference(versions.pages[version] ?? [])),
                 version,
                 new Set(versions.pages[version]),
               ),
