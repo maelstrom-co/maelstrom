@@ -87,6 +87,8 @@ export interface ResolvedEngineConfig {
   /**
    * The agent config with its defaults applied and its tool registry built,
    * or `undefined` when no agent is configured.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   readonly agent: ResolvedAgentConfig | undefined;
 }
