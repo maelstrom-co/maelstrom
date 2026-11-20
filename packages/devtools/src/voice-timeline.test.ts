@@ -326,7 +326,7 @@ test('conflicting tool names disprove a collapsed invocation identity', () => {
       }),
       observation(
         'voice.tool.result',
-        { invocationId: 'collapsed', callId: 'reused', tool: 'update_ui' },
+        { invocationId: 'collapsed', callId: 'reused', tool: 'submit_intent' },
         'other',
       ),
     ]),

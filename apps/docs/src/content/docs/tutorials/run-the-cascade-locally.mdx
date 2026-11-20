@@ -78,7 +78,7 @@ export function createLiveKitAdapter({
 
 During `connect()`, the adapter acquires the microphone track and mutes it before publishing it, so no enabled track is ever on the wire before a turn starts. A denied browser permission surfaces as `MIC_PERMISSION_DENIED`.
 
-The adapter ignores partial and blank transcription segments. Each non-empty final transcript emits a user transcript event and exactly one synthetic `update_ui` tool call whose `intent` is the trimmed transcript. That natural-language intent follows the normal Maelstrom path; the worker never plans the UI.
+The adapter ignores partial and blank transcription segments. Each non-empty final transcript emits a user transcript event and exactly one synthetic `submit_intent` tool call whose `intent` is the trimmed transcript. That natural-language intent follows the normal Maelstrom path; the worker never plans the UI.
 
 Turn boundaries are the cascade's own problem. A speech-native model hears where your turn ended; a worker running speech-to-text does not. So the adapter either finds the boundary in the browser, as it just did, or hands the application a pair of controls to mark it:
 

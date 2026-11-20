@@ -105,7 +105,7 @@ export interface MediaEvent {
 
 /**
  * Brackets every provider tool call, whatever its name. Recovery outcomes of
- * `update_ui` requests are separate {@link ToolOutcomeEvent}s published
+ * `submit_intent` requests are separate {@link ToolOutcomeEvent}s published
  * between the two, and both kinds share `callId`.
  */
 export type ToolCallEvent =
@@ -141,7 +141,7 @@ export interface ToolResultEvent {
   readonly generation?: number;
   /** Provider correlation identity of the call. */
   readonly callId: ToolCallId;
-  /** Whether the tool succeeded; for `update_ui`, whether the change rendered. */
+  /** Whether the tool succeeded; for `submit_intent`, whether the change rendered. */
   readonly ok: boolean;
   /** Client-clock milliseconds from arrival until local handling finishes. */
   readonly latencyMs: number;
@@ -157,7 +157,7 @@ export interface ToolCancelledEvent {
   readonly callId: ToolCallId;
 }
 
-/** A measured duration of `update_ui` work, such as its render or its failure. */
+/** A measured duration of `submit_intent` work, such as its render or its failure. */
 export interface TimingEvent {
   /** Discriminant. */
   readonly type: 'timing';
@@ -168,7 +168,7 @@ export interface TimingEvent {
 }
 
 /**
- * Recovery outcome of one `update_ui` request. Every variant carries the
+ * Recovery outcome of one `submit_intent` request. Every variant carries the
  * request's intent, so a subscriber never has to ask the session for it.
  * Outcomes carry no generation because submitted work can finish after voice
  * ends and still belongs to the same request.
@@ -183,7 +183,7 @@ export type ToolLaterOutcomeType =
   | 'tool.unconfirmed'
   | 'tool.not_submitted';
 
-/** An `update_ui` intent began processing, or entered a legacy immediate bridge. */
+/** An `submit_intent` intent began processing, or entered a legacy immediate bridge. */
 export interface ToolSubmittedEvent {
   /** Discriminant. */
   readonly type: 'tool.submitted';
@@ -195,7 +195,7 @@ export interface ToolSubmittedEvent {
   readonly retry: boolean;
 }
 
-/** Admission or application evidence for an `update_ui` request. */
+/** Admission or application evidence for a `submit_intent` request. */
 export interface ToolLaterOutcomeEvent {
   /** Discriminant. `tool.unconfirmed` means the application result is unknown. */
   readonly type: ToolLaterOutcomeType;

@@ -617,7 +617,7 @@ it('keeps submitted application outcomes after End voice and never delivers them
   adapters[0]!.emit({
     type: 'tool_call',
     callId,
-    name: 'update_ui',
+    name: 'submit_intent',
     argumentsJson: '{"intent":"Arrange the workspace"}',
   });
   await vi.waitFor(() => expect(connector.process).toHaveBeenCalledTimes(1));
@@ -656,7 +656,7 @@ it('records a call and a result for every tool, stamped with the session generat
   await voice.disconnect();
   await voice.connect();
   const diagnostics = voice.diagnostics;
-  for (const name of ['update_ui', 'get_ui_state', 'get_capabilities']) {
+  for (const name of ['submit_intent', 'get_ui_state', 'get_capabilities']) {
     adapter.emit({
       type: 'tool_call',
       callId: ToolCallId(`${name}-call`),
@@ -695,7 +695,7 @@ it('records a call and a result for every tool, stamped with the session generat
       providerInstanceId: metadata.providerInstanceId,
     }));
   expect(tools).toEqual(
-    ['update_ui', 'get_ui_state', 'get_capabilities'].flatMap((name) => [
+    ['submit_intent', 'get_ui_state', 'get_capabilities'].flatMap((name) => [
       {
         kind: 'voice.tool.called',
         callId: `${name}-call`,
@@ -763,7 +763,7 @@ it('captures tool calls, observations, and settled work under the identity of th
     adapter.emit({
       type: 'tool_call',
       callId: ToolCallId(callId),
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"Arrange the workspace"}',
     });
     await vi.waitFor(() =>

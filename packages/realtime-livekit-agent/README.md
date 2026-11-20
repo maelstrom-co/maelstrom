@@ -10,7 +10,7 @@ back out.
 
 The worker has no planning LLM and receives no UI grounding. The Maelstrom
 Engine remains the only planning model. The browser's `LiveKitAdapter`
-synthesizes an `update_ui` tool call from each transcript, and
+synthesizes an `submit_intent` tool call from each transcript, and
 `RealtimeSession` drives it. At runtime the worker imports only
 `@maelstrom-co/realtime-protocol/livekit`, the shared wire constants, so
 loading that subpath never evaluates browser or server modules.
@@ -21,7 +21,7 @@ loading that subpath never evaluates browser or server modules.
 2. The worker streams that audio to Deepgram.
 3. Deepgram produces one or more final transcript fragments.
 4. The worker combines the fragments into one transcript for the finished turn.
-5. The browser adapter converts the transcript into an `update_ui` intent.
+5. The browser adapter converts the transcript into an `submit_intent` intent.
 6. `RealtimeSession` submits the intent through the normal client and Engine path.
 7. The client waits until the resulting UI commands have settled.
 8. The browser sends `userMessage ?? summary` to the worker.

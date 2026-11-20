@@ -49,6 +49,7 @@ export type {
   RealtimeTransportAdapter,
   ToolResult,
   TurnMode,
+  SubmitIntentToolResult,
   TurnModeEvent,
   UpdateUIToolResult,
 } from './lib/realtime-session/provider-adapter.types.js';

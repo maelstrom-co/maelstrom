@@ -59,7 +59,7 @@ describe('demo Live credential boundaries', () => {
               tools: [
                 {
                   type: 'function',
-                  name: 'update_ui',
+                  name: 'submit_intent',
                   parameters: { type: 'object' },
                   strict: true,
                 },
@@ -80,7 +80,7 @@ describe('demo Live credential boundaries', () => {
         expect(backend.instructions).toContain(
           'Only confirm verified tool results.',
         );
-        expect(backend.instructions).toContain('call update_ui directly');
+        expect(backend.instructions).toContain('call submit_intent directly');
         expect(backend.instructions).toContain(
           'Do not call get_ui_state or get_capabilities as routine prerequisites',
         );

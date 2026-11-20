@@ -156,14 +156,14 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly groundingDebounceMs?: number;
   /**
    * Observes the stable, additive-only sidechannel stream of every session:
-   * tool calls and results, transcripts and `update_ui` timings. Turn-mode
+   * tool calls and results, transcripts and `submit_intent` timings. Turn-mode
    * diagnostics are excluded.
    */
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
   /**
-   * Sends each voice `update_ui` intent to the agent instead of the intent
+   * Sends each voice `submit_intent` intent to the agent instead of the intent
    * scheduler, normally by returning `orchestrator.sendMessage(text, {
    * source: 'voice' })` from the app's own submit path. The tool call is
    * answered from the submission's `result` once the input settled. A

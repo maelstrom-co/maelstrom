@@ -76,7 +76,7 @@ function adapter() {
         handler({
           type: 'tool_call',
           callId: ToolCallId(id),
-          name: 'update_ui',
+          name: 'submit_intent',
           argumentsJson: JSON.stringify({ intent: id }),
         });
     },

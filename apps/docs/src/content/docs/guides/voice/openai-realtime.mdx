@@ -432,7 +432,7 @@ Every response — success, denial, malformed JSON, mapped mint failure, unexpec
 
 Two behaviors are already wired by the time voice connects. Neither needs configuration, and both are easy to break by working around them.
 
-**Speak-after-render.** `RealtimeSession` exposes `update_ui`, `get_ui_state`, and `get_capabilities` to the provider. For a successful `update_ui` call, it withholds the successful tool result until the client reports that rendering has settled — so OpenAI describes a change the user can already see, rather than predicting one. Malformed tool arguments and genuine submission failures return failure results immediately, without waiting for render settlement.
+**Speak-after-render.** `RealtimeSession` exposes `submit_intent`, `get_ui_state`, and `get_capabilities` to the provider. For a successful `submit_intent` call, it withholds the successful tool result until the client reports that rendering has settled — so OpenAI describes a change the user can already see, rather than predicting one. Malformed tool arguments and genuine submission failures return failure results immediately, without waiting for render settlement.
 
 **Grounding that cannot plan.** Settled UI changes produce a debounced, latest-wins structural summary on a separate, weaker channel. The adapter deletes the previous grounding item and recreates it at the conversation tail, while `get_ui_state` lets the model pull current structural state when it needs certainty. Grounding contains structure, not Vessel domain data, and never becomes Engine planning input.
 

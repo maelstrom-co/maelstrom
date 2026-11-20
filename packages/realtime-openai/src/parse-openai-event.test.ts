@@ -11,7 +11,7 @@ describe('parseOpenAIServerEvent — tool calls', () => {
   it('maps a function_call event to a tool_call adapter event', () => {
     const raw = {
       type: 'function_call',
-      name: 'update_ui',
+      name: 'submit_intent',
       arguments: '{"intent":"show labs"}',
       call_id: 'call_abc123',
     };
@@ -19,13 +19,17 @@ describe('parseOpenAIServerEvent — tool calls', () => {
     expect(parseOpenAIServerEvent(raw)).toEqual({
       type: 'tool_call',
       callId: ToolCallId('call_abc123'),
-      name: 'update_ui',
+      name: 'submit_intent',
       argumentsJson: '{"intent":"show labs"}',
     });
   });
 
   it('returns null when a function_call event is missing a required field', () => {
-    const raw = { type: 'function_call', name: 'update_ui', call_id: 'call_1' };
+    const raw = {
+      type: 'function_call',
+      name: 'submit_intent',
+      call_id: 'call_1',
+    };
     expect(parseOpenAIServerEvent(raw)).toBeNull();
   });
 });

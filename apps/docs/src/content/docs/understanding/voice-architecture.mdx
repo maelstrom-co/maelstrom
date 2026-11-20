@@ -19,7 +19,7 @@ A voice model carries a picture of your interface as it talks — what it thinks
 
 ## What crosses, and what cannot
 
-One thing crosses from the voice provider into Maelstrom and becomes planning input: a natural-language `update_ui` intent. Its entire argument schema is `{ intent: string }`, closed to additional properties, and the session reads that one field and drops whatever else arrives with it. It is a sentence about what the user appears to want, and nothing more.
+One thing crosses from the voice provider into Maelstrom and becomes planning input: a natural-language `submit_intent` intent. Its entire argument schema is `{ intent: string }`, closed to additional properties, and the session reads that one field and drops whatever else arrives with it. It is a sentence about what the user appears to want, and nothing more.
 
 Nothing else the model holds can follow it. Its transcript, its belief about the layout, the audio itself — none of it is planning input. Voice providers do not supply Vessel IDs, Actions, Instance state, or layout coordinates, because there is no field to put them in.
 
@@ -39,7 +39,7 @@ In the cascade there is not even a reader. `LiveKitAdapter.injectGrounding()` ex
 
 Nothing you configure enforces this. There is no check to remember and no setting to get wrong.
 
-It holds because of the shape of the seam. An adapter reaches `RealtimeSession` through one closed union of events, and exactly one member of that union can change the UI: a tool call named `update_ui`, carrying a single string. Structure has no way in, because no inbound message has a place to carry it.
+It holds because of the shape of the seam. An adapter reaches `RealtimeSession` through one closed union of events, and exactly one member of that union can change the UI: a tool call named `submit_intent`, carrying a single string. Structure has no way in, because no inbound message has a place to carry it.
 
 That is why voice costs you nothing architecturally. The Engine receives the same client-built request that a typed intent produces, so a Vessel written before voice existed keeps working, and a bug in voice cannot become a bug in layout.
 
@@ -61,7 +61,7 @@ Maelstrom's shipped cascade passes through eight stages. The intent stops being 
 
 1. The adapter admits the turn's microphone audio to a LiveKit room.
 2. The Deepgram worker publishes one final transcript for the turn.
-3. `LiveKitAdapter` converts that transcript into an `update_ui` call carrying only the natural-language intent — the boundary crossing.
+3. `LiveKitAdapter` converts that transcript into an `submit_intent` call carrying only the natural-language intent — the boundary crossing.
 4. `RealtimeSession` enqueues it with the client. At dispatch, after earlier application work settles, the client captures the current Instances, Variants, and chart dimensions.
 5. The Engine plans against that client-built snapshot and returns the normal Execution Plan and Layout Directives.
 6. For a successful update, `RealtimeSession` waits for rendering to settle before returning the result. Malformed arguments and genuine submission failures return immediately.
@@ -70,7 +70,7 @@ Maelstrom's shipped cascade passes through eight stages. The intent stops being 
 
 The worker performs speech work and nothing else. It receives no Vessel, Instance, Variant, Action, Chart, or grounding context. Sending it UI structure would create a second planner, which is the failure the boundary exists to prevent.
 
-The realtime mode collapses steps 1 through 3 into the provider's session — the model emits the `update_ui` call itself, instead of an adapter synthesizing one from a transcript — and collapses steps 7 and 8 the same way. Steps 4 through 6 are the same code either way.
+The realtime mode collapses steps 1 through 3 into the provider's session — the model emits the `submit_intent` call itself, instead of an adapter synthesizing one from a transcript — and collapses steps 7 and 8 the same way. Steps 4 through 6 are the same code either way.
 
 ## Compare the modes
 

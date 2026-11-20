@@ -42,7 +42,8 @@ export const VOICE_BOUNDARY: OwnershipModel = {
       id: 'session',
       label: 'RealtimeSession',
       tone: 'yours',
-      detail: 'Pushes structure out. Takes one thing back: an update_ui intent',
+      detail:
+        'Pushes structure out. Takes one thing back: an submit_intent intent',
       x: 400,
       y: 310,
       w: 215,

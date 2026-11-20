@@ -24,7 +24,7 @@ import type { RealtimeSessionMemory } from './realtime-session-memory.js';
  * `userMessage` is the engine LLM's conversational reply to the user — already
  * context-aware and phrased for speech (e.g. "Done — here are your labs")
  * rather than a structural description. When present it is spoken verbatim as
- * the `update_ui` tool result, taking precedence over the snapshot summarizer
+ * the `submit_intent` tool result, taking precedence over the snapshot summarizer
  * (see {@link SummarizeFn}). It is optional on the seam so an instance that
  * cannot surface an engine reply can omit it; the session then falls back to
  * summarizing the post-render snapshot. An empty or whitespace-only string is
@@ -63,7 +63,7 @@ export interface RealtimeInstance {
    */
   createIntentScope?(): IntentScope;
   /**
-   * Sends one `update_ui` intent as an agent message and resolves with the
+   * Sends one `submit_intent` intent as an agent message and resolves with the
    * input's Agent Run state once it settled, the `result` that
    * `Orchestrator.sendMessage` returns. A run can finish before its UI
    * changes are applied. Preferred over `createIntentScope` and
@@ -90,7 +90,7 @@ export interface RealtimeInstance {
    * (duplicate tiling leaf, malformed weight token) being the ordinary case.
    * Such a refusal neither throws nor rejects and leaves the previous screen
    * in place, so this is the only signal that the intent changed nothing, and
-   * `RealtimeSession` answers the `update_ui` tool call as a failure rather
+   * `RealtimeSession` answers the `submit_intent` tool call as a failure rather
    * than describing a snapshot the intent never produced. A rejection leaves
    * the application outcome unconfirmed and must not trigger automatic replay.
    */
@@ -123,7 +123,7 @@ export interface RealtimeInstance {
  * never involve a model call.
  *
  * Backs two paths: every latest-wins grounding push and the structural
- * fallback summary for an `update_ui` tool result. It does not summarize the
+ * fallback summary for an `submit_intent` tool result. It does not summarize the
  * direct `get_ui_state` pull, which returns its {@link UIStructuralSnapshot}
  * directly. That snapshot already contains visible-only Instances. When the
  * settled {@link SubmitIntentResult} carries a non-empty `userMessage`, that
@@ -183,7 +183,7 @@ export interface RealtimeSessionOptions {
   readonly summarize?: SummarizeFn;
   /**
    * Observes the stable, additive-only {@link SidechannelEvent} stream: tool
-   * calls and results, legacy and greeting transcripts, and `update_ui`
+   * calls and results, legacy and greeting transcripts, and `submit_intent`
    * timings. It is served by a subscriber on the session's event stream, so a
    * throwing observer is isolated and logged. Turn-mode changes are excluded.
    */

@@ -80,9 +80,12 @@ export function createLocalLiveHandler(
         backend.tools?.some(
           (tool) =>
             tool.type !== 'function' ||
-            !['update_ui', 'get_ui_state', 'get_capabilities'].includes(
-              tool.name,
-            ),
+            ![
+              'submit_intent',
+              'update_ui',
+              'get_ui_state',
+              'get_capabilities',
+            ].includes(tool.name),
         )
       )
         return fail(400);

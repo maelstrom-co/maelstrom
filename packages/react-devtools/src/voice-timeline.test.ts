@@ -125,7 +125,7 @@ test('voice evidence opens the selected observation and its proven request witho
           event('called', 'voice.tool.called', {
             invocationId: 'invocation',
             callId: 'call',
-            tool: 'update_ui',
+            tool: 'submit_intent',
           }),
           event('applied', 'client.response.applied', {}, 'engine-rq'),
           event(

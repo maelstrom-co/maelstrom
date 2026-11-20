@@ -315,7 +315,7 @@ test('React typed and provider tool intents share FIFO after a 3s resize and ato
         handler({
           type: 'tool_call',
           callId: ToolCallId(id),
-          name: 'update_ui',
+          name: 'submit_intent',
           argumentsJson: JSON.stringify({ intent: id }),
         });
     };
@@ -780,7 +780,7 @@ test('submitted tool results retain their original provider and generation after
       adapters.first.emit({
         type: 'tool_call',
         callId: ToolCallId('retired-call'),
-        name: 'update_ui',
+        name: 'submit_intent',
         argumentsJson: '{"intent":"apply after replacement"}',
       });
       await started.promise;
@@ -822,7 +822,7 @@ test('submitted tool results retain their original provider and generation after
   }
 });
 
-test('sendAgentMessage routes provider update_ui intents to the agent instead of the intent scheduler', async () => {
+test('sendAgentMessage routes provider submit_intent intents to the agent instead of the intent scheduler', async () => {
   const processed: ChartRequestMessage[] = [];
   const client = new Orchestrator(
     createMockConnector({
@@ -873,7 +873,7 @@ test('sendAgentMessage routes provider update_ui intents to the agent instead of
         listener({
           type: 'tool_call',
           callId: ToolCallId('agent-call'),
-          name: 'update_ui',
+          name: 'submit_intent',
           argumentsJson: '{"intent":"show the board"}',
         });
       await waitFor(() => expect(sent).toHaveLength(1), { timeout: 1000 });
