@@ -222,7 +222,7 @@
         "dependsOn": [
           "^build"
         ],
-        "command": "bun test src tools/prompts tools/skills prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
+        "command": "bun test src tools/prompts tools/skills tools/versions prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",

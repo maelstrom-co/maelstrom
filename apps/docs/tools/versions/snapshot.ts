@@ -1,59 +1,326 @@
-import { cp, rm } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, posix, relative, resolve, sep } from 'node:path';
+import { parseArgs } from 'node:util';
 
-import { DEV_VERSION, isVersionFolder } from '../../src/lib/docs-versions';
+import {
+  DEV_VERSION,
+  isVersionFolder,
+  sortVersions,
+} from '../../src/lib/docs-versions';
 
 const docsRoot = join(import.meta.dir, '../../src/content/docs');
 
+const RELEASE =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+const GENERATED_FOLDERS = new Set(['reference']);
+
+/** Where a release's docs go: a version folder, or nowhere for a prerelease. */
+export type SnapshotTarget =
+  | { kind: 'folder'; release: string; folder: string }
+  | { kind: 'prerelease'; release: string };
+
 /**
- * The folder a release lands in: one per minor before 1.0, one per major
- * after. Prereleases get no folder.
+ * Map a release version to its docs folder: one folder per minor before 1.0
+ * (`0.3.1` goes to `0.3`), one per major from 1.0 (`1.4.2` goes to `1`).
+ * Prereleases get no folder, so they never become the default version.
  */
-export function versionFolder(release: string): string {
-  const match = /^v?(\d+)\.(\d+)(?:\.(\d+))?$/.exec(release);
+export function snapshotTarget(release: string): SnapshotTarget {
+  const match = RELEASE.exec(release);
   if (!match) {
     throw new Error(
-      `Expected a release version like 0.3.0 or 1.2.0, got "${release}". Prereleases are not snapshotted.`,
+      `Expected a semver release like 0.3.0 or v1.2.0, got "${release}".`,
     );
   }
-  const [, major, minor] = match;
-  const folder = major === '0' ? `${major}.${minor}` : `${major}`;
-  if (!isVersionFolder(folder) || folder === DEV_VERSION) {
-    throw new Error(`"${folder}" is not a version folder name.`);
-  }
-  return folder;
+  const [, major, minor, , prerelease] = match;
+  const version = release.replace(/^v/, '');
+  if (prerelease) return { kind: 'prerelease', release: version };
+  const folder = major === '0' ? `0.${minor}` : `${major}`;
+  return { kind: 'folder', release: version, folder };
 }
 
 /**
- * Replace a version folder with a copy of the dev docs. Generated API
- * reference pages are left out because they are rebuilt from source.
+ * The newest released folder that freezes `folder`, if any. A folder older
+ * than the newest release is frozen: copying today's dev docs into it would
+ * replace that release's docs with newer ones.
+ */
+export function frozenBy(
+  folder: string,
+  existing: readonly string[],
+): string | undefined {
+  const [newest] = sortVersions(
+    existing.filter((name) => name !== DEV_VERSION && isVersionFolder(name)),
+  );
+  if (!newest || newest === folder) return undefined;
+  return sortVersions([folder, newest])[0] === newest ? newest : undefined;
+}
+
+/**
+ * Remove `slug:` frontmatter, which would pin a page outside its version
+ * folder.
+ */
+export function stripSlugFrontmatter(text: string): string {
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text);
+  if (!frontmatter) return text;
+  const block = frontmatter[0].replace(/^slug:.*(?:\r?\n|$)/gm, '');
+  return block + text.slice(frontmatter[0].length);
+}
+
+/**
+ * Add `levels` extra `../` to relative MDX imports that leave the content
+ * root, for pages that move `levels` folders deeper. Imports inside the
+ * content root and code inside fenced blocks are left alone.
+ */
+export function deepenEscapingImports(
+  text: string,
+  file: string,
+  levels: number,
+): string {
+  if (levels === 0) return text;
+  const dir = posix.dirname(file);
+  const deepen = (specifier: string) =>
+    posix.normalize(posix.join(dir, specifier)).startsWith('../')
+      ? '../'.repeat(levels) + specifier
+      : specifier;
+
+  let fence: { char: string; length: number } | undefined;
+  let inStatement = false;
+  return text
+    .split(/(?<=\n)/)
+    .map((line) => {
+      if (fence) {
+        const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+        if (close?.[1]?.[0] === fence.char && close[1].length >= fence.length) {
+          fence = undefined;
+        }
+        return line;
+      }
+      const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (open?.[1]) {
+        fence = { char: open[1][0] ?? '`', length: open[1].length };
+        inStatement = false;
+        return line;
+      }
+      const starts = /^(?:import|export)\b/.test(line);
+      if (!inStatement && !starts) return line;
+      const rewritten = line.replace(
+        /(\bfrom\s*|^import\s*)(['"])(\.\.?\/[^'"]*)\2/g,
+        (_whole, lead: string, quote: string, specifier: string) =>
+          `${lead}${quote}${deepen(specifier)}${quote}`,
+      );
+      if (/(?:\bfrom\s*|^import\s*)['"]/.test(line)) inStatement = false;
+      else if (starts) {
+        inStatement = /^(?:import|export)\s+(?:type\s+)?\{[^}]*$/.test(line);
+      }
+      return rewritten;
+    })
+    .join('');
+}
+
+/** Options for {@link snapshotDocs}. */
+export interface SnapshotOptions {
+  /** The `src/content/docs` folder that holds the version folders. */
+  root?: string;
+  /**
+   * A git ref to take the dev docs from instead of the working tree. Refs
+   * from before the versioned layout use the docs content root itself.
+   */
+  from?: string;
+}
+
+/** What {@link snapshotDocs} did. */
+export type SnapshotResult =
+  | { kind: 'prerelease'; release: string }
+  | {
+      kind: 'snapshot';
+      release: string;
+      folder: string;
+      destination: string;
+      replaced: boolean;
+      source: string;
+      fixups: { slug: number; imports: number };
+    };
+
+/**
+ * Copy the dev docs into the folder for `release`, replacing that folder.
+ * A patch release rewrites its minor (or major) folder, which leaves git
+ * clean when the docs did not change. Frozen folders are refused unless
+ * the content comes from a git ref. Generated API reference pages are left
+ * out because they are rebuilt from source.
  */
 export async function snapshotDocs(
   release: string,
-  root = docsRoot,
-): Promise<string> {
-  const folder = versionFolder(release);
-  const source = join(root, DEV_VERSION);
-  const destination = join(root, folder);
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, {
-    recursive: true,
-    filter: (path) => {
-      const [first] = relative(source, path).split(sep);
-      return first !== 'reference';
-    },
-  });
-  return destination;
+  options: SnapshotOptions = {},
+): Promise<SnapshotResult> {
+  const root = options.root ?? docsRoot;
+  const target = snapshotTarget(release);
+  if (target.kind === 'prerelease') return target;
+
+  const existing = await readdir(root);
+  const frozen = frozenBy(target.folder, existing);
+  if (frozen && options.from === undefined) {
+    throw new Error(
+      `${target.folder} is frozen because ${frozen} is newer. Fix frozen docs by hand, or regenerate the folder from its release tag with --from.`,
+    );
+  }
+
+  const scratch = await mkdtemp(join(tmpdir(), 'docs-snapshot-'));
+  try {
+    const source =
+      options.from === undefined
+        ? {
+            dir: join(root, DEV_VERSION),
+            levels: 0,
+            label: `working tree ${DEV_VERSION}/`,
+          }
+        : await extractRef(root, options.from, join(scratch, 'source'));
+    const staging = join(scratch, 'staging');
+    await cp(source.dir, staging, {
+      recursive: true,
+      filter: (path) => {
+        const [first = ''] = relative(source.dir, path).split(sep);
+        return !GENERATED_FOLDERS.has(first);
+      },
+    });
+    const { pages, ...fixups } = await fixupPages(staging, source.levels);
+    if (pages === 0) {
+      throw new Error(
+        `${source.label} has no Markdown pages; ${target.folder} was left as it was.`,
+      );
+    }
+
+    const destination = join(root, target.folder);
+    const replaced = existing.includes(target.folder);
+    await rm(destination, { recursive: true, force: true });
+    await cp(staging, destination, { recursive: true });
+    return {
+      kind: 'snapshot',
+      release: target.release,
+      folder: target.folder,
+      destination,
+      replaced,
+      source: source.label,
+      fixups,
+    };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }
 
 if (import.meta.main) {
-  const release = process.argv[2];
-  if (!release) {
-    console.error('Usage: bun tools/versions/snapshot.ts <release version>');
+  const { positionals, values } = parseArgs({
+    args: process.argv.slice(2),
+    options: { from: { type: 'string' } },
+    allowPositionals: true,
+  });
+  if (positionals.length !== 1) {
+    console.error(
+      'Usage: bun run versions:snapshot <release version> [--from <git ref>]',
+    );
     process.exit(1);
   }
-  const destination = await snapshotDocs(release);
-  console.log(
-    `Copied ${DEV_VERSION} docs into ${relative(process.cwd(), destination)}`,
+  try {
+    const result = await snapshotDocs(positionals[0] ?? '', {
+      from: values.from,
+    });
+    if (result.kind === 'prerelease') {
+      console.log(
+        `${result.release} is a prerelease. Prereleases get no docs folder, so nothing changed.`,
+      );
+    } else {
+      console.log(
+        `${result.replaced ? 'Replaced' : 'Created'} ${relative(process.cwd(), result.destination)} for ${result.release} from ${result.source}.`,
+      );
+      console.log(
+        `Fixups: slug frontmatter removed in ${result.fixups.slug} files, imports deepened in ${result.fixups.imports} files.`,
+      );
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
+async function extractRef(
+  root: string,
+  ref: string,
+  into: string,
+): Promise<{ dir: string; levels: number; label: string }> {
+  const prefix = (await git(root, ['rev-parse', '--show-prefix'])).replace(
+    /\/$/,
+    '',
   );
+  const commit = await git(root, [
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `${ref}^{commit}`,
+  ]).catch(() => {
+    throw new Error(`Unknown git ref "${ref}".`);
+  });
+  const versioned = `${prefix}/${DEV_VERSION}`;
+  const hasVersioned = await git(root, [
+    'cat-file',
+    '-e',
+    `${commit}:${versioned}`,
+  ]).then(
+    () => true,
+    () => false,
+  );
+  const path = hasVersioned ? versioned : prefix;
+  const archive = `${into}.tar`;
+  // Run from the top: in a subfolder, git archive keeps only that subfolder of the tree.
+  const top = resolve(root, await git(root, ['rev-parse', '--show-cdup']));
+  await git(top, ['archive', '--output', archive, `${commit}:${path}`]);
+  await mkdir(into, { recursive: true });
+  await Bun.$`tar -xf ${archive} -C ${into}`.quiet();
+  return {
+    dir: into,
+    levels: hasVersioned ? 0 : 1,
+    label: `${ref}:${path} (${hasVersioned ? 'versioned' : 'pre-versioning'} layout)`,
+  };
+}
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  const result = await Bun.$`git ${args}`.cwd(cwd).quiet().nothrow();
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `git ${args.join(' ')} failed: ${result.stderr.toString().trim()}`,
+    );
+  }
+  return result.stdout.toString().trim();
+}
+
+async function fixupPages(
+  dir: string,
+  levels: number,
+): Promise<{ pages: number; slug: number; imports: number }> {
+  const counts = { pages: 0, slug: 0, imports: 0 };
+  for (const file of await readdir(dir, { recursive: true })) {
+    if (!/\.mdx?$/.test(file)) continue;
+    const path = join(dir, file);
+    if (!(await stat(path)).isFile()) continue;
+    counts.pages++;
+    const original = await readFile(path, 'utf8');
+    const withoutSlug = stripSlugFrontmatter(original);
+    const fixed = deepenEscapingImports(
+      withoutSlug,
+      file.split(sep).join('/'),
+      levels,
+    );
+    if (withoutSlug !== original) counts.slug++;
+    if (fixed !== withoutSlug) counts.imports++;
+    if (fixed !== original) await writeFile(path, fixed);
+  }
+  return counts;
 }
