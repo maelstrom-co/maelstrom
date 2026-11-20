@@ -1,0 +1,221 @@
+---
+title: Document a public symbol
+description: How to write JSDoc that renders correctly on the Maelstrom docs site.
+---
+
+import { Steps, Aside } from "@astrojs/starlight/components";
+
+API reference pages on this site are generated from the exports of every source
+file listed in that package's `entryPoints` configuration in
+`apps/docs/astro.config.ts`. JSDoc on those exports is public documentation, not
+an internal code comment: no reference Markdown is hand-written between a code
+change and a docs rebuild.
+
+`src/index.ts` is the conventional package-root entry point, but it is not the
+only supported entry point. A published subpath can have its own source entry
+point, such as:
+
+- `@maelstrom-co/realtime-protocol/openai` → `src/openai.ts`.
+- `@maelstrom-co/realtime-protocol/livekit-wire` → `src/livekit-wire.ts`.
+- `@maelstrom-co/realtime-vad/assets` → `src/vad-assets.ts`.
+
+## Before you start
+
+- Check the package's `exports` map. The symbol must be exported from a
+  published package root or subpath rather than only from an internal source
+  file.
+- Check `apps/docs/astro.config.ts`. The public root or subpath source file must
+  be listed explicitly in the matching TypeDoc plugin's `entryPoints` array.
+- Check the package's `tsconfig.lib.json`. TypeDoc's `resolve` strategy expects
+  each configured entry point to belong to that TypeScript project, so the
+  entry-point file and the declaration it exports must be included and not
+  excluded.
+
+## Steps
+
+<Steps>
+1.  **Write a JSDoc block above the export.** Lead with what the symbol does
+    and any load-bearing invariant; skip what the type already shows.
+
+    ```ts title="packages/engine/src/lib/engine.ts"
+    /**
+     * Construct an Engine from the given config.
+     *
+     * Validates `config` synchronously and **throws** on invalid input.
+     * Invalid config is a programmer error, not a runtime condition.
+     */
+    export function createEngine(config: EngineConfig): Engine {
+      // ...
+    }
+    ```
+
+2.  **Cross-reference other symbols with `{@link Name}`.** Bare names render as
+    plain text; `{@link}` resolves to an intra-site link, including member
+    references like `{@link Engine.handle}`.
+
+    ```ts
+    /**
+     * Routes on `message.type`. See {@link createEngine} for construction
+     * and {@link EngineError} for the failure channel.
+     */
+    handle(message: EngineMessage): Promise<Result<EngineOutput, EngineError>>;
+    ```
+
+3.  **Mark public-entry-point exports that aren't user-facing with
+    `@internal`.** If a symbol is exported from a configured root or subpath
+    only because a sibling `@maelstrom-co` package needs it, tag it
+    `@internal`. The generator uses `excludeInternal: true`, so the symbol
+    remains importable but does not appear on the docs site. A helper that is
+    not reachable from any configured entry point is already absent from the
+    generated reference; `@internal` is unnecessary there.
+
+        ```ts
+        /**
+         * Wire helper for cross-package consumers.
+         *
+         * @internal
+         */
+        export function someBarrelExportedHelper(): SomeShape {
+          // ...
+        }
+        ```
+
+</Steps>
+
+## Variations
+
+### Add a runnable example
+
+Use `@example` followed by a fenced code block. The plugin renders it as an
+`## Example` section under the symbol.
+
+````ts
+/**
+ * Build the system + user prompt halves.
+ *
+ * @example
+ * ```ts
+ * const { systemPrompt, userPrompt } = buildPrompt(request, {
+ *   vars: { assistantName: 'Aria' },
+ * });
+ * ```
+ */
+export function buildPrompt(
+  request: ChartRequest,
+  options?: PromptOptions,
+): PromptResult;
+````
+
+### Deprecate a symbol
+
+`@deprecated` renders inline with a strikethrough badge; pair it with a pointer
+to the replacement.
+
+```ts
+/**
+ * @deprecated Use the disposer returned by {@link registerRunner} instead.
+ */
+unregisterRunner(instanceId: InstanceId): void;
+```
+
+### Document throw conditions
+
+`@throws` renders as its own section. Keep the body in prose — the leading
+`{TypeName}` is parsed by TypeDoc and stripped from the rendered text.
+
+```ts
+/**
+ * @throws If `options` is invalid, or if a system-prompt customizer is
+ *   misconfigured.
+ */
+export function llmPlanner(options: LlmPlannerOptions): Stage<LlmPlannerInput, PlannerCandidate>;
+```
+
+## Bad and good examples
+
+A weak JSDoc block repeats the type signature without adding behavior:
+
+```ts
+/**
+ * Processes an intent.
+ *
+ * @param intent The intent string.
+ * @returns A promise.
+ */
+processIntent(intent: string): Promise<void>;
+```
+
+A useful block explains the contract the type cannot show:
+
+```ts
+/**
+ * Sends a user intent to the engine and updates Maelstrom state with the result.
+ *
+ * The promise resolves even when processing fails; render failures from
+ * `lastError` instead of relying on `try/catch` around this call.
+ */
+processIntent(intent: string): Promise<void>;
+```
+
+## What not to do
+
+- **Don't restate the type signature in prose.** The reference page already
+  shows it. If hovering the symbol gives the reader the same information,
+  the prose is filler.
+- **Don't put `TODO(...)` notes inside JSDoc blocks.** They render verbatim
+  on the public page. Use regular `//` comments next to the implementation
+  instead.
+- **Don't use `##` or deeper Markdown headings inside JSDoc.** TypeDoc emits
+  its own `##` sections (`Parameters`, `Returns`, `Throws`, `Example`).
+  Authoring sibling `##` headings inside a comment block produces a jumbled
+  page hierarchy. Stick to prose paragraphs and bullet lists.
+- **Don't document an internal source export expecting it to appear.** The
+  symbol must be reachable from an explicitly configured package root or
+  subpath entry point.
+- **Don't configure an internal file as an entry point.** First publish a root
+  or subpath in the package `exports` map, then configure its source file and
+  confirm that `tsconfig.lib.json` includes it.
+- **Don't guess a generated URL from a symbol name or source filename.**
+  Multi-entry packages can include source-entry-point segments in their route
+  hierarchy. Build the site and record the route that Astro actually emits.
+
+<Aside type="note">
+  Cross-package `{@link}` resolution (e.g. an `engine` JSDoc linking to a
+  `protocol` type) is not wired up. Those references render as plain text
+  on the docs site, even though TypeScript resolves them correctly at
+  authoring time.
+</Aside>
+
+## Final-pass checklist
+
+Before you call a public symbol documented, reread the rendered prose and check:
+
+- **Accuracy:** the text matches actual runtime behavior.
+- **Completeness:** edge cases, no-ops, throw conditions, and invariants are documented where they matter.
+- **Contrast:** related APIs that behave differently are distinguished explicitly.
+- **Examples:** examples compile conceptually and do not rely on hidden setup.
+- **Surface:** each symbol is reachable from the intended published root or
+  subpath, and exports meant only for package internals are marked `@internal`.
+
+## Verify
+
+Build the docs, inventory the configured output, and open the generated page
+for the symbol you changed:
+
+```bash
+bunx nx run docs:build
+rg --files apps/docs/dist/reference/<configured-output>
+```
+
+Treat the files under `apps/docs/dist/reference/<configured-output>` as the
+route authority. Do not assume a fixed `<kind>/<symbol>` pattern: the generated
+path depends on TypeDoc's project model, and multi-entry packages can render
+additional module or source-entry-point segments. Open the observed page and
+confirm the prose, parameters, returns, `@internal` exclusions, and any
+`{@link}` cross-references. For an iterative loop, `bunx nx run docs:dev`
+regenerates on startup; restart the dev server after editing JSDoc.
+
+## Next steps
+
+- [Contributing](/community/contributing) — repo setup and PR workflow.
+- [API Reference](/reference/react/readme/) — what consumers see when your JSDoc renders.

@@ -89,9 +89,13 @@ test('missing Markdown pages retain a not-found response', async ({
   ).toBe(404);
 });
 
-test('dev serves its own machine docs and bare Markdown serves the npm version', async ({
+test('each version serves its own machine docs and bare Markdown serves the npm version', async ({
   request,
 }) => {
+  // 0.2 is frozen at v0.2.1, which predates the connector `sendInput` API.
+  const frozen = await request.get('/0.2/_llms-txt/guides.txt');
+  expect(frozen.ok()).toBe(true);
+  expect(await frozen.text()).not.toContain('sendInput');
   const dev = await request.get('/dev/_llms-txt/guides.txt');
   expect(dev.ok()).toBe(true);
   expect(await dev.text()).toContain('sendInput');

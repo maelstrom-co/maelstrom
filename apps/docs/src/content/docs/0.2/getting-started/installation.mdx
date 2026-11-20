@@ -1,0 +1,109 @@
+---
+title: Installation
+description: Install Maelstrom packages and configure your environment.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+Maelstrom is distributed as scoped packages so you can install only the layers your app needs. Most React apps start with `@maelstrom-co/react` in the browser and `@maelstrom-co/engine` on the server.
+
+<Aside type="note" title="Public npm packages">
+  Install stable packages from npm. No GitHub token or repository invitation is required. Use the same version for all Maelstrom packages.
+</Aside>
+
+## Packages
+
+| Package | Purpose |
+| --------- | --------- |
+| `@maelstrom-co/react` | React bindings — `createMaelstrom()`, `vessel()`, hooks, Provider, Chart |
+| `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
+| `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
+| `@maelstrom-co/engine` | Server-side LLM decision engine |
+| `@maelstrom-co/react-devtools` | Optional React extension for development diagnostics |
+| `@maelstrom-co/devtools` | Optional framework-independent collector, capture store, and browser panel |
+
+DevTools is optional. React applications install `@maelstrom-co/react-devtools`;
+other integrations use `@maelstrom-co/devtools`. Use the same release or PR preview
+as your other Maelstrom packages. Follow [Debug applications with DevTools](/guides/devtools/)
+for installation, recording, and the explicit browser opt-in for production builds.
+
+## Minimal installs by use case
+
+| Use case | Install in the browser app | Install on the server |
+| --- | --- | --- |
+| React chart only | `@maelstrom-co/react` | An engine implementation, commonly `@maelstrom-co/engine` |
+| Framework-agnostic client | `@maelstrom-co/client @maelstrom-co/protocol` | An engine implementation |
+
+`@maelstrom-co/react` depends on the client and protocol packages and re-exports the vessel definition helper plus connector classes (`WebSocketConnector`, `HttpConnector`) you need to connect to the engine, so React apps only need to install `@maelstrom-co/react`. Install `@maelstrom-co/client` separately only if you are building a framework-agnostic client.
+
+## Install
+
+<Tabs>
+  <TabItem label="npm">
+  ```bash
+  # Client-side React app
+  npm install @maelstrom-co/react
+
+# Server-side reference engine
+
+  npm install @maelstrom-co/engine
+
+  ```
+  </TabItem>
+  <TabItem label="bun">
+  ```bash
+  # Client-side React app
+  bun add @maelstrom-co/react
+
+  # Server-side reference engine
+  bun add @maelstrom-co/engine
+  ```
+
+  </TabItem>
+  <TabItem label="pnpm">
+  ```bash
+  # Client-side React app
+  pnpm add @maelstrom-co/react
+
+# Server-side reference engine
+
+  pnpm add @maelstrom-co/engine
+
+  ```
+  </TabItem>
+</Tabs>
+
+## Peer dependencies
+
+`@maelstrom-co/react` requires:
+
+- `react` >= 18.0.0
+- `react-dom` >= 18.0.0
+
+## Environment variables
+
+The demo engine uses OpenAI. Set the following environment variables:
+
+```bash
+# .env
+ENGINE_MODEL=                  # Optional — defaults to gpt-6-luna
+OPENAI_API_KEY=your-key        # Server-held demo engine + optional voice key
+VITE_VOICE_PROVIDER=realtime  # Explicit Realtime setup; fresh visits otherwise default to GPT-Live
+OPENAI_REALTIME_MODEL=         # Optional Realtime override — defaults to gpt-realtime-2.1
+WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
+```
+
+<Aside type="tip">
+  The demo engine uses `@tanstack/ai-openai` with `gpt-6-luna` by default. Access to that model is organization/project-specific — if your key cannot call it, set `ENGINE_MODEL` to a model your project can use. You can also switch providers entirely by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
+</Aside>
+
+This environment selects OpenAI Realtime for voice. GPT-Live uses a different
+exchange and requires authenticated local opt-in for a server-held key; follow
+the [demo setup](https://github.com/maelstrom-co/maelstrom/blob/main/apps/demo/README.md#optional-gpt-live-with-a-local-server-key).
+Browser-key mode is also available; it sends voice requests directly to OpenAI
+and supplies the key separately to the Engine for planning.
+
+## Next steps
+
+- [Quick Start](/getting-started/quick-start/) — wire the smallest working chart
+- [Use a custom LLM provider](/guides/engine/custom-llm-providers/) — choose the model adapter for the reference engine
