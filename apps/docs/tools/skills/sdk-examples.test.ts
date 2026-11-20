@@ -75,7 +75,7 @@ test('shipped SDK recipes and voice README examples compile against published de
   }
   expect(guideCount).toBe(18);
   const mcpGuide = await readFile(
-    join(root, 'apps/docs/src/content/docs/guides/devtools-mcp.mdx'),
+    join(root, 'apps/docs/src/content/docs/dev/guides/devtools-mcp.mdx'),
     'utf8',
   );
   const mcpBlocks = [...mcpGuide.matchAll(/```ts[^\n]*\n([\s\S]*?)\n```/g)];
@@ -88,7 +88,7 @@ test('shipped SDK recipes and voice README examples compile against published de
   const liveGuide = await readFile(
     join(
       root,
-      'apps/docs/src/content/docs/guides/voice/live-opening-recovery.mdx',
+      'apps/docs/src/content/docs/dev/guides/voice/live-opening-recovery.mdx',
     ),
     'utf8',
   );

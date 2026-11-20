@@ -565,7 +565,7 @@ test('LiveKit browser fixture covers turn control and renders verbatim', async (
   const tutorialSource = asSource(
     readFileSync(
       new URL(
-        '../src/content/docs/tutorials/run-the-cascade-locally.mdx',
+        '../src/content/docs/dev/tutorials/run-the-cascade-locally.mdx',
         import.meta.url,
       ),
       'utf8',
@@ -596,7 +596,7 @@ test('LiveKit production fixture is compile checked and rendered verbatim', asyn
   const guideSource = asSource(
     readFileSync(
       new URL(
-        '../src/content/docs/guides/voice/livekit-cascade.mdx',
+        '../src/content/docs/dev/guides/voice/livekit-cascade.mdx',
         import.meta.url,
       ),
       'utf8',

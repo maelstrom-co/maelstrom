@@ -4,8 +4,8 @@ description: Add browser-detected voice with manual fallback, browser-side inten
 ---
 
 import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
-import OwnershipDiagram from "../../../../components/ownership/OwnershipDiagram.astro";
-import { LIVEKIT_CASCADE_OWNERSHIP } from "../../../../components/ownership/livekit-cascade";
+import OwnershipDiagram from "../../../../../components/ownership/OwnershipDiagram.astro";
+import { LIVEKIT_CASCADE_OWNERSHIP } from "../../../../../components/ownership/livekit-cascade";
 
 The LiveKit cascade adds browser-detected voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `submit_intent` intent. If automatic detection is disabled or safely degrades, the adapter exposes manual turn controls instead.
 

@@ -27,7 +27,10 @@ export async function collectAuthoredExamples(
 ): Promise<Map<string, string>> {
   const read = async (path: string) =>
     titledExamples(
-      await readFile(join(root, 'apps/docs/src/content/docs', path), 'utf8'),
+      await readFile(
+        join(root, 'apps/docs/src/content/docs/dev', path),
+        'utf8',
+      ),
     );
   const quickStart = await read('getting-started/quick-start.mdx');
   const vessels = await read('guides/react/creating-vessels.mdx');
