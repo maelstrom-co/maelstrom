@@ -92,6 +92,12 @@
     },
     {
       "path": "./packages/agui"
+    },
+    {
+      "path": "./packages/demo-vessels"
+    },
+    {
+      "path": "./apps/agui-demo"
     }
   ],
   "compilerOptions": {}

@@ -339,6 +339,33 @@ test('legacy Wrangler Workers do not masquerade as missing Alchemy ownership', a
   expect(proof.legacyWorkers).toBe(1);
 });
 
+test('AG-UI copy requires the live Worker identity and never claims a legacy AG-UI name', async () => {
+  const f = fixture();
+  const workerName = 'maelstrom-agui-alchemy-pr-42';
+  const workers = {
+    ...manifest,
+    workerNames: [workerName, 'maelstrom-agui-pr-42'],
+  };
+  await expect(
+    copyPreviewState(f.source, f.destination, workers, async () => {}),
+  ).rejects.toThrow('PREVIEW_LIVE_WORKER_STATE_MISSING');
+  expect(f.initialized()).toBeFalse();
+  const id = key({
+    stack: 'MaelstromAguiPreview',
+    stage: 'pr-42',
+    fqn: 'Website',
+  });
+  f.original.set(id, { attr: { workerName } });
+  const proof = await copyPreviewState(
+    f.source,
+    f.destination,
+    workers,
+    async () => {},
+  );
+  expect(f.copied.get(id)).toEqual({ attr: { workerName } });
+  expect(proof.legacyWorkers).toBe(0);
+});
+
 test('a live current Worker without its source identity blocks destination creation', async () => {
   const f = fixture();
   f.original.delete(key({ ...scope, fqn: 'Website' }));

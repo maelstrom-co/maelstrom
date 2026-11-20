@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -12,7 +12,12 @@ export const alchemyProjects = [
   'apps/demo',
   'apps/www',
   'apps/docs',
+  'apps/agui-demo',
 ] as const;
+
+const includesAgui = (root: string) =>
+  lstatSync(join(root, 'apps/agui-demo'), { throwIfNoEntry: false }) !==
+  undefined;
 
 /** Checks installed packages before a caller receives permission to use a shared store. */
 export function assertAlchemyVersion(
@@ -45,22 +50,31 @@ export function assertAlchemyVersion(
 export function assertWorkspaceAlchemyVersion(
   root: string,
   required: string | undefined,
+  hasAgui = includesAgui(root),
 ) {
   for (const project of alchemyProjects)
-    assertAlchemyVersion(root, required, project);
+    if (project !== 'apps/agui-demo' || hasAgui)
+      assertAlchemyVersion(root, required, project);
 }
 
 /** Fences source revisions that cannot route preview state to the isolated backend. */
 export function assertPreviewStateStore(
   root: string,
   required: string | undefined,
+  hasAgui = includesAgui(root),
 ) {
   if (!required) return;
   if (required !== OSS_PREVIEW_STATE_STORE_WORKER)
     throw new Error('PREVIEW_STATE_STORE_REQUIREMENT_INVALID');
+  assertStoreCapability(join(root, 'package.json'), required);
+  if (hasAgui)
+    assertStoreCapability(join(root, 'apps/agui-demo/package.json'), required);
+}
+
+function assertStoreCapability(path: string, required: string) {
   let manifest: unknown;
   try {
-    manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    manifest = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     throw new Error('PREVIEW_STATE_STORE_CAPABILITY_REQUIRED');
   }

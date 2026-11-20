@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rootDir": "../.."
+  },
+  "include": ["src/worker/**/*.ts", "test/workspace-fixture.ts"],
+  "exclude": []
+}
