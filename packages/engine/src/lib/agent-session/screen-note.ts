@@ -40,8 +40,8 @@ export function describeScreenChangeQueued(
 }
 
 /**
- * Why a Screen Change produced no screen change, as {@link describeScreenChangeSkipped} reads
- * it.
+ * Why the Planner left the screen unchanged for a Screen Change, as
+ * {@link describeScreenChangeSkipped} reads it.
  */
 export type ScreenChangeSkipReason =
   | { readonly reason: 'nothing_to_show' }

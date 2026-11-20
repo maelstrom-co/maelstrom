@@ -70,7 +70,10 @@ export interface AgentRunChatInstrumentation {
    * otherwise the model receives a sanitized failure instead. A
    * `transformArgs` runs the tool with the transformed arguments, or gives
    * the model the sanitized invalid-arguments failure when they fail the
-   * tool's input schema.
+   * tool's input schema. An `onAfterToolCall` here must not throw: the
+   * result guard after it frees the call's Server Tool slot, so a throw keeps
+   * the slot held and later Server Tools of the turn wait until the run
+   * aborts.
    */
   readonly middleware?: readonly ChatMiddleware[];
   /** Receives every provider call record after the run's ledger stored it. */

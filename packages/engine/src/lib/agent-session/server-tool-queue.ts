@@ -99,18 +99,18 @@ export function createServerToolQueue(signal: AbortSignal): ServerToolQueue {
   function slotFor(callId: string): Slot {
     const existing = slots.get(callId);
     if (existing !== undefined) return existing;
-    let finish!: () => void;
+    let openNext!: () => void;
     const finished = new Promise<void>((resolve) => {
-      finish = resolve;
+      openNext = resolve;
     });
-    const slot: Slot = { callId, turn: tail, finish };
+    const slot: Slot = { callId, turn: tail, openNext };
     tail = finished;
     if (!signal.aborted) slots.set(callId, slot);
     return slot;
   }
 
   function release(slot: Slot) {
-    slot.finish();
+    slot.openNext();
     if (slots.get(slot.callId) !== slot) return;
     slots.delete(slot.callId);
     if (slots.size > 0) return;
@@ -121,5 +121,5 @@ export function createServerToolQueue(signal: AbortSignal): ServerToolQueue {
 interface Slot {
   readonly callId: string;
   readonly turn: Promise<void>;
-  readonly finish: () => void;
+  readonly openNext: () => void;
 }
