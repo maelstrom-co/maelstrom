@@ -124,7 +124,11 @@ function isChartRequestCandidate(message: unknown): boolean {
  * requests that may reach different instances.
  */
 export interface Engine {
-  /** Opens an isolated Agent Session with host-authorized identity. The UI-only route does not use the legacy history store. */
+  /**
+   * Opens an isolated Agent Session with host-authorized identity. The UI-only route does not use the legacy history store.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+   */
   openConnection(options: OpenConnectionOptions): AgentConnection;
   /** Observes development evidence. Overlapping legacy request IDs suppress request-correlated events except engine.request.finished. Run-owned events and metadata observers are unaffected. Hosts must opt in before forwarding. */
   observeDiagnostics?: (observer: EngineDiagnosticObserver) => () => void;

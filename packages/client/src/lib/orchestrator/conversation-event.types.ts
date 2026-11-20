@@ -83,6 +83,8 @@ export type ConversationLostReason =
  * for it may still arrive and are delivered. The stale loss starts a new
  * session, so a `ui_applied` acknowledgement for a change still being applied
  * is dropped.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type ConversationLostEvent =
   | ConversationEndedEvent
@@ -107,6 +109,8 @@ export type ConversationEndedEvent = {
 /**
  * An accepted Agent Run went silent. Late events for the run may still arrive
  * and are delivered.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
 export type StaleRunLostEvent = {
   /** Discriminant, always `'conversation_lost'`. */

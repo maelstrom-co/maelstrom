@@ -421,6 +421,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * @throws {ConnectorError} With kind `transport` when the socket is not
    *   open or no session is established yet.
    * @throws If `WebSocket.send` fails.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   async sendInput(input: AgentInput): Promise<void> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
@@ -442,6 +444,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * Only events from the currently connected socket are delivered, so events
    * from a replaced or disconnected socket are dropped. A throwing handler is
    * logged and does not affect other handlers.
+   *
+   * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
   onEvent(handler: (event: AgentEvent) => void): Unsubscribe {
     this.#engineEventHandlers.add(handler);

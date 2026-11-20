@@ -95,7 +95,11 @@ export interface AgentConfig {
   readonly retry?: AgentRunRetry;
 }
 
-/** {@link AgentConfig} with its defaults applied and its tools registered. */
+/**
+ * {@link AgentConfig} with its defaults applied and its tools registered.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
 export interface ResolvedAgentConfig {
   /** The configured adapter or model factory. */
   readonly model: AnyTextAdapter | AgentModelFactory;

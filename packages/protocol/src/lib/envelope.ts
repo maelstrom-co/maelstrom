@@ -191,6 +191,9 @@ export const AgentInputMessage = (args: {
  * Agent Session. The legacy assistant arm remains fire-and-forget; only the
  * acknowledged arm requests a response. Discriminated on `type`, so a host
  * router can use one switch.
+ *
+ * The agent variants (`AgentInputMessage`, `AgentEventMessage`) are experimental
+ * in 0.3 and may change in any minor release.
  */
 export type ClientEnvelope =
   | ChartRequestMessage
@@ -459,6 +462,9 @@ export const AgentEventMessage = (args: {
 /**
  * Every message an engine host may send to a client over the duplex stream,
  * discriminated on `type`. See the union members below.
+ *
+ * The agent variants (`AgentInputMessage`, `AgentEventMessage`) are experimental
+ * in 0.3 and may change in any minor release.
  */
 export type ServerEnvelope =
   | MaelstromResponseMessage
