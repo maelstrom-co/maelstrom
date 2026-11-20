@@ -10,6 +10,7 @@ import {
   GridModelOutputSchema,
   GridResponseSchema,
   GridResponseWithoutReplySchema,
+  PlannerReasonVerdictSchema,
   TilingModelOutputSchema,
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
@@ -265,6 +266,62 @@ describe('UserIntentReasonSchema', () => {
       UserIntentReasonSchema.safeParse({ type: 'user_intent' }).success,
     ).toBe(false);
   });
+
+  test('an id and referents round-trip through parse and JSON', () => {
+    const reason = {
+      type: 'user_intent',
+      id: 'r1',
+      intent: 'show my latest order',
+      referents: {
+        orderId: 'ORD-42',
+        quantities: [1, 2],
+        shipping: { express: true, note: null },
+      },
+    };
+
+    const parsed = UserIntentReasonSchema.parse(reason);
+
+    expect<unknown>(parsed).toEqual(reason);
+    expect<unknown>(
+      UserIntentReasonSchema.parse(JSON.parse(JSON.stringify(parsed))),
+    ).toEqual(reason);
+  });
+
+  test('a reason without an id or referents keeps neither key', () => {
+    const parsed = UserIntentReasonSchema.parse({
+      type: 'user_intent',
+      intent: 'show the calendar',
+    });
+
+    expect('id' in parsed).toBe(false);
+    expect('referents' in parsed).toBe(false);
+  });
+
+  test('rejects a blank id', () => {
+    expect(
+      UserIntentReasonSchema.safeParse({
+        type: 'user_intent',
+        id: '',
+        intent: 'show the calendar',
+      }).success,
+    ).toBe(false);
+  });
+
+  test.each<[string, unknown]>([
+    ['a function value', { lookup: () => 'ORD-42' }],
+    ['an undefined value', { orderId: undefined }],
+    ['a nested undefined value', { order: { id: undefined } }],
+    ['an array', ['ORD-42']],
+    ['a string', 'ORD-42'],
+  ])('rejects referents holding %s', (_label, referents) => {
+    expect(
+      UserIntentReasonSchema.safeParse({
+        type: 'user_intent',
+        intent: 'show my order',
+        referents,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('ChartResizeReasonSchema', () => {
@@ -438,18 +495,17 @@ describe('ChartRequestSchema', () => {
   });
 });
 
-describe('ChartRequestSchema skipReply and intentFacts', () => {
+describe('ChartRequestSchema skipReply', () => {
   const parseThroughJson = (request: unknown): unknown =>
     ChartRequestSchema.parse(
       JSON.parse(JSON.stringify(ChartRequestSchema.parse(request))),
     );
 
-  test('a request without either field parses and round-trips unchanged', () => {
+  test('a request without skipReply parses and round-trips unchanged', () => {
     const req = validChartRequest();
     const parsed = ChartRequestSchema.parse(req);
     expect<unknown>(parsed).toEqual(req);
     expect('skipReply' in parsed).toBe(false);
-    expect('intentFacts' in parsed).toBe(false);
     expect(parseThroughJson(req)).toEqual(req);
   });
 
@@ -462,33 +518,51 @@ describe('ChartRequestSchema skipReply and intentFacts', () => {
     },
   );
 
-  test('intentFacts round-trips through parse and JSON', () => {
-    const intentFacts = {
-      latestOrderSku: 'A123',
-      similarSkus: ['B456', 'C789'],
-      order: { total: 12.5, shipped: false, note: null },
-    };
-    const req = { ...validChartRequest(), skipReply: true, intentFacts };
-    expect<unknown>(ChartRequestSchema.parse(req).intentFacts).toEqual(
-      intentFacts,
-    );
-    expect(parseThroughJson(req)).toEqual(req);
-  });
-
   test('rejects a non-boolean skipReply', () => {
     const req = { ...validChartRequest(), skipReply: 'yes' };
     expect(ChartRequestSchema.safeParse(req).success).toBe(false);
   });
 
-  test.each<[string, unknown]>([
-    ['a function value', { lookup: () => 'A123' }],
-    ['an undefined value', { latestOrderSku: undefined }],
-    ['a nested undefined value', { order: { sku: undefined } }],
-    ['an array', ['A123']],
-    ['a string', 'A123'],
-  ])('rejects intentFacts holding %s', (_label, intentFacts) => {
-    const req = { ...validChartRequest(), intentFacts };
-    expect(ChartRequestSchema.safeParse(req).success).toBe(false);
+  test('an intentFacts key sent by an older client is stripped, not rejected', () => {
+    const req = {
+      ...validChartRequest(),
+      skipReply: true,
+      intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+    };
+
+    const parsed = ChartRequestSchema.parse(req);
+
+    expect('intentFacts' in parsed).toBe(false);
+    expect<unknown>(parsed).toEqual({
+      ...validChartRequest(),
+      skipReply: true,
+    });
+  });
+
+  test('user_intent ids and referents survive the request schema', () => {
+    const updateReasons = [
+      {
+        type: 'user_intent' as const,
+        id: 'r1',
+        intent: 'show my latest order',
+        referents: { orderId: 'ORD-42' },
+      },
+      {
+        type: 'user_intent' as const,
+        id: 'r2',
+        intent: 'add it to my calendar',
+      },
+    ];
+    const req = {
+      ...validChartRequest(),
+      skipReply: true,
+      context: { ...validChartRequest().context, updateReasons },
+    };
+
+    expect<unknown>(
+      ChartRequestSchema.parse(req).context.updateReasons,
+    ).toEqual(updateReasons);
+    expect(parseThroughJson(req)).toEqual(req);
   });
 });
 
@@ -640,6 +714,76 @@ describe('replyless response schemas', () => {
     expect(required(TilingResponseWithoutReplySchema)).not.toContain(
       'userMessage',
     );
+  });
+});
+
+describe('Planner reason verdicts', () => {
+  const verdicts = [
+    { id: 'r1', status: 'planned' },
+    {
+      id: 'r2',
+      status: 'needs_clarification',
+      question: 'Which share class do you mean?',
+      options: ['Class A', 'Class C'],
+    },
+    { id: 'r3', status: 'failed' },
+  ];
+
+  test.each([
+    {
+      name: 'GridResponseWithoutReplySchema',
+      schema: GridResponseWithoutReplySchema,
+      payload: gridPayload({ positions: [] }),
+    },
+    {
+      name: 'TilingResponseWithoutReplySchema',
+      schema: TilingResponseWithoutReplySchema,
+      payload: tilingPayload({ tree: [], instances: [] }),
+    },
+  ])('$name keeps the verdicts it is given', ({ schema, payload }) => {
+    const result = schema.safeParse({ ...planned(payload), reasons: verdicts });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect<unknown>(result.data.reasons).toEqual(verdicts);
+  });
+
+  test('a replyless result without verdicts keeps no reasons key', () => {
+    const result = GridResponseWithoutReplySchema.safeParse(
+      planned(gridPayload({ positions: [] })),
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) expect('reasons' in result.data).toBe(false);
+  });
+
+  test.each([
+    { name: 'GridResponseSchema', schema: GridResponseSchema },
+    { name: 'GridModelOutputSchema', schema: GridModelOutputSchema },
+    { name: 'TilingModelOutputSchema', schema: TilingModelOutputSchema },
+  ])('$name has no reasons field', ({ schema }) => {
+    expect(Object.keys(schema.shape)).not.toContain('reasons');
+  });
+
+  test.each<[string, unknown]>([
+    ['an unknown status', { id: 'r1', status: 'applied' }],
+    [
+      'a blank question',
+      { id: 'r1', status: 'needs_clarification', question: '  ' },
+    ],
+    [
+      'a blank option',
+      { id: 'r1', status: 'needs_clarification', options: ['A', ' '] },
+    ],
+    ['a blank id', { id: ' ', status: 'planned' }],
+    ['a missing id', { status: 'planned' }],
+  ])('rejects a verdict with %s', (_label, verdict) => {
+    expect(PlannerReasonVerdictSchema.safeParse(verdict).success).toBe(false);
+    expect(
+      GridResponseWithoutReplySchema.safeParse({
+        ...planned(gridPayload({ positions: [] })),
+        reasons: [verdict],
+      }).success,
+    ).toBe(false);
   });
 });
 

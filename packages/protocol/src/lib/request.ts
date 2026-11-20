@@ -32,8 +32,20 @@ import { VesselSchema } from './vessel.ts';
 /** Reason for triggering an engine update - user intent */
 export interface UserIntentReason {
   readonly type: 'user_intent';
+  /**
+   * An id the caller assigns so a Planner verdict can name this reason.
+   * Unique within the request and never empty. Absent when the caller needs
+   * no per-reason verdict.
+   */
+  readonly id?: string;
   /** The user's natural language intent */
   readonly intent: string;
+  /**
+   * Exact values the caller already knows, such as ids and quantities, so the
+   * Planner never guesses them. They are inputs, not instructions: the Planner
+   * still chooses the Actions and their parameters. Absent means none.
+   */
+  readonly referents?: Readonly<Record<string, JsonValue>>;
 }
 
 /** Reason for triggering an engine update - chart resize */
@@ -65,11 +77,14 @@ export type UpdateReason =
  * Wire-format Zod parser for {@link UserIntentReason}. The `type`
  * discriminator pins the variant; `intent` is an arbitrary natural-language
  * string with no length constraint (callers may submit empty intents — the
- * engine prompt builder is responsible for filtering them).
+ * engine prompt builder is responsible for filtering them). An `id`, when
+ * present, must not be empty, and `referents` must be a JSON object.
  */
 export const UserIntentReasonSchema = z.object({
   type: z.literal('user_intent'),
+  id: z.string().min(1).optional(),
   intent: z.string(),
+  referents: z.record(z.string(), JsonValueSchema).optional(),
 });
 
 /**
@@ -153,13 +168,6 @@ export interface ChartRequest {
    * `skipReply`, because a `chart_response` has no shape for a question.
    */
   readonly skipReply?: boolean;
-  /**
-   * Structured facts the caller already learned about the intent, for
-   * example values read from tool results, keyed by a name the Planner can
-   * reason about. They are inputs to planning, not instructions: the Planner
-   * still chooses the Actions and their parameters. Absent means no facts.
-   */
-  readonly intentFacts?: Readonly<Record<string, JsonValue>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,12 +287,59 @@ export const TilingResponseSchema = z.object({
 export type TilingResponse = z.infer<typeof TilingResponseSchema>;
 
 /**
- * {@link GridResponseSchema} with an optional `userMessage`, for a request
- * that set {@link ChartRequest.skipReply}. Every other field, `type`
- * included, keeps the strict schema's rules.
+ * One Planner verdict on a `user_intent` reason it can name by
+ * {@link UserIntentReason.id}. `planned` means the result plans for that
+ * reason, `needs_clarification` means the Planner needs the user to answer
+ * `question` first, and `failed` means it cannot plan for it. A result
+ * without verdicts gives every reason the result's own outcome. Only a
+ * replyless result or a {@link NeedsClarification} carries verdicts.
+ */
+export interface PlannerReasonVerdict {
+  /** The {@link UserIntentReason.id} this verdict is about. Never blank. */
+  readonly id: string;
+  /** What the Planner could do for the reason. */
+  readonly status: 'planned' | 'needs_clarification' | 'failed';
+  /** The question to ask the user about this reason. Never blank. */
+  readonly question?: string;
+  /** Suggested answers to {@link question}. Each one is non-blank. */
+  readonly options?: readonly string[];
+}
+
+/**
+ * Zod parser for a {@link PlannerReasonVerdict}. Rejects a blank `id` or
+ * `question`, a blank entry in `options` and any status outside `planned`,
+ * `needs_clarification` and `failed`.
+ */
+export const PlannerReasonVerdictSchema = z.object({
+  id: z.string().refine(isNonBlank, { message: 'id must not be blank' }),
+  status: z.enum(['planned', 'needs_clarification', 'failed']),
+  question: z
+    .string()
+    .refine(isNonBlank, { message: 'question must not be blank' })
+    .optional(),
+  options: z
+    .array(
+      z.string().refine(isNonBlank, { message: 'options must not be blank' }),
+    )
+    .optional(),
+});
+
+const optionalReasonVerdicts = z
+  .array(PlannerReasonVerdictSchema)
+  .optional()
+  .describe(
+    'Optional verdicts, one per user_intent reason id. Omit them when every reason shares the result outcome.',
+  );
+
+/**
+ * {@link GridResponseSchema} with an optional `userMessage` and optional
+ * {@link PlannerReasonVerdict} `reasons`, for a request that set
+ * {@link ChartRequest.skipReply}. Every other field, `type` included, keeps
+ * the strict schema's rules.
  */
 export const GridResponseWithoutReplySchema = GridResponseSchema.extend({
   userMessage: optionalUserMessage,
+  reasons: optionalReasonVerdicts,
 });
 
 /** Grid-mode plan result for a request that set `skipReply: true`. */
@@ -293,12 +348,14 @@ export type GridResponseWithoutReply = z.infer<
 >;
 
 /**
- * {@link TilingResponseSchema} with an optional `userMessage`, for a request
- * that set {@link ChartRequest.skipReply}. Every other field, `type`
- * included, keeps the strict schema's rules.
+ * {@link TilingResponseSchema} with an optional `userMessage` and optional
+ * {@link PlannerReasonVerdict} `reasons`, for a request that set
+ * {@link ChartRequest.skipReply}. Every other field, `type` included, keeps
+ * the strict schema's rules.
  */
 export const TilingResponseWithoutReplySchema = TilingResponseSchema.extend({
   userMessage: optionalUserMessage,
+  reasons: optionalReasonVerdicts,
 });
 
 /** Tiling-mode plan result for a request that set `skipReply: true`. */
@@ -315,7 +372,8 @@ export type TilingResponseWithoutReply = z.infer<
  * - flag absent or `false`: {@link GridResponse} or {@link TilingResponse},
  *   both with a required `userMessage`
  * - flag `true`: {@link GridResponseWithoutReply},
- *   {@link TilingResponseWithoutReply} or {@link NeedsClarification}
+ *   {@link TilingResponseWithoutReply} or {@link NeedsClarification}, each
+ *   of which may carry {@link PlannerReasonVerdict} `reasons`
  * - flag only known as `boolean`: the `true` case, since the request may
  *   have set it
  *
@@ -393,7 +451,6 @@ export const ChartRequestSchema = z
       RequestTilingLayoutSchema,
     ]),
     skipReply: z.boolean().optional(),
-    intentFacts: z.record(z.string(), JsonValueSchema).optional(),
   })
   .superRefine((req, ctx) => {
     if (req.layout.type !== req.context.layoutMode) {
@@ -564,4 +621,23 @@ const _updateReasonBwd: Mutable<UpdateReason> extends _InferredUpdateReason
   ? true
   : false = true;
 
-void [_chartReqFwd, _chartReqBwd, _updateReasonFwd, _updateReasonBwd];
+type _InferredPlannerReasonVerdict = z.infer<typeof PlannerReasonVerdictSchema>;
+const _reasonVerdictFwd: _InferredPlannerReasonVerdict extends Mutable<PlannerReasonVerdict>
+  ? true
+  : false = true;
+const _reasonVerdictBwd: Mutable<PlannerReasonVerdict> extends _InferredPlannerReasonVerdict
+  ? true
+  : false = true;
+
+void [
+  _chartReqFwd,
+  _chartReqBwd,
+  _updateReasonFwd,
+  _updateReasonBwd,
+  _reasonVerdictFwd,
+  _reasonVerdictBwd,
+];
+
+function isNonBlank(value: string): boolean {
+  return value.trim().length > 0;
+}

@@ -6,7 +6,6 @@ import {
   ChangeId,
   type ChartRequest,
   isErr,
-  type JsonValue,
   type MaelstromResponse,
   MessageId,
   type Result,
@@ -46,8 +45,6 @@ export interface LoopDrivenShow {
   readonly intent: string;
   /** Names of the tools whose successful results the show reflects, in call order. */
   readonly toolNames: readonly string[];
-  /** Facts the tool phase produced for the Planner, keyed `<toolName>:<callId>`. */
-  readonly intentFacts?: Readonly<Record<string, JsonValue>>;
 }
 
 /** How long a show's Planner call may run before the show fails with `planning_timeout`. */
@@ -158,11 +155,7 @@ export function createPlannerShowQueue({
       chart = next;
       if (state.phase !== 'planning') return;
       const { job } = state;
-      const request = buildShowRequest(
-        next,
-        job.show.intent,
-        job.show.intentFacts,
-      );
+      const request = buildShowRequest(next, job.show.intent);
       if (isStructurallyEqual(request, job.request)) return;
       // The show in planning was built on a Chart this one supersedes: plan it again.
       abortPlanning(job);
@@ -330,11 +323,7 @@ export function createPlannerShowQueue({
       show.inputId,
       diagnostics,
       { changeId, turnId: show.turnId, actions: response.executionPlan.length },
-      () => ({
-        intent: show.intent,
-        intentFacts: show.intentFacts,
-        response: event.response,
-      }),
+      () => ({ intent: show.intent, response: event.response }),
     );
     events.emit(event);
   }
@@ -474,7 +463,7 @@ export function createPlannerShowQueue({
         show,
         changeId: ChangeId(crypto.randomUUID()),
         messageId: MessageId(crypto.randomUUID()),
-        request: buildShowRequest(chart, show.intent, show.intentFacts),
+        request: buildShowRequest(chart, show.intent),
         controller,
         cancelPlanningTimeout: scheduleTimeout(() => {
           if (state.phase !== 'planning' || state.job !== job) return;

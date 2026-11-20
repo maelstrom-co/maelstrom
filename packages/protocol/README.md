@@ -245,26 +245,16 @@ interface ChartRequest {
   vessels: readonly Vessel[];
   layout: GridLayout | TilingLayout;
   skipReply?: boolean;
-  intentFacts?: Readonly<Record<string, JsonValue>>;
 }
 ```
 
 Identity (`id`), session binding (`sessionId`), and timestamp live on the surrounding envelope, not in this payload.
 
-### skipReply and intent facts
+### skipReply
 
-Both fields are optional and absent by default. A client that renders the Planner's reply leaves them unset. They are for a caller that owns the conversation itself, such as an agent loop.
+`skipReply` is optional and defaults to `false`. A client that renders the Planner's reply leaves it unset. It is for a caller that owns the conversation itself, such as an agent loop. The caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output). `Engine.handle` ships a replyless plan result as a `MaelstromResponse` without `userMessage`. It still refuses a `NeedsClarification` result with a `ValidationError` on field `skipReply`, because a `chart_response` has no shape for a question.
 
-- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output). `Engine.handle` ships a replyless plan result as a `MaelstromResponse` without `userMessage`. It still refuses a `NeedsClarification` result with a `ValidationError` on field `skipReply`, because a `chart_response` has no shape for a question.
-- **`intentFacts`**: structured values the caller already learned about the intent, for example from tool results, keyed by a name the Planner can reason about. They are inputs to planning, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `ChartRequestSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
-
-```ts
-const request: ChartRequest = {
-  ...baseRequest,
-  skipReply: true,
-  intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
-};
-```
+`ChartRequestSchema` strips unknown keys, including the `intentFacts` key older clients sent. Put values the Planner needs into a `user_intent` reason's `referents`, or into its intent text.
 
 ### Update reasons
 
@@ -272,7 +262,7 @@ Three discriminated reasons can trigger an update. A single `ChartRequest` can b
 
 ```ts
 type UpdateReason =
-  | { type: 'user_intent';     intent: string }
+  | { type: 'user_intent';     id?: string; intent: string; referents?: Readonly<Record<string, JsonValue>> }
   | { type: 'chart_resize';    previous: ChartDimensions; current: ChartDimensions }
   | { type: 'vessel_mutation'; instanceId: InstanceId; changes: string };
 ```
@@ -280,6 +270,24 @@ type UpdateReason =
 - **`user_intent`** — text the user typed or spoke.
 - **`chart_resize`** — the chart container changed size; carries before/after, not a delta.
 - **`vessel_mutation`** — an active vessel changed state.
+
+A `user_intent` reason has two optional fields for a caller that sends several goals in one request:
+
+- `id` names the reason so a Planner verdict can point at it. It is unique within the request and never empty.
+- `referents` holds exact values the caller already knows, such as ids and quantities, so the Planner never guesses them. They are inputs, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `UserIntentReasonSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
+
+```ts
+const request: ChartRequest = {
+  ...baseRequest,
+  skipReply: true,
+  context: {
+    ...baseRequest.context,
+    updateReasons: [
+      { type: 'user_intent', id: 'r1', intent: 'Show my latest order', referents: { orderId: 'ORD-42' } },
+    ],
+  },
+};
+```
 
 ### Vessel instance snapshots
 
@@ -337,7 +345,7 @@ const result: GridResponse = { ...output, type: 'plan' };
 
 For a request with `skipReply: true` the Planner may return one of these instead:
 
-- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same tagged shapes with an optional `userMessage`. The strict schemas stay unchanged.
+- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same tagged shapes with an optional `userMessage` and optional `reasons` verdicts. The strict schemas stay unchanged.
 - **`GridNeedsClarificationSchema` / `TilingNeedsClarificationSchema`**: a question for the user when the Planner cannot finish without one. It may also carry the `layout` and `executionPlan` the Planner could already settle. For "Show Apple and Alphabet stock" it can lay out Apple and ask which Alphabet share class the user means. The `layout` must match the request mode. Without either field it leaves the screen unchanged. `NeedsClarificationSchema` accepts a layout of either mode, for a caller that does not know the request.
 
 ```ts
@@ -347,8 +355,22 @@ interface NeedsClarification<M extends LayoutMode = LayoutMode> {
   options?: readonly string[];   // suggested answers, each non-blank
   layout?: M extends 'grid' ? GridResponse['layout'] : TilingResponse['layout'];
   executionPlan?: GridResponse['executionPlan']; // same limit as a plan result
+  reasons?: readonly PlannerReasonVerdict[];
 }
 ```
+
+Both replyless shapes may carry `reasons`, one verdict per `user_intent` reason the Planner can name by its `id`. `PlannerReasonVerdictSchema` parses one verdict:
+
+```ts
+interface PlannerReasonVerdict {
+  id: string;                      // a user_intent reason id, never blank
+  status: 'planned' | 'needs_clarification' | 'failed';
+  question?: string;               // never blank
+  options?: readonly string[];     // each non-blank
+}
+```
+
+`planned` means the result plans for that reason. A reason without a verdict shares the result's own outcome, and a result without `reasons` gives every reason that outcome. The Engine keeps only verdicts whose `id` matches a `user_intent` reason id of the request, the first one per id. Verdicts stay inside the Engine and never ship in a `MaelstromResponse`. The LLM structured-output schemas have no `reasons` field.
 
 `PlannerOutputFor<R>` turns that rule into a type. For a request type whose `skipReply` is absent or `false` it is the reply-bearing `GridResponse | TilingResponse`, always tagged `'plan'`. For `skipReply: true`, or a flag only known as `boolean`, it is `GridResponseWithoutReply | TilingResponseWithoutReply | NeedsClarification`, so switching on `type` tells a plan from a clarification. A clarification is never valid without `skipReply: true`.
 

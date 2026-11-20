@@ -7,7 +7,6 @@ import {
   type ChartRequest,
   type DiagnosticEvent,
   InstanceId,
-  type JsonValue,
   MessageId,
   ok,
   type RunId,
@@ -213,9 +212,6 @@ export function orderTool(
     readonly latestOrder?: (
       signal: AbortSignal,
     ) => Promise<typeof LATEST_ORDER>;
-    readonly intentFacts?: (
-      order: typeof LATEST_ORDER,
-    ) => Readonly<Record<string, JsonValue>>;
   } = {},
 ) {
   const contexts: { user: unknown; token?: string }[] = [];
@@ -238,9 +234,6 @@ export function orderTool(
       );
     },
     summarize: (output) => `Order ${output.orderId} for ${output.total}`,
-    ...(options.intentFacts === undefined
-      ? {}
-      : { intentFacts: options.intentFacts }),
   });
   return { tool, contexts, args };
 }
@@ -259,11 +252,6 @@ export function utterance(
     source: 'text',
     chart,
   };
-}
-
-/** The intent facts the `latest_order` tool reports for an order. */
-export function orderFacts(order: typeof LATEST_ORDER) {
-  return { orderId: order.orderId, itemCount: order.items.length };
 }
 
 /** A tiling Chart holding the three-view calendar Vessel. */

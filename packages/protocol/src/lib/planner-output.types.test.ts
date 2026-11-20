@@ -7,6 +7,7 @@ import type {
   GridResponse,
   GridResponseWithoutReply,
   PlannerOutputFor,
+  PlannerReasonVerdict,
   TilingModelOutput,
   TilingResponse,
   TilingResponseWithoutReply,
@@ -71,6 +72,8 @@ function guarantees(): void {
   const message: string = replyBearing.userMessage;
 
   const replyless = {} as PlannerOutputFor<FlagTrue>;
+  const replylessVerdicts: readonly PlannerReasonVerdict[] | undefined =
+    replyless.reasons;
   if (replyless.type === 'needs_clarification') {
     const question: string = replyless.question;
     void question;
@@ -79,6 +82,8 @@ function guarantees(): void {
     const required: string = replyless.userMessage;
     void required;
   }
+  // @ts-expect-error a reply-bearing output never carries verdicts
+  const replyBearingVerdicts: unknown = replyBearing.reasons;
 
   // @ts-expect-error a reply-bearing output is never a clarification
   const clarification: NeedsClarification = replyBearing;
@@ -93,7 +98,15 @@ function guarantees(): void {
   const tilingLayout: TilingResponse['layout'] | undefined =
     gridClarification.layout;
 
-  void [message, clarification, untagged, stamped, tilingLayout];
+  void [
+    message,
+    replylessVerdicts,
+    replyBearingVerdicts,
+    clarification,
+    untagged,
+    stamped,
+    tilingLayout,
+  ];
 }
 
 test('PlannerOutputFor follows the request skipReply flag', () => {

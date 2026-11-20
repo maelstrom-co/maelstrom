@@ -10,6 +10,7 @@ import {
 } from './__test-helpers__/fixtures.js';
 import {
   choice,
+  intentText,
   isScoreAnswer,
   MAX_CHOICES,
   MAX_LEVELS,
@@ -168,5 +169,28 @@ describe('readAnswer', () => {
     expect(isErr(result) && result.error.reason).toBe(
       'jevLayout/answer_missing',
     );
+  });
+});
+
+describe('intentText', () => {
+  test('reads user_intent reasons with an id and referents exactly as without them', () => {
+    const plain = makeRequest([
+      { type: 'user_intent', intent: 'Show my latest order' },
+      { type: 'user_intent', intent: 'Add it to my calendar' },
+    ]);
+    const withGoalFields = makeRequest([
+      {
+        type: 'user_intent',
+        id: 'r1',
+        intent: 'Show my latest order',
+        referents: { orderId: 'ORD-42', quantities: [1, 2] },
+      },
+      { type: 'user_intent', id: 'r2', intent: 'Add it to my calendar' },
+    ]);
+
+    expect(intentText(withGoalFields)).toBe(
+      'Show my latest order\nAdd it to my calendar',
+    );
+    expect(intentText(withGoalFields)).toBe(intentText(plain));
   });
 });

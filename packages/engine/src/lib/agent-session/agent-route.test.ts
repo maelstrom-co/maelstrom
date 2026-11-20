@@ -49,7 +49,6 @@ import {
   LATEST_ORDER,
   nothingToShowPlanner,
   openAgentSession,
-  orderFacts,
   orderTool,
   runIdOf,
   sessionInternals,
@@ -198,7 +197,7 @@ describe('agent route through the Engine handle', () => {
   describe('loop-driven shows', () => {
     test('a tool phase with a successful result plans one replyless show and sends its change with the run id', async () => {
       const time = createFakeAgentRunTime();
-      const order = orderTool({ intentFacts: orderFacts });
+      const order = orderTool();
       const model = scriptedTextAdapter([
         scriptedToolTurn(
           [{ id: 'c1', name: 'latest_order', args: {} }],
@@ -228,9 +227,7 @@ describe('agent route through the Engine handle', () => {
       expect(plannerInput?.messageId).not.toBe(MessageId('input-1'));
       const planned = plannerInput?.request;
       expect(planned?.skipReply).toBe(true);
-      expect(planned?.intentFacts).toEqual({
-        'latest_order:c1': orderFacts(LATEST_ORDER),
-      });
+      expect(planned).not.toHaveProperty('intentFacts');
       expect(planned?.context.updateReasons).toEqual([
         { type: 'user_intent', intent: 'show me my last order' },
       ]);
@@ -243,11 +240,10 @@ describe('agent route through the Engine handle', () => {
       expect(AgentEventSchema.safeParse(change).success).toBe(true);
     });
 
-    test('one tool phase with two calls plans one show whose facts hold both calls in call order', async () => {
+    test('one tool phase with two calls plans one show for the utterance', async () => {
       const orders = [LATEST_ORDER, { ...LATEST_ORDER, orderId: 'o-2' }];
       let served = 0;
       const order = orderTool({
-        intentFacts: orderFacts,
         latestOrder: () => {
           const next = orders[served];
           served += 1;
@@ -277,15 +273,11 @@ describe('agent route through the Engine handle', () => {
       await waitUntil(() => uiChangesOf(session.received).length === 1);
 
       expect(session.plannerCalls()).toBe(1);
-      const facts = session.plannerInputs()[0]?.request.intentFacts ?? {};
-      expect(Object.keys(facts)).toEqual([
-        'latest_order:c1',
-        'latest_order:c2',
+      const planned = session.plannerInputs()[0]?.request;
+      expect(planned).not.toHaveProperty('intentFacts');
+      expect(planned?.context.updateReasons).toEqual([
+        { type: 'user_intent', intent: 'show my last two orders' },
       ]);
-      expect(facts).toEqual({
-        'latest_order:c1': orderFacts(LATEST_ORDER),
-        'latest_order:c2': orderFacts({ ...LATEST_ORDER, orderId: 'o-2' }),
-      });
     });
 
     test('a second show waits for the first change to be acknowledged and plans on the acknowledged Chart', async () => {
@@ -307,7 +299,7 @@ describe('agent route through the Engine handle', () => {
       const session = openAgentSession({
         time,
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: (input, ctx) => {
           plannerCall += 1;
           return plannerCall === 1
@@ -344,9 +336,6 @@ describe('agent route through the Engine handle', () => {
       const second = session.plannerInputs()[1]?.request;
       expect(second?.instances).toEqual(acknowledged.instances);
       expect(second?.layout).toEqual(acknowledged.layout);
-      expect(second?.intentFacts).toEqual({
-        'latest_order:c2': orderFacts(LATEST_ORDER),
-      });
       expect(uiChangesOf(session.received)[1]).toMatchObject({ runId });
       expect(session.received.map(typeOf)).not.toContain('error');
     });
@@ -368,7 +357,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -416,7 +405,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -460,7 +449,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: scriptedPlanner([
           {
             ...addEventCandidate(calendarChart()),
@@ -513,7 +502,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: pipeline(named('arrange', addEventPlanner)),
       });
 
@@ -569,16 +558,13 @@ describe('agent route through the Engine handle', () => {
       expect(serializeLoosely(session.readContentOf(plannerStarted))).toContain(
         intent,
       );
-      expect(session.readContentOf(emitted)).toMatchObject({
-        intent,
-        intentFacts: { 'latest_order:c1': orderFacts(LATEST_ORDER) },
-      });
+      expect(session.readContentOf(emitted)).toMatchObject({ intent });
+      expect(session.readContentOf(emitted)).not.toHaveProperty('intentFacts');
       expect(session.readContentOf(applied)).toMatchObject({ screenNote });
     });
 
     test('a tool phase whose only result failed makes no Planner call and writes no note', async () => {
       const order = orderTool({
-        intentFacts: orderFacts,
         latestOrder: () => Promise.reject(new ToolError('No orders yet.')),
       });
       const model = scriptedTextAdapter([
@@ -612,7 +598,7 @@ describe('agent route through the Engine handle', () => {
     test('an unknown change id and a wrong outcome count are refused while the change stays pending until a valid acknowledgement', async () => {
       const session = openAgentSession({
         model: twoShowTurns().adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -684,7 +670,7 @@ describe('agent route through the Engine handle', () => {
     test('an acknowledgement sent synchronously from inside the ui_change listener is accepted', async () => {
       const session = openAgentSession({
         model: twoShowTurns().adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
       const acknowledged = weekCalendarChart();
@@ -719,7 +705,7 @@ describe('agent route through the Engine handle', () => {
         time,
         acknowledgementTimeoutMs: 5_000,
         model: twoShowTurns().adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: scriptedPlanner([
           addEventCandidate(weekCalendarChart()),
           addEventCandidate(calendarChart()),
@@ -744,9 +730,6 @@ describe('agent route through the Engine handle', () => {
       const second = session.plannerInputs()[1]?.request;
       expect(second?.layout).toEqual(calendarChart().layout);
       expect(second?.instances).toEqual(calendarChart().instances);
-      expect(second?.intentFacts).toEqual({
-        'latest_order:c2': orderFacts(LATEST_ORDER),
-      });
       expect(
         session.received.filter((event) => event.type === 'error'),
       ).toEqual([
@@ -826,7 +809,7 @@ describe('agent route through the Engine handle', () => {
         const model = twoShowTurns();
         const session = openAgentSession({
           model: model.adapter,
-          tools: [orderTool({ intentFacts: orderFacts }).tool],
+          tools: [orderTool().tool],
           planner: plannersInOrder([failing, addEventPlanner]),
         });
 
@@ -858,9 +841,6 @@ describe('agent route through the Engine handle', () => {
         expect(nextChange.changeId).not.toBe(failure.changeId);
         expect(nextChange.runId).toBe(runId);
         expect(session.plannerCalls()).toBe(2);
-        expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
-          'latest_order:c2': orderFacts(LATEST_ORDER),
-        });
         expect(
           serializeLoosely(
             session.internals().transcript.renderPriorMessages(),
@@ -907,7 +887,7 @@ describe('agent route through the Engine handle', () => {
       const session = openAgentSession({
         time,
         model: twoShowTurns().adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: plannersInOrder([
           (input, ctx) => {
             signals.push(ctx.signal);
@@ -966,9 +946,6 @@ describe('agent route through the Engine handle', () => {
         code: 'planning_timeout',
       });
       expect(session.plannerCalls()).toBe(2);
-      expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
-        'latest_order:c2': orderFacts(LATEST_ORDER),
-      });
     });
 
     test('a show with nothing to show sends nothing on the wire and records a skipped note', async () => {
@@ -980,7 +957,7 @@ describe('agent route through the Engine handle', () => {
           ),
           scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
         ]).adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: nothingToShowPlanner,
       });
 
@@ -1019,7 +996,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: clarifyingWithPartialChangesPlanner,
       });
 
@@ -1083,7 +1060,7 @@ describe('agent route through the Engine handle', () => {
         const release = defer<void>();
         const session = openAgentSession({
           model: twoShowTurns().adapter,
-          tools: [orderTool({ intentFacts: orderFacts }).tool],
+          tools: [orderTool().tool],
           planner: plannersInOrder([
             heldUntil(release.promise, firstShow),
             addEventPlanner,
@@ -1100,9 +1077,6 @@ describe('agent route through the Engine handle', () => {
         await settle();
 
         expect(session.plannerCalls()).toBe(2);
-        expect(session.plannerInputs()[1]?.request.intentFacts).toEqual({
-          'latest_order:c2': orderFacts(LATEST_ORDER),
-        });
         const changes = uiChangesOf(session.received);
         expect(changes).toHaveLength(1);
         expect(changes[0]?.response.executionPlan).toHaveLength(1);
@@ -1140,7 +1114,7 @@ describe('agent route through the Engine handle', () => {
           ),
           scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
         ]).adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: (input, ctx) => {
           signals.push(ctx.signal);
           return blocking.planner(input, ctx);
@@ -1184,7 +1158,7 @@ describe('agent route through the Engine handle', () => {
           ),
           scriptedTextTurn(['It was o-1.'], scriptedUsage(1, 1)),
         ]).adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: clarifyingPlanner,
       });
 
@@ -1255,7 +1229,7 @@ describe('agent route through the Engine handle', () => {
       const model = twoShowTurns();
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: neverSettlingPlanner,
       });
 
@@ -1285,7 +1259,6 @@ describe('agent route through the Engine handle', () => {
       const releaseSecondLookup = defer<void>();
       let lookups = 0;
       const order = orderTool({
-        intentFacts: orderFacts,
         latestOrder: async () => {
           lookups += 1;
           if (lookups === 2) {
@@ -1338,7 +1311,7 @@ describe('agent route through the Engine handle', () => {
       const session = openAgentSession({
         time,
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -1393,7 +1366,7 @@ describe('agent route through the Engine handle', () => {
         time,
         acknowledgementTimeoutMs: 5_000,
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: plannersInOrder([addEventPlanner, neverSettlingPlanner]),
       });
 
@@ -1444,7 +1417,7 @@ describe('agent route through the Engine handle', () => {
       const session = openAgentSession({
         time,
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -1481,7 +1454,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: addEventPlanner,
       });
 
@@ -1537,7 +1510,7 @@ describe('agent route through the Engine handle', () => {
       ]);
       const session = openAgentSession({
         model: model.adapter,
-        tools: [orderTool({ intentFacts: orderFacts }).tool],
+        tools: [orderTool().tool],
         planner: (input, ctx) => {
           signals.push(ctx.signal);
           return neverSettlingPlanner(input, ctx);

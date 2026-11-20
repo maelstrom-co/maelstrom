@@ -54,6 +54,7 @@ import {
 } from './operational-outcome.js';
 import type {
   FullValidatedPlannerOutput,
+  FullValidatedReplylessCandidate,
   PlannerOutput,
 } from './planner/candidate.js';
 import type {
@@ -754,6 +755,7 @@ function agentChartRequest(
 // Validation accepts a missing or blank reply and a clarification only under
 // skipReply, so this is the Engine's ship boundary for them. "No reply" ships
 // as an absent userMessage, never as '', so a blank one is dropped here.
+// Planner verdicts stay inside the Engine and never ship.
 function shipPlanOutcome(
   outcome: FullValidatedPlannerOutput,
 ): Result<PlanOutcome, EngineError> {
@@ -761,11 +763,13 @@ function shipPlanOutcome(
     case 'needs_clarification':
       return ok({ type: 'needs_clarification', question: outcome.question });
     case 'maelstrom_response': {
+      const replyless: FullValidatedReplylessCandidate = outcome;
       const {
         userMessage,
         diagnostics: _diagnostics,
+        reasons: _reasons,
         ...withoutReply
-      } = outcome;
+      } = replyless;
       return ok({
         type: 'response',
         response:

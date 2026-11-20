@@ -21,13 +21,8 @@ describe('searchProductsTool', () => {
     expect(searchProductsTool.output.safeParse(output).success).toBe(true);
   });
 
-  it('declares the listed SKUs and the total match count as intent facts', async () => {
-    const output = await search({ query: 'SUMMIT chicken', limit: 2 });
-
-    expect(searchProductsTool.intentFacts?.(output)).toEqual({
-      skus: ['DOG-DRY-SUMMIT-ADULT-30', 'DOG-DRY-SUMMIT-HW-30'],
-      totalMatches: 4,
-    });
+  it('declares no intent facts', () => {
+    expect(searchProductsTool).not.toHaveProperty('intentFacts');
   });
 
   it('matches the brand when the name does not contain the query', async () => {

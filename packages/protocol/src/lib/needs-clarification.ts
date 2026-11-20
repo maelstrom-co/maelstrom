@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { Mutable } from './_drift-guards.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
+import type { PlannerReasonVerdict } from './request.ts';
+import { PlannerReasonVerdictSchema } from './request.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
@@ -36,21 +38,31 @@ export interface NeedsClarification<M extends LayoutMode = LayoutMode> {
   /** Suggested answers the caller may offer the user. Each one is non-blank. */
   readonly options?: readonly string[];
   /**
-   * Layout the Planner could already settle, in the request's mode. Absent
-   * means the current layout stays as it is.
+   * Layout the Planner could already settle, in the request's mode. A caller
+   * that acts on the clarification applies it before asking the question.
+   * Absent means the current layout stays as it is.
    */
   readonly layout?: ClarificationLayoutFor<M>;
   /**
    * Actions the Planner could already plan, in order, with the same shape
-   * and limit as a plan result's execution plan. Absent means no Actions.
+   * and limit as a plan result's execution plan. A caller that acts on the
+   * clarification runs them after applying {@link layout}. Absent means no
+   * Actions.
    */
   readonly executionPlan?: readonly ClarificationAction[];
+  /**
+   * Verdicts on the request's `user_intent` reasons, one per reason id the
+   * Planner can name. A reason without a verdict shares this result's
+   * outcome. Absent means every reason does.
+   */
+  readonly reasons?: readonly PlannerReasonVerdict[];
 }
 
 /**
  * Zod parser for a grid-mode {@link NeedsClarification}. Rejects a blank
  * `question`, any blank or non-string entry in `options`, a tiling `layout`,
- * and an execution plan longer than a plan result allows.
+ * an execution plan longer than a plan result allows, and a malformed
+ * verdict in `reasons`.
  */
 export const GridNeedsClarificationSchema =
   clarificationSchemaWithLayout(GridLayoutSchema);
@@ -58,7 +70,8 @@ export const GridNeedsClarificationSchema =
 /**
  * Zod parser for a tiling-mode {@link NeedsClarification}. Rejects a blank
  * `question`, any blank or non-string entry in `options`, a grid `layout`,
- * and an execution plan longer than a plan result allows.
+ * an execution plan longer than a plan result allows, and a malformed
+ * verdict in `reasons`.
  */
 export const TilingNeedsClarificationSchema =
   clarificationSchemaWithLayout(TilingLayoutSchema);
@@ -97,6 +110,7 @@ function clarificationSchemaWithLayout<Layout extends z.ZodType>(
       .array(ActionExecutionSchema)
       .max(MAX_EXECUTION_PLAN_ENTRIES)
       .optional(),
+    reasons: z.array(PlannerReasonVerdictSchema).optional(),
   });
 }
 

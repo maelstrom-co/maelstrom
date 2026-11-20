@@ -38,7 +38,6 @@ import {
   capturingPlannerShowQueueModule,
   LATEST_ORDER,
   openAgentSession,
-  orderFacts,
   orderTool,
   runIdOf,
   settle,
@@ -364,7 +363,7 @@ describe('agent run diagnostics', () => {
     ]);
     const session = openAgentSession({
       model: model.adapter,
-      tools: [orderTool({ intentFacts: orderFacts }).tool],
+      tools: [orderTool().tool],
       planner: pipeline(named('arrange', addEventPlanner)),
     });
 
@@ -913,7 +912,7 @@ describe('agent run diagnostics', () => {
       agent: {
         model: model.adapter,
         instructions: 'You help pet shop customers.',
-        tools: [findOrderTool({ withFacts: false })],
+        tools: [findOrderTool()],
         budgets: TEST_BUDGETS,
       },
     });
@@ -1114,7 +1113,7 @@ const rationalePlanner: ClarifyingPlanner = async (input, ctx) => {
   return ok({ ...planned.value, rationale: RATIONALE_SENTINEL });
 };
 
-function findOrderTool({ withFacts = true }: { withFacts?: boolean } = {}) {
+function findOrderTool() {
   return serverTool({
     name: 'find_order',
     description: 'Finds an order by its number',
@@ -1123,13 +1122,6 @@ function findOrderTool({ withFacts = true }: { withFacts?: boolean } = {}) {
     sideEffect: 'read_only',
     execute: () => Promise.resolve({ orderId: 'o-1', note: RESULT_SENTINEL }),
     summarize: () => 'Found the order',
-    ...(withFacts
-      ? {
-          intentFacts: (order: { orderId: string }) => ({
-            orderId: order.orderId,
-          }),
-        }
-      : {}),
   });
 }
 

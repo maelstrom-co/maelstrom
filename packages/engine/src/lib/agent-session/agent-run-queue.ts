@@ -333,7 +333,7 @@ export function createAgentRunQueue({
         return;
       case 'tool_phase_ended': {
         toolResults.recordToolPhase(runId, event);
-        const facts = collectShowFacts(event, agent.registry, logger);
+        const facts = collectShowFacts(event);
         if (facts === undefined) return;
         transcript.recordShowNote(
           runId,
