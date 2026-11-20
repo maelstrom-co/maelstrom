@@ -2549,6 +2549,125 @@ describe('agent route through the Engine handle', () => {
       expect(sessionInternals).toHaveLength(createdBefore);
     });
   });
+
+  describe('capabilities', () => {
+    test('the first model request carries the capability index of the utterance Chart, marking a Vessel that only shows', async () => {
+      const model = scriptedTextAdapter([
+        scriptedTextTurn(['We sell pet supplies.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({ model: model.adapter });
+
+      await session.send(utterance('input-1', 'what can you do?', shopChart()));
+
+      const [systemPrompt] = model.requests[0]?.systemPrompts ?? [];
+      expect(model.requests[0]?.systemPrompts).toHaveLength(1);
+      expect(systemPrompt).toStartWith('You help pet shop customers.');
+      expect(systemPrompt).toContain(
+        '- catalog: Browse pet supplies. Shows only.',
+      );
+      expect(systemPrompt).toContain(
+        '- cart: The shopping cart. Can also change data.',
+      );
+      expect(systemPrompt).not.toContain('setQuantity');
+      expect(systemPrompt).not.toContain('showDetail');
+    });
+
+    test('a run on a Chart with no Vessels sends only the configured instructions', async () => {
+      const model = scriptedTextAdapter([
+        scriptedTextTurn(['Hello.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({ model: model.adapter });
+
+      await session.send(
+        utterance(
+          'input-1',
+          'hi',
+          makeTilingRequest({
+            instances: [],
+            layout: { type: 'tiling', tree: [], instances: [] },
+            vessels: [],
+          }),
+        ),
+      );
+
+      expect(model.requests[0]?.systemPrompts).toEqual([
+        'You help pet shop customers.',
+      ]);
+    });
+
+    test('describe_capabilities returns every Vessel, or only the asked ones, from the utterance Chart', async () => {
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            { id: 'call-1', name: 'describe_capabilities', args: {} },
+            {
+              id: 'call-2',
+              name: 'describe_capabilities',
+              args: { vesselIds: ['cart', 'missing'] },
+            },
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['You can browse and buy.'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({ model: model.adapter });
+
+      await session.send(utterance('input-1', 'what can you do?', shopChart()));
+
+      const everything = toolResultOf(model.requests[1]?.messages, 'call-1');
+      const onlyCart = toolResultOf(model.requests[1]?.messages, 'call-2');
+      expect(describedIds(everything)).toEqual(['catalog', 'cart']);
+      expect(describedIds(onlyCart)).toEqual(['cart']);
+      expect(JSON.stringify(everything)).not.toContain('optionOmissions');
+      expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+        name: 'describe_capabilities',
+        ok: true,
+        summary: 'described 2 Vessels',
+      });
+      expect(toolResultEventOf(session.received, 'c2')).toMatchObject({
+        ok: true,
+        summary: 'described 1 Vessels',
+      });
+      expect(lastFinished(session.received)).toMatchObject({
+        reason: 'completed',
+      });
+    });
+
+    test('a turn of 25 calls including describe_capabilities is over the cap of 24 and is refused as a whole', async () => {
+      const order = orderTool();
+      const model = scriptedTextAdapter([
+        scriptedToolTurn(
+          [
+            ...Array.from({ length: 24 }, (_, index) => ({
+              id: `call-${index + 1}`,
+              name: 'latest_order',
+              args: {},
+            })),
+            { id: 'call-25', name: 'describe_capabilities', args: {} },
+          ],
+          scriptedUsage(1, 1),
+        ),
+        scriptedTextTurn(['never sent'], scriptedUsage(1, 1)),
+      ]);
+      const session = openAgentSession({
+        model: model.adapter,
+        tools: [order.tool],
+        budgets: { maxToolCalls: 24 },
+      });
+
+      await session.send(utterance('input-1', 'what can you do?', shopChart()));
+
+      expect(order.args).toEqual([]);
+      expect(toolResultEventOf(session.received, 'c25')).toMatchObject({
+        name: 'describe_capabilities',
+        ok: false,
+      });
+      expectBudgetEnding(
+        session.received,
+        runIdOf(session.received, 'input-1'),
+      );
+    });
+  });
 });
 
 interface StalledCall {
@@ -2887,4 +3006,72 @@ function expectFailedScreenChange(
 
 function jsonEscaped(text: string): string {
   return JSON.stringify(text).slice(1, -1);
+}
+
+// A shop-like Chart: a catalog that only switches views and a cart whose
+// quantity Action changes data.
+function shopChart(): ChartRequest {
+  return makeTilingRequest({
+    instances: [],
+    layout: { type: 'tiling', tree: [], instances: [] },
+    vessels: [
+      {
+        id: 'catalog',
+        name: 'Catalog',
+        description: 'Browse pet supplies.',
+        defaultVariant: 'grid',
+        variants: {
+          grid: {
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [
+              {
+                name: 'showDetail',
+                description: 'Show one product',
+                transitionsTo: 'detail',
+                effect: 'none',
+              },
+            ],
+          },
+          detail: {
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [
+              {
+                name: 'showGrid',
+                description: 'Show every product',
+                transitionsTo: 'grid',
+                effect: 'none',
+              },
+            ],
+          },
+        },
+      },
+      {
+        id: 'cart',
+        name: 'Cart',
+        description: 'The shopping cart',
+        defaultVariant: 'list',
+        variants: {
+          list: {
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [
+              {
+                name: 'setQuantity',
+                description: 'Set the quantity of a line',
+                effect: 'idempotent',
+              },
+            ],
+          },
+        },
+      },
+    ],
+  });
+}
+
+function describedIds(snapshot: unknown): unknown[] {
+  return (snapshot as { vessels: { vesselId: unknown }[] }).vessels.map(
+    (vessel) => vessel.vesselId,
+  );
 }

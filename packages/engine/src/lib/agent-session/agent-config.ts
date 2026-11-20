@@ -61,7 +61,11 @@ export interface AgentConfig {
    * be an object with a `chatStream` method, or Engine creation throws.
    */
   readonly model: AnyTextAdapter | AgentModelFactory;
-  /** System instructions sent with every model turn. Defaults to an empty string. */
+  /**
+   * System instructions sent with every model turn. Defaults to an empty
+   * string. The Engine appends a capability index of the utterance Chart's
+   * Vessels when the Chart has any.
+   */
   readonly instructions?: string;
   /**
    * The Server Tools the model may call. Defaults to none. Every tool must

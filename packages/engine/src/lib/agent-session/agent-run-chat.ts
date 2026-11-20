@@ -47,12 +47,14 @@ import {
   BUDGET_CLOSING_MESSAGE,
 } from './agent-run.js';
 import { withBuiltInTools } from './built-in-tools.js';
+import { buildCapabilityIndex } from './capability-index.js';
 import {
   CHANGE_SCREEN_TOOL_NAME,
   type ChangeScreenInput,
   changeScreenInputSchema,
   changeScreenToolEntry,
 } from './change-screen-tool.js';
+import { createDescribeCapabilitiesToolEntry } from './describe-capabilities-tool.js';
 import {
   createScreenChangeBatch,
   type ScreenChangeBatch,
@@ -271,7 +273,13 @@ function startChat(
     }),
     policy,
   );
-  const tools = withBuiltInTools(input.registry);
+  const describeCapabilities = createDescribeCapabilitiesToolEntry({
+    vessels: input.vessels,
+    logger: input.logger,
+    runId: input.runId,
+  });
+  const tools = withBuiltInTools(input.registry, [describeCapabilities]);
+  const capabilityIndex = buildCapabilityIndex(input.vessels);
   const policyMiddleware = createAgentRunPolicyMiddleware(policy, {
     registry: tools,
     onToolCallRefused: (refusal) => {
@@ -312,7 +320,7 @@ function startChat(
     onGuardToolCall: (_ctx, hookCtx) => {
       if (hookCtx.toolName === CHANGE_SCREEN_TOOL_NAME)
         screenChanges.batch?.admit(hookCtx.toolCallId);
-      else if (input.registry.get(hookCtx.toolName) !== undefined)
+      else if (tools.get(hookCtx.toolName) !== undefined)
         serverTools.reserve(hookCtx.toolCallId);
       return undefined;
     },
@@ -328,7 +336,11 @@ function startChat(
   return chat({
     adapter,
     threadId: input.runId,
-    systemPrompts: [input.instructions],
+    systemPrompts: [
+      capabilityIndex === undefined
+        ? input.instructions
+        : `${input.instructions}\n\n${capabilityIndex}`,
+    ],
     messages: [
       ...input.priorMessages,
       { role: 'user', content: input.utterance },
@@ -349,6 +361,15 @@ function startChat(
         ),
       changeScreenChatTool(policy, calls, executions, screenChanges, (callId) =>
         rawArgsByCall.get(callId),
+      ),
+      toChatTool(
+        describeCapabilities,
+        input,
+        policy,
+        calls,
+        executions,
+        serverTools,
+        (callId) => rawArgsByCall.get(callId),
       ),
     ],
     toolExecution: 'parallel',

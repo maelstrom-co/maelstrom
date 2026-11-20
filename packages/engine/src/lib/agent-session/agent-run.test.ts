@@ -2851,7 +2851,7 @@ describe('runAgent session notes', () => {
 });
 
 describe('runAgent change_screen', () => {
-  test('change_screen is offered to the model beside the registry tools', async () => {
+  test('change_screen and describe_capabilities are offered to the model beside the registry tools', async () => {
     const tools = orderTools();
     const model = scriptedAdapter([textTurn(['Hi.'], usage(1, 1))]);
 
@@ -2865,6 +2865,7 @@ describe('runAgent change_screen', () => {
     expect(offered).toEqual([
       ...tools.registry.entries().map((entry) => entry.tool.name),
       'change_screen',
+      'describe_capabilities',
     ]);
   });
 
@@ -3148,6 +3149,7 @@ function runInput(overrides: Partial<AgentRunInput>): AgentRunInput {
     runId: RunId('run-1'),
     adapter: scriptedAdapter([]).adapter,
     instructions: INSTRUCTIONS,
+    vessels: [],
     registry: orderTools().registry,
     budgets: testBudgets,
     priorMessages: [],

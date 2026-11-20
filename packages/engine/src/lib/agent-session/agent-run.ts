@@ -3,6 +3,7 @@ import type {
   AgentRunToolCallCounts,
   CallId,
   RunId,
+  Vessel,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ModelMessage, TextOptions } from '@tanstack/ai';
 
@@ -80,6 +81,12 @@ export interface AgentRunInput {
   readonly instructions: string;
   /** The tools the model may call. */
   readonly registry: ToolRegistry;
+  /**
+   * The Vessels of the utterance Chart that started this run. The system
+   * prompt carries their capability index and `describe_capabilities`
+   * describes them, even when a later Chart arrives during the run.
+   */
+  readonly vessels: readonly Vessel[];
   /** Caps for this run, already resolved and frozen. */
   readonly budgets: AgentRunBudgets;
   /** Rate-limit retry for each model call. Omit to disable retry. */
