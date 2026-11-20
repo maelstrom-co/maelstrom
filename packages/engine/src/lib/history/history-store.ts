@@ -9,7 +9,10 @@ import type {
 /**
  * A single recorded item in a session's history.
  *
- * `turn` entries capture a completed chart_request round-trip (LLM input + output).
+ * `turn` entries capture validated planning input and output, before client
+ * application. They do not confirm that a Layout or any Action took effect.
+ * Native connections record them before emitting the UI change; a refusal,
+ * unknown outcome, timeout, or connection closure does not retract them.
  * `injection` entries capture a developer-supplied assistant message — content
  * seeded into history so subsequent LLM turns see it in context, without
  * actually invoking the LLM for the injection itself.

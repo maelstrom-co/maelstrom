@@ -218,7 +218,11 @@ instead and answer from the settled Agent Run state that
 bounded FIFO. A finished run with the `ui_only` disposition finishes after the
 client acknowledged its change, so its answer carries the screen summary and
 counts as confirmed. When that run carries a change error, the answer is a
-failure with the error text and never describes the screen. Other finished
+failure with the error text and never describes the screen. If application
+is uncertain or the acknowledgement times out, recovery records the active
+request as unknown and never replays it. The Engine already accepted its queued
+runs, so recovery records them as failed with a summary that says they were
+cancelled before execution. Other finished
 runs answer with the reply only and stay unconfirmed, because their UI changes
 can still be applying. An ignored input is answered as not acted on, a lost
 input as unconfirmed and never replayed.

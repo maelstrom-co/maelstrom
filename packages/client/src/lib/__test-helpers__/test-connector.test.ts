@@ -4,8 +4,10 @@ import type { EngineConnector } from '../connection-manager/connector.types.js';
 import { createTestConnector } from './test-connector.js';
 
 describe('createTestConnector defaults', () => {
-  test('provides every EngineConnector member', async () => {
-    const full: Required<EngineConnector> = createTestConnector();
+  test('provides every required EngineConnector member without opting into settlement', async () => {
+    const full: Required<Omit<EngineConnector, 'applicationSettled'>> =
+      createTestConnector();
+    expect(createTestConnector().applicationSettled).toBeUndefined();
 
     expect(full.capabilities).toEqual({
       voice: false,

@@ -1498,6 +1498,22 @@ export class RealtimeSession implements VoiceSession {
         });
         return true;
       case 'failed':
+        if (
+          run.disposition === 'ui_only' &&
+          (run.error.code === 'ui_apply_unknown' ||
+            run.error.code === 'ui_ack_timeout')
+        ) {
+          // Queued runs share the active run's error code. They reached the
+          // Engine, so only their execution, not their submission, was cancelled.
+          if (run.outcome?.reason !== 'cancelled')
+            return this.#answerUnconfirmed(epoch, callId, invocation);
+          invocation.result = { outcome: 'cancelled' };
+          await this.#sendSubmitIntentResult(epoch, callId, {
+            ok: false,
+            summary: 'This request was cancelled before execution.',
+          });
+          return false;
+        }
         return this.#answerApplyFailed(
           epoch,
           callId,

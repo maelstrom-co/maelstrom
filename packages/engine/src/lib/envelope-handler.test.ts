@@ -462,6 +462,12 @@ describe('handleEnvelope — client.history.get', () => {
 describe('handleEnvelope: client.agent.input', () => {
   const inputs: AgentInput[] = [
     {
+      type: 'chart_request',
+      version: AGENT_WIRE_VERSION,
+      inputId: MessageId('dispatch-1'),
+      request: validChartRequest(),
+    },
+    {
       type: 'utterance',
       version: AGENT_WIRE_VERSION,
       inputId: MessageId('in-1'),
@@ -471,6 +477,7 @@ describe('handleEnvelope: client.agent.input', () => {
     },
     {
       type: 'ui_applied',
+      status: 'applied',
       version: AGENT_WIRE_VERSION,
       changeId: ChangeId('change-1'),
       chart: validChartRequest(),
@@ -514,7 +521,7 @@ describe('handleEnvelope: client.agent.input', () => {
         sessionId: 's-1',
         input: {
           type: 'utterance',
-          version: 2,
+          version: AGENT_WIRE_VERSION + 1,
           inputId: 'in-1',
           text: 'hi',
           chart: validChartRequest(),

@@ -368,6 +368,72 @@ describe('RealtimeSession agent message submission', () => {
     ).toEqual(['failed']);
   });
 
+  it.each(['ui_apply_unknown', 'ui_ack_timeout'])(
+    'retains uncertainty for the active UI-only run and cancellation for queued work after %s',
+    async (code) => {
+      const state = await setup();
+      state.provider.call('active', 'place the order');
+      state.provider.call('queued', 'show the receipt');
+      await clock.tickAsync(0);
+      const metrics = {
+        turns: 0,
+        toolCalls: { requested: 0, admitted: 0 },
+        elapsedMs: 10,
+        inputTokens: 0,
+        outputTokens: 0,
+      };
+      const failure = {
+        ...BASE,
+        ...ACCEPTED,
+        disposition: 'ui_only',
+        status: 'failed',
+        reply: '',
+        error: { code, message: 'The previous UI change was not confirmed.' },
+      } as const;
+      await state.settle({ ...failure, outcome: { reason: 'error', metrics } });
+      await state.settle(
+        {
+          ...failure,
+          inputId: MessageId('input-2'),
+          runId: RunId('run-2'),
+          outcome: { reason: 'cancelled', metrics },
+        },
+        1,
+      );
+      await clock.tickAsync(60_000);
+      expect(state.session.memory.getSnapshot().outcomes).toMatchObject([
+        {
+          intent: 'place the order',
+          status: 'unknown',
+          summary: UNCONFIRMED_SUMMARY,
+        },
+        {
+          intent: 'show the receipt',
+          status: 'failed',
+          summary: expect.stringContaining('cancelled before execution'),
+        },
+      ]);
+      expect(state.provider.results).toMatchObject([
+        {
+          callId: 'active',
+          result: { ok: false, summary: UNCONFIRMED_SUMMARY },
+        },
+        {
+          callId: 'queued',
+          result: {
+            ok: false,
+            summary: expect.stringContaining('cancelled before execution'),
+          },
+        },
+      ]);
+      expect(state.reads.snapshot).toBe(0);
+      expect(state.agentMessages).toEqual([
+        'place the order',
+        'show the receipt',
+      ]);
+    },
+  );
+
   it('answers a lost run as an unconfirmed failure and never sends it again', async () => {
     const state = await setup();
 

@@ -4,8 +4,8 @@ import type { ChangeId } from '@maelstrom-co/protocol';
  * How a `change_screen` call ended.
  *
  * - `applied`: the screen confirmed the change, or already showed the goal.
- * - `failed`: the Planner could not plan the goal, or some steps did not run.
- * - `unknown`: a change went out but the screen did not confirm it, because
+ * - `failed`: the Planner could not plan the goal, or the Layout was refused.
+ * - `unknown`: application was partial, or a change went out but the screen did not confirm it because
  *   the acknowledgement timed out or the run stopped waiting first. It may
  *   still have been applied. Also a goal that needed no change while an
  *   earlier change was still unconfirmed, so the screen may not show it.

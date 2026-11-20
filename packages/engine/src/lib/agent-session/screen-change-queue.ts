@@ -101,7 +101,7 @@ export interface ScreenChangeQueueOptions {
  *
  * Every goal settles exactly once with a {@link ScreenChangeResult}: `applied`
  * when acknowledged or already on screen, `failed` when the Planner failed or
- * an Action failed, `unknown` when the acknowledgement timed out,
+ * the Layout was refused, `unknown` when application was partial or unconfirmed,
  * `needs_clarification` when the Planner asked a question, and `cancelled`
  * when the run was dropped before the change went out or the queue closed.
  * After an acknowledgement timeout the screen is unconfirmed until an
@@ -235,7 +235,11 @@ export function createScreenChangeQueue({
       const { planned, event, decision, cancelTimeout } = state;
       const { job } = planned.queued;
       const { executionPlan } = event.response;
-      if (input.actionOutcomes.length !== executionPlan.length) {
+      if (
+        input.actionOutcomes.length > executionPlan.length ||
+        (input.status === 'applied' &&
+          input.actionOutcomes.length !== executionPlan.length)
+      ) {
         diagnostics.run(
           job.runId,
           job.inputId,
@@ -250,7 +254,7 @@ export function createScreenChangeQueue({
           changeError(
             input.changeId,
             'invalid_action_outcomes',
-            'Expected one outcome per Action.',
+            'Action evidence does not match the application status.',
           ),
         );
         return;
@@ -268,6 +272,7 @@ export function createScreenChangeQueue({
           changeId: planned.changeId,
           turnId: job.turnId,
           actions: executionPlan.length,
+          status: input.status,
           failed: failed.length,
         },
         () => ({
@@ -275,12 +280,25 @@ export function createScreenChangeQueue({
           actionOutcomes: input.actionOutcomes,
         }),
       );
+      const observed = withOnScreen(decision, chart.layout, chart);
       settleEach(planned.queued, (goal) =>
-        settlementOf(decision, goal, {
-          outcome: failed.length === 0 ? 'applied' : 'partially_failed',
+        settlementOf(observed, goal, {
+          outcome: input.status,
           changeId: planned.changeId,
         }),
       );
+      if (!closed && input.status !== 'applied') {
+        events.emit({
+          ...changeError(
+            planned.changeId,
+            input.status === 'failed' ? 'ui_apply_failed' : 'ui_apply_unknown',
+            input.status === 'failed'
+              ? 'The Layout was refused before any Action ran.'
+              : 'The UI change has an unknown outcome.',
+          ),
+          runId: job.runId,
+        });
+      }
       startNextScreenChange();
     },
     whenIdle() {
@@ -774,7 +792,7 @@ interface PlanDecision {
 interface ChangeSettlement {
   readonly outcome: Extract<
     ScreenChangeOutcome,
-    'applied' | 'already_on_screen' | 'partially_failed' | 'unknown'
+    'applied' | 'already_on_screen' | 'failed' | 'unknown'
   >;
   readonly changeId?: ChangeId;
 }

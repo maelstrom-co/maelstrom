@@ -71,10 +71,17 @@ const inputFixtures: {
     chart: chart(),
     source: 'voice',
   },
+  chart_request: {
+    type: 'chart_request',
+    version: AGENT_WIRE_VERSION,
+    inputId: MessageId('request-1'),
+    request: chart(),
+  },
   ui_applied: {
     type: 'ui_applied',
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('change-1'),
+    status: 'unknown',
     chart: chart(),
     actionOutcomes: [
       { ok: true },
@@ -170,8 +177,8 @@ const roundTrip = (
 ) => schema.parse(JSON.parse(JSON.stringify(value)));
 
 describe('AGENT_WIRE_VERSION', () => {
-  test('is the integer 1', () => {
-    expect(AGENT_WIRE_VERSION).toBe(1);
+  test('uses version 3 for client-dispatched Chart requests', () => {
+    expect(AGENT_WIRE_VERSION).toBe(3);
   });
 });
 
@@ -524,8 +531,7 @@ describe('AgentEvent round-trip', () => {
     if (result.success) expect(result.data).toEqual(eventFixtures.tool_call);
   });
 
-  test('finished with reason budget still decodes unchanged under version 1', () => {
-    expect(AGENT_WIRE_VERSION).toBe(1);
+  test('finished with reason budget remains available on the current wire', () => {
     const value = {
       ...eventFixtures.finished,
       ok: false,
@@ -616,7 +622,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every input member', () => {
     for (const fixture of Object.values(inputFixtures)) {
-      for (const version of [2, '1', undefined]) {
+      for (const version of [1, 2, 4, '3', undefined]) {
         const result = AgentInputSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -627,7 +633,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every event member', () => {
     for (const fixture of Object.values(eventFixtures)) {
-      for (const version of [2, '1', undefined]) {
+      for (const version of [1, 2, 4, '3', undefined]) {
         const result = AgentEventSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -639,6 +645,122 @@ describe('agent wire decode failures', () => {
 
 describe('agent wire through the Envelope codecs', () => {
   const sessionId = SessionId('s-1');
+
+  test('client-dispatched requests retain automatic reasons, planning facts, and reply policy', () => {
+    const request: ChartRequest = {
+      ...chart(),
+      context: {
+        ...chart().context,
+        updateReasons: [
+          {
+            type: 'chart_resize',
+            previous: { columns: 8, rows: 8 },
+            current: { columns: 16, rows: 12 },
+          },
+          {
+            type: 'vessel_mutation',
+            instanceId: InstanceId('calendar-main'),
+            changes: 'New event',
+          },
+          {
+            type: 'user_intent',
+            id: 'r1',
+            intent: 'Show the new event',
+            referents: { event: { id: 'event-123', version: 2 } },
+          },
+        ],
+      },
+      skipReply: true,
+    };
+    const frame = AgentInputMessage({
+      sessionId,
+      input: { ...inputFixtures.chart_request, request },
+    });
+    expect(decodeClientEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+  });
+
+  test('older peers cannot admit the new dispatch contract', () => {
+    for (const version of [1, 2]) {
+      const decoded = decodeClientEnvelope({
+        type: 'client.agent.input',
+        id: 'old-dispatch',
+        sessionId,
+        input: { ...inputFixtures.chart_request, version },
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) expect(decoded.error.message).toContain('input.version');
+    }
+  });
+
+  test('dispatch snapshots pass the full Chart validation before reaching a connection', () => {
+    for (const request of [
+      undefined,
+      { ...chart(), layout: { type: 'tiling', tree: [], instances: [] } },
+      {
+        ...chart(),
+        context: {
+          ...chart().context,
+          chartDimensions: { columns: 0, rows: 8 },
+        },
+      },
+      {
+        ...chart(),
+        context: { ...chart().context, updateReasons: [{ type: 'refresh' }] },
+      },
+    ]) {
+      const decoded = decodeClientEnvelope({
+        type: 'client.agent.input',
+        id: 'invalid-dispatch',
+        sessionId,
+        input: { ...inputFixtures.chart_request, request },
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) expect(decoded.error.kind).toBe('invalid_envelope');
+    }
+  });
+
+  test('a layout refusal survives decoding even when there are no Action outcomes', () => {
+    const frame: AgentInputMessage = {
+      type: 'client.agent.input',
+      id: MessageId('refused-layout'),
+      sessionId,
+      input: {
+        ...inputFixtures.ui_applied,
+        status: 'failed',
+        actionOutcomes: [],
+      },
+    };
+    expect(decodeClientEnvelope(JSON.stringify(frame))).toEqual(ok(frame));
+  });
+
+  test('version 1 evidence cannot silently turn an unknown batch into success on an older peer', () => {
+    const decoded = decodeClientEnvelope({
+      type: 'client.agent.input',
+      id: 'old-peer',
+      sessionId,
+      input: { ...inputFixtures.ui_applied, version: 1 },
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) expect(decoded.error.message).toContain('input.version');
+  });
+
+  test('missing or contradictory batch evidence cannot claim safe completion', () => {
+    for (const evidence of [
+      { status: undefined, actionOutcomes: [] },
+      { status: 'applied', actionOutcomes: [{ ok: false }] },
+      { status: 'failed', actionOutcomes: [{ ok: true }] },
+      { status: 'failed', actionOutcomes: [{ ok: false }] },
+    ]) {
+      const decoded = decodeClientEnvelope({
+        type: 'client.agent.input',
+        id: 'contradictory-evidence',
+        sessionId,
+        input: { ...inputFixtures.ui_applied, ...evidence },
+      });
+      expect(decoded.ok).toBe(false);
+      if (!decoded.ok) expect(decoded.error.kind).toBe('invalid_envelope');
+    }
+  });
 
   for (const [type, input] of Object.entries(inputFixtures)) {
     test(`client.agent.input carrying ${type}`, () => {
@@ -704,7 +826,7 @@ describe('agent wire through the Envelope codecs', () => {
       type: 'client.agent.input',
       id: 'frame-1',
       sessionId: 's-1',
-      input: { ...inputFixtures.utterance, version: 2 },
+      input: { ...inputFixtures.utterance, version: 1 },
     });
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) {
@@ -718,7 +840,7 @@ describe('agent wire through the Envelope codecs', () => {
       type: 'engine.agent.event',
       id: 'frame-1',
       sessionId: 's-1',
-      event: { ...eventFixtures.finished, version: 2 },
+      event: { ...eventFixtures.finished, version: 1 },
     });
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) {

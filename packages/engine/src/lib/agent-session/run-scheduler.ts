@@ -1,5 +1,6 @@
 import {
   AGENT_WIRE_VERSION,
+  type AgentChartRequestInput,
   type AgentErrorEvent,
   type AgentEvent,
   type AgentUiAppliedInput,
@@ -41,13 +42,15 @@ export interface RunSchedulerOptions {
 export interface RunScheduler {
   pendingRuns(): number;
   reject(event: AgentErrorEvent): void;
-  enqueue(input: AgentUtteranceInput): Promise<void>;
+  enqueue(input: UiRunInput): Promise<void>;
   acknowledge(input: AgentUiAppliedInput): void;
   close(): void;
 }
 
+type UiRunInput = AgentUtteranceInput | AgentChartRequestInput;
+
 interface UiRun {
-  readonly input: AgentUtteranceInput;
+  readonly input: UiRunInput;
   readonly runId: RunId;
   readonly started: number;
   readonly ready: Deferred;
@@ -56,6 +59,7 @@ interface UiRun {
 // A finishing run keeps its slot so input sent from its final callbacks queues behind it.
 type RunState =
   | { readonly phase: 'idle' }
+  | { readonly phase: 'stopped' }
   | { readonly phase: 'planning' | 'finishing'; readonly run: UiRun }
   | {
       readonly phase: 'awaiting_ack';
@@ -77,9 +81,25 @@ export function createRunScheduler({
   let state: RunState = { phase: 'idle' };
   let chart: ChartRequest | undefined;
   return {
-    pendingRuns: () => queue.length + (state.phase === 'idle' ? 0 : 1),
+    pendingRuns: () =>
+      queue.length +
+      (state.phase === 'idle' || state.phase === 'stopped' ? 0 : 1),
     reject,
     enqueue(input) {
+      if (state.phase === 'stopped') {
+        diagnostics.session('engine.agent.input.rejected', {
+          inputId: input.inputId,
+          code: 'session_stopped',
+        });
+        events.emit({
+          type: 'error',
+          version: AGENT_WIRE_VERSION,
+          inputId: input.inputId,
+          code: 'session_stopped',
+          error: 'The preceding UI change has an unknown outcome.',
+        });
+        return Promise.resolve();
+      }
       const started = clock();
       const run: UiRun = {
         input,
@@ -88,15 +108,22 @@ export function createRunScheduler({
         ready: deferred(),
       };
       // A Chart sent while a change awaits acknowledgement can predate it.
-      if (state.phase !== 'awaiting_ack') chart = input.chart;
+      if (input.type === 'utterance' && state.phase !== 'awaiting_ack')
+        chart = input.chart;
       queue.push(run);
       events.emit(...buildAcceptanceEvents(input.inputId, run.runId));
       diagnostics.run(
         run.runId,
         input.inputId,
         'engine.agent.input.accepted',
-        { source: input.source, disposition: 'ui_only' },
-        () => ({ text: input.text }),
+        {
+          source: input.type === 'utterance' ? input.source : 'chart_request',
+          disposition: 'ui_only',
+        },
+        () =>
+          input.type === 'utterance'
+            ? { text: input.text }
+            : { request: input.request },
       );
       void pump();
       return run.ready.promise;
@@ -110,7 +137,12 @@ export function createRunScheduler({
         return;
       }
       const { run, event, cancelTimeout } = state;
-      if (input.actionOutcomes.length !== event.response.executionPlan.length) {
+      const expectedActions = event.response.executionPlan.length;
+      if (
+        input.actionOutcomes.length > expectedActions ||
+        (input.status === 'applied' &&
+          input.actionOutcomes.length !== expectedActions)
+      ) {
         diagnostics.run(
           run.runId,
           run.input.inputId,
@@ -124,29 +156,40 @@ export function createRunScheduler({
           changeError(
             input.changeId,
             'invalid_action_outcomes',
-            'Expected one outcome per Action.',
+            'Action evidence must fit the plan and be complete for applied status.',
           ),
         );
         return;
       }
-      state = { phase: 'finishing', run };
+      state =
+        input.status === 'unknown'
+          ? { phase: 'stopped' }
+          : { phase: 'finishing', run };
       cancelTimeout();
-      chart = input.chart;
+      chart = input.status === 'unknown' ? undefined : input.chart;
       diagnostics.run(
         run.runId,
         run.input.inputId,
         'engine.agent.ui_change.applied',
         {
           changeId: input.changeId,
+          status: input.status,
           actions: input.actionOutcomes.length,
           failed: input.actionOutcomes.filter((outcome) => !outcome.ok).length,
         },
         () => ({ chart: input.chart, actionOutcomes: input.actionOutcomes }),
       );
+      if (input.status === 'unknown') {
+        stop(run, {
+          code: 'ui_apply_unknown',
+          error: 'The UI change has an unknown outcome.',
+        });
+        return;
+      }
       complete(
         run,
         event.response.userMessage,
-        input.actionOutcomes.some((outcome) => !outcome.ok)
+        input.status === 'failed'
           ? {
               code: 'ui_apply_failed',
               error: 'The UI change could not be fully applied.',
@@ -157,7 +200,8 @@ export function createRunScheduler({
     },
     close() {
       if (state.phase === 'awaiting_ack') state.cancelTimeout();
-      if (state.phase !== 'idle') state.run.ready.resolve();
+      if (state.phase !== 'idle' && state.phase !== 'stopped')
+        state.run.ready.resolve();
       state = { phase: 'idle' };
       for (const run of queue) run.ready.resolve();
       queue.length = 0;
@@ -189,23 +233,23 @@ export function createRunScheduler({
     startNextRun();
   }
 
-  function expire(run: UiRun) {
-    state = { phase: 'finishing', run };
+  function stop(run: UiRun, failure: RunFailure) {
+    state = { phase: 'stopped' };
     chart = undefined;
     const abandoned = queue.splice(0);
-    complete(run, undefined, {
+    complete(run, undefined, failure);
+    run.ready.resolve();
+    for (const queued of abandoned) {
+      complete(queued, undefined, { ...failure, reason: 'cancelled' });
+      queued.ready.resolve();
+    }
+  }
+
+  function expire(run: UiRun) {
+    stop(run, {
       code: 'ui_ack_timeout',
       error: 'The UI acknowledgement did not arrive.',
     });
-    for (const queued of abandoned) {
-      complete(queued, undefined, {
-        reason: 'cancelled',
-        code: 'ui_ack_timeout',
-        error: 'The preceding UI change was not acknowledged.',
-      });
-      queued.ready.resolve();
-    }
-    startNextRun();
   }
 
   function emitUiChange(run: UiRun, response: MaelstromResponse) {
@@ -238,15 +282,21 @@ export function createRunScheduler({
   }
 
   async function pump(): Promise<void> {
-    if (signal.aborted || events.isDelivering() || state.phase !== 'idle')
+    if (signal.aborted || state.phase !== 'idle') return;
+    if (events.isDelivering()) {
+      queueMicrotask(() => void pump());
       return;
+    }
     const run = queue.shift();
     if (!run) return;
     state = { phase: 'planning', run };
     diagnostics.run(run.runId, run.input.inputId, 'engine.agent.run.started', {
       disposition: 'ui_only',
     });
-    const request = userIntentRequest(chart ?? run.input.chart, run.input.text);
+    const request =
+      run.input.type === 'chart_request'
+        ? run.input.request
+        : userIntentRequest(chart ?? run.input.chart, run.input.text);
     const messageId = run.input.inputId;
     let result: Result<MaelstromResponse, EngineError>;
     try {

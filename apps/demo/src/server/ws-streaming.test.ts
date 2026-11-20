@@ -91,6 +91,7 @@ describe('local streaming WebSocket boundary', () => {
       client,
       frame({
         type: 'ui_applied',
+        status: 'applied',
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         chart,
@@ -209,6 +210,7 @@ describe('local streaming WebSocket boundary', () => {
         client,
         frame({
           type: 'ui_applied',
+          status: 'applied',
           version: AGENT_WIRE_VERSION,
           changeId: change.changeId,
           chart,
