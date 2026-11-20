@@ -396,7 +396,8 @@ export function createScreenChangeQueue({
             : { changeId: result.changeId }),
         },
       );
-      if (!live && stoppedRuns.has(job.runId))
+      // The observer may close the queue.
+      if (!closed && !live && stoppedRuns.has(job.runId))
         recordScreenNote(
           job.runId,
           job.turnId,
@@ -433,12 +434,6 @@ export function createScreenChangeQueue({
       changeId,
       response,
     };
-    const cancelTimeout = scheduleTimeout(() => {
-      if (state.phase === 'awaiting_ack' && state.event === event)
-        expireChange(planned, decision);
-    }, acknowledgementTimeoutMs);
-    // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
-    state = { phase: 'awaiting_ack', planned, event, decision, cancelTimeout };
     observeUiChangeEmitted(
       event,
       job.inputId,
@@ -453,6 +448,15 @@ export function createScreenChangeQueue({
         response: event.response,
       }),
     );
+    // The observer may close the queue, drop the run or note a newer Chart: the change is unsent until here.
+    if (closed || state.phase !== 'planning' || state.planned !== planned)
+      return;
+    const cancelTimeout = scheduleTimeout(() => {
+      if (state.phase === 'awaiting_ack' && state.event === event)
+        expireChange(planned, decision);
+    }, acknowledgementTimeoutMs);
+    // Enter awaiting acknowledgement before emitting: a listener may acknowledge synchronously.
+    state = { phase: 'awaiting_ack', planned, event, decision, cancelTimeout };
     events.emit(event);
   }
 
@@ -461,6 +465,8 @@ export function createScreenChangeQueue({
     const { job } = planned.queued;
     // Leave awaiting acknowledgement first so a late ui_applied is refused as unknown.
     state = { phase: 'idle' };
+    // Before the error event: a listener may note a fresh Chart, which confirms the screen again.
+    chartConfirmed = false;
     events.emit({
       ...changeError(changeId, 'ui_ack_timeout', ACKNOWLEDGEMENT_TIMEOUT_TEXT),
       runId: job.runId,
@@ -470,7 +476,6 @@ export function createScreenChangeQueue({
       answerCancelled(planned.queued, changeId);
       return;
     }
-    chartConfirmed = false;
     diagnostics.run(
       job.runId,
       job.inputId,

@@ -1199,6 +1199,95 @@ describe('createScreenChangeQueue', () => {
     });
   });
 
+  test('a Chart noted from inside the acknowledgement timeout error listener confirms the screen', async () => {
+    const harness = createHarness();
+    harness.queue.noteChart(monthChart);
+    harness.events.subscribe((event) => {
+      if (event.type === 'error' && event.code === 'ui_ack_timeout')
+        harness.queue.noteChart(weekChart);
+    });
+    harness.queue.request(screenChange(1));
+    harness.planner.respond(0, changeResponse(monthChart));
+    await harness.nextUiChange();
+    harness.time.advance(ACKNOWLEDGEMENT_TIMEOUT_MS);
+
+    const [answer] = harness.queue.request(screenChange(2));
+    harness.planner.respond(1, noScreenChange(weekChart));
+
+    expect(await answer).toEqual({
+      status: 'applied',
+      summary: 'applied (already on screen): "Show order 2.1"',
+    });
+  });
+
+  test('a change whose emitted observer closes the queue answers cancelled without a change id and never reaches the wire', async () => {
+    let close = () => {};
+    const harness = createHarness({
+      onRunDiagnostic: (kind) => {
+        if (kind === 'engine.agent.ui_change.emitted') close();
+      },
+    });
+    close = () => harness.queue.close();
+    harness.queue.noteChart(monthChart);
+    const [answer] = harness.queue.request(screenChange(1));
+
+    harness.planner.respond(0, changeResponse(monthChart));
+
+    expect(await answer).toEqual({
+      status: 'cancelled',
+      summary: 'cancelled: "Show order 1.1"',
+    });
+    expect(uiChangesIn(harness.received)).toEqual([]);
+    expect(harness.time.pending()).toBe(0);
+  });
+
+  test('a change whose emitted observer drops its run answers cancelled, never reaches the wire and lets the next Screen Change plan', async () => {
+    let drop = () => {};
+    const harness = createHarness({
+      onRunDiagnostic: (kind) => {
+        if (kind === 'engine.agent.ui_change.emitted') drop();
+      },
+    });
+    drop = () => harness.queue.dropRun(screenChange(1).runId);
+    harness.queue.noteChart(monthChart);
+    const [answer] = harness.queue.request(screenChange(1));
+    harness.queue.request(screenChange(2));
+
+    harness.planner.respond(0, changeResponse(monthChart));
+
+    expect(await answer).toEqual({
+      status: 'cancelled',
+      summary: 'cancelled: "Show order 1.1"',
+    });
+    expect(uiChangesIn(harness.received)).toEqual([]);
+    expect(harness.notes).toEqual([]);
+    expect(harness.planner.calls).toHaveLength(2);
+  });
+
+  test('a settled observer that closes the queue stops the late note of a stopped run', async () => {
+    let close = () => {};
+    const harness = createHarness({
+      onRunDiagnostic: (kind) => {
+        if (kind === 'engine.agent.screen_change.settled') close();
+      },
+    });
+    close = () => harness.queue.close();
+    harness.queue.noteChart(monthChart);
+    const answers = harness.queue.request(screenChange(1, 1, 2));
+    harness.planner.respond(0, changeResponse(monthChart));
+    const change = await harness.nextUiChange();
+    harness.queue.dropRun(screenChange(1).runId);
+
+    harness.queue.acknowledge(
+      applied(change.changeId, weekChart, [{ ok: true }]),
+    );
+
+    expect((await Promise.all(answers)).map((answer) => answer.status)).toEqual(
+      ['applied', 'applied'],
+    );
+    expect(harness.notes).toEqual([]);
+  });
+
   test('close resolves idle waiters and ignores a later dropRun', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
