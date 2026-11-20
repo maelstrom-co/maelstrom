@@ -4,7 +4,7 @@ import type { Mutable } from './_drift-guards.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { PlannerReasonVerdict } from './request.ts';
-import { PlannerReasonVerdictSchema } from './request.ts';
+import { isNonBlank, PlannerReasonVerdictSchema } from './request.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
@@ -112,10 +112,6 @@ function clarificationSchemaWithLayout<Layout extends z.ZodType>(
       .optional(),
     reasons: z.array(PlannerReasonVerdictSchema).optional(),
   });
-}
-
-function isNonBlank(value: string): boolean {
-  return value.trim().length > 0;
 }
 
 type _InferredNeedsClarification = z.infer<typeof NeedsClarificationSchema>;

@@ -254,7 +254,7 @@ Identity (`id`), session binding (`sessionId`), and timestamp live on the surrou
 
 `skipReply` is optional and defaults to `false`. A client that renders the Planner's reply leaves it unset. It is for a caller that owns the conversation itself, such as an agent loop. The caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result that asks the user a question, optionally with the layout and Actions it could already settle. See [Planner output](#planner-output). `Engine.handle` ships a replyless plan result as a `MaelstromResponse` without `userMessage`. It still refuses a `NeedsClarification` result with a `ValidationError` on field `skipReply`, because a `chart_response` has no shape for a question.
 
-`ChartRequestSchema` strips unknown keys, including the `intentFacts` key older clients sent. Put values the Planner needs into a `user_intent` reason's `referents`, or into its intent text.
+`ChartRequestSchema` strips unknown keys, including the `intentFacts` key older clients sent. A `user_intent` reason's `referents` reach every Planner stage unchanged, but the built-in Planners do not render them yet. Put values they need into the reason's intent text.
 
 ### Update reasons
 
@@ -273,8 +273,8 @@ type UpdateReason =
 
 A `user_intent` reason has two optional fields for a caller that sends several goals in one request:
 
-- `id` names the reason so a Planner verdict can point at it. It is unique within the request and never empty.
-- `referents` holds exact values the caller already knows, such as ids and quantities, so the Planner never guesses them. They are inputs, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `UserIntentReasonSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
+- `id` names the reason so a Planner verdict can point at it. It is unique within the request and never blank.
+- `referents` holds exact values the caller already knows, such as ids and quantities, carried to every Planner stage unchanged. A Planner decides whether to read them. They are inputs, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `UserIntentReasonSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
 
 ```ts
 const request: ChartRequest = {

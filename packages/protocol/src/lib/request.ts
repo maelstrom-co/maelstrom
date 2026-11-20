@@ -34,16 +34,17 @@ export interface UserIntentReason {
   readonly type: 'user_intent';
   /**
    * An id the caller assigns so a Planner verdict can name this reason.
-   * Unique within the request and never empty. Absent when the caller needs
+   * Unique within the request and never blank. Absent when the caller needs
    * no per-reason verdict.
    */
   readonly id?: string;
   /** The user's natural language intent */
   readonly intent: string;
   /**
-   * Exact values the caller already knows, such as ids and quantities, so the
-   * Planner never guesses them. They are inputs, not instructions: the Planner
-   * still chooses the Actions and their parameters. Absent means none.
+   * Exact values the caller already knows, such as ids and quantities,
+   * carried to every Planner stage unchanged. A Planner decides whether to
+   * read them. They are inputs, not instructions: the Planner still chooses
+   * the Actions and their parameters. Absent means none.
    */
   readonly referents?: Readonly<Record<string, JsonValue>>;
 }
@@ -78,11 +79,14 @@ export type UpdateReason =
  * discriminator pins the variant; `intent` is an arbitrary natural-language
  * string with no length constraint (callers may submit empty intents — the
  * engine prompt builder is responsible for filtering them). An `id`, when
- * present, must not be empty, and `referents` must be a JSON object.
+ * present, must not be blank, and `referents` must be a JSON object.
  */
 export const UserIntentReasonSchema = z.object({
   type: z.literal('user_intent'),
-  id: z.string().min(1).optional(),
+  id: z
+    .string()
+    .refine(isNonBlank, { message: 'id must not be blank' })
+    .optional(),
   intent: z.string(),
   referents: z.record(z.string(), JsonValueSchema).optional(),
 });
@@ -476,6 +480,20 @@ export const ChartRequestSchema = z
       vesselsById.set(vessel.id, vessel);
     });
 
+    const userIntentReasonIds = new Set<string>();
+    req.context.updateReasons.forEach((reason, i) => {
+      if (reason.type !== 'user_intent' || reason.id === undefined) return;
+      if (userIntentReasonIds.has(reason.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Duplicate user_intent reason id "${reason.id}"`,
+          path: ['context', 'updateReasons', i, 'id'],
+        });
+        return;
+      }
+      userIntentReasonIds.add(reason.id);
+    });
+
     const inputInstanceIds = new Set<InstanceId>();
     req.instances.forEach((inst, i) => {
       if (inputInstanceIds.has(inst.instanceId)) {
@@ -638,6 +656,6 @@ void [
   _reasonVerdictBwd,
 ];
 
-function isNonBlank(value: string): boolean {
+export function isNonBlank(value: string): boolean {
   return value.trim().length > 0;
 }

@@ -307,6 +307,16 @@ describe('UserIntentReasonSchema', () => {
     ).toBe(false);
   });
 
+  test('rejects a whitespace-only id', () => {
+    expect(
+      UserIntentReasonSchema.safeParse({
+        type: 'user_intent',
+        id: ' ',
+        intent: 'show the calendar',
+      }).success,
+    ).toBe(false);
+  });
+
   test.each<[string, unknown]>([
     ['a function value', { lookup: () => 'ORD-42' }],
     ['an undefined value', { orderId: undefined }],
@@ -1176,6 +1186,45 @@ describe('ChartRequestSchema cross-validation', () => {
             /Duplicate vessel id "calendar"/.test(i.message),
         ),
       ).toBe(true);
+    });
+  });
+
+  describe('rule 6b: duplicate user_intent reason id', () => {
+    const withReasons = (
+      updateReasons: z.input<
+        typeof ChartRequestSchema
+      >['context']['updateReasons'],
+    ) => {
+      const req = gridChartRequest({});
+      return { ...req, context: { ...req.context, updateReasons } };
+    };
+
+    test('rejects two user_intent reasons sharing an id at the second occurrence', () => {
+      const result = ChartRequestSchema.safeParse(
+        withReasons([
+          { type: 'user_intent', id: 'r1', intent: 'show my order' },
+          { type: 'user_intent', id: 'r1', intent: 'cancel my order' },
+        ]),
+      );
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'context.updateReasons.1.id' &&
+            /Duplicate user_intent reason id "r1"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('accepts two user_intent reasons without ids', () => {
+      const result = ChartRequestSchema.safeParse(
+        withReasons([
+          { type: 'user_intent', intent: 'show my order' },
+          { type: 'user_intent', intent: 'cancel my order' },
+        ]),
+      );
+      expect(result.success).toBe(true);
     });
   });
 
