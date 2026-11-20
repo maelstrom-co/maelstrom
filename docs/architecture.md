@@ -494,7 +494,7 @@ WORKER    realtime-livekit-agent
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only; planner seam, validation and orchestration. Depends on `@tanstack/ai` for the Agent Run loop, with no LLM provider adapter
-- **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns LLM planning and its provider adapters. Depends on `engine` and `protocol`; the engine never depends on it
+- **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns LLM planning; the caller supplies the TanStack AI provider adapter. Depends on `engine` and `protocol`; the engine never depends on it
 - **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
 - **evals**: private, unpublished live evals for the planners (whole-planner arms and single-stage evals). Depends on `planner-jev` (through its internal `_internal` and `_testing` subpaths), `planner-llm`, `engine` and `protocol`; nothing depends on it
 - **react** / **react-realtime**: React-specific bindings, optional
