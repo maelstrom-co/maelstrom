@@ -262,10 +262,15 @@ export function createScreenChangeQueue({
         }),
       );
       settleEach(planned.queued, (goal) =>
-        settlementOf(decision, goal, {
-          outcome: failed.length === 0 ? 'applied' : 'partially_failed',
-          changeId: planned.changeId,
-        }),
+        settlementOf(
+          decision,
+          goal,
+          {
+            outcome: failed.length === 0 ? 'applied' : 'partially_failed',
+            changeId: planned.changeId,
+          },
+          logger,
+        ),
       );
       startNextScreenChange();
     },
@@ -454,7 +459,7 @@ export function createScreenChangeQueue({
       },
     );
     settleEach(planned.queued, (goal) =>
-      settlementOf(decision, goal, { outcome: 'unknown', changeId }),
+      settlementOf(decision, goal, { outcome: 'unknown', changeId }, logger),
     );
     startNextScreenChange();
   }
@@ -567,7 +572,7 @@ export function createScreenChangeQueue({
       planned.request,
     );
     settleEach(planned.queued, (goal) =>
-      settlementOf(shown, goal, { outcome: 'already_on_screen' }),
+      settlementOf(shown, goal, { outcome: 'already_on_screen' }, logger),
     );
     startNextScreenChange();
   }
@@ -770,6 +775,7 @@ function settlementOf(
   decision: PlanDecision,
   goal: ScreenChangeBatchGoal,
   change: ChangeSettlement,
+  logger: Logger,
 ): GoalSettlement {
   const verdict = decision.verdicts.get(goal.reasonId);
   const { changeId } = change;
@@ -791,6 +797,13 @@ function settlementOf(
         verdict.question === undefined
           ? decision.clarification?.question
           : capScreenNote(verdict.question);
+      if (question === undefined) {
+        logger.warn(
+          'Screen Change verdict asked for clarification without a question',
+          { changeId, reasonId: goal.reasonId },
+        );
+        return { outcome: 'failed', changeId };
+      }
       const options =
         verdict.question === undefined
           ? (verdict.options ?? decision.clarification?.options)
