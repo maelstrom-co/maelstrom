@@ -39,6 +39,24 @@ export function sidebarNeighbors(entries: SidebarEntry[]): {
   return { prev: links[index - 1], next: links[index + 1] };
 }
 
+/**
+ * A neighbor from the page's own version under the label its frontmatter
+ * `prev` or `next` sets, when it sets one.
+ */
+export function withFrontmatterLabel(
+  link: SidebarLink | undefined,
+  override: unknown,
+): SidebarLink | undefined {
+  if (!link) return undefined;
+  const label =
+    typeof override === 'string'
+      ? override
+      : typeof override === 'object' && override !== null && 'label' in override
+        ? override.label
+        : undefined;
+  return typeof label === 'string' ? { ...link, label } : link;
+}
+
 function sidebarLinks(entries: SidebarEntry[]): SidebarLink[] {
   return entries.flatMap((entry) =>
     entry.type === 'group' ? sidebarLinks(entry.entries) : [entry],

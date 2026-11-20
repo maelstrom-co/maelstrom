@@ -184,6 +184,7 @@ export async function snapshotDocs(
   const scratch = await mkdtemp(join(resolve(root, '..'), '.docs-snapshot-'));
   const destination = join(root, target.folder);
   const backup = join(scratch, 'replaced');
+  let restoreFailed = false;
   try {
     const source =
       options.from === undefined
@@ -204,7 +205,11 @@ export async function snapshotDocs(
 
     const reference = await freezeReference(staging, destination);
     const replaced = existing.includes(target.folder);
-    await replaceFolder(staging, destination, backup);
+    await replaceFolder(staging, destination, backup).catch(async (error) => {
+      // A backup still in scratch is the only copy of the previous folder.
+      restoreFailed = await isDirectory(backup);
+      throw error;
+    });
     return {
       kind: 'snapshot',
       release: target.release,
@@ -216,9 +221,7 @@ export async function snapshotDocs(
       reference,
     };
   } finally {
-    const stranded =
-      (await isDirectory(backup)) && !(await isDirectory(destination));
-    if (!stranded) await rm(scratch, { recursive: true, force: true });
+    if (!restoreFailed) await rm(scratch, { recursive: true, force: true });
   }
 }
 

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { sidebarNeighbors, withCurrentEntry } from './docs-version-sidebar';
+import {
+  sidebarNeighbors,
+  withCurrentEntry,
+  withFrontmatterLabel,
+} from './docs-version-sidebar';
 
 type Entries = Parameters<typeof withCurrentEntry>[0];
 
@@ -70,5 +74,32 @@ describe('sidebarNeighbors', () => {
       prev: undefined,
       next: undefined,
     });
+  });
+});
+
+describe('withFrontmatterLabel', () => {
+  const neighbor = sidebarNeighbors([
+    link('/0.2/a/'),
+    link('/0.2/b/', true),
+  ]).prev;
+
+  test('keeps a label set as a string or in an object', () => {
+    expect(withFrontmatterLabel(neighbor, 'Back to guide')).toMatchObject({
+      href: '/0.2/a/',
+      label: 'Back to guide',
+    });
+    expect(
+      withFrontmatterLabel(neighbor, { label: 'Back to guide' }),
+    ).toMatchObject({ href: '/0.2/a/', label: 'Back to guide' });
+  });
+
+  test('uses the sidebar label without an override', () => {
+    expect(withFrontmatterLabel(neighbor, undefined)).toBe(neighbor);
+    expect(withFrontmatterLabel(neighbor, true)).toBe(neighbor);
+    expect(withFrontmatterLabel(neighbor, { link: '/x/' })).toBe(neighbor);
+  });
+
+  test('stays absent when the version has no neighbor', () => {
+    expect(withFrontmatterLabel(undefined, 'Back to guide')).toBeUndefined();
   });
 });
