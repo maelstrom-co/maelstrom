@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,6 +12,7 @@ import {
   docsEntryId,
   isVersionFolder,
   pickDefaultVersion,
+  rewriteMarkdownVersionLinks,
   sortVersions,
   splitVersion,
 } from './docs-versions';
@@ -154,8 +155,32 @@ export function docsVersions(root: string): AstroIntegration {
           await writeFile(destination, redirectPage(target, site));
           count++;
         }
+        // starlight-llms-txt renders dev content with unversioned links.
+        const llmsFiles = [
+          ...readdirSync(outDir).filter((name) => /^llms.*\.txt$/.test(name)),
+          ...(existsSync(join(outDir, '_llms-txt'))
+            ? readdirSync(join(outDir, '_llms-txt')).map((name) =>
+                join('_llms-txt', name),
+              )
+            : []),
+        ];
+        const devPages = {
+          versions,
+          pages: { [DEV_VERSION]: [...(built.get(DEV_VERSION) ?? [])] },
+        };
+        for (const file of llmsFiles) {
+          const path = join(outDir, file);
+          await writeFile(
+            path,
+            rewriteMarkdownVersionLinks(
+              await readFile(path, 'utf8'),
+              DEV_VERSION,
+              devPages,
+            ),
+          );
+        }
         logger.info(
-          `Docs versions: ${versions.join(', ')}; default ${defaultVersion}. Wrote ${count} unversioned redirects.`,
+          `Docs versions: ${versions.join(', ')}; default ${defaultVersion}. Wrote ${count} unversioned redirects; pointed ${llmsFiles.length} llms text files at ${DEV_VERSION}.`,
         );
       },
     },

@@ -25,8 +25,8 @@ export function versionSidebar(
       continue;
     }
     if ('items' in item) {
-      // starlight-typedoc finds its placeholder group by a symbol label.
-      if (typeof item.label !== 'string') {
+      // starlight-typedoc placeholders are empty groups it replaces by label.
+      if (item.items.length === 0) {
         result.push(item);
         continue;
       }

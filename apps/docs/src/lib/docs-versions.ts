@@ -157,6 +157,7 @@ export function bareTarget(
 }
 
 const ANCHOR_HREF = /(<a\b[^>]*?\shref=")(\/[^"]*)"/g;
+const MARKDOWN_HREF = /(\]\()(\/[^)\s]*)\)/g;
 
 /**
  * Keep root-relative links on a versioned page inside that version. Content
@@ -169,12 +170,38 @@ export function rewriteVersionLinks(
   docs: Pick<DocsVersions, 'versions' | 'pages'>,
 ): string {
   const pages = new Set(docs.pages[version] ?? []);
-  return html.replace(ANCHOR_HREF, (whole, prefix: string, href: string) => {
-    if (href.startsWith('//')) return whole;
-    const match = /^([^?#]*)(.*)$/.exec(href);
-    const rest = (match?.[1] ?? '').replace(/^\/+|\/+$/g, '');
-    if (!rest || splitVersion(rest, docs.versions)) return whole;
-    if (!pages.has(rest)) return whole;
-    return `${prefix}${versionHref(version, rest)}${match?.[2] ?? ''}"`;
-  });
+  return html.replace(
+    ANCHOR_HREF,
+    (_whole, prefix: string, href: string) =>
+      `${prefix}${versionedHref(href, version, docs.versions, pages) ?? href}"`,
+  );
+}
+
+/** The same rewrite for root-relative Markdown links, as in llms.txt files. */
+export function rewriteMarkdownVersionLinks(
+  markdown: string,
+  version: string,
+  docs: Pick<DocsVersions, 'versions' | 'pages'>,
+): string {
+  const pages = new Set(docs.pages[version] ?? []);
+  return markdown.replace(
+    MARKDOWN_HREF,
+    (_whole, prefix: string, href: string) =>
+      `${prefix}${versionedHref(href, version, docs.versions, pages) ?? href})`,
+  );
+}
+
+function versionedHref(
+  href: string,
+  version: string,
+  versions: readonly string[],
+  pages: ReadonlySet<string>,
+): string | undefined {
+  if (href.startsWith('//')) return undefined;
+  const [, pathname = '', suffix = ''] = /^([^?#]*)(.*)$/.exec(href) ?? [];
+  const rest = pathname.replace(/^\/+|\/+$/g, '');
+  if (!rest || splitVersion(rest, versions) || !pages.has(rest)) {
+    return undefined;
+  }
+  return `/${version}${pathname}${suffix}`;
 }

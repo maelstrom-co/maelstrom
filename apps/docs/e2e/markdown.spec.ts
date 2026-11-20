@@ -42,7 +42,9 @@ test('direct retrieval and copying use the same page representation', async ({
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/dev/getting-started/quick-start/?from=docs#wire-the-provider');
+  await page.goto(
+    '/dev/getting-started/quick-start/?from=docs#wire-the-provider',
+  );
   const response = await request.get('/dev/getting-started/quick-start.md');
   const button = page.getByRole('button', {
     name: 'Copy for AI as markdown',
