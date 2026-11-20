@@ -20,7 +20,7 @@ export const BUILT_IN_TOOLS: readonly ToolRegistryEntry[] = [
  */
 export function withBuiltInTools(
   registry: ToolRegistry,
-  runBuiltIns: readonly ToolRegistryEntry[] = [],
+  runBuiltIns: readonly ToolRegistryEntry[],
 ): ToolRegistry {
   const builtIns = new Map(
     [...BUILT_IN_TOOLS, ...runBuiltIns].map((entry) => [

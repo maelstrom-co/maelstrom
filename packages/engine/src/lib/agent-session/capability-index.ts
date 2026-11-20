@@ -1,5 +1,6 @@
 import {
   readCapabilitySnapshot,
+  sanitizeControlChars,
   type Vessel,
   vesselOnlyShows,
 } from '@maelstrom-co/protocol';
@@ -30,7 +31,7 @@ export function buildCapabilityIndex(
     const marking = vesselOnlyShows(vessel)
       ? 'Shows only.'
       : 'Can also change data.';
-    return `- ${capability.vesselId}: ${capability.description.trim().replace(/\.$/, '')}. ${marking}`;
+    return `- ${sanitizeControlChars(capability.vesselId)}: ${capability.description.trim().replace(/\.$/, '')}. ${marking}`;
   });
   const kept = [HEADER];
   let length = HEADER.length;
