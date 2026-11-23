@@ -441,14 +441,18 @@ jobs:
             | jq -r --arg run "$RUN_URL" '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->"))) | select(.body | contains("(" + $run + ")")) | .id' \
             | xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"
 
-  # A failed CI run never reaches the approve job, so this is the only signal
-  # that an approved head waiting for CI will not deploy automatically.
+  # An unsuccessful CI run never reaches the approve job, so this is the only
+  # signal that an approved head waiting for CI will not deploy automatically.
   report-ci-failure:
-    name: Report Failed CI
+    name: Report Unsuccessful CI
     if: >-
       github.event_name == 'workflow_run'
       && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && github.event.workflow_run.conclusion == 'failure'
+      && (github.event.workflow_run.conclusion == 'failure'
+        || github.event.workflow_run.conclusion == 'cancelled'
+        || github.event.workflow_run.conclusion == 'timed_out'
+        || github.event.workflow_run.conclusion == 'startup_failure'
+        || github.event.workflow_run.conclusion == 'stale')
       && github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.head_repository.full_name == github.repository
       && github.event.workflow_run.pull_requests[0] != null
@@ -460,18 +464,43 @@ jobs:
       # actionlint 1.7.12 predates GitHub's concurrency queue support.
       queue: max
     steps:
+      # The workflow_run payload carries no labels, so most runs stop here
+      # before any checkout or tool setup.
+      - name: Check for an open labeled pull request at the CI head
+        id: eligibility
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::The CI run has an invalid pull request number or head SHA.'
+            exit 1
+          fi
+          live="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '[.state, .head.sha, (any(.labels[]; .name == "deploy-preview") | tostring)] | join(" ")')"
+          eligible=false
+          if [ "$live" = "open $HEAD_SHA true" ]; then
+            eligible=true
+          fi
+          printf 'eligible=%s\n' "$eligible" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted lifecycle code
+        if: steps.eligibility.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
       - name: Setup Bun
+        if: steps.eligibility.outputs.eligible == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
 
       - name: Capture trusted Bun executable
+        if: steps.eligibility.outputs.eligible == 'true'
         id: trusted-bun
         run: |
           bun_executable="$(command -v bun)"
@@ -482,7 +511,8 @@ jobs:
           printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
           printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
 
-      - name: Show failed CI on the preview comment
+      - name: Show unsuccessful CI on the preview comment
+        if: steps.eligibility.outputs.eligible == 'true'
         env:
           BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
           BUN_OPTIONS: ''

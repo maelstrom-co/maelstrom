@@ -66,15 +66,25 @@ interface PreviewCommentState {
   readonly deployedSha?: string;
 }
 
+const UNFINISHED_CI_CONCLUSIONS = {
+  cancelled: 'cancelled',
+  stale: 'stale',
+  startup_failure: 'startup failure',
+  timed_out: 'timed out',
+} as const;
+
+type UnfinishedCiConclusion = keyof typeof UNFINISHED_CI_CONCLUSIONS;
+
 type PreviewProgress =
+  | { readonly kind: 'awaiting-ci' | 'deploying' | 'ci-failed' }
   | {
-      readonly kind:
-        | 'awaiting-ci'
-        | 'deploying'
-        | 'ci-failed'
-        | 'deploy-cancelled';
+      readonly kind: 'ci-unfinished';
+      readonly conclusion: UnfinishedCiConclusion;
     }
-  | { readonly kind: 'deploy-failed'; readonly runUrl: string };
+  | {
+      readonly kind: 'deploy-cancelled' | 'deploy-failed';
+      readonly runUrl: string;
+    };
 
 interface PullState {
   readonly state: 'open' | 'closed';
@@ -677,10 +687,12 @@ const renderProgressHeadline = (
       return `🚀 **Deploying preview** for ${approved}`;
     case 'ci-failed':
       return `❌ CI failed on ${approved}, so no deploy is coming.`;
+    case 'ci-unfinished':
+      return `⚠️ CI did not finish on ${approved} (${UNFINISHED_CI_CONCLUSIONS[progress.conclusion]}), so no deploy is coming.`;
     case 'deploy-cancelled':
-      return `⏸️ Deploy of ${approved} was cancelled. Add \`deploy-preview\` again to redeploy.`;
+      return `${deployCancelledLead(approved)} ${rerunDeployLink(progress.runUrl)}`;
     case 'deploy-failed':
-      return `💥 **Preview deploy failed** for ${approved} ([run](${progress.runUrl}))`;
+      return `${deployFailedLead(approved)} ([run](${progress.runUrl}))`;
   }
 };
 
@@ -690,18 +702,32 @@ const renderProgressBesideDeployed = (
   deployed: string,
 ) => {
   const stillShows = `The preview still shows ${deployed}.`;
+  // The deploy job publishes the demo before the other apps, so a deploy that
+  // started can leave the preview mixed.
+  const partlyUpdated = `Some preview apps may already run ${approved}.`;
   switch (progress.kind) {
     case 'awaiting-ci':
       return `⏳ Newer commit ${approved} is waiting for CI. ${stillShows}`;
     case 'deploying':
-    case 'deploy-failed':
-      return `${renderProgressHeadline(progress, approved)}. ${stillShows}`;
-    case 'ci-failed':
-      return `${renderProgressHeadline(progress, approved)} ${stillShows}`;
-    case 'deploy-cancelled':
       return renderProgressHeadline(progress, approved);
+    case 'ci-failed':
+    case 'ci-unfinished':
+      return `${renderProgressHeadline(progress, approved)} ${stillShows}`;
+    case 'deploy-failed':
+      return `${renderProgressHeadline(progress, approved)}. ${partlyUpdated}`;
+    case 'deploy-cancelled':
+      return `${deployCancelledLead(approved)} ${partlyUpdated} ${rerunDeployLink(progress.runUrl)}`;
   }
 };
+
+const deployFailedLead = (approved: string) =>
+  `💥 **Preview deploy failed** for ${approved}`;
+
+const deployCancelledLead = (approved: string) =>
+  `⏸️ Deploy of ${approved} was cancelled.`;
+
+const rerunDeployLink = (runUrl: string) =>
+  `[Re-run the deploy](${runUrl}) to try again.`;
 
 const commitLink = (repository: string, sha: string) =>
   `[${sha.slice(0, 7)}](https://github.com/${repository}/commit/${sha})`;
@@ -1281,7 +1307,7 @@ export const finishPreviewDeployment = async (
   );
 };
 
-/** Shows that CI failed on the approved head when no deployment of that head is coming. */
+/** Shows that CI on the approved head ended without success when no deployment of that head is coming. */
 export const reportPreviewCiFailure = async (
   options: {
     readonly repository: string;
@@ -1293,29 +1319,39 @@ export const reportPreviewCiFailure = async (
   validateRepository(options.repository);
   validatePrNumber(options.prNumber);
   validateRunId(options.runId);
-  const headSha = await readFailedCiHead(
+  const unsuccessful = await readUnsuccessfulCiRun(
     options.repository,
     options.prNumber,
     options.runId,
     dependencies,
   );
-  if (!headSha) return false;
-  // A label-triggered deployment waiting for a reviewer does not depend on CI.
-  if (
-    await hasPendingApprovalNotice(
-      options.repository,
-      options.prNumber,
-      headSha,
-      dependencies,
-    )
-  )
-    return false;
+  if (!unsuccessful) return false;
   return writeUndeployedApprovalProgress(
     options.repository,
     options.prNumber,
-    headSha,
-    { kind: 'ci-failed' },
+    unsuccessful.headSha,
+    unsuccessful.progress,
     dependencies,
+    // A deploy outcome keeps its run link until a newer attempt or head. A
+    // label-triggered deploy does not depend on CI, and its approval write
+    // lands before its notice, so its active run also counts as pending.
+    async (comment) =>
+      reportsDeployOutcome(
+        options.repository,
+        comment.body,
+        unsuccessful.headSha,
+      ) ||
+      (await hasPendingApprovalNotice(
+        options.repository,
+        options.prNumber,
+        unsuccessful.headSha,
+        dependencies,
+      )) ||
+      (await hasActiveLabelTriggeredRun(
+        options.repository,
+        unsuccessful.headSha,
+        dependencies,
+      )),
   );
 };
 
@@ -1343,12 +1379,12 @@ export const reportPreviewDeployOutcome = async (
   );
 };
 
-const readFailedCiHead = async (
+const readUnsuccessfulCiRun = async (
   repository: string,
   prNumber: string,
   runId: string,
   dependencies: PreviewGithubDependencies,
-) => {
+): Promise<{ headSha: string; progress: PreviewProgress } | undefined> => {
   const run = await responseJson(
     await githubRequest(dependencies, repository, `/actions/runs/${runId}`),
     'CI run',
@@ -1359,7 +1395,9 @@ const readFailedCiHead = async (
     run.name !== 'CI' ||
     run.path !== '.github/workflows/ci.yml' ||
     run.status !== 'completed' ||
-    run.conclusion !== 'failure' ||
+    typeof run.conclusion !== 'string' ||
+    (run.conclusion !== 'failure' &&
+      !Object.hasOwn(UNFINISHED_CI_CONCLUSIONS, run.conclusion)) ||
     run.event !== 'pull_request' ||
     !isRecord(run.repository) ||
     run.repository.full_name !== repository ||
@@ -1373,7 +1411,16 @@ const readFailedCiHead = async (
     String(run.pull_requests[0].number) !== prNumber
   )
     return undefined;
-  return run.head_sha;
+  return {
+    headSha: run.head_sha,
+    progress:
+      run.conclusion === 'failure'
+        ? { kind: 'ci-failed' }
+        : {
+            kind: 'ci-unfinished',
+            conclusion: run.conclusion as UnfinishedCiConclusion,
+          },
+  };
 };
 
 const hasPendingApprovalNotice = async (
@@ -1395,18 +1442,64 @@ const hasPendingApprovalNotice = async (
       notice.body.includes(sha),
   );
 
+const reportsDeployOutcome = (
+  repository: string,
+  body: string,
+  approvedSha: string,
+) => {
+  const approved = commitLink(repository, approvedSha);
+  const headerEnd = body.indexOf('\n\n');
+  return body
+    .slice(0, headerEnd < 0 ? undefined : headerEnd)
+    .split('\n')
+    .some(
+      (line) =>
+        line.startsWith(deployFailedLead(approved)) ||
+        line.startsWith(deployCancelledLead(approved)),
+    );
+};
+
+const hasActiveLabelTriggeredRun = async (
+  repository: string,
+  sha: string,
+  dependencies: PreviewGithubDependencies,
+) => {
+  const value = await responseJson(
+    await githubRequest(
+      dependencies,
+      repository,
+      `/actions/workflows/deploy-preview.yml/runs?event=pull_request_target&head_sha=${sha}&per_page=100`,
+    ),
+    'deploy preview runs',
+  );
+  const runs = isRecord(value) ? value.workflow_runs : undefined;
+  if (
+    !Array.isArray(runs) ||
+    !runs.every(
+      (run) =>
+        isRecord(run) &&
+        typeof run.event === 'string' &&
+        typeof run.head_sha === 'string' &&
+        typeof run.status === 'string',
+    )
+  )
+    throw new Error('GitHub returned an invalid workflow runs envelope');
+  return runs.some(
+    (run) =>
+      run.event === 'pull_request_target' &&
+      run.head_sha === sha &&
+      run.status !== 'completed',
+  );
+};
+
 const deployOutcomeProgress = (
   repository: string,
   result: string,
   runId: string,
 ): PreviewProgress => {
-  if (result === 'cancelled') return { kind: 'deploy-cancelled' };
-  if (result === 'failure') {
-    return {
-      kind: 'deploy-failed',
-      runUrl: `https://github.com/${repository}/actions/runs/${runId}`,
-    };
-  }
+  const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
+  if (result === 'cancelled') return { kind: 'deploy-cancelled', runUrl };
+  if (result === 'failure') return { kind: 'deploy-failed', runUrl };
   throw new Error('Deploy result must be failure or cancelled');
 };
 
@@ -1416,6 +1509,8 @@ const writeUndeployedApprovalProgress = async (
   approvedSha: string,
   progress: PreviewProgress,
   dependencies: PreviewGithubDependencies,
+  keepCurrentStatus: (comment: PreviewComment) => Promise<boolean> = async () =>
+    false,
 ) => {
   const { pull, comment } = await readApprovalSnapshot(
     repository,
@@ -1430,7 +1525,8 @@ const writeUndeployedApprovalProgress = async (
     pull.headSha !== approvedSha ||
     !pull.labeled ||
     marker.approvedSha !== approvedSha ||
-    marker.deployedSha === approvedSha
+    marker.deployedSha === approvedSha ||
+    (await keepCurrentStatus(comment))
   )
     return false;
   await upsertPreviewComment(
@@ -1765,7 +1861,7 @@ const cli = async () => {
         dependencies,
       ))
     ) {
-      console.log('The failed CI run has no current undeployed approval');
+      console.log('The unsuccessful CI run changed no preview status');
     }
     return;
   }

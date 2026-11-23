@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import ts from 'typescript';
 
@@ -854,13 +861,12 @@ describe('preview workflows', () => {
       '',
       'The run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.',
     ]);
-    // invalidate-preview-approval.yml keeps notices that contain the new head,
-    // and clear-approval-notice deletes the one naming "(<run url>)".
+    // Notice cleanup matches the full head SHA and the parenthesized run URL.
     expect(body).toContain(head);
     expect(body).toContain(`(${runUrl})`);
   });
 
-  test('failed CI reaches the preview comment only through trusted code in the per-PR queue', () => {
+  test('unsuccessful CI reaches the preview comment only through trusted code in the per-PR queue', () => {
     const source = read('deploy-preview.yml');
     const workflow = Bun.YAML.parse(source) as {
       on: Record<string, unknown>;
@@ -927,7 +933,20 @@ describe('preview workflows', () => {
         (template: string, value: string) => template.replace('{0}', value),
       );
     expect(permits()).toBe(true);
-    for (const conclusion of ['success', 'cancelled', 'skipped'])
+    for (const conclusion of [
+      'failure',
+      'cancelled',
+      'timed_out',
+      'startup_failure',
+      'stale',
+    ])
+      expect(permits({ conclusion })).toBe(true);
+    for (const conclusion of [
+      'success',
+      'skipped',
+      'neutral',
+      'action_required',
+    ])
       expect(permits({ conclusion })).toBe(false);
     expect(permits({ event: 'push' })).toBe(false);
     expect(permits({ head_repository: { full_name: 'outsider/fork' } })).toBe(
@@ -941,7 +960,10 @@ describe('preview workflows', () => {
     expect(job.steps.map((entry) => entry.uses).filter(Boolean)).toEqual(
       approvalSteps.map((entry) => entry.uses).filter(Boolean),
     );
-    expect(job.steps[0]!.with).toEqual({
+    expect(
+      job.steps.find((entry) => entry.uses?.startsWith('actions/checkout@'))!
+        .with,
+    ).toEqual({
       'persist-credentials': false,
       ref: expression('github.workflow_sha'),
     });
@@ -968,6 +990,118 @@ describe('preview workflows', () => {
     expect(serialized).not.toContain('bun install');
     for (const entry of job.steps)
       expect(entry.run ?? '').not.toContain(['$', '{{'].join(''));
+  });
+
+  test('unsuccessful CI starts trusted tooling only for an open labeled PR still at the CI head', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        {
+          steps: {
+            id?: string;
+            if?: string;
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const [eligibility, ...trusted] = workflow.jobs['report-ci-failure']!.steps;
+    expect(eligibility!.id).toBe('eligibility');
+    expect(eligibility!.uses).toBeUndefined();
+    expect(eligibility!.if).toBeUndefined();
+    expect(eligibility!.env).toEqual({
+      GH_REPO: expression('github.repository'),
+      GH_TOKEN: expression('github.token'),
+      HEAD_SHA: expression('github.event.workflow_run.head_sha'),
+      PR_NUMBER: expression(
+        'github.event.workflow_run.pull_requests[0].number',
+      ),
+    });
+    expect(eligibility!.run).not.toContain(['$', '{{'].join(''));
+    expect(trusted.length).toBeGreaterThan(0);
+    for (const entry of trusted)
+      expect(entry.if).toBe("steps.eligibility.outputs.eligible == 'true'");
+
+    const head = 'b'.repeat(40);
+    const directory = mkdtempSync(join(tmpdir(), 'preview-eligibility-'));
+    try {
+      const fixture = join(directory, 'pull.json');
+      const output = join(directory, 'output');
+      const calls = join(directory, 'calls');
+      writeFileSync(
+        join(directory, 'gh'),
+        [
+          '#!/bin/bash',
+          `printf '%s\\n' "$*" >> '${calls}'`,
+          '[ "$1" = api ] && [ "$2" = repos/maelstrom-co/maelstrom/pulls/42 ] && [ "$3" = --jq ] || exit 9',
+          `exec jq -r "$4" '${fixture}'`,
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      const evaluate = (pull: unknown, env: Record<string, string> = {}) => {
+        writeFileSync(fixture, JSON.stringify(pull));
+        writeFileSync(output, '');
+        rmSync(calls, { force: true });
+        const result = Bun.spawnSync(
+          ['/bin/bash', '--noprofile', '--norc', '-c', eligibility!.run!],
+          {
+            env: {
+              GH_REPO: 'maelstrom-co/maelstrom',
+              GH_TOKEN: 'test-token',
+              GITHUB_OUTPUT: output,
+              HEAD_SHA: head,
+              PATH: `${directory}:/usr/bin:/bin`,
+              PR_NUMBER: '42',
+              ...env,
+            },
+          },
+        );
+        return {
+          exitCode: result.exitCode,
+          output: readFileSync(output, 'utf8'),
+          calledGithub: existsSync(calls),
+        };
+      };
+      const pull = (overrides: Record<string, unknown> = {}) => ({
+        state: 'open',
+        head: { sha: head },
+        labels: [{ name: 'bench-voice' }, { name: 'deploy-preview' }],
+        ...overrides,
+      });
+
+      expect(evaluate(pull())).toEqual({
+        exitCode: 0,
+        output: 'eligible=true\n',
+        calledGithub: true,
+      });
+      for (const overrides of [
+        { state: 'closed' },
+        { head: { sha: 'a'.repeat(40) } },
+        { labels: [{ name: 'bench-voice' }] },
+        { labels: [] },
+      ])
+        expect(evaluate(pull(overrides))).toEqual({
+          exitCode: 0,
+          output: 'eligible=false\n',
+          calledGithub: true,
+        });
+      for (const env of [
+        { PR_NUMBER: '' },
+        { PR_NUMBER: '0' },
+        { PR_NUMBER: '42 43' },
+        { HEAD_SHA: 'main' },
+        { HEAD_SHA: 'B'.repeat(40) },
+      ] as Record<string, string>[])
+        expect(evaluate(pull(), env)).toEqual({
+          exitCode: 1,
+          output: '',
+          calledGithub: false,
+        });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test('an unsuccessful deploy job reports through trusted code in the per-PR queue', () => {

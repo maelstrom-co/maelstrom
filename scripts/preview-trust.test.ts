@@ -205,8 +205,8 @@ describe('maintainer preview authority', () => {
         approvedSha: HEAD,
         deployedSha: PREVIOUS,
       });
-      expect(f.comment.body).toContain(
-        `\n🚀 **Deploying preview** for ${commitLink(HEAD)}. The preview still shows ${commitLink(PREVIOUS)}.`,
+      expect(f.comment.body.split('\n').at(-1)).toBe(
+        `🚀 **Deploying preview** for ${commitLink(HEAD)}`,
       );
       expect(f.mutations).toEqual([]);
       expect(f.writes).toEqual([
