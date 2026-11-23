@@ -75,7 +75,7 @@ A mode of a Screen Change that the loop does not wait for. Its outcome reaches t
 An outcome of a Screen Change that reaches the loop later instead of as a tool result. It covers Ambient Screen Changes and outcomes that arrive late or after cancellation.
 
 **Referents**:
-Exact values the loop already knows, such as ids and quantities, passed to the Planner with a goal so it never has to guess them.
+Exact values the loop already knows, such as ids and quantities, passed alongside a Screen Change goal. Include important values in the goal text too, because built-in Planners currently do not consume Referents separately.
 
 **Execution Plan**:
 The ordered list of Actions the client runs after applying an accepted Layout.
