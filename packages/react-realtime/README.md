@@ -101,6 +101,9 @@ on another.
 
 ### Send voice intents to the agent
 
+The agent path is experimental in 0.3 and may change in any minor release without
+deprecation aliases; the default intent-scheduler path is stable.
+
 By default each voice `submit_intent` intent goes to the intent scheduler. Pass
 `sendAgentMessage(orchestrator, text)` to send it to the agent instead, so voice
 takes the same path as typed text sent with `sendMessage`. It returns the
