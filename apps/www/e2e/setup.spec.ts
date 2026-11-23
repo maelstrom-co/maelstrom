@@ -184,3 +184,21 @@ test('the complete starter path and readable prompt remain available without Jav
     await context.close();
   }
 });
+
+test('setup copy is honest about the deterministic starter, optional voice and the prompt', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const prompt = page.locator('#setup-panel-prompt');
+  await expect(prompt).toContainText('instructs the agent');
+  await expect(prompt).toContainText('Review the plan before it makes changes');
+  const starter = page.locator('#setup-panel-starter');
+  await expect(starter).toContainText('without a model API key');
+  await expect(starter).toContainText('deterministic planner');
+  await expect(starter).toContainText(
+    'optional @maelstrom-co/react-realtime voice integration.',
+  );
+  await expect(starter.locator('code.inline-code')).toHaveText(
+    '@maelstrom-co/react-realtime',
+  );
+});
