@@ -16,6 +16,7 @@ import {
 import { validatePreviewWorkerUrl } from './preview-worker-url.ts';
 
 const COMMENT_MARKER = '<!-- pr-preview-demo -->';
+const APPROVAL_NOTICE_MARKER = '<!-- preview-approval-request -->';
 export const VOICE_BENCHMARK_MARKER = '<!-- pr-voice-benchmark -->';
 export const VOICE_BENCHMARK_ARCHIVE_MARKER =
   '<!-- pr-voice-benchmark-archive -->';
@@ -65,6 +66,16 @@ interface PreviewCommentState {
   readonly deployedSha?: string;
 }
 
+type PreviewProgress =
+  | {
+      readonly kind:
+        | 'awaiting-ci'
+        | 'deploying'
+        | 'ci-failed'
+        | 'deploy-cancelled';
+    }
+  | { readonly kind: 'deploy-failed'; readonly runUrl: string };
+
 interface PullState {
   readonly state: 'open' | 'closed';
   readonly headSha: string;
@@ -105,6 +116,12 @@ const validatePrNumber = (prNumber: string) => {
 const validateSha = (name: string, sha: string) => {
   if (!SHA_PATTERN.test(sha))
     throw new Error(`${name} must be a 40-character SHA`);
+};
+
+const validateRunId = (runId: string) => {
+  if (!/^[1-9]\d*$/.test(runId)) {
+    throw new Error('Workflow run ID must be a positive integer');
+  }
 };
 
 const validateBunExecutable = (value: string) => {
@@ -597,25 +614,14 @@ export const createVoiceBenchmarkArchive = async (
 const stateMarker = (state: PreviewCommentState) =>
   `<!-- pr-preview-state ${JSON.stringify({ approvedSha: state.approvedSha, deployedSha: state.deployedSha })} -->`;
 
-const updateApprovedMarker = (
-  body: string,
-  approvedSha: string,
-  deployedSha?: string,
-) => {
-  const marker = stateMarker({ approvedSha, deployedSha });
-  if (STATE_PATTERN.test(body)) return body.replace(STATE_PATTERN, marker);
-  return body.replace(COMMENT_MARKER, `${COMMENT_MARKER}\n${marker}`);
-};
-
 export const renderDeployedComment = (state: {
+  readonly repository: string;
   readonly approvedSha: string;
   readonly deployedSha: string;
   readonly demoUrl: string;
   readonly docsUrl: string;
   readonly wwwUrl: string;
-}) => `${COMMENT_MARKER}
-${stateMarker(state)}
-**PR previews deployed** for commit ${state.deployedSha}
+}) => `${renderPreviewHeader(state.repository, state)}
 
 | App | Preview |
 | --- | --- |
@@ -627,11 +633,78 @@ The demo is bring-your-own-key. This preview runs the approved PR branch code, s
 
 Remove the \`deploy-preview\` label or close this PR to tear the preview down.`;
 
-const renderApprovalComment = (approvedSha: string) => `${COMMENT_MARKER}
-${stateMarker({ approvedSha })}
-**PR preview approved** for commit ${approvedSha}.
+const renderPreviewComment = (
+  repository: string,
+  existing: PreviewComment | undefined,
+  state: PreviewCommentState,
+  progress: PreviewProgress,
+) => {
+  const header = renderPreviewHeader(repository, state, progress);
+  if (!state.deployedSha || !existing) return header;
+  const detailsStart = existing.body.indexOf('\n\n');
+  return detailsStart < 0
+    ? header
+    : `${header}${existing.body.slice(detailsStart)}`;
+};
 
-The previous deployed preview remains available until this approved revision deploys successfully.`;
+const renderPreviewHeader = (
+  repository: string,
+  state: PreviewCommentState,
+  progress?: PreviewProgress,
+) => {
+  const lines = [COMMENT_MARKER, stateMarker(state)];
+  const approved =
+    state.approvedSha && commitLink(repository, state.approvedSha);
+  if (state.deployedSha) {
+    const deployed = commitLink(repository, state.deployedSha);
+    lines.push(`✅ **Preview deployed** for ${deployed}`);
+    if (approved && progress && state.approvedSha !== state.deployedSha)
+      lines.push(renderProgressBesideDeployed(progress, approved, deployed));
+  } else if (approved && progress) {
+    lines.push(renderProgressHeadline(progress, approved));
+  }
+  return lines.join('\n');
+};
+
+const renderProgressHeadline = (
+  progress: PreviewProgress,
+  approved: string,
+) => {
+  switch (progress.kind) {
+    case 'awaiting-ci':
+      return `🟡 **Preview approved** for ${approved}, waiting for CI`;
+    case 'deploying':
+      return `🚀 **Deploying preview** for ${approved}`;
+    case 'ci-failed':
+      return `❌ CI failed on ${approved}, so no deploy is coming.`;
+    case 'deploy-cancelled':
+      return `⏸️ Deploy of ${approved} was cancelled. Add \`deploy-preview\` again to redeploy.`;
+    case 'deploy-failed':
+      return `💥 **Preview deploy failed** for ${approved} ([run](${progress.runUrl}))`;
+  }
+};
+
+const renderProgressBesideDeployed = (
+  progress: PreviewProgress,
+  approved: string,
+  deployed: string,
+) => {
+  const stillShows = `The preview still shows ${deployed}.`;
+  switch (progress.kind) {
+    case 'awaiting-ci':
+      return `⏳ Newer commit ${approved} is waiting for CI. ${stillShows}`;
+    case 'deploying':
+    case 'deploy-failed':
+      return `${renderProgressHeadline(progress, approved)}. ${stillShows}`;
+    case 'ci-failed':
+      return `${renderProgressHeadline(progress, approved)} ${stillShows}`;
+    case 'deploy-cancelled':
+      return renderProgressHeadline(progress, approved);
+  }
+};
+
+const commitLink = (repository: string, sha: string) =>
+  `[${sha.slice(0, 7)}](https://github.com/${repository}/commit/${sha})`;
 
 const assertApprovalEligible = (
   pull: PullState,
@@ -667,6 +740,7 @@ export const approvePreview = async (
     readonly repository: string;
     readonly prNumber: string;
     readonly eventHeadSha: string;
+    readonly progress: 'awaiting-ci' | 'deploying';
   },
   dependencies: PreviewGithubDependencies,
 ) => {
@@ -695,14 +769,12 @@ export const approvePreview = async (
   );
   const comment = current.comment;
   const previous = comment ? parsePreviewComment(comment.body) : {};
-  const body =
-    comment && previous.deployedSha
-      ? updateApprovedMarker(
-          comment.body,
-          options.eventHeadSha,
-          previous.deployedSha,
-        )
-      : renderApprovalComment(options.eventHeadSha);
+  const body = renderPreviewComment(
+    options.repository,
+    comment,
+    { approvedSha: options.eventHeadSha, deployedSha: previous.deployedSha },
+    { kind: options.progress },
+  );
   // GitHub has no conditional comment PATCH. This final snapshot minimizes but
   // cannot eliminate a provider race between the read and write.
   await upsertPreviewComment(
@@ -726,6 +798,7 @@ export const approveMaintainerPreview = async (
       repository: options.repository,
       prNumber: selected.prNumber,
       eventHeadSha: selected.headSha,
+      progress: 'deploying',
     },
     dependencies,
   );
@@ -838,6 +911,7 @@ export const invalidatePreviewApproval = async (
           repository: options.repository,
           prNumber: options.prNumber,
           eventHeadSha: options.afterSha,
+          progress: 'awaiting-ci',
         },
         dependencies,
       );
@@ -1198,12 +1272,175 @@ export const finishPreviewDeployment = async (
     options.prNumber,
     intent.comment,
     renderDeployedComment({
+      repository: options.repository,
       approvedSha: options.approvedSha,
       deployedSha: options.approvedSha,
       ...urls,
     }),
     dependencies,
   );
+};
+
+/** Shows that CI failed on the approved head when no deployment of that head is coming. */
+export const reportPreviewCiFailure = async (
+  options: {
+    readonly repository: string;
+    readonly prNumber: string;
+    readonly runId: string;
+  },
+  dependencies: PreviewGithubDependencies,
+) => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  validateRunId(options.runId);
+  const headSha = await readFailedCiHead(
+    options.repository,
+    options.prNumber,
+    options.runId,
+    dependencies,
+  );
+  if (!headSha) return false;
+  // A label-triggered deployment waiting for a reviewer does not depend on CI.
+  if (
+    await hasPendingApprovalNotice(
+      options.repository,
+      options.prNumber,
+      headSha,
+      dependencies,
+    )
+  )
+    return false;
+  return writeUndeployedApprovalProgress(
+    options.repository,
+    options.prNumber,
+    headSha,
+    { kind: 'ci-failed' },
+    dependencies,
+  );
+};
+
+/** Shows why the approved head has no preview after its deploy job stopped without success. */
+export const reportPreviewDeployOutcome = async (
+  options: {
+    readonly repository: string;
+    readonly prNumber: string;
+    readonly approvedSha: string;
+    readonly result: string;
+    readonly runId: string;
+  },
+  dependencies: PreviewGithubDependencies,
+) => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  validateSha('Approved SHA', options.approvedSha);
+  validateRunId(options.runId);
+  return writeUndeployedApprovalProgress(
+    options.repository,
+    options.prNumber,
+    options.approvedSha,
+    deployOutcomeProgress(options.repository, options.result, options.runId),
+    dependencies,
+  );
+};
+
+const readFailedCiHead = async (
+  repository: string,
+  prNumber: string,
+  runId: string,
+  dependencies: PreviewGithubDependencies,
+) => {
+  const run = await responseJson(
+    await githubRequest(dependencies, repository, `/actions/runs/${runId}`),
+    'CI run',
+  );
+  if (
+    !isRecord(run) ||
+    String(run.id) !== runId ||
+    run.name !== 'CI' ||
+    run.path !== '.github/workflows/ci.yml' ||
+    run.status !== 'completed' ||
+    run.conclusion !== 'failure' ||
+    run.event !== 'pull_request' ||
+    !isRecord(run.repository) ||
+    run.repository.full_name !== repository ||
+    !isRecord(run.head_repository) ||
+    run.head_repository.full_name !== repository ||
+    typeof run.head_sha !== 'string' ||
+    !SHA_PATTERN.test(run.head_sha) ||
+    !Array.isArray(run.pull_requests) ||
+    run.pull_requests.length !== 1 ||
+    !isRecord(run.pull_requests[0]) ||
+    String(run.pull_requests[0].number) !== prNumber
+  )
+    return undefined;
+  return run.head_sha;
+};
+
+const hasPendingApprovalNotice = async (
+  repository: string,
+  prNumber: string,
+  sha: string,
+  dependencies: PreviewGithubDependencies,
+) =>
+  parseCommentEnvelope(
+    await readGithubPages(
+      repository,
+      `/issues/${prNumber}/comments`,
+      dependencies,
+    ),
+    APPROVAL_NOTICE_MARKER,
+  ).some(
+    (notice) =>
+      notice.body.startsWith(APPROVAL_NOTICE_MARKER) &&
+      notice.body.includes(sha),
+  );
+
+const deployOutcomeProgress = (
+  repository: string,
+  result: string,
+  runId: string,
+): PreviewProgress => {
+  if (result === 'cancelled') return { kind: 'deploy-cancelled' };
+  if (result === 'failure') {
+    return {
+      kind: 'deploy-failed',
+      runUrl: `https://github.com/${repository}/actions/runs/${runId}`,
+    };
+  }
+  throw new Error('Deploy result must be failure or cancelled');
+};
+
+const writeUndeployedApprovalProgress = async (
+  repository: string,
+  prNumber: string,
+  approvedSha: string,
+  progress: PreviewProgress,
+  dependencies: PreviewGithubDependencies,
+) => {
+  const { pull, comment } = await readApprovalSnapshot(
+    repository,
+    prNumber,
+    dependencies,
+  );
+  const marker = comment ? parsePreviewComment(comment.body) : {};
+  if (
+    !comment ||
+    pull.state !== 'open' ||
+    pull.headRepository !== repository ||
+    pull.headSha !== approvedSha ||
+    !pull.labeled ||
+    marker.approvedSha !== approvedSha ||
+    marker.deployedSha === approvedSha
+  )
+    return false;
+  await upsertPreviewComment(
+    repository,
+    prNumber,
+    comment,
+    renderPreviewComment(repository, comment, marker, progress),
+    dependencies,
+  );
+  return true;
 };
 
 export const decideTeardownScope = (
@@ -1269,8 +1506,8 @@ const renderTeardownComment = (complete: boolean) => `${COMMENT_MARKER}
 ${stateMarker({})}
 ${
   complete
-    ? '**PR previews torn down.** The three known Alchemy preview stacks and exact preview Worker names were cleaned up.'
-    : '**PR preview teardown incomplete.** At least one known Cloudflare cleanup operation failed. Retry this workflow before assuming cleanup finished.'
+    ? '🧹 **Preview removed.** The three known Alchemy preview stacks and exact preview Worker names were cleaned up.'
+    : '⚠️ **Preview teardown incomplete.** At least one known Cloudflare cleanup operation failed. Retry this workflow before assuming cleanup finished.'
 }
 
 Re-add the \`deploy-preview\` label while the PR is open to create a new approval.`;
@@ -1499,6 +1736,7 @@ const cli = async () => {
         repository,
         prNumber,
         eventHeadSha: required(environment, 'EVENT_HEAD_SHA'),
+        progress: 'deploying',
       },
       dependencies,
     );
@@ -1517,6 +1755,34 @@ const cli = async () => {
       ))
     ) {
       console.log('No current maintainer preview is eligible for this CI run');
+    }
+    return;
+  }
+  if (command === 'report-ci-failure') {
+    if (
+      !(await reportPreviewCiFailure(
+        { repository, prNumber, runId: required(environment, 'CI_RUN_ID') },
+        dependencies,
+      ))
+    ) {
+      console.log('The failed CI run has no current undeployed approval');
+    }
+    return;
+  }
+  if (command === 'report-deploy-outcome') {
+    if (
+      !(await reportPreviewDeployOutcome(
+        {
+          repository,
+          prNumber,
+          approvedSha: required(environment, 'APPROVED_SHA'),
+          result: required(environment, 'DEPLOY_RESULT'),
+          runId: required(environment, 'GITHUB_RUN_ID'),
+        },
+        dependencies,
+      ))
+    ) {
+      console.log('The deploy outcome has no current undeployed approval');
     }
     return;
   }
@@ -1614,7 +1880,7 @@ const cli = async () => {
     return;
   }
   throw new Error(
-    'Usage: preview-lifecycle.ts approve|deploy-app|finish-deployment|invalidate|teardown|discover',
+    'Usage: preview-lifecycle.ts approve|approve-ci|deploy-app|finish-deployment|invalidate|report-ci-failure|report-deploy-outcome|teardown|discover',
   );
 };
 
