@@ -20,6 +20,15 @@ const APPROVAL_NOTICE_MARKER = '<!-- preview-approval-request -->';
 export const VOICE_BENCHMARK_MARKER = '<!-- pr-voice-benchmark -->';
 export const VOICE_BENCHMARK_ARCHIVE_MARKER =
   '<!-- pr-voice-benchmark-archive -->';
+/** Job and step names in `deploy-preview.yml` that preview status reports look up through the workflow jobs API. */
+export const DEPLOY_WORKFLOW_NAMES = {
+  /** Records the approved head before any deploy of it can start. */
+  approveJob: 'Record Preview Approval',
+  /** Waits for the environment review, then builds and publishes the previews. */
+  deployJob: 'Deploy Preview',
+  /** The first deploy step that can publish a preview app. */
+  firstPublishStep: 'Deploy demo preview',
+} as const;
 const STATE_PATTERN = /<!-- pr-preview-state (\{[^\n]*\}) -->/;
 const LEGACY_DEPLOYED_PATTERN =
   /\*\*PR previews deployed\*\* for commit ([0-9a-f]{40})/;
@@ -81,10 +90,25 @@ type PreviewProgress =
       readonly kind: 'ci-unfinished';
       readonly conclusion: UnfinishedCiConclusion;
     }
+  | { readonly kind: 'deploy-not-started'; readonly runUrl: string }
   | {
       readonly kind: 'deploy-cancelled' | 'deploy-failed';
       readonly runUrl: string;
+      readonly publishStarted: boolean;
     };
+
+interface WorkflowStep {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+}
+
+interface WorkflowJob {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly steps?: readonly WorkflowStep[];
+}
 
 interface PullState {
   readonly state: 'open' | 'closed';
@@ -693,6 +717,8 @@ const renderProgressHeadline = (
       return `${deployCancelledLead(approved)} ${rerunDeployLink(progress.runUrl)}`;
     case 'deploy-failed':
       return `${deployFailedLead(approved)} ([run](${progress.runUrl}))`;
+    case 'deploy-not-started':
+      return `${deployNotStartedLead(approved)} ([run](${progress.runUrl})).`;
   }
 };
 
@@ -703,8 +729,11 @@ const renderProgressBesideDeployed = (
 ) => {
   const stillShows = `The preview still shows ${deployed}.`;
   // The deploy job publishes the demo before the other apps, so a deploy that
-  // started can leave the preview mixed.
-  const partlyUpdated = `Some preview apps may already run ${approved}.`;
+  // reached publishing can leave the preview mixed.
+  const afterStop = (publishStarted: boolean) =>
+    publishStarted
+      ? `Some preview apps may already run ${approved}.`
+      : stillShows;
   switch (progress.kind) {
     case 'awaiting-ci':
       return `⏳ Newer commit ${approved} is waiting for CI. ${stillShows}`;
@@ -712,11 +741,12 @@ const renderProgressBesideDeployed = (
       return renderProgressHeadline(progress, approved);
     case 'ci-failed':
     case 'ci-unfinished':
+    case 'deploy-not-started':
       return `${renderProgressHeadline(progress, approved)} ${stillShows}`;
     case 'deploy-failed':
-      return `${renderProgressHeadline(progress, approved)}. ${partlyUpdated}`;
+      return `${renderProgressHeadline(progress, approved)}. ${afterStop(progress.publishStarted)}`;
     case 'deploy-cancelled':
-      return `${deployCancelledLead(approved)} ${partlyUpdated} ${rerunDeployLink(progress.runUrl)}`;
+      return `${deployCancelledLead(approved)} ${afterStop(progress.publishStarted)} ${rerunDeployLink(progress.runUrl)}`;
   }
 };
 
@@ -725,6 +755,9 @@ const deployFailedLead = (approved: string) =>
 
 const deployCancelledLead = (approved: string) =>
   `⏸️ Deploy of ${approved} was cancelled.`;
+
+const deployNotStartedLead = (approved: string) =>
+  `🚫 Deploy of ${approved} did not start`;
 
 const rerunDeployLink = (runUrl: string) =>
   `[Re-run the deploy](${runUrl}) to try again.`;
@@ -1334,7 +1367,7 @@ export const reportPreviewCiFailure = async (
     dependencies,
     // A deploy outcome keeps its run link until a newer attempt or head. A
     // label-triggered deploy does not depend on CI, and its approval write
-    // lands before its notice, so its active run also counts as pending.
+    // lands before its notice, so its pending run also stands the report down.
     async (comment) =>
       reportsDeployOutcome(
         options.repository,
@@ -1347,7 +1380,7 @@ export const reportPreviewCiFailure = async (
         unsuccessful.headSha,
         dependencies,
       )) ||
-      (await hasActiveLabelTriggeredRun(
+      (await hasPendingLabelDeploy(
         options.repository,
         unsuccessful.headSha,
         dependencies,
@@ -1355,13 +1388,14 @@ export const reportPreviewCiFailure = async (
   );
 };
 
-/** Shows why the approved head has no preview after its deploy job stopped without success. */
+/** Shows why the approved head has no preview after its approval or deploy job stopped without success. */
 export const reportPreviewDeployOutcome = async (
   options: {
     readonly repository: string;
     readonly prNumber: string;
     readonly approvedSha: string;
-    readonly result: string;
+    readonly approveResult: string;
+    readonly deployResult: string;
     readonly runId: string;
   },
   dependencies: PreviewGithubDependencies,
@@ -1370,11 +1404,12 @@ export const reportPreviewDeployOutcome = async (
   validatePrNumber(options.prNumber);
   validateSha('Approved SHA', options.approvedSha);
   validateRunId(options.runId);
+  const progress = await readDeployOutcomeProgress(options, dependencies);
   return writeUndeployedApprovalProgress(
     options.repository,
     options.prNumber,
     options.approvedSha,
-    deployOutcomeProgress(options.repository, options.result, options.runId),
+    progress,
     dependencies,
   );
 };
@@ -1455,11 +1490,15 @@ const reportsDeployOutcome = (
     .some(
       (line) =>
         line.startsWith(deployFailedLead(approved)) ||
-        line.startsWith(deployCancelledLead(approved)),
+        line.startsWith(deployCancelledLead(approved)) ||
+        line.startsWith(deployNotStartedLead(approved)),
     );
 };
 
-const hasActiveLabelTriggeredRun = async (
+// The workflow also runs for other label events, and their benchmark job can
+// wait for an environment review indefinitely. Only a run whose approval job
+// ran and whose deploy job has not finished can still deploy the head.
+const hasPendingLabelDeploy = async (
   repository: string,
   sha: string,
   dependencies: PreviewGithubDependencies,
@@ -1478,30 +1517,116 @@ const hasActiveLabelTriggeredRun = async (
     !runs.every(
       (run) =>
         isRecord(run) &&
+        Number.isSafeInteger(run.id) &&
+        (run.id as number) > 0 &&
         typeof run.event === 'string' &&
         typeof run.head_sha === 'string' &&
         typeof run.status === 'string',
     )
   )
     throw new Error('GitHub returned an invalid workflow runs envelope');
-  return runs.some(
-    (run) =>
-      run.event === 'pull_request_target' &&
-      run.head_sha === sha &&
-      run.status !== 'completed',
-  );
+  for (const run of runs) {
+    if (
+      run.event !== 'pull_request_target' ||
+      run.head_sha !== sha ||
+      run.status === 'completed'
+    )
+      continue;
+    const jobs = await readWorkflowJobs(
+      repository,
+      String(run.id),
+      dependencies,
+    );
+    if (awaitsLabelDeploy(jobs)) return true;
+  }
+  return false;
 };
 
-const deployOutcomeProgress = (
-  repository: string,
-  result: string,
-  runId: string,
-): PreviewProgress => {
-  const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
-  if (result === 'cancelled') return { kind: 'deploy-cancelled', runUrl };
-  if (result === 'failure') return { kind: 'deploy-failed', runUrl };
-  throw new Error('Deploy result must be failure or cancelled');
+const awaitsLabelDeploy = (jobs: readonly WorkflowJob[]) => {
+  const approve = jobs.find(
+    (job) => job.name === DEPLOY_WORKFLOW_NAMES.approveJob,
+  );
+  if (!approve) return false;
+  if (approve.status !== 'completed') return true;
+  if (approve.conclusion !== 'success') return false;
+  const deploy = jobs.find(
+    (job) => job.name === DEPLOY_WORKFLOW_NAMES.deployJob,
+  );
+  return deploy?.status !== 'completed';
 };
+
+const readDeployOutcomeProgress = async (
+  options: {
+    readonly repository: string;
+    readonly approveResult: string;
+    readonly deployResult: string;
+    readonly runId: string;
+  },
+  dependencies: PreviewGithubDependencies,
+): Promise<PreviewProgress> => {
+  const runUrl = `https://github.com/${options.repository}/actions/runs/${options.runId}`;
+  // An approval job that stopped after recording the approval never let the
+  // deploy job run, so nothing was published.
+  if (options.approveResult === 'failure')
+    return { kind: 'deploy-not-started', runUrl };
+  if (options.approveResult === 'cancelled')
+    return { kind: 'deploy-cancelled', runUrl, publishStarted: false };
+  if (
+    options.approveResult !== 'success' ||
+    (options.deployResult !== 'failure' && options.deployResult !== 'cancelled')
+  )
+    throw new Error('Approval or deploy result must be failure or cancelled');
+  const steps = (
+    await readWorkflowJobs(options.repository, options.runId, dependencies)
+  ).find((job) => job.name === DEPLOY_WORKFLOW_NAMES.deployJob)?.steps;
+  // A rejected environment review or a cancelled wait ends the deploy job
+  // before a runner starts it, so it has no steps.
+  if (steps?.length === 0)
+    return options.deployResult === 'failure'
+      ? { kind: 'deploy-not-started', runUrl }
+      : { kind: 'deploy-cancelled', runUrl, publishStarted: false };
+  const publishStarted =
+    steps?.find((step) => step.name === DEPLOY_WORKFLOW_NAMES.firstPublishStep)
+      ?.conclusion !== 'skipped';
+  return {
+    kind:
+      options.deployResult === 'failure' ? 'deploy-failed' : 'deploy-cancelled',
+    runUrl,
+    publishStarted,
+  };
+};
+
+const readWorkflowJobs = async (
+  repository: string,
+  runId: string,
+  dependencies: PreviewGithubDependencies,
+): Promise<readonly WorkflowJob[]> => {
+  const value = await responseJson(
+    await githubRequest(
+      dependencies,
+      repository,
+      `/actions/runs/${runId}/jobs?per_page=100`,
+    ),
+    'workflow jobs',
+  );
+  const jobs = isRecord(value) ? value.jobs : undefined;
+  if (!Array.isArray(jobs) || !jobs.every(isWorkflowJob))
+    throw new Error('GitHub returned an invalid workflow jobs envelope');
+  return jobs;
+};
+
+const isWorkflowJob = (value: unknown): value is WorkflowJob =>
+  hasNameAndStatus(value) &&
+  (value.steps === undefined ||
+    (Array.isArray(value.steps) && value.steps.every(hasNameAndStatus)));
+
+const hasNameAndStatus = (
+  value: unknown,
+): value is WorkflowStep & Record<string, unknown> =>
+  isRecord(value) &&
+  typeof value.name === 'string' &&
+  typeof value.status === 'string' &&
+  (value.conclusion === null || typeof value.conclusion === 'string');
 
 const writeUndeployedApprovalProgress = async (
   repository: string,
@@ -1872,7 +1997,8 @@ const cli = async () => {
           repository,
           prNumber,
           approvedSha: required(environment, 'APPROVED_SHA'),
-          result: required(environment, 'DEPLOY_RESULT'),
+          approveResult: required(environment, 'APPROVE_RESULT'),
+          deployResult: required(environment, 'DEPLOY_RESULT'),
           runId: required(environment, 'GITHUB_RUN_ID'),
         },
         dependencies,

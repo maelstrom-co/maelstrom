@@ -24,7 +24,7 @@ policy and mutations:
 - `deploy-preview.yml` records a human label approval, builds the approved
   same-repository source without credentials, and deploys the three apps. It
   also marks the preview comment when CI on the approved head fails or stops
-  without finishing, or when a deploy job ends without success.
+  without finishing, or when its approval or deploy job ends without success.
 - `invalidate-preview-approval.yml` removes an approval after a source push
   only when the recorded approval still belongs to the previous SHA.
 - `teardown-preview.yml` handles label removal, closure, and default-branch
@@ -52,8 +52,12 @@ They keep both hidden SHAs and change nothing unless a final live read still
 shows an open, labeled PR whose head is the recorded, undeployed approval. The
 CI status job checks the live label and head before any checkout, so other CI
 runs only start a runner briefly. A CI status also stands down while a
-label-triggered run for that head is active or its notice is up, and it never
-replaces a deploy failure or cancellation shown for that head.
+label-triggered deploy of that head is pending or its notice is up, and it never
+replaces a deploy outcome shown for that head. A label run counts as a pending
+deploy only while its approval job runs or its deploy job has not finished, so
+other label events do not hide a CI failure. A deploy outcome drops the hedge
+that some apps may already run the new commit when the deploy job never ran or
+stopped before its first publishing step.
 
 Cloudflare mutations use one non-cancelling per-PR queue and recheck live pull
 request state, label, comment marker, repository, and approved SHA. Queue order

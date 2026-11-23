@@ -38,6 +38,7 @@ interface GithubState {
   }>;
   ciRun?: unknown;
   deployRuns?: unknown[];
+  runJobs?: Record<string, unknown>;
 }
 
 const markerBody = (approvedSha?: string, deployedSha?: string) => {
@@ -108,6 +109,13 @@ const githubFetch = (
       }
       if (url.includes('/issues/42/comments') && method === 'GET') {
         return Response.json(state.comments);
+      }
+      const jobsOfRun = /\/actions\/runs\/(\d+)\/jobs\?/.exec(url)?.[1];
+      if (jobsOfRun && method === 'GET') {
+        const jobs = state.runJobs?.[jobsOfRun] ?? [];
+        return Response.json(
+          Array.isArray(jobs) ? { total_count: jobs.length, jobs } : jobs,
+        );
       }
       if (url.includes('/actions/runs/') && method === 'GET') {
         return Response.json(state.ciRun);
@@ -643,6 +651,21 @@ const labelTriggeredRun = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const workflowJob = (
+  name: string,
+  status: string,
+  conclusion: string | null = null,
+  steps: unknown[] = [],
+) => ({ name, status, conclusion, steps });
+
+const finishedJob = (name: string, conclusion: string, steps?: unknown[]) =>
+  workflowJob(name, 'completed', conclusion, steps);
+
+const approvedLabelRunJobs = (...later: unknown[]) => [
+  finishedJob('Record Preview Approval', 'success'),
+  ...later,
+];
+
 const previousFormatApprovalNotice = (sha: string) =>
   `${APPROVAL_NOTICE_MARKER_FOR_TEST}\nA \`preview\` environment approval is pending for commit ${sha}: [review the run](https://github.com/${REPOSITORY}/actions/runs/9).\n\nThe run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.`;
 
@@ -800,10 +823,29 @@ describe('reportPreviewCiFailure', () => {
         ],
       },
     ],
-    ...['queued', 'requested', 'waiting', 'pending', 'in_progress'].map(
+    [
+      'a label deploy whose approval job is still running',
+      {
+        deployRuns: [labelTriggeredRun({ status: 'in_progress' })],
+        runJobs: { 9: [workflowJob('Record Preview Approval', 'in_progress')] },
+      },
+    ],
+    [
+      'a label deploy whose deploy job is not listed yet',
+      {
+        deployRuns: [labelTriggeredRun({ status: 'in_progress' })],
+        runJobs: { 9: approvedLabelRunJobs() },
+      },
+    ],
+    ...['waiting', 'queued', 'pending', 'in_progress'].map(
       (status): [string, Partial<GithubState>] => [
-        `a label-triggered run for the head that is ${status}`,
-        { deployRuns: [labelTriggeredRun({ status })] },
+        `a label deploy whose deploy job is ${status}`,
+        {
+          deployRuns: [labelTriggeredRun({ status })],
+          runJobs: {
+            9: approvedLabelRunJobs(workflowJob('Deploy Preview', status)),
+          },
+        },
       ],
     ),
   ])('ignores %s', async (_name, overrides) => {
@@ -831,6 +873,8 @@ describe('reportPreviewCiFailure', () => {
     const state = baseState({
       sha: SHA_B,
       ciRun: failedCiRun(),
+      deployRuns: [labelTriggeredRun({ status: 'waiting' })],
+      runJobs: { 9: [finishedJob('Record Preview Approval', 'skipped')] },
       comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
     });
     const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -851,6 +895,7 @@ describe('reportPreviewCiFailure', () => {
       'GET /issues/42/comments?per_page=100',
       'GET /issues/42/comments?per_page=100',
       `GET /actions/workflows/deploy-preview.yml/runs?event=pull_request_target&head_sha=${SHA_B}&per_page=100`,
+      'GET /actions/runs/9/jobs?per_page=100',
       'PATCH /issues/comments/1',
     ]);
   });
@@ -861,6 +906,7 @@ describe('reportPreviewCiFailure', () => {
         sha: SHA_B,
         ciRun: failedCiRun(),
         deployRuns: [labelTriggeredRun({ status: 'in_progress' })],
+        runJobs: { 9: [workflowJob('Record Preview Approval', 'in_progress')] },
         comments: [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))],
       });
       const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -889,21 +935,68 @@ describe('reportPreviewCiFailure', () => {
     }
   });
 
-  test.each([
-    ['a finished label-triggered run', labelTriggeredRun()],
+  test.each<[string, Record<string, unknown>, unknown[]]>([
+    [
+      'a finished label-triggered run',
+      labelTriggeredRun(),
+      approvedLabelRunJobs(workflowJob('Deploy Preview', 'waiting')),
+    ],
     [
       'an automatic run',
       labelTriggeredRun({ event: 'workflow_run', status: 'in_progress' }),
+      approvedLabelRunJobs(workflowJob('Deploy Preview', 'waiting')),
     ],
     [
       'a label-triggered run for an earlier head',
       labelTriggeredRun({ head_sha: SHA_A, status: 'waiting' }),
+      approvedLabelRunJobs(workflowJob('Deploy Preview', 'waiting')),
     ],
-  ])('still reports CI beside %s', async (_name, run) => {
+    [
+      'a benchmark label run waiting for the preview environment',
+      labelTriggeredRun({ status: 'waiting' }),
+      [
+        finishedJob('Record Preview Approval', 'skipped'),
+        finishedJob('Deploy Preview', 'skipped'),
+        finishedJob('Check Voice Benchmark Request', 'success'),
+        workflowJob('Voice Benchmark', 'waiting'),
+      ],
+    ],
+    [
+      'an unlabel run that has not finished',
+      labelTriggeredRun({ status: 'in_progress' }),
+      [
+        finishedJob('Record Preview Approval', 'skipped'),
+        finishedJob('Deploy Preview', 'skipped'),
+        workflowJob('Check Voice Benchmark Request', 'in_progress'),
+      ],
+    ],
+    [
+      'a label run whose deploy job ended while its benchmark waits',
+      labelTriggeredRun({ status: 'waiting' }),
+      approvedLabelRunJobs(
+        finishedJob('Deploy Preview', 'failure'),
+        workflowJob('Voice Benchmark', 'waiting'),
+      ),
+    ],
+    [
+      'a label run whose approval job failed',
+      labelTriggeredRun({ status: 'in_progress' }),
+      [
+        finishedJob('Record Preview Approval', 'failure'),
+        finishedJob('Deploy Preview', 'skipped'),
+      ],
+    ],
+    [
+      'a label run that has not listed its approval job yet',
+      labelTriggeredRun({ status: 'queued' }),
+      [],
+    ],
+  ])('still reports CI beside %s', async (_name, run, jobs) => {
     const state = baseState({
       sha: SHA_B,
       ciRun: failedCiRun(),
       deployRuns: [run],
+      runJobs: { 9: jobs },
       comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
     });
 
@@ -916,32 +1009,65 @@ describe('reportPreviewCiFailure', () => {
     expect(state.comments[0]!.body).toContain('❌ CI failed on');
   });
 
-  test('refuses to write when GitHub returns an invalid workflow runs envelope', async () => {
-    const state = baseState({
-      sha: SHA_B,
-      ciRun: failedCiRun(),
-      deployRuns: [{ id: 9 }],
-      comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
-    });
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+  test.each<[string, Partial<GithubState>, string]>([
+    ['a run without fields', { deployRuns: [{ id: 9 }] }, 'workflow runs'],
+    [
+      'a run with an unusable ID',
+      { deployRuns: [labelTriggeredRun({ id: '9/../7', status: 'waiting' })] },
+      'workflow runs',
+    ],
+    [
+      'a jobs list that is not an array',
+      {
+        deployRuns: [labelTriggeredRun({ status: 'waiting' })],
+        runJobs: { 9: { jobs: 'none' } },
+      },
+      'workflow jobs',
+    ],
+    [
+      'a job without a status',
+      {
+        deployRuns: [labelTriggeredRun({ status: 'waiting' })],
+        runJobs: { 9: [{ name: 'Record Preview Approval', steps: [] }] },
+      },
+      'workflow jobs',
+    ],
+  ])(
+    'refuses to write when GitHub returns %s',
+    async (_name, overrides, error) => {
+      const state = baseState({
+        sha: SHA_B,
+        ciRun: failedCiRun(),
+        comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
+        ...overrides,
+      });
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
 
-    await expect(
-      reportPreviewCiFailure(
-        { repository: REPOSITORY, prNumber: '42', runId: '7' },
-        dependencies(githubFetch(state, calls)),
+      await expect(
+        reportPreviewCiFailure(
+          { repository: REPOSITORY, prNumber: '42', runId: '7' },
+          dependencies(githubFetch(state, calls)),
+        ),
+      ).rejects.toThrow(error);
+      expect(commentWrites(calls)).toEqual([]);
+    },
+  );
+
+  test.each(
+    (
+      [
+        ['success', 'failure'],
+        ['success', 'cancelled'],
+        ['failure', 'skipped'],
+      ] as const
+    ).flatMap(([approveResult, deployResult]) =>
+      [previouslyPostedDeployedBody(SHA_B, SHA_A), markerBody(SHA_B)].map(
+        (previous) => [approveResult, deployResult, previous] as const,
       ),
-    ).rejects.toThrow('workflow runs');
-    expect(commentWrites(calls)).toEqual([]);
-  });
-
-  test.each([
-    ['failure', previouslyPostedDeployedBody(SHA_B, SHA_A)],
-    ['failure', markerBody(SHA_B)],
-    ['cancelled', previouslyPostedDeployedBody(SHA_B, SHA_A)],
-    ['cancelled', markerBody(SHA_B)],
-  ] as const)(
-    'a later CI report keeps the %s deploy line and its run link',
-    async (result, previous) => {
+    ),
+  )(
+    'a later CI report keeps the deploy line and its run link after approval %s and deploy %s',
+    async (approveResult, deployResult, previous) => {
       const state = baseState({
         sha: SHA_B,
         ciRun: failedCiRun(),
@@ -952,7 +1078,8 @@ describe('reportPreviewCiFailure', () => {
           repository: REPOSITORY,
           prNumber: '42',
           approvedSha: SHA_B,
-          result,
+          approveResult,
+          deployResult,
           runId: '555',
         },
         dependencies(githubFetch(state, [])),
@@ -985,7 +1112,8 @@ describe('reportPreviewCiFailure', () => {
         repository: REPOSITORY,
         prNumber: '42',
         approvedSha: SHA_B,
-        result: 'failure',
+        approveResult: 'success',
+        deployResult: 'failure',
         runId: '555',
       },
       dependencies(githubFetch(state, [])),
@@ -1033,67 +1161,249 @@ describe('reportPreviewCiFailure', () => {
 
 describe('reportPreviewDeployOutcome', () => {
   const runUrl = `https://github.com/${REPOSITORY}/actions/runs/555`;
+  const approved = commitLink(SHA_B);
+  const deployed = commitLink(SHA_A);
+  const runStep = (name: string, conclusion: string) => ({
+    name,
+    status: 'completed',
+    conclusion,
+  });
+  const publishingSteps = (conclusion: string) => [
+    runStep('Set up job', 'success'),
+    runStep('Build independent preview artifacts', 'success'),
+    runStep('Deploy demo preview', conclusion),
+    runStep('Deploy remaining previews', 'skipped'),
+  ];
+  const stepsStoppedBeforePublishing = (conclusion: string) => [
+    runStep('Set up job', 'success'),
+    runStep('Build independent preview artifacts', conclusion),
+    runStep('Deploy demo preview', 'skipped'),
+    runStep('Deploy remaining previews', 'skipped'),
+  ];
+  const deployFailedLine = `💥 **Preview deploy failed** for ${approved} ([run](${runUrl}))`;
+  const notStartedLine = `🚫 Deploy of ${approved} did not start ([run](${runUrl})).`;
+  const cancelledLead = `⏸️ Deploy of ${approved} was cancelled.`;
+  const rerun = `[Re-run the deploy](${runUrl}) to try again.`;
+  const partlyUpdated = `Some preview apps may already run ${approved}.`;
+  const stillShows = `The preview still shows ${deployed}.`;
 
-  test.each([
+  test.each<
+    [string, string, string, unknown[] | null | undefined, string, string]
+  >([
     [
+      'a deploy that failed while publishing',
+      'success',
       'failure',
-      previouslyPostedDeployedBody(SHA_B, SHA_A),
-      [
-        `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-        `💥 **Preview deploy failed** for ${commitLink(SHA_B)} ([run](${runUrl})). Some preview apps may already run ${commitLink(SHA_B)}.`,
-      ],
+      publishingSteps('failure'),
+      `${deployFailedLine}. ${partlyUpdated}`,
+      deployFailedLine,
     ],
     [
+      'a deploy that failed before publishing',
+      'success',
       'failure',
-      markerBody(SHA_B),
-      [
-        `💥 **Preview deploy failed** for ${commitLink(SHA_B)} ([run](${runUrl}))`,
-      ],
+      stepsStoppedBeforePublishing('failure'),
+      `${deployFailedLine}. ${stillShows}`,
+      deployFailedLine,
     ],
     [
-      'cancelled',
-      previouslyPostedDeployedBody(SHA_B, SHA_A),
-      [
-        `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-        `⏸️ Deploy of ${commitLink(SHA_B)} was cancelled. Some preview apps may already run ${commitLink(SHA_B)}. [Re-run the deploy](${runUrl}) to try again.`,
-      ],
+      'a deploy whose environment review was rejected',
+      'success',
+      'failure',
+      [],
+      `${notStartedLine} ${stillShows}`,
+      notStartedLine,
     ],
     [
-      'cancelled',
-      markerBody(SHA_B),
-      [
-        `⏸️ Deploy of ${commitLink(SHA_B)} was cancelled. [Re-run the deploy](${runUrl}) to try again.`,
-      ],
+      'an approval job that failed after recording the approval',
+      'failure',
+      'skipped',
+      undefined,
+      `${notStartedLine} ${stillShows}`,
+      notStartedLine,
     ],
-  ] as const)(
-    'a %s deploy job explains why the approved commit is not deployed',
-    async (result, previous, expected) => {
-      const state = baseState({
-        sha: SHA_B,
-        comments: [botComment(1, previous)],
-      });
-
-      expect(
-        await reportPreviewDeployOutcome(
-          {
-            repository: REPOSITORY,
-            prNumber: '42',
-            approvedSha: SHA_B,
-            result,
-            runId: '555',
+    [
+      'a deploy cancelled while publishing',
+      'success',
+      'cancelled',
+      publishingSteps('cancelled'),
+      `${cancelledLead} ${partlyUpdated} ${rerun}`,
+      `${cancelledLead} ${rerun}`,
+    ],
+    [
+      'a deploy cancelled before publishing',
+      'success',
+      'cancelled',
+      stepsStoppedBeforePublishing('cancelled'),
+      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${rerun}`,
+    ],
+    [
+      'a deploy cancelled while it waited',
+      'success',
+      'cancelled',
+      [],
+      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${rerun}`,
+    ],
+    [
+      'an approval job cancelled after recording the approval',
+      'cancelled',
+      'cancelled',
+      undefined,
+      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${rerun}`,
+    ],
+    [
+      'a failed deploy job missing from the jobs list',
+      'success',
+      'failure',
+      undefined,
+      `${deployFailedLine}. ${partlyUpdated}`,
+      deployFailedLine,
+    ],
+    [
+      'a failed deploy job listed without steps',
+      'success',
+      'failure',
+      null,
+      `${deployFailedLine}. ${partlyUpdated}`,
+      deployFailedLine,
+    ],
+    [
+      'a failed deploy job whose steps omit the demo publish',
+      'success',
+      'failure',
+      [runStep('Set up job', 'failure')],
+      `${deployFailedLine}. ${partlyUpdated}`,
+      deployFailedLine,
+    ],
+  ])(
+    '%s explains why the approved commit is not deployed',
+    async (
+      _name,
+      approveResult,
+      deployResult,
+      deploySteps,
+      besideDeployed,
+      headline,
+    ) => {
+      for (const [previous, expected] of [
+        [
+          previouslyPostedDeployedBody(SHA_B, SHA_A),
+          [`✅ **Preview deployed** for ${deployed}`, besideDeployed],
+        ],
+        [markerBody(SHA_B), [headline]],
+      ] as const) {
+        const state = baseState({
+          sha: SHA_B,
+          comments: [botComment(1, previous)],
+          runJobs: {
+            555: [
+              finishedJob('Record Preview Approval', approveResult),
+              ...(deploySteps === undefined
+                ? []
+                : deploySteps === null
+                  ? [
+                      {
+                        name: 'Deploy Preview',
+                        status: 'completed',
+                        conclusion: deployResult,
+                      },
+                    ]
+                  : [finishedJob('Deploy Preview', deployResult, deploySteps)]),
+            ],
           },
-          dependencies(githubFetch(state, [])),
-        ),
-      ).toBeTrue();
+        });
 
-      const body = state.comments[0]!.body;
-      expect(parsePreviewComment(body)).toEqual(parsePreviewComment(previous));
-      expect(headlineLines(body)).toEqual([...expected]);
-      expect(headlineLines(body).join('\n')).not.toContain('deploy-preview');
-      if (previous.includes(PREVIEW_TABLE))
-        expect(body).toContain(`\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`);
+        expect(
+          await reportPreviewDeployOutcome(
+            {
+              repository: REPOSITORY,
+              prNumber: '42',
+              approvedSha: SHA_B,
+              approveResult,
+              deployResult,
+              runId: '555',
+            },
+            dependencies(githubFetch(state, [])),
+          ),
+        ).toBeTrue();
+
+        const body = state.comments[0]!.body;
+        expect(parsePreviewComment(body)).toEqual(
+          parsePreviewComment(previous),
+        );
+        expect(headlineLines(body)).toEqual([...expected]);
+        expect(headlineLines(body).join('\n')).not.toContain('deploy-preview');
+        if (previous.includes(PREVIEW_TABLE))
+          expect(body).toContain(`\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`);
+      }
     },
   );
+
+  test('reads the deploy job steps before the final snapshot and skips them when the approval job failed', async () => {
+    const paths = async (approveResult: string, deployResult: string) => {
+      const state = baseState({
+        sha: SHA_B,
+        comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
+      });
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      await reportPreviewDeployOutcome(
+        {
+          repository: REPOSITORY,
+          prNumber: '42',
+          approvedSha: SHA_B,
+          approveResult,
+          deployResult,
+          runId: '555',
+        },
+        dependencies(githubFetch(state, calls)),
+      );
+      return calls.map(
+        ({ url, init }) =>
+          `${init?.method ?? 'GET'} ${url.replace(`https://api.github.com/repos/${REPOSITORY}`, '')}`,
+      );
+    };
+    const snapshotAndWrite = [
+      'GET /pulls/42',
+      'GET /issues/42/comments?per_page=100',
+      'PATCH /issues/comments/1',
+    ];
+
+    expect(await paths('success', 'failure')).toEqual([
+      'GET /actions/runs/555/jobs?per_page=100',
+      ...snapshotAndWrite,
+    ]);
+    expect(await paths('failure', 'skipped')).toEqual(snapshotAndWrite);
+    expect(await paths('cancelled', 'cancelled')).toEqual(snapshotAndWrite);
+  });
+
+  test('refuses to write when GitHub returns an invalid jobs envelope', async () => {
+    const state = baseState({
+      sha: SHA_B,
+      comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
+      runJobs: {
+        555: [finishedJob('Deploy Preview', 'failure', [{ name: 'Build' }])],
+      },
+    });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    await expect(
+      reportPreviewDeployOutcome(
+        {
+          repository: REPOSITORY,
+          prNumber: '42',
+          approvedSha: SHA_B,
+          approveResult: 'success',
+          deployResult: 'failure',
+          runId: '555',
+        },
+        dependencies(githubFetch(state, calls)),
+      ),
+    ).rejects.toThrow('workflow jobs');
+    expect(commentWrites(calls)).toEqual([]);
+  });
 
   test.each<[string, Partial<GithubState>]>([
     ['a removed label', { labeled: false }],
@@ -1122,7 +1432,8 @@ describe('reportPreviewDeployOutcome', () => {
           repository: REPOSITORY,
           prNumber: '42',
           approvedSha: SHA_B,
-          result: 'failure',
+          approveResult: 'success',
+          deployResult: 'failure',
           runId: '555',
         },
         dependencies(githubFetch(state, calls)),
@@ -1132,11 +1443,13 @@ describe('reportPreviewDeployOutcome', () => {
     expect(commentWrites(calls)).toEqual([]);
   });
 
-  test('rejects results other than failure or cancellation and malformed identities', async () => {
+  test('rejects results that need no report and malformed identities', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     for (const overrides of [
-      { result: 'success' },
-      { result: 'skipped' },
+      { deployResult: 'success' },
+      { deployResult: 'skipped' },
+      { approveResult: 'skipped' },
+      { approveResult: 'failure ' },
       { runId: '1 2' },
       { approvedSha: 'main' },
     ]) {
@@ -1146,7 +1459,8 @@ describe('reportPreviewDeployOutcome', () => {
             repository: REPOSITORY,
             prNumber: '42',
             approvedSha: SHA_B,
-            result: 'failure',
+            approveResult: 'success',
+            deployResult: 'failure',
             runId: '555',
             ...overrides,
           },

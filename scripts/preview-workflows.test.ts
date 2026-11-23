@@ -11,6 +11,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 import ts from 'typescript';
 
+import { DEPLOY_WORKFLOW_NAMES } from './preview-lifecycle.ts';
+
 const root = resolve(import.meta.dir, '..');
 const read = (name: string) =>
   readFileSync(resolve(root, '.github/workflows', name), 'utf8');
@@ -1141,25 +1143,33 @@ describe('preview workflows', () => {
       'always',
       `return (${job.if.replaceAll('outputs.pr-number', "outputs['pr-number']")});`,
     );
-    for (const result of ['success', 'failure', 'cancelled', 'skipped'])
-      for (const prNumber of ['42', ''])
-        expect(
-          evaluate(
-            {
-              approve: { outputs: { 'pr-number': prNumber } },
-              deploy: { result },
-            },
-            () => true,
-          ),
-        ).toBe(
-          prNumber !== '' && (result === 'failure' || result === 'cancelled'),
-        );
+    const unsuccessful = (result: string) =>
+      result === 'failure' || result === 'cancelled';
+    for (const approveResult of ['success', 'failure', 'cancelled'])
+      for (const deployResult of ['success', 'failure', 'cancelled', 'skipped'])
+        for (const prNumber of ['42', ''])
+          expect(
+            evaluate(
+              {
+                approve: {
+                  result: approveResult,
+                  outputs: { 'pr-number': prNumber },
+                },
+                deploy: { result: deployResult },
+              },
+              () => true,
+            ),
+          ).toBe(
+            prNumber !== '' &&
+              (unsuccessful(approveResult) || unsuccessful(deployResult)),
+          );
     expect(job.steps[0]!.with).toEqual({
       'persist-credentials': false,
       ref: expression('github.workflow_sha'),
     });
     const report = job.steps.at(-1)!;
     expect(report.env).toEqual({
+      APPROVE_RESULT: expression('needs.approve.result'),
       APPROVED_SHA: expression('needs.approve.outputs.head-sha'),
       BUN_EXECUTABLE: expression('steps.trusted-bun.outputs.path'),
       BUN_OPTIONS: '',
@@ -1180,6 +1190,39 @@ describe('preview workflows', () => {
     expect(serialized).not.toContain('bun install');
     for (const entry of job.steps)
       expect(entry.run ?? '').not.toContain(['$', '{{'].join(''));
+  });
+
+  test('status reports find the deploy jobs and the first publishing step by their workflow names', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        { name: string; steps: { name: string; run?: string }[] }
+      >;
+    };
+    const jobNames = Object.values(workflow.jobs).map((job) => job.name);
+    expect(new Set(jobNames).size).toBe(jobNames.length);
+    expect(workflow.jobs.approve!.name).toBe(DEPLOY_WORKFLOW_NAMES.approveJob);
+    expect(workflow.jobs.deploy!.name).toBe(DEPLOY_WORKFLOW_NAMES.deployJob);
+
+    const steps = workflow.jobs.deploy!.steps;
+    const firstPublish = steps.findIndex((entry) =>
+      /preview-lifecycle\.ts (?:deploy-app|finish-deployment)/.test(
+        entry.run ?? '',
+      ),
+    );
+    expect(steps[firstPublish]!.name).toBe(
+      DEPLOY_WORKFLOW_NAMES.firstPublishStep,
+    );
+    expect(
+      steps.filter(
+        (entry) => entry.name === DEPLOY_WORKFLOW_NAMES.firstPublishStep,
+      ),
+    ).toHaveLength(1);
+    // A report treats a skipped first publishing step as proof that nothing
+    // was published, so earlier steps may hold credentials only to check them.
+    for (const entry of steps.slice(0, firstPublish))
+      if (JSON.stringify(entry).includes('secrets.'))
+        expect(entry.run).toContain('scripts/preview-preflight.ts');
   });
 
   test('trusted workflows invoke lifecycle commands through captured absolute Bun paths', () => {

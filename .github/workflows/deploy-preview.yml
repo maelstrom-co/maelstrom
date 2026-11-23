@@ -527,14 +527,19 @@ jobs:
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-ci-failure
 
   # The deploy job runs approved PR code, so its outcome is reported from a
-  # fresh runner. A run whose approval is no longer current changes nothing.
+  # fresh runner. An approval job that stops after recording its approval skips
+  # the deploy, so it is reported too. A run whose approval is no longer current
+  # changes nothing.
   report-deploy-outcome:
     name: Report Unsuccessful Deploy
     needs: [approve, deploy]
     if: >-
       always()
       && needs.approve.outputs.pr-number != ''
-      && (needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled')
+      && (needs.approve.result == 'failure'
+        || needs.approve.result == 'cancelled'
+        || needs.deploy.result == 'failure'
+        || needs.deploy.result == 'cancelled')
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 3
     concurrency:
@@ -567,6 +572,7 @@ jobs:
 
       - name: Show the unsuccessful deploy on the preview comment
         env:
+          APPROVE_RESULT: ${{ needs.approve.result }}
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
           BUN_OPTIONS: ''
