@@ -1,9 +1,9 @@
 ---
+import dashboardSource from '../examples/how-it-works/Dashboard.tsx?raw';
 import engineResponseSource from '../examples/how-it-works/engine-response.json?raw';
-import intentBarSource from '../examples/how-it-works/IntentBar.tsx?raw';
 import maelstromSource from '../examples/how-it-works/maelstrom.ts?raw';
 import ordersVesselSource from '../examples/how-it-works/orders.vessel.ts?raw';
-import ordersPanelSource from '../examples/how-it-works/OrdersPanel.tsx?raw';
+import ordersVesselComponentSource from '../examples/how-it-works/OrdersVessel.tsx?raw';
 import { highlightTypeScript } from '../lib/highlight-typescript';
 
 type Step = {
@@ -33,8 +33,8 @@ const STEPS: Step[] = [
     n: '03',
     title: 'User Intent',
     body: 'Send a text intent with one call. With the optional voice integration, spoken intents take the same path. Your configured planner proposes a layout and declared actions for the goal.',
-    file: 'IntentBar.tsx',
-    code: renderExample(intentBarSource),
+    file: 'Dashboard.tsx',
+    code: renderExample(dashboardSource),
   },
   {
     n: '04',
@@ -47,8 +47,8 @@ const STEPS: Step[] = [
     n: '05',
     title: 'UI Responds',
     body: 'The client applies the validated layout and runs your typed action handlers. TypeScript checks your Vessels and handlers at compile time. The Engine checks planner output at runtime.',
-    file: 'OrdersPanel.tsx',
-    code: renderExample(ordersPanelSource),
+    file: 'OrdersVessel.tsx',
+    code: renderExample(ordersVesselComponentSource),
   },
 ];
 

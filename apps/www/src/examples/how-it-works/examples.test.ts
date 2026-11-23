@@ -94,11 +94,12 @@ describe('How It Works examples', () => {
     ).toBe(true);
   });
 
-  it('keeps only the five rendered examples beside this test', () => {
+  it('keeps only the five rendered examples and the app helper beside this test', () => {
     expect(readdirSync(import.meta.dirname).sort()).toEqual(
       [
-        'IntentBar.tsx',
-        'OrdersPanel.tsx',
+        'Dashboard.tsx',
+        'OrdersVessel.tsx',
+        'app.tsx',
         'engine-response.json',
         'examples.test.ts',
         'maelstrom.ts',

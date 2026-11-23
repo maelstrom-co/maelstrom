@@ -12,9 +12,9 @@ const EXAMPLES_DIRECTORY = join(
 const EXAMPLE_FILES = [
   'orders.vessel.ts',
   'maelstrom.ts',
-  'IntentBar.tsx',
+  'Dashboard.tsx',
   'engine-response.json',
-  'OrdersPanel.tsx',
+  'OrdersVessel.tsx',
 ];
 
 // The token classes styled in src/styles/global.css.

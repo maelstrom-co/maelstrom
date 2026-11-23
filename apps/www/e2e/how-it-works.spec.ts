@@ -6,9 +6,9 @@ import { expect, test } from '@playwright/test';
 const EXAMPLE_FILES = [
   'orders.vessel.ts',
   'maelstrom.ts',
-  'IntentBar.tsx',
+  'Dashboard.tsx',
   'engine-response.json',
-  'OrdersPanel.tsx',
+  'OrdersVessel.tsx',
 ];
 
 const STEP_COPY = [
