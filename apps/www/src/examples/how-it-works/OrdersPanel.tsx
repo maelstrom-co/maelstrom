@@ -1,26 +1,17 @@
 import { ok } from '@maelstrom-co/protocol';
-import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useState } from 'react';
 
 import { m } from './maelstrom';
-import type { ordersVessel } from './orders.vessel';
 
-export function OrdersPanel({
-  instanceId,
-  variantProps,
-}: TypedVesselProps<typeof ordersVessel>) {
-  const [openOrderId, setOpenOrderId] = useState<string>();
+export function OrdersPanel({ instanceId }: { instanceId: string }) {
+  const [orderId, setOrderId] = useState<string>();
 
   m.useActions('orders', instanceId, {
     selectOrder: async ({ orderId }) => {
-      setOpenOrderId(orderId);
+      setOrderId(orderId);
       return ok(undefined);
     },
   });
 
-  return variantProps.variant === 'list' ? (
-    <p>All orders</p>
-  ) : (
-    <p>Order {openOrderId}</p>
-  );
+  return <p>{orderId ? `Order ${orderId}` : 'All orders'}</p>;
 }
