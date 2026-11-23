@@ -94,7 +94,7 @@ export interface AgentConnection {
 
 /** What the Engine wires into each {@link AgentConnection}. */
 export interface AgentConnectionDependencies {
-  /** Plans every UI change of the connection. */
+  /** Plans every UI change of the connection, on either route. */
   readonly planner: SessionPlanner;
   /**
    * Receives diagnostic observations of each run and change, and those that
