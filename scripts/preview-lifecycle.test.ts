@@ -14,6 +14,7 @@ import {
   renderDeployedComment,
   reportPreviewCiFailure,
   reportPreviewDeployOutcome,
+  reportPreviewDeployStart,
   teardownPreview,
 } from './preview-lifecycle.ts';
 
@@ -302,7 +303,7 @@ describe('approvePreview', () => {
 
     expect(headlineLines(state.comments[0]!.body)).toEqual([
       `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-      `⏳ Newer commit ${commitLink(SHA_B)} is waiting for CI. The preview still shows ${commitLink(SHA_A)}.`,
+      `⏳ Newer commit ${commitLink(SHA_B)} is waiting for CI. The last complete deploy is still ${commitLink(SHA_A)}.`,
     ]);
     expect(state.comments[0]!.body).toContain(PREVIEW_TABLE);
   });
@@ -356,7 +357,7 @@ describe('approvePreview', () => {
     expect(body.match(/<!-- pr-preview-state /g)).toHaveLength(1);
     expect(headlineLines(body)).toEqual([
       `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-      `⏳ Newer commit ${commitLink(SHA_B)} is waiting for CI. The preview still shows ${commitLink(SHA_A)}.`,
+      `⏳ Newer commit ${commitLink(SHA_B)} is waiting for CI. The last complete deploy is still ${commitLink(SHA_A)}.`,
     ]);
     expect(body).toContain(PREVIEW_TABLE);
   });
@@ -691,7 +692,7 @@ describe('reportPreviewCiFailure', () => {
     });
     expect(headlineLines(body)).toEqual([
       `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-      `❌ CI failed on ${commitLink(SHA_B)}, so no deploy is coming. The preview still shows ${commitLink(SHA_A)}.`,
+      `❌ CI failed on ${commitLink(SHA_B)}, so no deploy is coming. The last complete deploy is still ${commitLink(SHA_A)}.`,
     ]);
     expect(body).toContain(`\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`);
   });
@@ -741,7 +742,7 @@ describe('reportPreviewCiFailure', () => {
       });
       expect(headlineLines(body)).toEqual([
         `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-        `⚠️ CI did not finish on ${commitLink(SHA_B)} (${described}), so no deploy is coming. The preview still shows ${commitLink(SHA_A)}.`,
+        `⚠️ CI did not finish on ${commitLink(SHA_B)} (${described}), so no deploy is coming. The last complete deploy is still ${commitLink(SHA_A)}.`,
       ]);
       expect(body).toContain(`\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`);
     },
@@ -869,7 +870,55 @@ describe('reportPreviewCiFailure', () => {
     expect(state.comments.map(({ body }) => body)).toEqual(before);
   });
 
-  test('checks for a pending label deploy after the final snapshot and before writing', async () => {
+  test.each([
+    ['a newer approval', SHA_C, previouslyPostedDeployedBody(SHA_C, SHA_A)],
+    [
+      'a rewrite of the same approval',
+      SHA_B,
+      `${markerBody(SHA_B, SHA_A)}\n✅ **Preview deployed** for ${commitLink(SHA_A)}\n🚀 **Deploying preview** for ${commitLink(SHA_B)}\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`,
+    ],
+  ])(
+    '%s landing during the lookups gets no CI status',
+    async (_name, landedHeadSha, landedBody) => {
+      const state = baseState({
+        sha: SHA_B,
+        ciRun: failedCiRun(),
+        comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
+      });
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      const github = githubFetch(state, calls);
+      let commentReads = 0;
+      const landsAfterNoticeLookup = Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const response = await github(input, init);
+          if (
+            input.toString().includes('/issues/42/comments') &&
+            init?.method === undefined
+          ) {
+            commentReads += 1;
+            if (commentReads === 2) {
+              state.sha = landedHeadSha;
+              state.comments[0]!.body = landedBody;
+            }
+          }
+          return response;
+        },
+        globalThis.fetch,
+      );
+
+      expect(
+        await reportPreviewCiFailure(
+          { repository: REPOSITORY, prNumber: '42', runId: '7' },
+          dependencies(landsAfterNoticeLookup),
+        ),
+      ).toBeFalse();
+      expect(commentReads).toBe(3);
+      expect(commentWrites(calls)).toEqual([]);
+      expect(state.comments[0]!.body).toBe(landedBody);
+    },
+  );
+
+  test('checks for a pending label deploy between two snapshots and before writing', async () => {
     const state = baseState({
       sha: SHA_B,
       ciRun: failedCiRun(),
@@ -896,6 +945,8 @@ describe('reportPreviewCiFailure', () => {
       'GET /issues/42/comments?per_page=100',
       `GET /actions/workflows/deploy-preview.yml/runs?event=pull_request_target&head_sha=${SHA_B}&per_page=100`,
       'GET /actions/runs/9/jobs?per_page=100',
+      'GET /pulls/42',
+      'GET /issues/42/comments?per_page=100',
       'PATCH /issues/comments/1',
     ]);
   });
@@ -1138,7 +1189,7 @@ describe('reportPreviewCiFailure', () => {
     ).toBeTrue();
     expect(headlineLines(state.comments[0]!.body)).toEqual([
       `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
-      `❌ CI failed on ${commitLink(SHA_C)}, so no deploy is coming. The preview still shows ${commitLink(SHA_A)}.`,
+      `❌ CI failed on ${commitLink(SHA_C)}, so no deploy is coming. The last complete deploy is still ${commitLink(SHA_A)}.`,
     ]);
   });
 
@@ -1185,7 +1236,7 @@ describe('reportPreviewDeployOutcome', () => {
   const cancelledLead = `⏸️ Deploy of ${approved} was cancelled.`;
   const rerun = `[Re-run the deploy](${runUrl}) to try again.`;
   const partlyUpdated = `Some preview apps may already run ${approved}.`;
-  const stillShows = `The preview still shows ${deployed}.`;
+  const lastCompleteDeploy = `The last complete deploy is still ${deployed}.`;
 
   test.each<
     [string, string, string, unknown[] | null | undefined, string, string]
@@ -1203,7 +1254,7 @@ describe('reportPreviewDeployOutcome', () => {
       'success',
       'failure',
       stepsStoppedBeforePublishing('failure'),
-      `${deployFailedLine}. ${stillShows}`,
+      `${deployFailedLine}. ${lastCompleteDeploy}`,
       deployFailedLine,
     ],
     [
@@ -1211,7 +1262,7 @@ describe('reportPreviewDeployOutcome', () => {
       'success',
       'failure',
       [],
-      `${notStartedLine} ${stillShows}`,
+      `${notStartedLine} ${lastCompleteDeploy}`,
       notStartedLine,
     ],
     [
@@ -1219,7 +1270,7 @@ describe('reportPreviewDeployOutcome', () => {
       'failure',
       'skipped',
       undefined,
-      `${notStartedLine} ${stillShows}`,
+      `${notStartedLine} ${lastCompleteDeploy}`,
       notStartedLine,
     ],
     [
@@ -1235,7 +1286,7 @@ describe('reportPreviewDeployOutcome', () => {
       'success',
       'cancelled',
       stepsStoppedBeforePublishing('cancelled'),
-      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${lastCompleteDeploy} ${rerun}`,
       `${cancelledLead} ${rerun}`,
     ],
     [
@@ -1243,7 +1294,7 @@ describe('reportPreviewDeployOutcome', () => {
       'success',
       'cancelled',
       [],
-      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${lastCompleteDeploy} ${rerun}`,
       `${cancelledLead} ${rerun}`,
     ],
     [
@@ -1251,7 +1302,7 @@ describe('reportPreviewDeployOutcome', () => {
       'cancelled',
       'cancelled',
       undefined,
-      `${cancelledLead} ${stillShows} ${rerun}`,
+      `${cancelledLead} ${lastCompleteDeploy} ${rerun}`,
       `${cancelledLead} ${rerun}`,
     ],
     [
@@ -1462,6 +1513,157 @@ describe('reportPreviewDeployOutcome', () => {
             approveResult: 'success',
             deployResult: 'failure',
             runId: '555',
+            ...overrides,
+          },
+          dependencies(githubFetch(baseState(), calls)),
+        ),
+      ).rejects.toThrow();
+    }
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('reportPreviewDeployStart', () => {
+  const failedDeployJobs = {
+    555: [
+      finishedJob('Record Preview Approval', 'success'),
+      finishedJob('Deploy Preview', 'failure', [
+        {
+          name: 'Build independent preview artifacts',
+          status: 'completed',
+          conclusion: 'failure',
+        },
+        {
+          name: 'Deploy demo preview',
+          status: 'completed',
+          conclusion: 'skipped',
+        },
+      ]),
+    ],
+  };
+  const reportFailedDeploy = (state: GithubState) =>
+    reportPreviewDeployOutcome(
+      {
+        repository: REPOSITORY,
+        prNumber: '42',
+        approvedSha: SHA_B,
+        approveResult: 'success',
+        deployResult: 'failure',
+        runId: '555',
+      },
+      dependencies(githubFetch(state, [])),
+    );
+
+  test.each<[string, string, string[]]>([
+    [
+      'under the deployed preview',
+      previouslyPostedDeployedBody(SHA_B, SHA_A),
+      [
+        `✅ **Preview deployed** for ${commitLink(SHA_A)}`,
+        `🚀 **Deploying preview** for ${commitLink(SHA_B)}`,
+      ],
+    ],
+    [
+      'in the headline when nothing is deployed',
+      markerBody(SHA_B),
+      [`🚀 **Deploying preview** for ${commitLink(SHA_B)}`],
+    ],
+  ])(
+    'a re-run deploy replaces the earlier failure %s',
+    async (_name, previous, expected) => {
+      const state = baseState({
+        sha: SHA_B,
+        comments: [botComment(1, previous)],
+        runJobs: failedDeployJobs,
+      });
+      expect(await reportFailedDeploy(state)).toBeTrue();
+      expect(state.comments[0]!.body).toContain('💥 **Preview deploy failed**');
+
+      expect(
+        await reportPreviewDeployStart(
+          { repository: REPOSITORY, prNumber: '42', approvedSha: SHA_B },
+          dependencies(githubFetch(state, [])),
+        ),
+      ).toBeTrue();
+
+      const body = state.comments[0]!.body;
+      expect(parsePreviewComment(body)).toEqual(parsePreviewComment(previous));
+      expect(headlineLines(body)).toEqual(expected);
+      if (previous.includes(PREVIEW_TABLE))
+        expect(body).toContain(`\n\n${PREVIEW_TABLE}\n\n${PREVIEW_FOOTER}`);
+    },
+  );
+
+  test('a first attempt already shows the deploy and writes nothing', async () => {
+    const state = baseState({
+      sha: SHA_B,
+      comments: [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))],
+    });
+    await approvePreview(
+      {
+        repository: REPOSITORY,
+        prNumber: '42',
+        eventHeadSha: SHA_B,
+        progress: 'deploying',
+      },
+      dependencies(githubFetch(state, [])),
+    );
+    const approved = state.comments[0]!.body;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    expect(
+      await reportPreviewDeployStart(
+        { repository: REPOSITORY, prNumber: '42', approvedSha: SHA_B },
+        dependencies(githubFetch(state, calls)),
+      ),
+    ).toBeFalse();
+    expect(commentWrites(calls)).toEqual([]);
+    expect(state.comments[0]!.body).toBe(approved);
+  });
+
+  test.each<[string, Partial<GithubState>]>([
+    ['a removed label', { labeled: false }],
+    ['a moved head', { sha: SHA_C }],
+    ['a closed PR', { state: 'closed' as const }],
+    [
+      'a superseded approval',
+      { comments: [botComment(1, previouslyPostedDeployedBody(SHA_C, SHA_A))] },
+    ],
+    [
+      'an approval another run already deployed',
+      { comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_B))] },
+    ],
+    ['a missing preview comment', { comments: [] }],
+  ])('ignores %s', async (_name, overrides) => {
+    const state = baseState({
+      sha: SHA_B,
+      comments: [botComment(1, previouslyPostedDeployedBody(SHA_B, SHA_A))],
+      ...overrides,
+    });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    expect(
+      await reportPreviewDeployStart(
+        { repository: REPOSITORY, prNumber: '42', approvedSha: SHA_B },
+        dependencies(githubFetch(state, calls)),
+      ),
+    ).toBeFalse();
+    expect(commentWrites(calls)).toEqual([]);
+  });
+
+  test('rejects malformed identities before reading GitHub', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    for (const overrides of [
+      { approvedSha: 'main' },
+      { prNumber: '' },
+      { repository: 'maelstrom' },
+    ]) {
+      await expect(
+        reportPreviewDeployStart(
+          {
+            repository: REPOSITORY,
+            prNumber: '42',
+            approvedSha: SHA_B,
             ...overrides,
           },
           dependencies(githubFetch(baseState(), calls)),

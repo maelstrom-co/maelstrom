@@ -1192,6 +1192,53 @@ describe('preview workflows', () => {
       expect(entry.run ?? '').not.toContain(['$', '{{'].join(''));
   });
 
+  test('the deploy job shows its start through trusted code before installing PR code', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        {
+          steps: {
+            name: string;
+            run?: string;
+            env?: Record<string, string>;
+            'continue-on-error'?: unknown;
+            'working-directory'?: unknown;
+          }[];
+        }
+      >;
+    };
+    const steps = workflow.jobs.deploy!.steps;
+    const position = (name: string) => {
+      const index = steps.findIndex((entry) => entry.name === name);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return index;
+    };
+    const name = 'Show the deploy start on the preview comment';
+    expect(position(name)).toBe(position('Capture trusted Bun executable') + 1);
+    expect(position(name)).toBeLessThan(
+      position('Install source dependencies'),
+    );
+    const report = steps[position(name)]!;
+    expect(report.env).toEqual({
+      APPROVED_SHA: expression('needs.approve.outputs.head-sha'),
+      BUN_EXECUTABLE: expression('steps.trusted-bun.outputs.path'),
+      BUN_OPTIONS: '',
+      GH_TOKEN: expression('github.token'),
+      NODE_OPTIONS: '',
+      PR_NUMBER: expression('needs.approve.outputs.pr-number'),
+      TRUSTED_BUN_SHA256: expression('steps.trusted-bun.outputs.sha256'),
+    });
+    expect(report.run).toContain('/usr/bin/sha256sum "$BUN_EXECUTABLE"');
+    expect(report.run).toContain('= "$TRUSTED_BUN_SHA256"');
+    expect(report.run).toContain(
+      '"$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-start',
+    );
+    expect(report.run).not.toContain(['$', '{{'].join(''));
+    expect(report['working-directory']).toBeUndefined();
+    // A status write must never stop an approved deploy.
+    expect(report['continue-on-error']).toBe(true);
+  });
+
   test('status reports find the deploy jobs and the first publishing step by their workflow names', () => {
     const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
       jobs: Record<
@@ -1232,6 +1279,7 @@ describe('preview workflows', () => {
       ['reconcile-previews.yml', 'discover'],
       ['deploy-preview.yml', 'report-ci-failure'],
       ['deploy-preview.yml', 'report-deploy-outcome'],
+      ['deploy-preview.yml', 'report-deploy-start'],
     ] as const) {
       const workflow = read(file);
       expect(workflow).toContain('id: trusted-bun');

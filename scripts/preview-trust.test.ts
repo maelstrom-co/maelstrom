@@ -515,7 +515,7 @@ describe('maintainer preview lifetime', () => {
       deployedSha: PREVIOUS,
     });
     expect(f.comment.body).toContain(
-      `\n⏳ Newer commit ${commitLink(HEAD)} is waiting for CI. The preview still shows ${commitLink(PREVIOUS)}.`,
+      `\n⏳ Newer commit ${commitLink(HEAD)} is waiting for CI. The last complete deploy is still ${commitLink(PREVIOUS)}.`,
     );
     expect(f.mutations).toEqual([]);
   });

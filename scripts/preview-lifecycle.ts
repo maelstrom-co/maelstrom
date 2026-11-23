@@ -727,22 +727,22 @@ const renderProgressBesideDeployed = (
   approved: string,
   deployed: string,
 ) => {
-  const stillShows = `The preview still shows ${deployed}.`;
+  const lastCompleteDeploy = `The last complete deploy is still ${deployed}.`;
   // The deploy job publishes the demo before the other apps, so a deploy that
   // reached publishing can leave the preview mixed.
   const afterStop = (publishStarted: boolean) =>
     publishStarted
       ? `Some preview apps may already run ${approved}.`
-      : stillShows;
+      : lastCompleteDeploy;
   switch (progress.kind) {
     case 'awaiting-ci':
-      return `⏳ Newer commit ${approved} is waiting for CI. ${stillShows}`;
+      return `⏳ Newer commit ${approved} is waiting for CI. ${lastCompleteDeploy}`;
     case 'deploying':
       return renderProgressHeadline(progress, approved);
     case 'ci-failed':
     case 'ci-unfinished':
     case 'deploy-not-started':
-      return `${renderProgressHeadline(progress, approved)} ${stillShows}`;
+      return `${renderProgressHeadline(progress, approved)} ${lastCompleteDeploy}`;
     case 'deploy-failed':
       return `${renderProgressHeadline(progress, approved)}. ${afterStop(progress.publishStarted)}`;
     case 'deploy-cancelled':
@@ -1414,6 +1414,27 @@ export const reportPreviewDeployOutcome = async (
   );
 };
 
+/** Shows that the deploy job started for the approved head, replacing an earlier attempt's outcome when the job is re-run. */
+export const reportPreviewDeployStart = async (
+  options: {
+    readonly repository: string;
+    readonly prNumber: string;
+    readonly approvedSha: string;
+  },
+  dependencies: PreviewGithubDependencies,
+) => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  validateSha('Approved SHA', options.approvedSha);
+  return writeUndeployedApprovalProgress(
+    options.repository,
+    options.prNumber,
+    options.approvedSha,
+    { kind: 'deploying' },
+    dependencies,
+  );
+};
+
 const readUnsuccessfulCiRun = async (
   repository: string,
   prNumber: string,
@@ -1634,8 +1655,50 @@ const writeUndeployedApprovalProgress = async (
   approvedSha: string,
   progress: PreviewProgress,
   dependencies: PreviewGithubDependencies,
-  keepCurrentStatus: (comment: PreviewComment) => Promise<boolean> = async () =>
-    false,
+  keepCurrentStatus?: (comment: PreviewComment) => Promise<boolean>,
+) => {
+  let current = await readUndeployedApproval(
+    repository,
+    prNumber,
+    approvedSha,
+    dependencies,
+  );
+  if (!current) return false;
+  if (keepCurrentStatus) {
+    if (await keepCurrentStatus(current.comment)) return false;
+    // The lookups only cleared the snapshot they started from, so any write
+    // that landed during them stands the report down.
+    const fresh = await readUndeployedApproval(
+      repository,
+      prNumber,
+      approvedSha,
+      dependencies,
+    );
+    if (!fresh || fresh.comment.body !== current.comment.body) return false;
+    current = fresh;
+  }
+  const body = renderPreviewComment(
+    repository,
+    current.comment,
+    current.marker,
+    progress,
+  );
+  if (body === current.comment.body) return false;
+  await upsertPreviewComment(
+    repository,
+    prNumber,
+    current.comment,
+    body,
+    dependencies,
+  );
+  return true;
+};
+
+const readUndeployedApproval = async (
+  repository: string,
+  prNumber: string,
+  approvedSha: string,
+  dependencies: PreviewGithubDependencies,
 ) => {
   const { pull, comment } = await readApprovalSnapshot(
     repository,
@@ -1650,18 +1713,10 @@ const writeUndeployedApprovalProgress = async (
     pull.headSha !== approvedSha ||
     !pull.labeled ||
     marker.approvedSha !== approvedSha ||
-    marker.deployedSha === approvedSha ||
-    (await keepCurrentStatus(comment))
+    marker.deployedSha === approvedSha
   )
-    return false;
-  await upsertPreviewComment(
-    repository,
-    prNumber,
-    comment,
-    renderPreviewComment(repository, comment, marker, progress),
-    dependencies,
-  );
-  return true;
+    return undefined;
+  return { comment, marker };
 };
 
 export const decideTeardownScope = (
@@ -2008,6 +2063,21 @@ const cli = async () => {
     }
     return;
   }
+  if (command === 'report-deploy-start') {
+    if (
+      !(await reportPreviewDeployStart(
+        {
+          repository,
+          prNumber,
+          approvedSha: required(environment, 'APPROVED_SHA'),
+        },
+        dependencies,
+      ))
+    ) {
+      console.log('The deploy start changed no preview status');
+    }
+    return;
+  }
   if (command === 'invalidate') {
     await invalidatePreviewApproval(
       {
@@ -2102,7 +2172,7 @@ const cli = async () => {
     return;
   }
   throw new Error(
-    'Usage: preview-lifecycle.ts approve|approve-ci|deploy-app|finish-deployment|invalidate|report-ci-failure|report-deploy-outcome|teardown|discover',
+    'Usage: preview-lifecycle.ts approve|approve-ci|deploy-app|finish-deployment|invalidate|report-ci-failure|report-deploy-outcome|report-deploy-start|teardown|discover',
   );
 };
 

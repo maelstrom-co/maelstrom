@@ -183,6 +183,24 @@ jobs:
           printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
           printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
 
+      # Re-running only failed jobs reuses the approval, so without this step
+      # the comment keeps the previous attempt's outcome. It runs before any
+      # PR code.
+      - name: Show the deploy start on the preview comment
+        continue-on-error: true
+        env:
+          APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-start
+
       - name: Assert required preview configuration
         env:
           BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
