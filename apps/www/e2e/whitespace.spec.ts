@@ -4,8 +4,8 @@ import { expect, test } from '@playwright/test';
  * www is entirely hand-authored .astro and had no rendered-output coverage at
  * all, which is the gap this closes. `compressHTML` is pinned to `true` in
  * astro.config.ts rather than Astro 7's `'jsx'` default, so a source newline
- * still renders as a space — under `'jsx'` the hero shipped as
- * `Maelstromorchestratesyour UI.` purely from where its lines broke. What
+ * still renders as a space. Under `'jsx'` the hero headline would ship as
+ * glued words purely from where its lines broke. What
  * remains catchable is the plain authoring mistake: no whitespace in the source
  * between prose and an inline tag.
  *
