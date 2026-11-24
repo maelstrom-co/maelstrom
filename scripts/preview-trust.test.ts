@@ -15,6 +15,8 @@ const REPOSITORY = 'maelstrom-co/maelstrom';
 const HEAD = 'b'.repeat(40);
 const PREVIOUS = 'a'.repeat(40);
 const user = (login: string) => ({ login, type: 'User' });
+const commitLink = (sha: string) =>
+  `[${sha.slice(0, 7)}](https://github.com/${REPOSITORY}/commit/${sha})`;
 
 const fixture = () => {
   const repository = { id: 1, full_name: REPOSITORY, default_branch: 'main' };
@@ -203,6 +205,9 @@ describe('maintainer preview authority', () => {
         approvedSha: HEAD,
         deployedSha: PREVIOUS,
       });
+      expect(f.comment.body.split('\n').at(-1)).toBe(
+        `🚀 **Deploying preview** for ${commitLink(HEAD)}`,
+      );
       expect(f.mutations).toEqual([]);
       expect(f.writes).toEqual([
         { path: '/issues/comments/7', method: 'PATCH' },
@@ -509,6 +514,9 @@ describe('maintainer preview lifetime', () => {
       approvedSha: HEAD,
       deployedSha: PREVIOUS,
     });
+    expect(f.comment.body).toContain(
+      `\n⏳ Newer commit ${commitLink(HEAD)} is waiting for CI. The last complete deploy is still ${commitLink(PREVIOUS)}.`,
+    );
     expect(f.mutations).toEqual([]);
   });
 

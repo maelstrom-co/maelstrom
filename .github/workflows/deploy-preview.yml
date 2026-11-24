@@ -132,7 +132,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           marker='<!-- preview-approval-request -->'
-          body="$(printf '%s\nA `preview` environment approval is pending for commit %s: [review the run](%s).\n\nThe run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.' "$marker" "$HEAD_SHA" "$RUN_URL")"
+          body="$(printf '%s\n🔐 A `preview` environment approval is pending for commit [%s](%s): [review the run](%s).\n\nThe run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.' "$marker" "${HEAD_SHA:0:7}" "$GITHUB_SERVER_URL/$GH_REPO/commit/$HEAD_SHA" "$RUN_URL")"
           comment_id="$(gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)"
           if [ -n "$comment_id" ]; then
@@ -182,6 +182,24 @@ jobs:
           bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
           printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
           printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      # Re-running only failed jobs reuses the approval, so without this step
+      # the comment keeps the previous attempt's outcome. It runs before any
+      # PR code.
+      - name: Show the deploy start on the preview comment
+        continue-on-error: true
+        env:
+          APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-start
 
       - name: Assert required preview configuration
         env:
@@ -440,3 +458,148 @@ jobs:
           gh api --paginate "repos/$GH_REPO/issues/$PR_NUMBER/comments" \
             | jq -r --arg run "$RUN_URL" '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- preview-approval-request -->"))) | select(.body | contains("(" + $run + ")")) | .id' \
             | xargs -r -I{} gh api --method DELETE "repos/$GH_REPO/issues/comments/{}"
+
+  # An unsuccessful CI run never reaches the approve job, so this is the only
+  # signal that an approved head waiting for CI will not deploy automatically.
+  report-ci-failure:
+    name: Report Unsuccessful CI
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      && (github.event.workflow_run.conclusion == 'failure'
+        || github.event.workflow_run.conclusion == 'cancelled'
+        || github.event.workflow_run.conclusion == 'timed_out'
+        || github.event.workflow_run.conclusion == 'startup_failure'
+        || github.event.workflow_run.conclusion == 'stale')
+      && github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.pull_requests[0] != null
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    concurrency:
+      group: deploy-preview-pr-${{ github.event.workflow_run.pull_requests[0].number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    steps:
+      # The workflow_run payload carries no labels, so most runs stop here
+      # before any checkout or tool setup.
+      - name: Check for an open labeled pull request at the CI head
+        id: eligibility
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ || ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::The CI run has an invalid pull request number or head SHA.'
+            exit 1
+          fi
+          live="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '[.state, .head.sha, (any(.labels[]; .name == "deploy-preview") | tostring)] | join(" ")')"
+          eligible=false
+          if [ "$live" = "open $HEAD_SHA true" ]; then
+            eligible=true
+          fi
+          printf 'eligible=%s\n' "$eligible" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted lifecycle code
+        if: steps.eligibility.outputs.eligible == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        if: steps.eligibility.outputs.eligible == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture trusted Bun executable
+        if: steps.eligibility.outputs.eligible == 'true'
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Show unsuccessful CI on the preview comment
+        if: steps.eligibility.outputs.eligible == 'true'
+        env:
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-ci-failure
+
+  # The deploy job runs approved PR code, so its outcome is reported from a
+  # fresh runner. An approval job that stops after recording its approval skips
+  # the deploy, so it is reported too. A run whose approval is no longer current
+  # changes nothing.
+  report-deploy-outcome:
+    name: Report Unsuccessful Deploy
+    needs: [approve, deploy]
+    if: >-
+      always()
+      && needs.approve.outputs.pr-number != ''
+      && (needs.approve.result == 'failure'
+        || needs.approve.result == 'cancelled'
+        || needs.deploy.result == 'failure'
+        || needs.deploy.result == 'cancelled')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    concurrency:
+      group: deploy-preview-pr-${{ needs.approve.outputs.pr-number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    steps:
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Show the unsuccessful deploy on the preview comment
+        env:
+          APPROVE_RESULT: ${{ needs.approve.result }}
+          APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-outcome

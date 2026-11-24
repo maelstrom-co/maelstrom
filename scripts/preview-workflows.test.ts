@@ -1,8 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import ts from 'typescript';
+
+import { DEPLOY_WORKFLOW_NAMES } from './preview-lifecycle.ts';
 
 const root = resolve(import.meta.dir, '..');
 const read = (name: string) =>
@@ -824,11 +833,453 @@ describe('preview workflows', () => {
     expect(notice).toContain('github-actions[bot]');
   });
 
+  test('the approval notice links a short commit and keeps the text its cleanup matches', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: { approve: { steps: { name: string; run?: string }[] } };
+    };
+    const script = workflow.jobs.approve.steps.find(
+      (entry) => entry.name === 'Link pending approval on the pull request',
+    )!.run!;
+    const render = script.slice(0, script.indexOf('comment_id='));
+    const head = 'b'.repeat(40);
+    const runUrl = 'https://github.com/maelstrom-co/maelstrom/actions/runs/9';
+    const result = Bun.spawnSync(
+      ['/bin/bash', '-c', `${render}\nprintf '%s' "$body"`],
+      {
+        env: {
+          GH_REPO: 'maelstrom-co/maelstrom',
+          GITHUB_SERVER_URL: 'https://github.com',
+          HEAD_SHA: head,
+          PATH: '/usr/bin:/bin',
+          RUN_URL: runUrl,
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    const body = result.stdout.toString();
+    expect(body.split('\n')).toEqual([
+      '<!-- preview-approval-request -->',
+      `🔐 A \`preview\` environment approval is pending for commit [bbbbbbb](https://github.com/maelstrom-co/maelstrom/commit/${head}): [review the run](${runUrl}).`,
+      '',
+      'The run asks once to deploy the preview and, when a voice benchmark is requested, again before benchmarking. This notice is removed when the run no longer waits.',
+    ]);
+    // Notice cleanup matches the full head SHA and the parenthesized run URL.
+    expect(body).toContain(head);
+    expect(body).toContain(`(${runUrl})`);
+  });
+
+  test('unsuccessful CI reaches the preview comment only through trusted code in the per-PR queue', () => {
+    const source = read('deploy-preview.yml');
+    const workflow = Bun.YAML.parse(source) as {
+      on: Record<string, unknown>;
+      permissions: Record<string, string>;
+      jobs: Record<
+        string,
+        {
+          if: string;
+          needs?: unknown;
+          environment?: unknown;
+          permissions?: unknown;
+          concurrency?: Record<string, unknown>;
+          steps: {
+            name: string;
+            uses?: string;
+            with?: Record<string, unknown>;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    expect(Object.keys(workflow.on)).toEqual([
+      'workflow_run',
+      'pull_request_target',
+      'workflow_dispatch',
+    ]);
+    expect(workflow.permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+      'pull-requests': 'write',
+    });
+    const job = workflow.jobs['report-ci-failure']!;
+    expect(job.needs).toBeUndefined();
+    expect(job.environment).toBeUndefined();
+    expect(job.permissions).toBeUndefined();
+    expect(job.concurrency).toEqual({
+      group: `deploy-preview-pr-${expression('github.event.workflow_run.pull_requests[0].number')}`,
+      'cancel-in-progress': false,
+      queue: 'max',
+    });
+    const evaluate = new Function('github', 'format', `return (${job.if});`);
+    const permits = (
+      workflowRun: Record<string, unknown> = {},
+      ref = 'refs/heads/main',
+      event_name = 'workflow_run',
+    ) =>
+      evaluate(
+        {
+          event_name,
+          ref,
+          repository: 'maelstrom-co/maelstrom',
+          event: {
+            repository: { default_branch: 'main' },
+            workflow_run: {
+              conclusion: 'failure',
+              event: 'pull_request',
+              head_repository: { full_name: 'maelstrom-co/maelstrom' },
+              pull_requests: [{ number: 42 }],
+              ...workflowRun,
+            },
+          },
+        },
+        (template: string, value: string) => template.replace('{0}', value),
+      );
+    expect(permits()).toBe(true);
+    for (const conclusion of [
+      'failure',
+      'cancelled',
+      'timed_out',
+      'startup_failure',
+      'stale',
+    ])
+      expect(permits({ conclusion })).toBe(true);
+    for (const conclusion of [
+      'success',
+      'skipped',
+      'neutral',
+      'action_required',
+    ])
+      expect(permits({ conclusion })).toBe(false);
+    expect(permits({ event: 'push' })).toBe(false);
+    expect(permits({ head_repository: { full_name: 'outsider/fork' } })).toBe(
+      false,
+    );
+    expect(permits({ pull_requests: [] })).toBe(false);
+    expect(permits({}, 'refs/heads/feature')).toBe(false);
+    expect(permits({}, 'refs/heads/main', 'pull_request_target')).toBe(false);
+
+    const approvalSteps = workflow.jobs.approve!.steps;
+    expect(job.steps.map((entry) => entry.uses).filter(Boolean)).toEqual(
+      approvalSteps.map((entry) => entry.uses).filter(Boolean),
+    );
+    expect(
+      job.steps.find((entry) => entry.uses?.startsWith('actions/checkout@'))!
+        .with,
+    ).toEqual({
+      'persist-credentials': false,
+      ref: expression('github.workflow_sha'),
+    });
+    const report = job.steps.at(-1)!;
+    expect(report.env).toEqual({
+      BUN_EXECUTABLE: expression('steps.trusted-bun.outputs.path'),
+      BUN_OPTIONS: '',
+      CI_RUN_ID: expression('github.event.workflow_run.id'),
+      GH_TOKEN: expression('github.token'),
+      NODE_OPTIONS: '',
+      PR_NUMBER: expression(
+        'github.event.workflow_run.pull_requests[0].number',
+      ),
+      TRUSTED_BUN_SHA256: expression('steps.trusted-bun.outputs.sha256'),
+    });
+    expect(report.run).toContain('/usr/bin/sha256sum "$BUN_EXECUTABLE"');
+    expect(report.run).toContain('= "$TRUSTED_BUN_SHA256"');
+    expect(report.run).toContain(
+      '"$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-ci-failure',
+    );
+    const serialized = JSON.stringify(job);
+    expect(serialized).not.toContain('secrets.');
+    expect(serialized).not.toContain('path: source');
+    expect(serialized).not.toContain('bun install');
+    for (const entry of job.steps)
+      expect(entry.run ?? '').not.toContain(['$', '{{'].join(''));
+  });
+
+  test('unsuccessful CI starts trusted tooling only for an open labeled PR still at the CI head', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        {
+          steps: {
+            id?: string;
+            if?: string;
+            uses?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const [eligibility, ...trusted] = workflow.jobs['report-ci-failure']!.steps;
+    expect(eligibility!.id).toBe('eligibility');
+    expect(eligibility!.uses).toBeUndefined();
+    expect(eligibility!.if).toBeUndefined();
+    expect(eligibility!.env).toEqual({
+      GH_REPO: expression('github.repository'),
+      GH_TOKEN: expression('github.token'),
+      HEAD_SHA: expression('github.event.workflow_run.head_sha'),
+      PR_NUMBER: expression(
+        'github.event.workflow_run.pull_requests[0].number',
+      ),
+    });
+    expect(eligibility!.run).not.toContain(['$', '{{'].join(''));
+    expect(trusted.length).toBeGreaterThan(0);
+    for (const entry of trusted)
+      expect(entry.if).toBe("steps.eligibility.outputs.eligible == 'true'");
+
+    const head = 'b'.repeat(40);
+    const directory = mkdtempSync(join(tmpdir(), 'preview-eligibility-'));
+    try {
+      const fixture = join(directory, 'pull.json');
+      const output = join(directory, 'output');
+      const calls = join(directory, 'calls');
+      writeFileSync(
+        join(directory, 'gh'),
+        [
+          '#!/bin/bash',
+          `printf '%s\\n' "$*" >> '${calls}'`,
+          '[ "$1" = api ] && [ "$2" = repos/maelstrom-co/maelstrom/pulls/42 ] && [ "$3" = --jq ] || exit 9',
+          `exec jq -r "$4" '${fixture}'`,
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      const evaluate = (pull: unknown, env: Record<string, string> = {}) => {
+        writeFileSync(fixture, JSON.stringify(pull));
+        writeFileSync(output, '');
+        rmSync(calls, { force: true });
+        const result = Bun.spawnSync(
+          ['/bin/bash', '--noprofile', '--norc', '-c', eligibility!.run!],
+          {
+            env: {
+              GH_REPO: 'maelstrom-co/maelstrom',
+              GH_TOKEN: 'test-token',
+              GITHUB_OUTPUT: output,
+              HEAD_SHA: head,
+              PATH: `${directory}:/usr/bin:/bin`,
+              PR_NUMBER: '42',
+              ...env,
+            },
+          },
+        );
+        return {
+          exitCode: result.exitCode,
+          output: readFileSync(output, 'utf8'),
+          calledGithub: existsSync(calls),
+        };
+      };
+      const pull = (overrides: Record<string, unknown> = {}) => ({
+        state: 'open',
+        head: { sha: head },
+        labels: [{ name: 'bench-voice' }, { name: 'deploy-preview' }],
+        ...overrides,
+      });
+
+      expect(evaluate(pull())).toEqual({
+        exitCode: 0,
+        output: 'eligible=true\n',
+        calledGithub: true,
+      });
+      for (const overrides of [
+        { state: 'closed' },
+        { head: { sha: 'a'.repeat(40) } },
+        { labels: [{ name: 'bench-voice' }] },
+        { labels: [] },
+      ])
+        expect(evaluate(pull(overrides))).toEqual({
+          exitCode: 0,
+          output: 'eligible=false\n',
+          calledGithub: true,
+        });
+      for (const env of [
+        { PR_NUMBER: '' },
+        { PR_NUMBER: '0' },
+        { PR_NUMBER: '42 43' },
+        { HEAD_SHA: 'main' },
+        { HEAD_SHA: 'B'.repeat(40) },
+      ] as Record<string, string>[])
+        expect(evaluate(pull(), env)).toEqual({
+          exitCode: 1,
+          output: '',
+          calledGithub: false,
+        });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('an unsuccessful deploy job reports through trusted code in the per-PR queue', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        {
+          if: string;
+          needs?: unknown;
+          environment?: unknown;
+          permissions?: unknown;
+          concurrency?: Record<string, unknown>;
+          steps: {
+            uses?: string;
+            with?: Record<string, unknown>;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const jobs = Object.keys(workflow.jobs);
+    expect(jobs.indexOf('report-deploy-outcome')).toBeGreaterThan(
+      jobs.indexOf('clear-approval-notice'),
+    );
+    const job = workflow.jobs['report-deploy-outcome']!;
+    expect(job.needs).toEqual(['approve', 'deploy']);
+    expect(job.environment).toBeUndefined();
+    expect(job.permissions).toBeUndefined();
+    expect(job.concurrency).toEqual({
+      group: `deploy-preview-pr-${expression('needs.approve.outputs.pr-number')}`,
+      'cancel-in-progress': false,
+      queue: 'max',
+    });
+    const evaluate = new Function(
+      'needs',
+      'always',
+      `return (${job.if.replaceAll('outputs.pr-number', "outputs['pr-number']")});`,
+    );
+    const unsuccessful = (result: string) =>
+      result === 'failure' || result === 'cancelled';
+    for (const approveResult of ['success', 'failure', 'cancelled'])
+      for (const deployResult of ['success', 'failure', 'cancelled', 'skipped'])
+        for (const prNumber of ['42', ''])
+          expect(
+            evaluate(
+              {
+                approve: {
+                  result: approveResult,
+                  outputs: { 'pr-number': prNumber },
+                },
+                deploy: { result: deployResult },
+              },
+              () => true,
+            ),
+          ).toBe(
+            prNumber !== '' &&
+              (unsuccessful(approveResult) || unsuccessful(deployResult)),
+          );
+    expect(job.steps[0]!.with).toEqual({
+      'persist-credentials': false,
+      ref: expression('github.workflow_sha'),
+    });
+    const report = job.steps.at(-1)!;
+    expect(report.env).toEqual({
+      APPROVE_RESULT: expression('needs.approve.result'),
+      APPROVED_SHA: expression('needs.approve.outputs.head-sha'),
+      BUN_EXECUTABLE: expression('steps.trusted-bun.outputs.path'),
+      BUN_OPTIONS: '',
+      DEPLOY_RESULT: expression('needs.deploy.result'),
+      GH_TOKEN: expression('github.token'),
+      NODE_OPTIONS: '',
+      PR_NUMBER: expression('needs.approve.outputs.pr-number'),
+      TRUSTED_BUN_SHA256: expression('steps.trusted-bun.outputs.sha256'),
+    });
+    expect(report.run).toContain('/usr/bin/sha256sum "$BUN_EXECUTABLE"');
+    expect(report.run).toContain('= "$TRUSTED_BUN_SHA256"');
+    expect(report.run).toContain(
+      '"$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-outcome',
+    );
+    const serialized = JSON.stringify(job);
+    expect(serialized).not.toContain('secrets.');
+    expect(serialized).not.toContain('path: source');
+    expect(serialized).not.toContain('bun install');
+    for (const entry of job.steps)
+      expect(entry.run ?? '').not.toContain(['$', '{{'].join(''));
+  });
+
+  test('the deploy job shows its start through trusted code before installing PR code', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        {
+          steps: {
+            name: string;
+            run?: string;
+            env?: Record<string, string>;
+            'continue-on-error'?: unknown;
+            'working-directory'?: unknown;
+          }[];
+        }
+      >;
+    };
+    const steps = workflow.jobs.deploy!.steps;
+    const position = (name: string) => {
+      const index = steps.findIndex((entry) => entry.name === name);
+      expect(index).toBeGreaterThanOrEqual(0);
+      return index;
+    };
+    const name = 'Show the deploy start on the preview comment';
+    expect(position(name)).toBe(position('Capture trusted Bun executable') + 1);
+    expect(position(name)).toBeLessThan(
+      position('Install source dependencies'),
+    );
+    const report = steps[position(name)]!;
+    expect(report.env).toEqual({
+      APPROVED_SHA: expression('needs.approve.outputs.head-sha'),
+      BUN_EXECUTABLE: expression('steps.trusted-bun.outputs.path'),
+      BUN_OPTIONS: '',
+      GH_TOKEN: expression('github.token'),
+      NODE_OPTIONS: '',
+      PR_NUMBER: expression('needs.approve.outputs.pr-number'),
+      TRUSTED_BUN_SHA256: expression('steps.trusted-bun.outputs.sha256'),
+    });
+    expect(report.run).toContain('/usr/bin/sha256sum "$BUN_EXECUTABLE"');
+    expect(report.run).toContain('= "$TRUSTED_BUN_SHA256"');
+    expect(report.run).toContain(
+      '"$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts report-deploy-start',
+    );
+    expect(report.run).not.toContain(['$', '{{'].join(''));
+    expect(report['working-directory']).toBeUndefined();
+    // A status write must never stop an approved deploy.
+    expect(report['continue-on-error']).toBe(true);
+  });
+
+  test('status reports find the deploy jobs and the first publishing step by their workflow names', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      jobs: Record<
+        string,
+        { name: string; steps: { name: string; run?: string }[] }
+      >;
+    };
+    const jobNames = Object.values(workflow.jobs).map((job) => job.name);
+    expect(new Set(jobNames).size).toBe(jobNames.length);
+    expect(workflow.jobs.approve!.name).toBe(DEPLOY_WORKFLOW_NAMES.approveJob);
+    expect(workflow.jobs.deploy!.name).toBe(DEPLOY_WORKFLOW_NAMES.deployJob);
+
+    const steps = workflow.jobs.deploy!.steps;
+    const firstPublish = steps.findIndex((entry) =>
+      /preview-lifecycle\.ts (?:deploy-app|finish-deployment)/.test(
+        entry.run ?? '',
+      ),
+    );
+    expect(steps[firstPublish]!.name).toBe(
+      DEPLOY_WORKFLOW_NAMES.firstPublishStep,
+    );
+    expect(
+      steps.filter(
+        (entry) => entry.name === DEPLOY_WORKFLOW_NAMES.firstPublishStep,
+      ),
+    ).toHaveLength(1);
+    // A report treats a skipped first publishing step as proof that nothing
+    // was published, so earlier steps may hold credentials only to check them.
+    for (const entry of steps.slice(0, firstPublish))
+      if (JSON.stringify(entry).includes('secrets.'))
+        expect(entry.run).toContain('scripts/preview-preflight.ts');
+  });
+
   test('trusted workflows invoke lifecycle commands through captured absolute Bun paths', () => {
     for (const [file, command] of [
       ['invalidate-preview-approval.yml', 'invalidate'],
       ['teardown-preview.yml', 'teardown'],
       ['reconcile-previews.yml', 'discover'],
+      ['deploy-preview.yml', 'report-ci-failure'],
+      ['deploy-preview.yml', 'report-deploy-outcome'],
+      ['deploy-preview.yml', 'report-deploy-start'],
     ] as const) {
       const workflow = read(file);
       expect(workflow).toContain('id: trusted-bun');

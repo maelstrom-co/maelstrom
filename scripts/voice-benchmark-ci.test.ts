@@ -110,6 +110,7 @@ function fixture() {
           );
         if (method === 'GET' && url.pathname.endsWith('/issues/42/comments')) {
           const preview = renderDeployedComment({
+            repository,
             approvedSha: state.approved ?? '',
             deployedSha: state.deployed ?? '',
             demoUrl:

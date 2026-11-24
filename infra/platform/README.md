@@ -22,7 +22,9 @@ Four event-specific workflows call `scripts/preview-lifecycle.ts` for preview
 policy and mutations:
 
 - `deploy-preview.yml` records a human label approval, builds the approved
-  same-repository source without credentials, and deploys the three apps.
+  same-repository source without credentials, and deploys the three apps. It
+  also marks the preview comment when CI on the approved head fails or stops
+  without finishing, or when its approval or deploy job ends without success.
 - `invalidate-preview-approval.yml` removes an approval after a source push
   only when the recorded approval still belongs to the previous SHA.
 - `teardown-preview.yml` handles label removal, closure, and default-branch
@@ -31,19 +33,31 @@ policy and mutations:
   and reconciles them through independent scheduled matrix jobs.
 
 The bot-owned preview comment stores separate hidden `approvedSha` and
-`deployedSha` values. A new approval changes only `approvedSha`; the previous
-deployed body remains until all replacement deployments and legacy cleanup
-succeed. The lifecycle also reads the historical visible deployed-SHA sentence
-when a comment predates hidden state. A push invalidator checks the event's
-before/after edge before every label-removal retry, so a completed later marker
-write normally makes a delayed run harmless. GitHub does not offer a conditional
-label deletion, so a small race remains between the final marker read and the
-REST deletion. Automation does not restore the label because that could override
-an intentional unlabel. Re-add the label to recover approval, or use manual
-reconciliation to finish cleanup after that provider race.
+`deployedSha` values, and its visible headline is rendered from them. A new
+approval changes `approvedSha` and the status line under the headline. The
+previous deployed URLs remain until all replacement deployments and legacy
+cleanup succeed. The lifecycle also reads the historical visible deployed-SHA
+sentence when a comment predates hidden state. A push invalidator checks the
+event's before/after edge before every label-removal retry, so a completed later
+marker write normally makes a delayed run harmless. GitHub does not offer a
+conditional label deletion, so a small race remains between the final marker
+read and the REST deletion. Automation does not restore the label because that
+could override an intentional unlabel. Re-add the label to recover approval, or
+use manual reconciliation to finish cleanup after that provider race.
 Approval comment writes also make a final live pull and bot-comment read, but
 GitHub offers no conditional comment PATCH. A smaller final-read/write race
 therefore remains; retry the label approval for the current head if it occurs.
+Unsuccessful-CI and unsuccessful-deploy status writes run in the per-PR queue.
+They keep both hidden SHAs and change nothing unless a final live read still
+shows an open, labeled PR whose head is the recorded, undeployed approval. The
+CI status job checks the live label and head before any checkout, so other CI
+runs only start a runner briefly. A CI status also stands down while a
+label-triggered deploy of that head is pending or its notice is up, and it never
+replaces a deploy outcome shown for that head. A label run counts as a pending
+deploy only while its approval job runs or its deploy job has not finished, so
+other label events do not hide a CI failure. A deploy outcome drops the hedge
+that some apps may already run the new commit when the deploy job never ran or
+stopped before its first publishing step.
 
 Cloudflare mutations use one non-cancelling per-PR queue and recheck live pull
 request state, label, comment marker, repository, and approved SHA. Queue order
