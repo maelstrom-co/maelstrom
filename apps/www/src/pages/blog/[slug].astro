@@ -34,8 +34,8 @@ const { title, description, date, image, keywords, author, authorUrl, labels } =
     <a href={blogPath()}>← All posts</a>
     <article>
       <header>
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <h1 data-narration-text>{title}</h1>
+        <p data-narration-text>{description}</p>
         <p>
           <time datetime={date.toISOString()}>
             {date.toISOString().slice(0, 10)}
@@ -48,9 +48,34 @@ const { title, description, date, image, keywords, author, authorUrl, labels } =
           ))}
         </ul>
       </header>
-      <div class="blog-prose">
+      <section
+        class="blog-narration"
+        aria-label="Article narration"
+        data-narration-player={`${blogPath(post.id)}narration.json`}
+        hidden
+      >
+        <button type="button">Play narration</button>
+        <label class="sr-only" for="narration-position">
+          Narration position
+        </label>
+        <input
+          type="range"
+          id="narration-position"
+          min="0"
+          value="0"
+          step="any"
+        />
+        <output for="narration-position" aria-hidden="true"></output>
+        <audio preload="metadata"></audio>
+        <span role="status"></span>
+      </section>
+      <div class="blog-prose" data-narration-text>
         <Content />
       </div>
     </article>
   </main>
 </Layout>
+
+<script>
+  import '../../lib/blog-narration-player';
+</script>

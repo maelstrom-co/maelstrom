@@ -3,12 +3,19 @@ import { join } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
+import type { NarrationManifest } from '../src/lib/blog-narration';
+import { publishNarration } from '../tools/blog-narration-publication';
 import {
   addExtraPost,
   outputText,
   sourcePosts,
   withBlogBuild,
 } from './fixtures/blog/build';
+import {
+  fixtureSpeech,
+  memoryStore,
+  mockSecret,
+} from './fixtures/blog/narration';
 
 const posts = await sourcePosts();
 
@@ -434,5 +441,188 @@ test('an initially empty glob watches additions, changes, deletion and recovery'
         await expect(page).toHaveURL(`${origin}/blog/fixture-extra/`);
       }
     });
+  });
+});
+
+test('published narration keeps one timeline, highlights the right repeated word, and preserves the article', async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ output, build, inject }) => {
+    await inject();
+    build();
+    const spoken: string[] = [];
+    const manifestPath = 'blog/fixture-alpha/narration.json';
+    const article = 'https://preview.example/blog/fixture-alpha/';
+    await publishNarration(output, {
+      apiKey: mockSecret,
+      voiceId: 'myvoice',
+      voiceRevision: '1',
+      store: memoryStore(),
+      limit: 24,
+      async request(url, init) {
+        spoken.push(JSON.parse(String(init.body)).text);
+        return fixtureSpeech(url, init);
+      },
+    });
+    const html = await outputText(output, 'blog/fixture-alpha/index.html');
+    const manifestText = await outputText(output, manifestPath);
+    const manifest: NarrationManifest = JSON.parse(manifestText);
+    expect(html).not.toContain(mockSecret);
+    expect(manifestText).not.toContain(mockSecret);
+
+    let mediaRequests = 0;
+    await page.route('https://preview.example/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (
+        path === '/blog/fixture-alpha/' ||
+        path === '/blog/fixture-zeta/' ||
+        path === '/blog/'
+      ) {
+        await route.fulfill({
+          contentType: 'text/html',
+          body: await outputText(output, `${path.slice(1)}index.html`),
+        });
+      } else if (path === `/${manifestPath}`) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: manifestText,
+        });
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(path)) {
+        const body = await readFile(join(output, path.slice(1)));
+        expect(body.includes(mockSecret)).toBe(false);
+        await route.fulfill({
+          body,
+          contentType: path.endsWith('.css')
+            ? 'text/css'
+            : 'application/javascript',
+        });
+      } else if (path.startsWith('/_blog-narration/')) {
+        const body = await readFile(join(output, path.slice(1)));
+        const start = Number(
+          route
+            .request()
+            .headers()
+            .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+        );
+        mediaRequests++;
+        expect(body.includes(mockSecret)).toBe(false);
+        await route.fulfill({
+          status: 206,
+          headers: {
+            'accept-ranges': 'bytes',
+            'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+          },
+          contentType: 'audio/wav',
+          body: body.subarray(start),
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+    await page.goto(article);
+    const toggle = page.getByRole('button', { name: 'Play narration' });
+    const seek = page.getByRole('slider', { name: 'Narration position' });
+    await expect(toggle).toBeVisible();
+    expect(mediaRequests).toBe(0);
+    await toggle.focus();
+    await page.keyboard.press('Space');
+    await expect(
+      page.getByRole('button', { name: 'Pause narration' }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .locator('audio')
+          .evaluate((audio: HTMLAudioElement) => audio.currentTime),
+      )
+      .toBeGreaterThan(0);
+    await page.getByRole('button', { name: 'Pause narration' }).click();
+    await expect(page.locator('audio')).toHaveJSProperty('paused', true);
+
+    const renderedSpeech = spoken.join('');
+    const transcript = renderedSpeech.slice(
+      renderedSpeech.indexOf('Fictional Alpha'),
+    );
+    expect(transcript).not.toContain('long line');
+    expect(transcript).not.toContain('Invisible');
+    let offset = 0;
+    const echoes = manifest.chunks.flatMap((chunk) => {
+      const times = chunk.words
+        .filter((word) => transcript.slice(word.from, word.to) === 'Echo')
+        .map((word) => ({
+          time: offset + (word.start + word.end) / 2,
+          offset,
+        }));
+      offset += chunk.duration;
+      return times;
+    });
+    expect(echoes).toHaveLength(2);
+    expect(echoes[1].offset).toBeGreaterThan(echoes[0].offset);
+
+    const highlight = () =>
+      page.evaluate(() => {
+        const selected = CSS.highlights
+          .get('narrated-word')
+          ?.values()
+          .next().value;
+        if (!(selected instanceof Range)) return null;
+        return {
+          word: selected.toString(),
+          linked:
+            selected.startContainer.parentElement
+              ?.closest('a')
+              ?.getAttribute('href') ?? null,
+        };
+      });
+    async function seekTo(time: number) {
+      await seek.evaluate((slider: HTMLInputElement, time) => {
+        slider.valueAsNumber = time;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      }, time);
+    }
+    await seekTo(echoes[1].time);
+    await expect.poll(highlight).toEqual({ word: 'Echo', linked: '/blog/' });
+    await seekTo(echoes[0].time);
+    await expect.poll(highlight).toEqual({ word: 'Echo', linked: null });
+    await seek.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(highlight).toEqual({ word: 'Fictional', linked: null });
+    await page.keyboard.press('End');
+    await expect.poll(highlight).toBeNull();
+    await expect(page.locator('pre')).toContainText('const example');
+    await page.getByRole('link', { name: 'Echo', exact: true }).click();
+    await expect(page).toHaveURL('https://preview.example/blog/');
+
+    await page.goto('https://preview.example/blog/fixture-zeta/');
+    await expect(
+      page.getByRole('heading', { name: 'Fictional Zeta' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Play narration' }),
+    ).toBeHidden();
+
+    const withoutScripts = await browser.newContext({
+      javaScriptEnabled: false,
+    });
+    try {
+      const plain = await withoutScripts.newPage();
+      await plain.route('https://preview.example/**', (route) =>
+        route.fulfill({ contentType: 'text/html', body: html }),
+      );
+      await plain.goto(article);
+      await expect(
+        plain.getByRole('heading', { name: 'Fictional Alpha' }),
+      ).toBeVisible();
+      await expect(
+        plain.getByRole('link', { name: 'Echo', exact: true }),
+      ).toBeVisible();
+      await expect(
+        plain.getByRole('button', { name: 'Play narration' }),
+      ).toBeHidden();
+    } finally {
+      await withoutScripts.close();
+    }
   });
 });

@@ -211,6 +211,19 @@ jobs:
           PUBLIC_TURNSTILE_SITE_KEY: ${{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}
           PUBLIC_GITHUB_STAR_COUNT: ${{ steps.github-stars.outputs.count }}
 
+      - name: Publish blog narration into the production artifact
+        if: steps.revision.outputs.current == 'true' && matrix.app == 'www'
+        continue-on-error: true
+        run: bun --no-env-file apps/www/tools/publish-blog-narration.ts
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
+          ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
+          BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          BLOG_NARRATION_R2_BUCKET: ${{ vars.BLOG_NARRATION_R2_BUCKET }}
+          BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
+          BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
+
       # CI can turn green for a newer revision while this artifact builds.
       - name: Recheck deployment revision
         id: deploy-revision

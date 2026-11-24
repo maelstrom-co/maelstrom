@@ -611,6 +611,29 @@ release baseline. If a page requires an unreleased API, label that requirement
 and keep its checks against the matching source revision. Do not claim that
 a current source manifest proves compatibility with an already published release.
 
+#### Blog narration
+
+In the GitHub `production` environment, set `ELEVENLABS_MYVOICE_ID` to the
+ElevenLabs MyVoice ID and set `ELEVENLABS_MYVOICE_REVISION` to an explicit
+revision such as `1`. Set the `ELEVENLABS_API_KEY` secret to a key with
+text-to-speech access. Bump the revision whenever you replace or edit the voice
+or its saved settings, even if its ID stays the same.
+
+Create a private R2 bucket in the production account and set
+`BLOG_NARRATION_R2_BUCKET` to its name. Create bucket-scoped object read/write
+credentials and set the `BLOG_NARRATION_R2_ACCESS_KEY_ID` and
+`BLOG_NARRATION_R2_SECRET_ACCESS_KEY` secrets. The workflow uses
+`PRODUCTION_ACCOUNT_ID` as the R2 account ID. Keep the bucket private and retain
+committed objects so a rollback can reuse its recordings.
+
+The production www deployment slot serializes publication. It restores existing
+recordings or generates missing chunks before the final deployment revision
+check. If narration fails, completed articles keep their narration and the
+website can still deploy. Rerun the current production www job after a transient
+failure. Committed chunks resume from R2. A corrupt committed cache fails
+validation and needs investigation before another attempt. Keep the same voice
+revision during a transient failure so the retry can reuse its completed work.
+
 ### Released docs in Context7
 
 The [Context7 library](https://context7.com/maelstrom-co/maelstrom) indexes the
