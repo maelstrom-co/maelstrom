@@ -1,4 +1,49 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
 import { expect, test } from '@playwright/test';
+
+const EXAMPLE_FILES = [
+  'orders.vessel.ts',
+  'maelstrom.ts',
+  'Dashboard.tsx',
+  'engine-response.json',
+  'OrdersVessel.tsx',
+];
+
+const STEP_COPY = [
+  {
+    title: 'Describe Your Components',
+    body: "Each component gets a Vessel. It declares what the planner can use: the component's variants, the actions each variant offers, and its minimum size.",
+  },
+  {
+    title: 'Create Your Instance',
+    body: 'Wire Vessels to components and create a typed Maelstrom instance. One factory call returns the Provider, the Chart, and fully typed hooks.',
+  },
+  {
+    title: 'User Intent',
+    body: 'Send a text intent with one call. With the optional voice integration, spoken intents take the same path. Your configured planner proposes a layout and declared actions for the goal.',
+  },
+  {
+    title: 'Engine Validates',
+    body: 'The planner receives your declared Vessels, their variants and actions, the current layout, and the Chart dimensions. It proposes an Execution Plan and a layout. The Engine validates that proposal at runtime before your app receives it.',
+  },
+  {
+    title: 'UI Responds',
+    body: 'The client applies the validated layout and runs your typed action handlers. TypeScript checks your Vessels and handlers at compile time. The Engine checks planner output at runtime.',
+  },
+];
+
+const OVERCLAIMING_PHRASES = [
+  'entire UI',
+  'everything it needs',
+  'instantly',
+  'precise plan',
+  'AI figures out the rest',
+  'AI orchestrates',
+];
+
+const EM_DASH = '\u2014';
 
 test('HowItWorks advances steps and matching code cards in both scroll directions after resizing', async ({
   page,
@@ -124,3 +169,65 @@ test('Every subtitle bar reflects the same cumulative sequence progress', async 
     );
   }
 });
+
+test('HowItWorks code cards show each example file exactly as written', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+
+  await expect(page.locator('.how-code-card[data-example-file]')).toHaveCount(
+    EXAMPLE_FILES.length,
+  );
+  for (const [index, file] of EXAMPLE_FILES.entries()) {
+    const source = await readExample(file);
+
+    const card = page.locator(`.how-code-card[data-example-file="${file}"]`);
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute('data-card', String(index));
+    await expect(card.locator('.win-bar .title')).toHaveText(file);
+    expect(await card.locator('pre.code code').textContent()).toBe(source);
+
+    const mobileBlock = page
+      .locator('.how-step[data-idx]')
+      .nth(index)
+      .locator('.how-code-mobile');
+    await expect(mobileBlock.locator('.win-bar .title')).toHaveText(file);
+    expect(await mobileBlock.locator('pre.code code').textContent()).toBe(
+      source,
+    );
+  }
+});
+
+test('HowItWorks step copy describes what the planner receives without overclaiming', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  await expect(page.locator('#how .section-sub')).toHaveText(
+    'Describe the pieces. Maelstrom handles the orchestration.',
+  );
+  await expect(page.locator('.how-step .hs-title')).toHaveText(
+    STEP_COPY.map((step) => step.title),
+  );
+  await expect(page.locator('.how-step .hs-body')).toHaveText(
+    STEP_COPY.map((step) => step.body),
+  );
+  for (const body of await page
+    .locator('.how-step .hs-body')
+    .allTextContents()) {
+    for (const phrase of OVERCLAIMING_PHRASES) {
+      expect(body.toLowerCase()).not.toContain(phrase.toLowerCase());
+    }
+    expect(body).not.toContain(EM_DASH);
+  }
+});
+
+// The page renders each example with its trailing newline trimmed.
+async function readExample(file: string): Promise<string> {
+  const source = await readFile(
+    resolve(import.meta.dirname, '../src/examples/how-it-works', file),
+    'utf8',
+  );
+  return source.replace(/\n$/, '');
+}

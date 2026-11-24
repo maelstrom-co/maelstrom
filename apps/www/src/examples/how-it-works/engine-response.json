@@ -1,0 +1,24 @@
+{
+  "type": "maelstrom_response",
+  "requestId": "msg-42",
+  "userMessage": "Opening order 1847",
+  "rationale": "The user asked for one order, so select it.",
+  "executionPlan": [
+    {
+      "instanceId": "orders-1",
+      "action": "selectOrder",
+      "params": { "orderId": "1847" }
+    }
+  ],
+  "layout": {
+    "type": "tiling",
+    "tree": ["ID:orders-1"],
+    "instances": [
+      {
+        "instanceId": "orders-1",
+        "vesselId": "orders",
+        "variant": "list"
+      }
+    ]
+  }
+}
