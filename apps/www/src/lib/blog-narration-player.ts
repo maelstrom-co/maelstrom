@@ -31,7 +31,13 @@ async function setup(player: HTMLElement) {
   if (!audio || !toggle || !seek || !timeLabel || !status || !manifestUrl)
     return;
 
-  const response = await fetch(manifestUrl);
+  const assets = player.dataset.narrationAssets;
+  const response = await fetch(
+    manifestUrl,
+    assets
+      ? { cache: 'no-store', credentials: 'omit', redirect: 'error' }
+      : undefined,
+  );
   if (!response.ok) return;
   const manifest: unknown = await response.json();
   const { text, range } = extractNarration(document);
@@ -41,6 +47,7 @@ async function setup(player: HTMLElement) {
   )
     return;
 
+  if (assets) audio.crossOrigin = 'anonymous';
   const highlights =
     typeof Highlight === 'function' ? new Highlight() : undefined;
   if (highlights) CSS.highlights.set('narrated-word', highlights);
@@ -111,7 +118,8 @@ async function setup(player: HTMLElement) {
   const changeChunk = (next: number, position: number) => {
     index = next;
     pendingTime = position;
-    audio.src = narrationMediaPath(manifest.version, next);
+    const mediaPath = narrationMediaPath(manifest.version, next);
+    audio.src = assets ? new URL(mediaPath.slice(1), assets).href : mediaPath;
     sync();
   };
 

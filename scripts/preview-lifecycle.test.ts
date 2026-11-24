@@ -12,6 +12,8 @@ import {
   type PreviewApp,
   parsePreviewComment,
   renderDeployedComment,
+  readApprovedWebsitePreview,
+  readPreviewBlogChanges,
   reportPreviewCiFailure,
   reportPreviewDeployOutcome,
   reportPreviewDeployStart,
@@ -37,6 +39,7 @@ interface GithubState {
     body: string;
     user: { login: string; type: string };
   }>;
+  files?: unknown[];
   ciRun?: unknown;
   deployRuns?: unknown[];
   runJobs?: Record<string, unknown>;
@@ -107,6 +110,9 @@ const githubFetch = (
           },
           labels: state.labeled ? [{ name: 'deploy-preview' }] : [],
         });
+      }
+      if (url.includes('/pulls/42/files?') && method === 'GET') {
+        return Response.json(state.files ?? []);
       }
       if (url.includes('/issues/42/comments') && method === 'GET') {
         return Response.json(state.comments);
@@ -2569,4 +2575,84 @@ describe('teardown policy and execution', () => {
       SHA_A,
     );
   });
+});
+
+test('narration trusts only completed www state for the current open and labeled same-repository head', async () => {
+  const state = baseState({
+    comments: [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))],
+  });
+  const options = {
+    repository: REPOSITORY,
+    prNumber: '42',
+    approvedSha: SHA_A,
+    workersDevSuffix: 'preview.workers.dev',
+  };
+  const deps = dependencies(githubFetch(state, []));
+  const read = () => readApprovedWebsitePreview(options, deps);
+  expect(await read()).toBe(
+    'https://maelstrom-www-alchemy-pr-42.preview.workers.dev/',
+  );
+  state.comments = [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_B))];
+  expect(await read()).toBeUndefined();
+  state.comments = [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))];
+  state.sha = SHA_B;
+  expect(await read()).toBeUndefined();
+  state.sha = SHA_A;
+  state.state = 'closed';
+  expect(await read()).toBeUndefined();
+  state.state = 'open';
+  state.repository = 'forked/maelstrom';
+  expect(await read()).toBeUndefined();
+  state.repository = REPOSITORY;
+  state.labeled = false;
+  expect(await read()).toBeUndefined();
+  state.labeled = true;
+  state.comments[0].body = state.comments[0].body.replace(
+    'pr-42.preview.workers.dev/',
+    'pr-43.preview.workers.dev/',
+  );
+  await expect(read()).rejects.toThrow('must be exactly');
+  state.comments = [
+    {
+      ...botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A)),
+      user: { login: 'contributor', type: 'User' },
+    },
+  ];
+  expect(await read()).toBeUndefined();
+});
+
+test('preview article priority includes only deployed candidates from changed MDX paths', async () => {
+  const deps = dependencies(
+    githubFetch(
+      baseState({
+        files: [
+          {
+            status: 'modified',
+            filename: 'apps/www/src/content/blog/edited-old-post.mdx',
+          },
+          {
+            status: 'added',
+            filename: 'apps/www/src/content/blog/new-post.mdx',
+          },
+          {
+            status: 'removed',
+            filename: 'apps/www/src/content/blog/deleted-post.mdx',
+          },
+          {
+            status: 'modified',
+            filename: 'apps/www/src/content/blog/subdir/nested-post.mdx',
+          },
+          {
+            status: 'modified',
+            filename: 'apps/docs/src/content/blog/unrelated.mdx',
+          },
+        ],
+      }),
+      [],
+    ),
+  );
+  expect(await readPreviewBlogChanges(REPOSITORY, '42', deps)).toEqual([
+    '/blog/edited-old-post/',
+    '/blog/new-post/',
+  ]);
 });

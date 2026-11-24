@@ -405,6 +405,9 @@ describe('application infrastructure contract', () => {
     expect(productionWorkflow).toContain(
       `group: production-${'$'}{{ matrix.app }}`,
     );
+    expect(productionWorkflow).toContain(
+      `queue: ${'$'}{{ matrix.app == 'www' && 'max' || 'single' }}`,
+    );
 
     const initialCheck = workflowStep('Check deployment revision');
     expect(initialCheck).toContain('id: revision');

@@ -10,7 +10,12 @@ interface Point {
   offset: number;
 }
 
-export function extractNarration(document: Document) {
+export function extractNarration(
+  document: Document,
+  sections: Iterable<Element> = document.querySelectorAll(
+    '[data-narration-text]',
+  ),
+) {
   const points: (Point | undefined)[] = [];
   let text = '';
   let separator = '';
@@ -48,7 +53,7 @@ export function extractNarration(document: Document) {
     }
   }
 
-  for (const section of document.querySelectorAll('[data-narration-text]')) {
+  for (const section of sections) {
     separator = '\n\n';
     visit(section);
   }

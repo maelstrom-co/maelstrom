@@ -89,7 +89,7 @@ export async function withBlogBuild<T>(
     /** Client output directory, refreshed by Astro on each build. */
     output: string;
     /** Builds with the same cache, optionally overriding the site origin; throws on failure. */
-    build: (site?: string) => void;
+    build: (site?: string, narrationBase?: string) => void;
     /** Replaces temporary posts with the three controlled fixtures without deleting caches. */
     inject: () => Promise<void>;
     /** Runs a foreground dev server on an ephemeral port; always stops it before returning. */
@@ -140,7 +140,7 @@ export async function withBlogBuild<T>(
     return await run({
       root,
       output: join(root, 'dist/client'),
-      build(site) {
+      build(site, narrationBase) {
         execFileSync(
           'node',
           [
@@ -154,7 +154,10 @@ export async function withBlogBuild<T>(
             cwd: root,
             timeout: 120_000,
             maxBuffer: 10 * 1024 * 1024,
-            env: childEnv({ ASTRO_TELEMETRY_DISABLED: '1' }),
+            env: childEnv({
+              ASTRO_TELEMETRY_DISABLED: '1',
+              PUBLIC_BLOG_NARRATION_PREVIEW_BASE: narrationBase,
+            }),
             stdio: 'pipe',
           },
         );

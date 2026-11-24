@@ -1301,3 +1301,44 @@ describe('preview workflows', () => {
     }
   });
 });
+
+test('preview narration joins the production www queue from a trusted post-deploy job', () => {
+  const preview = read('deploy-preview.yml');
+  const production = read('deploy-production.yml');
+  const start = preview.indexOf('  publish-blog-narration:');
+  const job = preview.slice(start, preview.indexOf('  benchmark-gate:', start));
+  const deploy = preview.slice(preview.indexOf('  deploy:'), start);
+  expect(job).toContain('needs: [approve, deploy]');
+  expect(job).toContain("needs.deploy.result == 'success'");
+  expect(job).toContain(
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+  );
+  expect(job).toContain('environment: preview-narration');
+  expect(job).toContain('group: production-www');
+  expect(job).toContain('cancel-in-progress: false');
+  expect(job).toContain('queue: max');
+  const checkout = step(job, 'Checkout trusted preview narration publisher');
+  expect(checkout).toContain('persist-credentials: false');
+  expect(checkout).toContain(`ref: ${expression('github.workflow_sha')}`);
+  expect(job).toContain('bun install --frozen-lockfile --ignore-scripts');
+  expect(job).not.toContain('working-directory: source');
+  for (const name of [
+    'ELEVENLABS_API_KEY',
+    'BLOG_NARRATION_R2_SECRET_ACCESS_KEY',
+    'BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY',
+  ]) {
+    expect(deploy).not.toContain(name);
+    expect(
+      step(job, 'Publish narration for the current approved website'),
+    ).toContain(name);
+  }
+  const build = step(deploy, 'Build website preview');
+  expect(build).toContain(
+    "format('{0}/pr-{1}/{2}/', vars.BLOG_NARRATION_PREVIEW_ORIGIN, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha)",
+  );
+  expect(build).not.toContain('github.run_attempt');
+  expect(production).toContain(`group: production-${expression('matrix.app')}`);
+  expect(production).toContain(
+    `queue: ${expression("matrix.app == 'www' && 'max' || 'single'")}`,
+  );
+});

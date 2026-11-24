@@ -12,7 +12,9 @@
     "e2e/**/*.js",
     "playwright.config.ts",
     "src/lib/blog-narration.ts",
-    "tools/blog-narration-publication.ts"
+    "src/lib/blog-narration-preview.ts",
+    "tools/blog-narration-publication.ts",
+    "tools/blog-narration-preview-publication.ts"
   ],
   "exclude": ["out-tsc", "test-output"]
 }

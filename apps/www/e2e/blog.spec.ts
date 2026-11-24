@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import type { NarrationManifest } from '../src/lib/blog-narration';
+import { previewNarrationBase } from '../src/lib/blog-narration-preview';
+import { publishPreviewNarration } from '../tools/blog-narration-preview-publication';
 import { publishNarration } from '../tools/blog-narration-publication';
 import {
   addExtraPost,
@@ -624,5 +626,168 @@ test('published narration keeps one timeline, highlights the right repeated word
     } finally {
       await withoutScripts.close();
     }
+  });
+});
+
+test('preview narration becomes playable across origins after retrying only the publisher', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, output, build, inject }) => {
+    const site = 'https://preview-reader.example';
+    const delivery = previewNarrationBase(
+      'https://preview-audio.example',
+      '42',
+      'a'.repeat(40),
+    );
+    const locator = new URL('blog/fixture-alpha/narration.json', delivery);
+    const article = `${site}/blog/fixture-alpha/`;
+    await inject();
+    for (const slug of ['fixture-old', 'fixture-zeta']) {
+      await rm(join(root, 'src/content/blog', `${slug}.mdx`));
+    }
+    build(undefined, delivery.href);
+    const assets = new Map<
+      string,
+      { value: string | Uint8Array; type: string }
+    >();
+    let requests = 0;
+    let rejectManifest = true;
+    const options = {
+      deliveryBase: delivery,
+      readTarget: async () => site,
+      async requestPage(url: URL) {
+        return new Response(
+          await outputText(output, `${url.pathname.slice(1)}index.html`),
+          {
+            headers: { 'content-type': 'text/html' },
+          },
+        );
+      },
+      async deliver(key: string, value: string | Uint8Array, type: string) {
+        if (rejectManifest && type === 'application/json')
+          throw new Error('Interrupted delivery');
+        assets.set(`/${key}`, { value, type });
+      },
+      publication: {
+        apiKey: mockSecret,
+        voiceId: 'myvoice',
+        voiceRevision: '1',
+        store: memoryStore(),
+        async request(url: string, init: RequestInit) {
+          requests++;
+          return fixtureSpeech(url, init);
+        },
+      },
+    };
+    await page.route(`${site}/**`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/blog/fixture-alpha/') {
+        await route.fulfill({
+          contentType: 'text/html',
+          body: await outputText(output, 'blog/fixture-alpha/index.html'),
+        });
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(path)) {
+        await route.fulfill({
+          path: join(output, path.slice(1)),
+          contentType: path.endsWith('.css')
+            ? 'text/css'
+            : 'application/javascript',
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+    const origins = new Set<string>();
+    await page.route(`${delivery.origin}/**`, async (route) => {
+      const asset = assets.get(new URL(route.request().url()).pathname);
+      const origin = route.request().headers().origin;
+      if (origin) origins.add(origin);
+      const headers = {
+        'access-control-allow-origin': site,
+        'cache-control': 'no-store',
+      };
+      if (!asset) {
+        await route.fulfill({ status: 404, headers });
+      } else if (typeof asset.value === 'string') {
+        await route.fulfill({
+          body: asset.value,
+          headers,
+          contentType: asset.type,
+        });
+      } else {
+        const body = Buffer.from(asset.value);
+        const start = Number(
+          route
+            .request()
+            .headers()
+            .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+        );
+        await route.fulfill({
+          status: 206,
+          contentType: asset.type,
+          headers: {
+            ...headers,
+            'accept-ranges': 'bytes',
+            'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+          },
+          body: body.subarray(start),
+        });
+      }
+    });
+    await expect(publishPreviewNarration(options)).rejects.toThrow(
+      'Interrupted delivery',
+    );
+    const missingManifest = page.waitForResponse(
+      (response) =>
+        response.url() === locator.href && response.status() === 404,
+    );
+    await page.goto(article);
+    await missingManifest;
+    const player = page.locator('[data-narration-player]');
+    await expect(player).toHaveAttribute('data-narration-player', locator.href);
+    await expect(
+      page.getByRole('heading', { name: 'Fictional Alpha' }),
+    ).toBeVisible();
+    await expect(player).toBeHidden();
+
+    const previousRequests = requests;
+    rejectManifest = false;
+    await publishPreviewNarration(options);
+    expect(requests).toBe(previousRequests);
+    await page.reload();
+    await expect(player).toHaveAttribute('data-narration-player', locator.href);
+    await page.getByRole('button', { name: 'Play narration' }).click();
+    const audio = page.locator('audio');
+    await expect
+      .poll(() =>
+        audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+      )
+      .toBeGreaterThan(0);
+    expect(
+      await audio.evaluate(
+        (element: HTMLAudioElement) => new URL(element.currentSrc).origin,
+      ),
+    ).toBe(delivery.origin);
+    await page.getByRole('button', { name: 'Pause narration' }).click();
+    await expect(audio).toHaveJSProperty('paused', true);
+    const slider = page.getByRole('slider', { name: 'Narration position' });
+    const highlighted = () =>
+      page.evaluate(() => {
+        const range = CSS.highlights
+          .get('narrated-word')
+          ?.values()
+          .next().value;
+        return range instanceof Range ? range.toString() : '';
+      });
+    await slider.evaluate((input: HTMLInputElement) => {
+      input.valueAsNumber = 1;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect.poll(highlighted).toBe('Alpha');
+    await slider.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(highlighted).toBe('Fictional');
+    expect([...origins]).toEqual([site]);
   });
 });

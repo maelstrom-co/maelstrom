@@ -436,6 +436,86 @@ export const parsePreviewComment = (body: string): PreviewCommentState => {
   return { approvedSha: undefined, deployedSha: legacy };
 };
 
+/** Reads the authorized www URL from the bot's completed preview state. */
+export const readApprovedWebsitePreview = async (
+  options: {
+    readonly repository: string;
+    readonly prNumber: string;
+    readonly approvedSha: string;
+    readonly workersDevSuffix: string;
+  },
+  dependencies: PreviewGithubDependencies,
+): Promise<string | undefined> => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  validateSha('Approved preview narration SHA', options.approvedSha);
+  const pull = await readPull(
+    options.repository,
+    options.prNumber,
+    dependencies,
+  );
+  if (
+    pull.state !== 'open' ||
+    !pull.labeled ||
+    pull.headRepository !== options.repository ||
+    pull.headSha !== options.approvedSha
+  )
+    return;
+  const comment = await readPreviewComment(
+    options.repository,
+    options.prNumber,
+    dependencies,
+    COMMENT_MARKER,
+    true,
+  );
+  if (!comment) return;
+  const state = parsePreviewComment(comment.body);
+  if (
+    state.approvedSha !== options.approvedSha ||
+    state.deployedSha !== options.approvedSha
+  )
+    return;
+  const urls = [...comment.body.matchAll(/^\| Website \| ([^|\n]+) \|$/gm)];
+  if (urls.length !== 1 || !urls[0]?.[1]) {
+    throw new Error('Approved preview Website URL is missing or ambiguous');
+  }
+  return validatePreviewWorkerUrl(
+    urls[0][1],
+    `maelstrom-www-alchemy-pr-${options.prNumber}`,
+    options.workersDevSuffix,
+  );
+};
+
+/** Lists blog routes changed by the currently selected PR for preview narration priority. */
+export const readPreviewBlogChanges = async (
+  repository: string,
+  prNumber: string,
+  dependencies: PreviewGithubDependencies,
+): Promise<string[]> => {
+  validateRepository(repository);
+  validatePrNumber(prNumber);
+  const files = await readGithubPages(
+    repository,
+    `/pulls/${prNumber}/files`,
+    dependencies,
+  );
+  return files.flatMap((file) => {
+    if (
+      !isRecord(file) ||
+      typeof file.filename !== 'string' ||
+      typeof file.status !== 'string'
+    ) {
+      throw new Error('GitHub returned invalid preview changed-file data');
+    }
+    if (file.status === 'removed') return [];
+    const match =
+      /^apps\/www\/src\/content\/blog\/([a-z0-9]+(?:-[a-z0-9]+)*)\.mdx$/u.exec(
+        file.filename,
+      );
+    return match?.[0] === file.filename ? [`/blog/${match[1]}/`] : [];
+  });
+};
+
 export interface VoiceBenchmarkContext {
   readonly sha: string;
   readonly url: string;

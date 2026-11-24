@@ -125,6 +125,8 @@ jobs:
     concurrency:
       group: production-${{ matrix.app }}
       cancel-in-progress: false
+      # Keep a waiting www deploy when another writer queues for its cache.
+      queue: ${{ matrix.app == 'www' && 'max' || 'single' }}
     strategy:
       fail-fast: false
       matrix:

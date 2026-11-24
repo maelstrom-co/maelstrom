@@ -634,6 +634,54 @@ failure. Committed chunks resume from R2. A corrupt committed cache fails
 validation and needs investigation before another attempt. Keep the same voice
 revision during a transient failure so the retry can reuse its completed work.
 
+##### Approved preview narration
+
+Merge the preview reader and trusted publisher into the default branch before
+enabling narration. Then approve and deploy a preview that contains the reader.
+Older previews stay readable without narration.
+
+Create a separate public-read R2 bucket in the preview account. Set the
+repository variable `BLOG_NARRATION_PREVIEW_ORIGIN` to its HTTPS custom origin
+without a trailing slash. Configure that bucket's CORS policy to allow anonymous
+`GET` and `HEAD` from the preview sites and allow the `Range` request header.
+An allowed origin of `*` works for these public assets. Bypass edge caching for
+`*/narration.json` and avoid caching errors on the delivery origin. Cache
+versioned WAV files for up to one day. Set an R2 lifecycle policy to expire
+preview delivery objects after 30 days. This policy applies only to the delivery
+bucket. A publisher retry can restore expired objects from the private cache.
+
+Create the GitHub environment `preview-narration` and restrict deployment
+branches to the default branch. Keep the existing deployment approval on
+`preview` and `preview-auto`. Put the new credentials only in
+`preview-narration`, where the checkout and dependencies come from the workflow
+revision. Set `BLOG_NARRATION_PREVIEW_R2_BUCKET` in that environment and provide
+bucket-scoped write credentials in the `BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID`
+and `BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY` secrets. The workflow uses
+the repository's existing `PREVIEW_ACCOUNT_ID` and
+`CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` settings.
+
+In `preview-narration`, set the same `ELEVENLABS_MYVOICE_ID`,
+`ELEVENLABS_MYVOICE_REVISION`, and `BLOG_NARRATION_R2_BUCKET` values as
+production. Configure `ELEVENLABS_API_KEY` with text-to-speech access. Use separate
+bucket-scoped credentials for the same private production narration bucket
+under `BLOG_NARRATION_R2_ACCESS_KEY_ID` and
+`BLOG_NARRATION_R2_SECRET_ACCESS_KEY`. The preview publisher holds the same
+queue as the production www job. Production reuses a recording only when the
+rendered text and voice fingerprint match.
+
+Each run considers up to 40 archive entries, starting with posts changed by the
+PR and then the newest remaining posts. It applies download, transcript,
+and new-synthesis budgets. It reports entries skipped by the archive,
+download, transcript, or synthesis limits. Production still handles every eligible article.
+
+The preview link arrives before narration. Reload the article when the
+**Publish Preview Blog Narration** job succeeds. To recover a failed upload or
+synthesis, rerun the failed job while the PR is still approved at the same head.
+The retry keeps the delivery path embedded in the deployed preview and can
+reuse any completed chunks. A newer head needs its own approval and deploy.
+Leaving `BLOG_NARRATION_PREVIEW_ORIGIN` unset keeps preview narration disabled.
+Production can still generate any missing recordings.
+
 ### Released docs in Context7
 
 The [Context7 library](https://context7.com/maelstrom-co/maelstrom) indexes the

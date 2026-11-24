@@ -29,13 +29,14 @@ export interface NarrationStore {
   put(key: string, value: string): Promise<void>;
 }
 
-interface Publication {
+export interface NarrationPublication {
   store: NarrationStore;
   voiceId: string;
   voiceRevision: string;
   apiKey: string;
   request?: (url: string, init: RequestInit) => Promise<Response>;
   limit?: number;
+  beforeSynthesis?: (characters: number) => Promise<void>;
 }
 
 interface SourceChunk {
@@ -113,17 +114,34 @@ export function splitNarration(
   return chunks;
 }
 
-function readTranscript(html: string): string {
+export function parseNarrationHtml(html: string): Document {
   const window = new Window({
     settings: {
       disableJavaScriptEvaluation: true,
       disableJavaScriptFileLoading: true,
       disableCSSFileLoading: true,
       disableIframePageLoading: true,
+      fetch: {
+        interceptor: {
+          beforeAsyncRequest: async ({ window }) =>
+            new window.Response(null, { status: 403 }),
+          beforeSyncRequest: ({ window }) => ({
+            status: 403,
+            statusText: 'Forbidden',
+            ok: false,
+            url: '',
+            redirected: false,
+            headers: new window.Headers(),
+            body: null,
+          }),
+        },
+      },
     },
   });
-  const document = new window.DOMParser().parseFromString(html, 'text/html');
-  return extractNarration(document as unknown as Document).text;
+  return new window.DOMParser().parseFromString(
+    html,
+    'text/html',
+  ) as unknown as Document;
 }
 
 function toWave(pcm: Uint8Array) {
@@ -215,7 +233,8 @@ function align(
   return timings;
 }
 
-async function synthesize(source: SourceChunk, options: Publication) {
+async function synthesize(source: SourceChunk, options: NarrationPublication) {
+  await options.beforeSynthesis?.(source.text.length);
   const response = await (options.request ?? fetch)(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(options.voiceId)}/with-timestamps?output_format=${format}`,
     {
@@ -251,7 +270,7 @@ async function cachedChunk(
   text: string,
   key: string,
   maySynthesize: boolean,
-  options: Publication,
+  options: NarrationPublication,
 ) {
   const stored = await options.store.get(key);
   if (stored === undefined && !maySynthesize)
@@ -288,14 +307,16 @@ async function writeAsset(file: string, value: string | Uint8Array) {
   await rename(temporary, file);
 }
 
-async function publishArticle(
-  output: string,
-  article: string,
-  options: Publication,
+interface NarrationDestination {
+  writeAudio: (path: string, media: Uint8Array) => Promise<void>;
+  writeManifest: (manifest: string) => Promise<void>;
+}
+
+export async function publishNarrationArticle(
+  text: string,
+  options: NarrationPublication,
+  destination: NarrationDestination,
 ) {
-  const page = join(output, 'blog', article);
-  const text = readTranscript(await readFile(page, 'utf8'));
-  if (!text) throw new Error(`Missing narration text in ${article}`);
   const textHash = await narrationDigest(text);
   const limit = options.limit ?? chunkLimit;
   const version = await narrationDigest(
@@ -323,7 +344,7 @@ async function publishArticle(
       options,
     );
     manifest.chunks.push(timing);
-    await writeAsset(join(output, narrationMediaPath(version, index)), media);
+    await destination.writeAudio(narrationMediaPath(version, index), media);
   }
   const manifestJson = JSON.stringify(manifest);
   if (
@@ -337,16 +358,27 @@ async function publishArticle(
   }
   if (previous === undefined)
     await options.store.put(manifestKey, manifestJson);
-  await writeAsset(join(dirname(page), 'narration.json'), manifestJson);
+  await destination.writeManifest(manifestJson);
 }
 
-export async function publishNarration(output: string, options: Publication) {
+export async function publishNarration(
+  output: string,
+  options: NarrationPublication,
+) {
   const failures: string[] = [];
   for await (const article of glob('*/index.html', {
     cwd: join(output, 'blog'),
   })) {
     try {
-      await publishArticle(output, article, options);
+      const page = join(output, 'blog', article);
+      const document = parseNarrationHtml(await readFile(page, 'utf8'));
+      const { text } = extractNarration(document);
+      if (!text) throw new Error('Missing narration text');
+      await publishNarrationArticle(text, options, {
+        writeAudio: (path, media) => writeAsset(join(output, path), media),
+        writeManifest: (manifest) =>
+          writeAsset(join(dirname(page), 'narration.json'), manifest),
+      });
     } catch (error) {
       failures.push(
         `${dirname(article)}: ${error instanceof Error ? error.message : 'Narration failed'}`,

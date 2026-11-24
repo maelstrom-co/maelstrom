@@ -57,6 +57,9 @@
             "env": "PUBLIC_PLAYGROUND_URL"
           },
           {
+            "env": "PUBLIC_BLOG_NARRATION_PREVIEW_BASE"
+          },
+          {
             "env": "PUBLIC_GITHUB_STAR_COUNT"
           },
           {
