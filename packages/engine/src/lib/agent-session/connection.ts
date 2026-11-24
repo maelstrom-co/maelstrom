@@ -77,9 +77,13 @@ export interface OpenConnectionOptions {
  */
 export interface AgentConnection {
   /**
-   * Accepts untrusted input. Resolves after handling it, without waiting for
-   * a later UI acknowledgement. Input sent after close() is dropped without an
-   * event or a diagnostic.
+   * Accepts untrusted input. An utterance resolves according to its route:
+   * the UI-only route resolves when it emits `ui_change`, before the later
+   * `ui_applied`; an Agent Run route resolves when the run finishes, so a
+   * `change_screen` call can keep it pending until `ui_applied` or the
+   * acknowledgement timeout. Sends queued behind earlier work can also
+   * remain pending. Input sent after `close()` is dropped without an event or
+   * a diagnostic.
    */
   send(input: unknown): Promise<void>;
   /** Observes future events in emission order. Returns an unsubscribe function; there is no replay. */
