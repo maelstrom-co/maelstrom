@@ -1,0 +1,24 @@
+.talking-points-app { min-height: 100dvh; background: var(--bg-0, #101416); color: var(--ink, #eef4ef); }
+.talking-points-header { display: flex; justify-content: space-between; gap: 1rem; padding: 1.25rem 2rem; border-bottom: 1px solid var(--line, #35403b); }
+.talking-points-header h1 { font-size: 1.5rem; font-weight: 650; }
+.talking-points-header a, .talking-points-header span, .talking-points-hint { font-size: .8rem; color: var(--ink-2, #a3b4a9); }
+.talking-points-controls { display: flex; align-items: center; gap: 1rem; }
+.talking-points-app button, .talking-points-app select, .talking-points-app input { border: 1px solid var(--line, #35403b); border-radius: .5rem; padding: .6rem .8rem; background: var(--bg-1, #1b2520); color: inherit; }
+.talking-points-app button { min-height: 44px; cursor: pointer; }
+.talking-points-app button:disabled { opacity: .5; cursor: default; }
+.talking-points-main, .talking-points-preview { max-width: 900px; margin: auto; padding: 1rem; }
+.talking-points-controller, .talking-points-topic { height: 100%; overflow: auto; border: 1px solid var(--line, #35403b); border-radius: .75rem; padding: 1rem; background: var(--bg-1, #1b2520); }
+.talking-points-controller h2 { font-size: 1.1rem; font-weight: 600; }
+.talking-points-topic { display: flex; align-items: center; gap: 1rem; }
+.talking-points-topic p { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talking-points-number { font-family: monospace; color: var(--ink-2, #a3b4a9); }
+.talking-points-topic[data-spoken="true"] { border-color: #5ab58a; background: #193629; }
+.talking-points-spoken { color: #8de5b6; font-size: .8rem; }
+.talking-points-dock { position: sticky; bottom: 0; display: flex; gap: 1.5rem; align-items: center; padding: 1rem max(1rem, calc((100% - 900px) / 2)); border-top: 1px solid var(--line, #35403b); background: var(--bg-0, #101416); }
+.talking-points-voice { display: flex; flex-direction: column; align-items: center; font-size: .75rem; min-width: 100px; }
+.talking-points-dock form { flex: 1; }
+.talking-points-dock label { font-size: .85rem; }
+.talking-points-input-row { display: flex; gap: .5rem; margin: .4rem 0; }
+.talking-points-input-row input { flex: 1; min-width: 0; }
+.talking-points-dock form p { min-height: 1.3em; font-size: .8rem; }
+@media (max-width: 600px) { .talking-points-header { padding: 1rem; flex-direction: column; } .talking-points-topic { gap: .5rem; flex-wrap: wrap; } .talking-points-spoken { display: none; } .talking-points-dock { gap: .5rem; } }

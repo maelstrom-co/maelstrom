@@ -26,6 +26,14 @@ afterEach(() => {
 });
 
 describe('app identity', () => {
+  it('links to Talking Points without exposing the hidden Tasklane lane', () => {
+    const { getByRole, container } = render(<DemoHeader>{null}</DemoHeader>);
+    expect(
+      getByRole('link', { name: 'Talking Points' }).getAttribute('href'),
+    ).toBe('/talking-points');
+    expect(container.querySelector('a[href="/tasks"]')).toBeNull();
+  });
+
   it('names Dayline as the app and Maelstrom as what powers it', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
     expect(getByRole('heading', { level: 1 }).textContent).toBe('Dayline');

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { captureCommunityInviteClick } from '../lib/community-analytics';
 
 const DEMO_LINKS = [
+  { label: 'Talking Points', href: '/talking-points' },
   { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
   { label: 'Join Discord', href: COMMUNITY_DISCORD_URL },
   {
