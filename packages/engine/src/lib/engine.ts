@@ -44,6 +44,7 @@ import type {
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
+import { recordPlannedTurn } from './history/record-planned-turn.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import {
@@ -125,7 +126,13 @@ function isChartRequestCandidate(message: unknown): boolean {
  */
 export interface Engine {
   /**
-   * Opens an isolated Agent Session with host-authorized identity. The UI-only route does not use the legacy history store.
+   * Opens an isolated Agent Session with host-authorized identity. Without
+   * {@link EngineConfig.agent}, reads configured session history and records
+   * validated planning turns before emitting UI changes.
+   * History records proposed responses, not application evidence. Storage writes
+   * are advisory; this route never looks up or replays cached responses.
+   * With `agent` configured, runs use a connection-local transcript instead of
+   * reading or recording configured history.
    *
    * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
@@ -491,6 +498,8 @@ export function createEngine(config: EngineConfig): Engine {
     sessionHistory?: readonly LLMContextMessage[],
     runOwner?: RunOwner,
   ): Promise<Result<Shipped, EngineError>> {
+    if (signal?.aborted)
+      return err(cancellationError('Request cancelled', signal.reason));
     const { request } = message;
     const diagnosticOwner = runOwner ?? message.id;
     logger.debug('Processing chart_request', {
@@ -522,14 +531,16 @@ export function createEngine(config: EngineConfig): Engine {
     // contract — surface it as a HistoryError so callers see the same Err
     // shape they see for assistant_message persistence failures.
     const historyContext =
-      sessionHistory !== undefined
-        ? ok(sessionHistory)
-        : await loadHistoryContext(
+      sessionHistory === undefined
+        ? await loadHistoryContext(
             history,
             message.sessionId,
             message.id,
             logger,
-          );
+          )
+        : ok(sessionHistory);
+    if (signal?.aborted)
+      return err(cancellationError('Request cancelled', signal.reason));
     if (isErr(historyContext)) {
       return historyContext;
     }
@@ -643,14 +654,37 @@ export function createEngine(config: EngineConfig): Engine {
   }
 
   function createSessionPlanner(sessionId: SessionId): SessionPlanner {
-    return (input) =>
-      runChartRequest(
-        agentChartRequest(sessionId, input.messageId, input.request),
+    return async (input) => {
+      const message = agentChartRequest(
+        sessionId,
+        input.messageId,
+        input.request,
+      );
+      const result = await runChartRequest(
+        message,
         shipPlanOutcome,
         input.signal,
-        [],
+        agent === undefined ? undefined : [],
         input.owner,
       );
+      if (isErr(result)) return result;
+      if (input.signal.aborted)
+        return err(cancellationError('Request cancelled', input.signal.reason));
+      if (agent === undefined && result.value.type === 'response') {
+        await recordPlannedTurn(
+          history,
+          message,
+          {
+            type: 'chart_response',
+            sessionId,
+            id: message.id,
+            response: result.value.response,
+          },
+          logger,
+        );
+      }
+      return result;
+    };
   }
 }
 

@@ -10,7 +10,7 @@
  * is never written to storage or to `serializeAttachment`, both of which the
  * platform retains; only the non-secret {@link ConnectionMarker} survives.
  *
- * At most one frame PER SOCKET is buffered while a rehello is outstanding,
+ * One frame per socket may await rehello,
  * cleared on that socket's hello and on its close. Keyed by WebSocket (not a
  * single object-scoped slot) because two sockets on the same object can each
  * wake from hibernation and need a rehello independently — a single slot
@@ -18,6 +18,7 @@
  * buffering would be a memory-growth vector on a socket that never answers
  * the rehello.
  */
+
 import { Context, Layer } from 'effect';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */
@@ -27,6 +28,8 @@ export interface ConnectionMarker {
 }
 
 export interface ConnectionsService {
+  /** Whether teardown has permanently retired this socket. */
+  readonly retired: (ws: WebSocket) => boolean;
   /** This connection's key, or null while it has none in hand. */
   readonly keyOf: (ws: WebSocket) => string | null;
 
@@ -61,14 +64,12 @@ export interface ConnectionsService {
   ) => void;
 
   /**
-   * Buffers `raw` as the frame to replay when the outstanding rehello is
-   * answered. Returns false — buffering nothing — when a frame is already
-   * buffered for this socket; the caller answers such races immediately
-   * instead.
+   * Reserves one frame until authentication returns. The first reservation
+   * requests hello; further frames are refused.
    */
-  readonly bufferPending: (ws: WebSocket, raw: string) => boolean;
+  readonly bufferPending: (ws: WebSocket, raw: string) => 'first' | 'full';
 
-  /** Takes the buffered triggering frame, if any. */
+  /** Removes the buffered frame. */
   readonly takePending: (ws: WebSocket) => string | undefined;
 
   /**
@@ -91,8 +92,10 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
     const keys = new WeakMap<WebSocket, string>();
     const pending = new Map<WebSocket, string>();
     const declined = new WeakSet<WebSocket>();
+    const retired = new WeakSet<WebSocket>();
 
     return Connections.of({
+      retired: (ws) => retired.has(ws),
       keyOf: (ws) => keys.get(ws) ?? null,
       markerOf: (ws) => {
         // The attachment was written by markHello with a satisfies-checked
@@ -117,24 +120,25 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
         declined.add(ws);
       },
       markHello: (ws, apiKey, sessionId) => {
-        keys.set(ws, apiKey);
-        declined.delete(ws);
         ws.serializeAttachment({
           helloed: true,
           sessionId,
         } satisfies ConnectionMarker);
+        keys.set(ws, apiKey);
+        declined.delete(ws);
       },
       bufferPending: (ws, raw) => {
-        if (pending.has(ws)) return false;
+        if (pending.has(ws)) return 'full';
         pending.set(ws, raw);
-        return true;
+        return 'first';
       },
       takePending: (ws) => {
-        const raw = pending.get(ws);
+        const frame = pending.get(ws);
         pending.delete(ws);
-        return raw;
+        return frame;
       },
       forget: (ws) => {
+        retired.add(ws);
         keys.delete(ws);
         pending.delete(ws);
       },

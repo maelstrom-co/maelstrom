@@ -97,6 +97,85 @@ void mock.module('./screen-change-queue.js', capturingScreenChangeQueueModule);
 void mock.module('./agent-run-queue.js', capturingAgentRunQueueModule);
 
 describe('agent route through the Engine handle', () => {
+  test('rejecting a client-dispatched Chart does not run the model or prevent a later utterance', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    const inputId = MessageId('chart-input');
+    await session.connection.send({
+      type: 'chart_request',
+      version: AGENT_WIRE_VERSION,
+      inputId,
+      request: makeTilingRequest(),
+    });
+    expect(session.received).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        inputId,
+        code: 'unsupported_input',
+      }),
+    ]);
+    expect(model.requests).toHaveLength(0);
+    await session.send(utterance('chart-input', 'Hello'));
+    expect(lastFinished(session.received)).toMatchObject({
+      ok: true,
+      reply: 'Ready.',
+    });
+    expect(model.requests).toHaveLength(1);
+    session.connection.close();
+  });
+  test('unsupported Chart requests cannot exhaust a configured agent session', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    try {
+      for (let index = 0; index <= 4096; index++) {
+        await session.connection.send({
+          type: 'chart_request',
+          version: AGENT_WIRE_VERSION,
+          inputId: MessageId(`unsupported-${index}`),
+          request: makeTilingRequest(),
+        });
+        expect(session.received.at(-1)).toMatchObject({
+          type: 'error',
+          code: 'unsupported_input',
+        });
+      }
+      await session.send(utterance('supported', 'Hello'));
+      expect(lastFinished(session.received)).toMatchObject({ ok: true });
+      expect(model.requests).toHaveLength(1);
+    } finally {
+      session.connection.close();
+    }
+  });
+  test('a busy configured agent rejects Chart requests as unsupported rather than retryable', async () => {
+    const model = scriptedTextAdapter([
+      scriptedTextTurn(['Ready.'], scriptedUsage(1, 1)),
+    ]);
+    const session = openAgentSession({ model: model.adapter });
+    let rejected: Promise<void> | undefined;
+    session.connection.subscribe((event) => {
+      if (event.type !== 'started') return;
+      rejected = session.connection.send({
+        type: 'chart_request',
+        version: AGENT_WIRE_VERSION,
+        inputId: MessageId('unsupported'),
+        request: makeTilingRequest(),
+      });
+    });
+    try {
+      await session.send(utterance('supported', 'Hello'));
+      await rejected;
+      expect(
+        session.received.filter((event) => event.type === 'error'),
+      ).toMatchObject([{ inputId: 'unsupported', code: 'unsupported_input' }]);
+      expect(lastFinished(session.received)).toMatchObject({ ok: true });
+    } finally {
+      session.connection.close();
+    }
+  });
   describe('a single utterance', () => {
     test('streams its opening, tool breadcrumbs and reply in wire order, each decodable, with no internal events', async () => {
       const order = orderTool();
@@ -737,42 +816,56 @@ describe('agent route through the Engine handle', () => {
       ).not.toContain('[screen ');
     });
 
-    test('an acknowledgement with a failed Action answers failed with some steps not run and the change id', async () => {
-      const goal = 'show my last order';
-      const model = scriptedTextAdapter([
-        scriptedToolTurn(
-          [changeScreenCall('call-1', goal)],
-          scriptedUsage(1, 1),
-        ),
-        scriptedTextTurn(['Part of it failed.'], scriptedUsage(1, 1)),
-      ]);
-      const session = openAgentSession({
-        model: model.adapter,
-        planner: addEventPlanner,
-      });
+    test.each(['unknown', 'failed'] as const)(
+      'a %s application settles the awaited tool with the batch status and change id',
+      async (status) => {
+        const goal = 'show my last order';
+        const model = scriptedTextAdapter([
+          scriptedToolTurn(
+            [changeScreenCall('call-1', goal)],
+            scriptedUsage(1, 1),
+          ),
+          scriptedTextTurn(['Part of it failed.'], scriptedUsage(1, 1)),
+        ]);
+        const session = openAgentSession({
+          model: model.adapter,
+          planner: addEventPlanner,
+        });
 
-      const sent = session.send(utterance('input-1', goal, calendarChart()));
-      await waitUntil(() => uiChangesOf(session.received).length === 1);
-      const [change] = uiChangesOf(session.received);
-      if (change === undefined) throw new Error('no ui_change');
-      await session.connection.send({
-        ...acknowledgementOf(change, calendarChart()),
-        actionOutcomes: [{ ok: false, error: 'calendar is read-only' }],
-      });
-      await sent;
+        const sent = session.send(utterance('input-1', goal, calendarChart()));
+        await waitUntil(() => uiChangesOf(session.received).length === 1);
+        const [change] = uiChangesOf(session.received);
+        if (change === undefined) throw new Error('no ui_change');
+        await session.connection.send({
+          ...acknowledgementOf(change, calendarChart()),
+          status,
+          actionOutcomes:
+            status === 'failed'
+              ? []
+              : [{ ok: false, error: 'calendar is read-only' }],
+        });
+        await sent;
 
-      const summary = `failed (some steps did not run): "${goal}"`;
-      expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
-        status: 'failed',
-        summary,
-        changeId: change.changeId,
-      });
-      expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
-        ok: true,
-        summary,
-      });
-      expect(session.received.map(typeOf)).not.toContain('error');
-    });
+        const summary = `${status === 'failed' ? 'failed' : 'unknown (the screen did not confirm)'}: "${goal}"`;
+        expect(toolResultOf(model.requests[1]?.messages, 'call-1')).toEqual({
+          status,
+          summary,
+          changeId: change.changeId,
+        });
+        expect(toolResultEventOf(session.received, 'c1')).toMatchObject({
+          ok: true,
+          summary,
+        });
+        expect(
+          session.received.filter((e) => e.type === 'error'),
+        ).toMatchObject([
+          {
+            changeId: change.changeId,
+            code: status === 'failed' ? 'ui_apply_failed' : 'ui_apply_unknown',
+          },
+        ]);
+      },
+    );
 
     test('Planner prose never reaches the model, the wire or the transcript, only the Engine summary does', async () => {
       const goal = 'show my last order';
@@ -1441,7 +1534,7 @@ describe('agent route through the Engine handle', () => {
           version: AGENT_WIRE_VERSION,
           changeId: change.changeId,
           code: 'invalid_action_outcomes',
-          error: 'Expected one outcome per Action.',
+          error: 'Action evidence does not match the application status.',
         },
       ]);
       await settle();
@@ -2847,6 +2940,7 @@ function typeOf(event: AgentEvent): AgentEvent['type'] {
 function strayAcknowledgement() {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: ChangeId('stray-change'),
     chart: makeTilingRequest(),

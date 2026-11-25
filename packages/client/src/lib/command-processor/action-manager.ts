@@ -393,8 +393,8 @@ export class ActionManager {
       `Executing ${executionPlan.length} actions across ${actionsByInstance.size} instances`,
     );
 
-    // Execute each instance's actions in parallel
-    const instanceResults = await Promise.all(
+    const allActions: ActionRecord[] = new Array(executionPlan.length);
+    await Promise.all(
       Array.from(actionsByInstance.entries()).map(
         async ([instanceId, actionDefs]) => {
           // Wait for runner to be ready before executing
@@ -415,23 +415,28 @@ export class ActionManager {
               `No runner registered for instance "${instanceId}", skipping ${actionDefs.length} actions`,
             );
             // Return skipped actions (not a failure)
-            return actionDefs.map((a) => ({
-              instanceId,
-              action: a.execution.action,
-              result: ok(undefined),
-              duration: 0,
-              skipped: true,
-              errorCategory: 'readiness' as const,
-            }));
+            for (const a of actionDefs)
+              allActions[a.index] = {
+                instanceId,
+                action: a.execution.action,
+                result: ok(undefined),
+                duration: 0,
+                skipped: true,
+                errorCategory: 'readiness' as const,
+              };
+            return;
           }
 
           if (transitions) {
-            return this.#executeInstanceActionsWithTransitions(
+            const records = await this.#executeInstanceActionsWithTransitions(
               instanceId,
               actionDefs.map((a) => a.execution),
               transitions,
               report,
             );
+            for (const [index, record] of records.entries())
+              allActions[actionDefs[index].index] = record;
+            return;
           }
 
           // Get the runner now that we're ready
@@ -441,13 +446,16 @@ export class ActionManager {
             runner,
           }));
 
-          return this.#executeInstanceActions(instanceId, actions, report);
+          const records = await this.#executeInstanceActions(
+            instanceId,
+            actions,
+            report,
+          );
+          for (const [index, record] of records.entries())
+            allActions[actionDefs[index].index] = record;
         },
       ),
     );
-
-    // Combine all action records
-    const allActions = instanceResults.flat();
 
     const successCount = allActions.filter(
       (a) => a.result.ok && !a.skipped,
@@ -512,10 +520,13 @@ export class ActionManager {
    */
   #groupActionsByInstance(
     executionPlan: readonly ActionExecution[],
-  ): Map<InstanceId, ExecutableAction[]> {
-    const grouped = new Map<InstanceId, ExecutableAction[]>();
+  ): Map<InstanceId, (ExecutableAction & { index: number })[]> {
+    const grouped = new Map<
+      InstanceId,
+      (ExecutableAction & { index: number })[]
+    >();
 
-    for (const execution of executionPlan) {
+    for (const [index, execution] of executionPlan.entries()) {
       const id = execution.instanceId;
       const runner = this.#getRunnerForInstance(id);
 
@@ -523,7 +534,7 @@ export class ActionManager {
         grouped.set(id, []);
       }
 
-      grouped.get(id)?.push({ execution, runner });
+      grouped.get(id)?.push({ execution, runner, index });
     }
 
     return grouped;

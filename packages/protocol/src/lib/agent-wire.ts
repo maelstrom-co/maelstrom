@@ -16,15 +16,16 @@ import type { MaelstromResponse } from './response.ts';
 /**
  * Version of the agent wire contract that every {@link AgentInput} and
  * {@link AgentEvent} carries in its `version` field. An integer, not semver.
- * A new optional field on a member keeps the version, because decoders strip
- * keys they do not know. A new union member or enum value is rejected by an
- * older decoder as `invalid_envelope`, so such a change bumps the version.
- * The wire is unstable, so version bumps apply only once it is declared
- * stable. Decoders reject any other version value.
+ * New optional fields keep the version only when ignoring them preserves
+ * semantics. Required evidence, union members, or enum values bump the version.
+ * Version 3 adds client-dispatched Chart requests. Version 2 introduced
+ * whole-batch application status, which version 1 peers could discard.
+ * Decoders reject every other version, including while the browser event applier
+ * is experimental.
  *
  * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
-export const AGENT_WIRE_VERSION = 1 as const;
+export const AGENT_WIRE_VERSION = 3 as const;
 
 /** Where an utterance came from: typed text or transcribed voice. */
 export const AgentInputSourceSchema = z.enum(['text', 'voice']);
@@ -191,20 +192,69 @@ export interface AgentUtteranceInput {
 }
 
 /**
- * The browser's acknowledgement that it applied a UI change. Carries the
- * resulting Chart state and one outcome per Action. `actionOutcomes` is
- * positional: entry i describes Action i of the Execution Plan.
+ * A complete {@link ChartRequest} captured by the client at dispatch. The native
+ * connection accepts it only when no run is pending; it never queues this
+ * snapshot behind other work or replaces it with an acknowledgement's Chart.
+ * The client owns FIFO admission and automatic-update coalescing for this route.
  */
-export const AgentUiAppliedInputSchema = z.object({
-  type: z.literal('ui_applied'),
+export const AgentChartRequestInputSchema = z.object({
+  type: z.literal('chart_request'),
   version: z.literal(AGENT_WIRE_VERSION),
-  changeId: ChangeIdSchema,
-  chart: chartSnapshotSchema(),
-  actionOutcomes: z.array(AgentActionOutcomeSchema),
+  inputId: MessageIdSchema,
+  request: chartSnapshotSchema(),
 });
 
 /**
- * The browser's acknowledgement that it applied a UI change.
+ * A client-dispatched planning request for the native UI-only route.
+ *
+ * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
+ */
+export interface AgentChartRequestInput {
+  /** Member discriminator. */
+  type: 'chart_request';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** Client-assigned id for deduplication and correlation. */
+  inputId: MessageId;
+  /**
+   * Current client-owned state and update reasons, captured after earlier work
+   * settles. Preserves user, resize, and mutation reasons without an utterance.
+   * Native admission clones the request before callbacks and rejects values that
+   * cannot be cloned, without reserving the ID.
+   * A busy refusal leaves this ID unused; a later dispatch must capture state
+   * again. Accepted or uncertain work must not be automatically replayed.
+   */
+  request: ChartRequest;
+}
+
+/**
+ * The browser's whole-batch evidence for a UI change. Success requires the
+ * Layout and every Action to finish. Partial or uncertain effects are unknown.
+ * `actionOutcomes` is positional: entry i describes Action i of the Execution Plan.
+ * Failed status means Layout refusal before any Actions and has no outcomes.
+ */
+export const AgentUiAppliedInputSchema = z
+  .object({
+    type: z.literal('ui_applied'),
+    version: z.literal(AGENT_WIRE_VERSION),
+    changeId: ChangeIdSchema,
+    status: z.enum(['applied', 'failed', 'unknown']),
+    chart: chartSnapshotSchema(),
+    actionOutcomes: z.array(AgentActionOutcomeSchema),
+  })
+  .refine(
+    ({ status, actionOutcomes }) =>
+      status === 'applied'
+        ? actionOutcomes.every((outcome) => outcome.ok)
+        : status !== 'failed' || actionOutcomes.length === 0,
+    {
+      message: 'Action evidence contradicts the whole-batch status.',
+      path: ['actionOutcomes'],
+    },
+  );
+
+/**
+ * The browser's whole-batch evidence for a UI change.
  *
  * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
@@ -213,13 +263,16 @@ export interface AgentUiAppliedInput {
   type: 'ui_applied';
   /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: typeof AGENT_WIRE_VERSION;
-  /** Echoes the `changeId` of the applied `ui_change`. */
+  /** Echoes the `changeId` of the observed `ui_change`. */
   changeId: ChangeId;
-  /** Chart state after the change was applied. */
+  /** Applied means the whole batch succeeded; failed means Layout refusal before Actions; unknown means effects are uncertain. */
+  status: 'applied' | 'failed' | 'unknown';
+  /** Observed Chart state after the batch settled, including a refused or partial change. */
   chart: ChartRequest;
   /**
-   * One outcome per Action in the Execution Plan. Positional: entry i
-   * describes Action i of the Execution Plan.
+   * Positional Action evidence. Applied requires every Action to succeed;
+   * failed has no outcomes; unknown may contain an incomplete prefix.
+   * No status permits more outcomes than Actions in the Execution Plan.
    */
   actionOutcomes: AgentActionOutcome[];
 }
@@ -232,6 +285,7 @@ export interface AgentUiAppliedInput {
  */
 export const AgentInputSchema = z.discriminatedUnion('type', [
   AgentUtteranceInputSchema,
+  AgentChartRequestInputSchema,
   AgentUiAppliedInputSchema,
 ]);
 
@@ -240,7 +294,10 @@ export const AgentInputSchema = z.discriminatedUnion('type', [
  *
  * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
  */
-export type AgentInput = AgentUtteranceInput | AgentUiAppliedInput;
+export type AgentInput =
+  | AgentUtteranceInput
+  | AgentChartRequestInput
+  | AgentUiAppliedInput;
 
 /**
  * Immediate feedback for an input, sent before the Engine has decided how to
@@ -699,6 +756,16 @@ const _uiAppliedInputBwd: AgentUiAppliedInput extends _InferredAgentUiAppliedInp
   ? true
   : false = true;
 
+type _InferredAgentChartRequestInput = z.infer<
+  typeof AgentChartRequestInputSchema
+>;
+const _chartRequestInputFwd: _InferredAgentChartRequestInput extends AgentChartRequestInput
+  ? true
+  : false = true;
+const _chartRequestInputBwd: AgentChartRequestInput extends _InferredAgentChartRequestInput
+  ? true
+  : false = true;
+
 type _InferredAgentInput = z.infer<typeof AgentInputSchema>;
 const _inputFwd: _InferredAgentInput extends AgentInput ? true : false = true;
 const _inputBwd: AgentInput extends _InferredAgentInput ? true : false = true;
@@ -790,6 +857,8 @@ void [
   _utteranceInputBwd,
   _uiAppliedInputFwd,
   _uiAppliedInputBwd,
+  _chartRequestInputFwd,
+  _chartRequestInputBwd,
   _inputFwd,
   _inputBwd,
   _placeholderEventFwd,

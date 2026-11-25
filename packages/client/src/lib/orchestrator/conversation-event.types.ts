@@ -6,6 +6,7 @@ import type {
   AgentInputSource,
   AgentMessageEvent,
   AgentPlaceholderEvent,
+  AgentUiAppliedInput,
   ChangeId,
   MessageId,
   RunId,
@@ -55,8 +56,13 @@ export type AgentUiChangeAppliedEvent = {
   /** The change the agent sent, as echoed in its acknowledgement. */
   changeId: ChangeId;
   /**
-   * Outcome of each Action in Execution Plan order, as computed for the
-   * acknowledgement, whether or not it was sent.
+   * Whole-batch application status, including Layout-only changes. Always
+   * set by the Orchestrator; optional for events constructed by older clients.
+   */
+  status?: AgentUiAppliedInput['status'];
+  /**
+   * One outcome per planned Action in order. A refused Layout marks every
+   * Action as not run. Use `status` to determine whether the batch succeeded.
    */
   actionOutcomes: readonly Readonly<AgentActionOutcome>[];
 };

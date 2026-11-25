@@ -647,6 +647,10 @@ function uiOnlyEngineConnector(): EngineConnector {
         );
         return;
       }
+      if (input.type !== 'utterance')
+        throw new Error(
+          'The shop fixture accepts conversation utterances only',
+        );
       engine.utterances.push(input);
       const index = engine.utterances.length;
       const runId = RunId(`run-${index}`);

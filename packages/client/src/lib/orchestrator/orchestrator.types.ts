@@ -37,6 +37,13 @@ export interface OrchestratorOptionsBase {
    * acknowledgement wait, so a live server normally sends `finished` first.
    */
   agentRunStaleTimeoutMs?: number;
+  /**
+   * Maximum wait for connector application acknowledgment after Actions settle.
+   * Defaults to 60,000 ms. Must be finite, positive, and at most 2,147,483,647 ms.
+   * Timeout stops planning on that binding until a different connector is installed.
+   * It does not cancel or replay executed Actions.
+   */
+  applicationAcknowledgmentTimeoutMs?: number;
   /** Connection options for the ConnectionManager */
   connection?: Partial<ConnectionOptions>;
   /**
@@ -133,6 +140,8 @@ export interface ResolvedOrchestratorOptions {
   readonly maxWaitMs: number;
   readonly readyTimeoutMs: number;
   readonly agentRunStaleTimeoutMs: number;
+  /** Validated application acknowledgment deadline in milliseconds. */
+  readonly applicationAcknowledgmentTimeoutMs: number;
   readonly connection: ConnectionOptions;
 }
 
@@ -166,6 +175,19 @@ export function resolveOrchestratorOptions(
       `agentRunStaleTimeoutMs must not exceed ${MAX_TIMER_DELAY_MS} (the largest timer delay), received ${agentRunStaleTimeoutMs}. Pass Infinity to disable the safety net`,
     );
   }
+  const applicationAcknowledgmentTimeoutMs =
+    options.applicationAcknowledgmentTimeoutMs === undefined
+      ? 60_000
+      : options.applicationAcknowledgmentTimeoutMs;
+  if (
+    !Number.isFinite(applicationAcknowledgmentTimeoutMs) ||
+    applicationAcknowledgmentTimeoutMs <= 0 ||
+    applicationAcknowledgmentTimeoutMs > 2_147_483_647
+  ) {
+    throw new RangeError(
+      'applicationAcknowledgmentTimeoutMs must be finite, positive, and at most 2147483647',
+    );
+  }
   return {
     sessionId: options.sessionId ?? SessionId(),
     layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
@@ -174,6 +196,7 @@ export function resolveOrchestratorOptions(
     maxWaitMs: options.maxWaitMs ?? 1000,
     readyTimeoutMs: options.readyTimeoutMs ?? 500,
     agentRunStaleTimeoutMs,
+    applicationAcknowledgmentTimeoutMs,
     connection: {
       maxRetries: options.connection?.maxRetries ?? 5,
       initialDelayMs: options.connection?.initialDelayMs ?? 1000,

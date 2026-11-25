@@ -216,7 +216,7 @@ describe('createScreenChangeQueue', () => {
         version: AGENT_WIRE_VERSION,
         changeId: change.changeId,
         code: 'invalid_action_outcomes',
-        error: 'Expected one outcome per Action.',
+        error: 'Action evidence does not match the application status.',
       },
     ]);
     expect(harness.sessionObserved).toEqual([]);
@@ -276,7 +276,7 @@ describe('createScreenChangeQueue', () => {
     expect(harness.time.pending()).toBe(0);
   });
 
-  test('answers every goal failed (some steps did not run) with the change id when an Action outcome is not ok', async () => {
+  test('a partially applied batch cannot confirm any dependent goal', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     const answers = harness.queue.request(screenChange(1, 1, 2));
@@ -292,13 +292,13 @@ describe('createScreenChangeQueue', () => {
 
     expect(await Promise.all(answers)).toEqual([
       {
-        status: 'failed',
-        summary: 'failed (some steps did not run): "Show order 1.1"',
+        status: 'unknown',
+        summary: 'unknown (the screen did not confirm): "Show order 1.1"',
         changeId: change.changeId,
       },
       {
-        status: 'failed',
-        summary: 'failed (some steps did not run): "Show order 1.2"',
+        status: 'unknown',
+        summary: 'unknown (the screen did not confirm): "Show order 1.2"',
         changeId: change.changeId,
       },
     ]);
@@ -977,6 +977,7 @@ describe('createScreenChangeQueue', () => {
           turnId: screenChange(1).turnId,
           actions: 2,
           failed: 1,
+          status: 'unknown',
         },
       },
     ]);
@@ -999,7 +1000,7 @@ describe('createScreenChangeQueue', () => {
         turnId: screenChange(1).turnId,
         callId: `call-1-${goal}`,
         reasonId: `r${goal}`,
-        status: 'failed',
+        status: 'unknown',
         changeId: change.changeId,
       })),
     );
@@ -1948,7 +1949,7 @@ describe('clarification changes and per-goal verdicts', () => {
     expect(harness.received).toEqual([]);
   });
 
-  test('a planned verdict on a change whose Action failed answers failed with some steps not run', async () => {
+  test('an uncertain application leaves a clarification verdict intact', async () => {
     const harness = createHarness();
     harness.queue.noteChart(monthChart);
     const answers = harness.queue.request(screenChange(1, 1, 2));
@@ -1966,7 +1967,7 @@ describe('clarification changes and per-goal verdicts', () => {
 
     const [first, second] = await Promise.all(answers);
     expect(first?.summary).toBe(
-      'failed (some steps did not run): "Show order 1.1"',
+      'unknown (the screen did not confirm): "Show order 1.1"',
     );
     expect(second?.status).toBe('needs_clarification');
     expect(second?.changeId).toBe(change.changeId);
@@ -2121,6 +2122,7 @@ function applied(
 ): AgentUiAppliedInput {
   return {
     type: 'ui_applied',
+    status: actionOutcomes.every((o) => o.ok) ? 'applied' : 'unknown',
     version: AGENT_WIRE_VERSION,
     changeId,
     chart,

@@ -308,6 +308,7 @@ export function acknowledgementOf(
 ) {
   return {
     type: 'ui_applied',
+    status: 'applied',
     version: AGENT_WIRE_VERSION,
     changeId: change.changeId,
     chart,

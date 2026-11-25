@@ -572,6 +572,7 @@ describe('Orchestrator agent stale run safety net', () => {
           type: 'ui_change',
           runId: runB,
           changeId: ChangeId('change-slow'),
+          status: 'applied',
           actionOutcomes: [{ ok: true }],
         },
       ]);
