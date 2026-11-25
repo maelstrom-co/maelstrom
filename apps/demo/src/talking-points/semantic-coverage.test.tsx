@@ -42,7 +42,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function journey() {
+async function journey(seedTopics = topics) {
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -87,7 +87,7 @@ async function journey() {
   let clock = 0;
   const take = createLiveTake({
     now: () => clock,
-    topics,
+    topics: seedTopics,
     mintToken: async () => ({ value: 'test-grant' }),
     retirePending: () => runtime.retirePending(),
     createCapture: (options) =>
@@ -103,6 +103,7 @@ async function journey() {
   let actions: string[] = [];
   let action = 'mark';
   let failTransport = false;
+  const acceptedActions: string[][] = [];
   const planner: Planner = async ({ request }) => {
     await new Promise<void>((resolve) => releases.push(resolve));
     if (request.layout.type !== 'tiling') throw new Error('Expected tiling');
@@ -133,6 +134,9 @@ async function journey() {
       if (!result.ok) throw new Error(JSON.stringify(result.error));
       if (result.value.type !== 'chart_response')
         throw new Error('Expected chart response');
+      acceptedActions.push(
+        result.value.response.executionPlan.map((step) => step.action),
+      );
       return result.value.response;
     },
   };
@@ -207,6 +211,7 @@ async function journey() {
     take,
     runtime,
     requests,
+    acceptedActions,
     releases,
     commit,
     final,
@@ -421,12 +426,17 @@ it('retires the original runtime on Reset so stale Layout and mark Actions canno
   await waitFor(() => expect(old.requests).toHaveLength(1));
   act(() => old.take.reset());
   old.mounted.unmount();
-  const fresh = await journey();
+  const fresh = await journey([...topics].reverse());
   expect(fresh.take.generation).not.toBe(old.take.generation);
   await old.release(['rollout', 'cost']);
   expect(spoken('rollout')).toBe('false');
   expect(spoken('cost')).toBe('false');
   expect(screen.getAllByRole('article')).toHaveLength(2);
+  expect(
+    screen
+      .getAllByRole('article')
+      .map((article) => article.getAttribute('aria-label')),
+  ).toEqual([...topics].reverse().map((topic) => topic.content));
   expect(fresh.requests).toHaveLength(0);
 });
 
@@ -439,6 +449,7 @@ it.each(['unmark', 'removeTopic'])(
     await waitFor(() => expect(live.requests).toHaveLength(1));
     act(() => live.take.manualSet('rollout', true));
     await live.release(['rollout'], actionName);
+    expect(live.acceptedActions).toEqual([[]]);
     expect(spoken('rollout')).toBe('true');
     expect(spoken('cost')).toBe('false');
     expect(screen.getAllByRole('article')).toHaveLength(2);
@@ -474,6 +485,32 @@ it('preserves an original request’s valid evidence authority when newer ordina
   await live.release(['rollout']);
   await waitFor(() => expect(live.requests).toHaveLength(2));
   expect(spoken('rollout')).toBe('true');
+  await live.release();
+});
+
+it('preserves delayed multi-part marks when the code-point budget evicts only submitted text, not its source identity', async () => {
+  const live = await journey();
+  live.final('a', '😀'.repeat(3000));
+  live.final('b', 'b'.repeat(3000));
+  live.commit('b', 'a');
+  live.commit('a', null);
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  const submitted = JSON.parse(intent(live.requests[0]!).split('\n').at(-1)!);
+  expect(
+    submitted.evidence.segments.map((group: { itemId: string }[]) =>
+      group.map((part) => part.itemId),
+    ),
+  ).toEqual([['a', 'b']]);
+  live.commit('c', 'b');
+  live.final('c', 'c'.repeat(3000));
+  expect(live.take.getEvidence().items[0]).toMatchObject({
+    itemId: 'a',
+    parts: [],
+  });
+  await live.release(['rollout']);
+  await waitFor(() => expect(live.requests).toHaveLength(2));
+  expect(spoken('rollout')).toBe('true');
+  expect(intent(live.requests[1]!)).not.toContain('😀');
   await live.release();
 });
 
@@ -634,7 +671,7 @@ it('receives the 2999ms Stop tail but blocks display and evidence at the absolut
   act(() => old.take.reset());
   expect(old.take.getSnapshot().transcript).toEqual([]);
   old.mounted.unmount();
-  const fresh = await journey();
+  const fresh = await journey([...topics].reverse());
   old.delta('stale', 'Stale take speech.');
   old.final('stale', 'Stale final.');
   expect(
@@ -752,4 +789,54 @@ it('shows a stopped empty transcript after startup failure rather than claiming 
   expect(screen.getByText('No speech was transcribed.')).toBeTruthy();
   expect(screen.queryByText('Listening for speech…')).toBeNull();
   take.dispose();
+});
+
+it('recovers ordering only from an explicit audio-item lifecycle root and preserves conflicting-link uncertainty', async () => {
+  const live = await journey();
+  live.event({ type: 'input_audio_buffer.committed', item_id: 'a' });
+  live.final('a', 'A staged rollout limits customer impact.');
+  live.commit('b', 'a');
+  live.final('b', 'It lets us reverse course quickly.');
+  expect(live.requests).toHaveLength(0);
+  live.event({
+    type: 'conversation.item.created',
+    item: {
+      id: 'a',
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_audio' }],
+    },
+  });
+  expect(live.requests).toHaveLength(0);
+  live.event({
+    type: 'conversation.item.done',
+    item: { id: 'a' },
+    previous_item_id: null,
+  });
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  live.event({
+    type: 'conversation.item.added',
+    item: { id: 'b' },
+    previous_item_id: null,
+  });
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('false');
+});
+
+it('revokes delayed cross-item marks when a newly failed part splits their relied-on segment', async () => {
+  const live = await journey();
+  live.commit('a', null);
+  live.commit('b', 'a');
+  live.final('b', 'and allows rapid rollback.');
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  live.final('a', 'A staged rollout limits customer impact');
+  await live.release();
+  await waitFor(() => expect(live.requests).toHaveLength(2));
+  live.event({
+    type: 'conversation.item.input_audio_transcription.failed',
+    item_id: 'a',
+    content_index: 1,
+  });
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('false');
 });

@@ -195,6 +195,7 @@ export function createLiveTake(options: {
         if (!active || phase() !== 'starting') return;
         origin = now();
         capture.beginCapture();
+        if (!active || phase() !== 'starting') return;
         publish({ phase: 'listening' });
         if (!active || phase() !== 'listening') return;
         ticker = setInterval(() => {
@@ -215,6 +216,7 @@ export function createLiveTake(options: {
       const stoppedAt = now();
       deadline = stoppedAt + 3000;
       capture?.stopCapture();
+      if (!active || phase() !== 'listening') return;
       clearInterval(ticker);
       publish({ phase: 'finalizing', elapsedMs: stoppedAt - origin });
       if (!active || phase() !== 'finalizing') return;

@@ -19,6 +19,7 @@ const CODE_POINT_LIMIT = 8000;
 export function createLiveTranscript() {
   const items = new Map<string, Map<number, TranscriptPart>>();
   const evicted = new Set<string>();
+  const failed = new Map<string, Set<number>>();
   let snapshot: readonly TranscriptPart[] = [];
   return {
     getSnapshot: () => snapshot,
@@ -32,6 +33,9 @@ export function createLiveTranscript() {
       let parts = items.get(event.itemId);
       const previous = parts?.get(event.contentIndex);
       if (!('delta' in event) && !('transcript' in event)) {
+        const indices = failed.get(event.itemId) ?? new Set<number>();
+        indices.add(event.contentIndex);
+        failed.set(event.itemId, indices);
         if (previous?.status !== 'draft') return;
         parts?.delete(event.contentIndex);
         snapshot = snapshot.filter(
@@ -41,7 +45,12 @@ export function createLiveTranscript() {
         );
         return;
       }
-      if ('delta' in event && (!event.delta || previous?.status === 'final'))
+      if (
+        'delta' in event &&
+        (!event.delta ||
+          previous?.status === 'final' ||
+          failed.get(event.itemId)?.has(event.contentIndex))
+      )
         return;
       const next: TranscriptPart = {
         itemId: event.itemId,
@@ -89,6 +98,7 @@ export function createLiveTranscript() {
     clear() {
       items.clear();
       evicted.clear();
+      failed.clear();
       snapshot = [];
     },
   };

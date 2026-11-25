@@ -119,7 +119,36 @@ export function createSemanticCoverage(
       )
         invalidated = true;
     }
-    if (applyingEvidence && !take.sourcesOrdered(sourceIds)) invalidated = true;
+    if (applyingEvidence) {
+      if (!take.sourcesOrdered(sourceIds)) invalidated = true;
+      const current = take.getEvidence();
+      const currentGroups = segments(current);
+      for (const group of segments(applyingEvidence)) {
+        // Evicted text leaves identity tombstones, not retained evidence parts.
+        const retained = group.filter((part) =>
+          current.items.some(
+            (item) =>
+              item.itemId === part.itemId &&
+              item.parts.some(
+                (next) => next.contentIndex === part.contentIndex,
+              ),
+          ),
+        );
+        if (
+          retained.length > 1 &&
+          !currentGroups.some((candidate) =>
+            retained.every((part) =>
+              candidate.some(
+                (next) =>
+                  next.itemId === part.itemId &&
+                  next.contentIndex === part.contentIndex,
+              ),
+            ),
+          )
+        )
+          invalidated = true;
+      }
+    }
     pump();
   }
   const unsubscribe = take.subscribeEvidence(onEvidence);

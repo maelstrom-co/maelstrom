@@ -152,3 +152,24 @@ it('accepts the real Engine healed seeded layout on resize and refuses changed v
     ).ok,
   ).toBe(false);
 });
+
+it.each(['unmark', 'removeTopic'])(
+  'rejects the forbidden %s Action directly',
+  (action) => {
+    const value = input();
+    expect(
+      validateLivePlan({
+        ...value,
+        response: {
+          ...value.response,
+          executionPlan: [
+            {
+              instanceId: InstanceId('talking-points-live-one-main'),
+              action: ActionName(action),
+            },
+          ],
+        },
+      }).length,
+    ).toBeGreaterThan(0);
+  },
+);

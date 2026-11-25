@@ -397,9 +397,9 @@ function PreparationWorkspace({
       ticket.accepted ? 'Queued…' : 'Not submitted. Try again when connected.',
     );
     void ticket.result.then((result) => {
-      if (!owner.isActive()) return;
       if (result.status === 'not_submitted' && ticket.accepted) {
         if (
+          owner.isActive() &&
           !retry &&
           number === submissionNumber.current &&
           revision.current === submittedRevision
@@ -407,7 +407,7 @@ function PreparationWorkspace({
           changeDraft(text);
         else setRecovery((items) => [...items, { number, text }]);
       }
-      if (number !== submissionNumber.current) return;
+      if (!owner.isActive() || number !== submissionNumber.current) return;
       switch (result.status) {
         case 'applied':
           setReceipt(result.response.userMessage || 'Outline prepared.');

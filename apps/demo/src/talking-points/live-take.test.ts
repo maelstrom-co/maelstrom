@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { LiveCapture, LiveCaptureOptions } from './live-capture';
 import { createLiveTake } from './live-take';
 
+const takes: ReturnType<typeof createLiveTake>[] = [];
+
 function setup() {
   let callbacks!: LiveCaptureOptions;
   let ready!: () => void;
@@ -32,6 +34,7 @@ function setup() {
     },
     retirePending: retire,
   });
+  takes.push(take);
   return {
     take,
     capture,
@@ -41,6 +44,8 @@ function setup() {
   };
 }
 afterEach(() => {
+  for (const take of takes.splice(0)) take.dispose();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -314,4 +319,53 @@ it('does not create capture when Engine failure precedes late Engine readiness',
   expect(take.getSnapshot().phase).toBe('stopped');
   expect(createCapture).not.toHaveBeenCalled();
   take.dispose();
+});
+
+it.each(['beginCapture', 'stopCapture'] as const)(
+  'Reset during %s cannot publish a stale phase or install timers',
+  async (boundary) => {
+    vi.useFakeTimers();
+    const { take, capture, ready } = setup();
+    vi.mocked(capture[boundary]).mockImplementation(() => {
+      take.diagnostics.captureState(
+        boundary === 'beginCapture' ? 'capturing' : 'stopped',
+      );
+    });
+    const unsubscribe = take.diagnostics.subscribe(() => {
+      if (
+        take.diagnostics.getSnapshot().captureState ===
+        (boundary === 'beginCapture' ? 'capturing' : 'stopped')
+      )
+        take.reset();
+    });
+    const starting = take.start();
+    ready();
+    await starting;
+    if (boundary === 'stopCapture') take.stop();
+    expect(take.getSnapshot()).toMatchObject({
+      phase: 'preparing',
+      elapsedMs: 0,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(capture.commitFinalAudio).not.toHaveBeenCalled();
+    unsubscribe();
+  },
+);
+
+it('does not resurrect failed drafts from late deltas, even when failure arrived first', async () => {
+  const { take, ready, callbacks } = setup();
+  const starting = take.start();
+  ready();
+  await starting;
+  for (const itemId of ['draft', 'unseen']) {
+    const identity = { itemId, contentIndex: 0, previousItemId: undefined };
+    if (itemId === 'draft')
+      callbacks().onDelta({ ...identity, delta: 'Draft' });
+    callbacks().onTranscriptionFailed(identity);
+    callbacks().onDelta({ ...identity, delta: 'Late' });
+  }
+  callbacks().onDelta({ itemId: 'draft', contentIndex: 1, delta: 'Neighbor' });
+  expect(take.getSnapshot().transcript.map((part) => part.text)).toEqual([
+    'Neighbor',
+  ]);
 });

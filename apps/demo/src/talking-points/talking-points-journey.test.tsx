@@ -142,6 +142,12 @@ vi.mock('../lib/connector', () => ({
           (reason) => reason.type === 'user_intent',
         );
         const intent = reason?.type === 'user_intent' ? reason.intent : '';
+        if (intent === 'Delayed unconfirmed preparation') {
+          await new Promise<void>((resolve) => {
+            engine.release = resolve;
+          });
+          throw new Error('Connection lost after submission');
+        }
         if (intent === 'Unconfirmed preparation')
           throw new Error('Connection lost after submission');
         if (
@@ -835,8 +841,9 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
   const { TalkingPointsPage } = await import('./talking-points-page');
   render(<TalkingPointsPage />);
   await screen.findByRole('status', { name: 'Connection status: connected' });
+  vi.useFakeTimers();
   fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
-  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  await vi.waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
   await act(async () => {
     liveCapture.ready!();
   });
@@ -858,7 +865,9 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
       transcript: 'Opening.',
     });
   });
-  await screen.findByRole('button', { name: 'Unmark spoken' });
+  await vi.waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Unmark spoken' })).toBeTruthy(),
+  );
   expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
   expect(screen.queryByLabelText('Engine connection status')).toBeNull();
   expect(screen.queryByText('Engine: connected')).toBeNull();
@@ -879,8 +888,9 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
       .getByRole('article', { name: 'Opening' })
       .getAttribute('data-spoken'),
   ).toBe('true');
-  vi.useFakeTimers();
+  act(() => vi.advanceTimersByTime(12_345));
   fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:12');
   expect(liveCapture.stop).toHaveBeenCalledOnce();
   act(() => vi.advanceTimersByTime(2999));
   expect(screen.getByLabelText('Take status').textContent).toBe('Finalizing…');
@@ -905,6 +915,7 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
   expect(screen.queryByText('After cutoff')).toBeNull();
   expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
   expect(screen.getByLabelText('Take status').textContent).toMatch(/Stopped/);
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:12');
   expect(screen.getByText(/tail may be incomplete/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Start take' })).toBeNull();
   expect(
@@ -1296,3 +1307,69 @@ it('leaves a refused instruction in the draft without duplicating recovery', asy
   ).toBeNull();
   expect(engine.requests).toHaveLength(0);
 });
+
+it('does not recover or replay an active unknown outcome after owner retirement', async () => {
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  await ask('Delayed unconfirmed preparation');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  act(() => setPlaygroundKey('sk-replacement-12345678901234567890'));
+  await waitFor(() => expect(engine.connections).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+    target: { value: 'New owner draft' },
+  });
+  await act(async () => engine.release!());
+  expect(
+    screen.queryByRole('region', { name: 'Unsent instructions' }),
+  ).toBeNull();
+  expect(
+    (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+  ).toBe('New owner draft');
+  expect(screen.getByLabelText('Preparation result').textContent).not.toMatch(
+    /Outcome not confirmed|Not submitted/,
+  );
+  expect(engine.requests).toHaveLength(1);
+});
+
+it.each(['replace', 'remove'] as const)(
+  'recovers accepted queued instructions after key %s without replay or overwriting a newer draft',
+  async (operation) => {
+    engine.delayConnection = true;
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    render(<TalkingPointsPage />);
+    await waitFor(() =>
+      expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+    );
+    await ask('Accepted before retirement');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Newer draft' },
+    });
+    act(() => {
+      if (operation === 'replace')
+        setPlaygroundKey('sk-replacement-12345678901234567890');
+      else clearPlaygroundKey();
+    });
+    if (operation === 'remove') {
+      await screen.findByRole('button', { name: 'Add an API key to prepare' });
+      act(() => setPlaygroundKey('sk-restored-12345678901234567890'));
+    }
+    await waitFor(() =>
+      expect(
+        screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+      ).toContain('Accepted before retirement'),
+    );
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Newer draft');
+    expect(
+      screen.getAllByRole('button', { name: 'Retry instruction' }),
+    ).toHaveLength(1);
+    expect(engine.requests).toHaveLength(0);
+    await act(async () => engine.connections.at(-1)!.ready());
+    expect(engine.requests).toHaveLength(0);
+    expect(
+      screen.getByLabelText('Preparation result').textContent,
+    ).not.toContain('Not submitted');
+  },
+);

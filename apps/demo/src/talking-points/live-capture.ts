@@ -417,13 +417,75 @@ export function createLiveCapture(
         fail('protocol');
         return;
       }
-      predecessors.set(event.item_id, event.previous_item_id);
+      if (
+        event.previous_item_id !== undefined ||
+        !predecessors.has(event.item_id)
+      )
+        predecessors.set(event.item_id, event.previous_item_id);
       options.onCommitted({
         itemId: event.item_id,
+        previousItemId: predecessors.get(event.item_id),
+      });
+    } else if (
+      event.type === 'conversation.item.created' ||
+      event.type === 'conversation.item.added' ||
+      event.type === 'conversation.item.done'
+    ) {
+      const item = event.item;
+      if (
+        !record(item) ||
+        typeof item.id !== 'string' ||
+        !item.id ||
+        (item.role !== undefined && item.role !== 'user') ||
+        (item.type !== undefined && item.type !== 'message')
+      )
+        return;
+      const userAudio =
+        item.type === 'message' &&
+        item.role === 'user' &&
+        Array.isArray(item.content) &&
+        item.content.some(
+          (part) => record(part) && part.type === 'input_audio',
+        );
+      if (!userAudio && !predecessors.has(item.id)) return;
+      if (event.previous_item_id === undefined) return;
+      if (
+        event.previous_item_id !== null &&
+        typeof event.previous_item_id !== 'string'
+      ) {
+        fail('protocol');
+        return;
+      }
+      predecessors.set(item.id, event.previous_item_id);
+      options.onCommitted({
+        itemId: item.id,
         previousItemId: event.previous_item_id,
       });
     } else if (
-      event.type === 'conversation.item.input_audio_transcription.delta' ||
+      event.type === 'conversation.item.input_audio_transcription.delta'
+    ) {
+      if (
+        typeof event.item_id !== 'string' ||
+        !event.item_id ||
+        (event.content_index !== undefined &&
+          (typeof event.content_index !== 'number' ||
+            !Number.isSafeInteger(event.content_index) ||
+            event.content_index < 0)) ||
+        (event.delta !== undefined && typeof event.delta !== 'string')
+      ) {
+        fail('protocol');
+        return;
+      }
+      if (!predecessors.has(event.item_id))
+        predecessors.set(event.item_id, undefined);
+      if (event.content_index === undefined || event.delta === undefined)
+        return;
+      options.onDelta({
+        itemId: event.item_id,
+        contentIndex: event.content_index,
+        delta: event.delta,
+      });
+    } else if (
       event.type === 'conversation.item.input_audio_transcription.completed' ||
       event.type === 'conversation.item.input_audio_transcription.failed'
     ) {
@@ -437,24 +499,14 @@ export function createLiveCapture(
         fail('protocol');
         return;
       }
+      if (!predecessors.has(event.item_id))
+        predecessors.set(event.item_id, undefined);
       const identity = {
         itemId: event.item_id,
         contentIndex: event.content_index,
         previousItemId: predecessors.get(event.item_id),
       };
-      if (event.type === 'conversation.item.input_audio_transcription.delta') {
-        if (typeof event.delta === 'string') {
-          options.onDelta({
-            itemId: event.item_id,
-            contentIndex: event.content_index,
-            delta: event.delta,
-          });
-        } else {
-          fail('protocol');
-        }
-      } else if (
-        event.type === 'conversation.item.input_audio_transcription.failed'
-      ) {
+      if (event.type === 'conversation.item.input_audio_transcription.failed') {
         options.onTranscriptionFailed(identity);
       } else if (typeof event.transcript === 'string') {
         options.onCompleted({ ...identity, transcript: event.transcript });

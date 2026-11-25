@@ -122,6 +122,150 @@ function fixture(diagnosticsEnabled = true) {
 }
 
 describe('Talking Points input-only capture', () => {
+  it.each(['created', 'added', 'done'])(
+    'reconciles explicit user-audio ordering from item.%s before or after committed without losing it to omission',
+    async (lifecycle) => {
+      const f = fixture();
+      await f.ready();
+      f.event({ type: 'input_audio_buffer.committed', item_id: 'a' });
+      f.event({
+        type: `conversation.item.${lifecycle}`,
+        item: {
+          id: 'a',
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_audio' }],
+        },
+        previous_item_id: null,
+      });
+      f.event({
+        type: `conversation.item.${lifecycle}`,
+        item: {
+          id: 'b',
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_audio' }],
+        },
+        previous_item_id: 'a',
+      });
+      f.event({ type: 'input_audio_buffer.committed', item_id: 'b' });
+      f.event({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'b',
+        content_index: 0,
+        transcript: 'Second',
+      });
+      expect(f.callbacks.onCommitted).toHaveBeenCalledWith({
+        itemId: 'a',
+        previousItemId: null,
+      });
+      expect(f.callbacks.onCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ itemId: 'b', previousItemId: 'a' }),
+      );
+      expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+      f.capture.dispose();
+    },
+  );
+
+  it('ignores unidentifiable, unrelated and omitted lifecycle links but forwards known-capture links and conflicts', async () => {
+    const f = fixture();
+    await f.ready();
+    for (const item of [
+      { type: 'message', role: 'user', content: [{ type: 'input_audio' }] },
+      {
+        id: 'text',
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text' }],
+      },
+      {
+        id: 'assistant',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'input_audio' }],
+      },
+      { id: 'tool', type: 'function_call' },
+    ])
+      f.event({
+        type: 'conversation.item.created',
+        item,
+        previous_item_id: null,
+      });
+    f.event({
+      type: 'conversation.item.created',
+      item: {
+        id: 'unknown',
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_audio' }],
+      },
+    });
+    expect(f.callbacks.onCommitted).not.toHaveBeenCalled();
+    f.event({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    f.event({
+      type: 'conversation.item.done',
+      item: { id: 'a' },
+      previous_item_id: null,
+    });
+    f.event({
+      type: 'conversation.item.added',
+      item: { id: 'a' },
+      previous_item_id: 'conflict',
+    });
+    expect(
+      f.callbacks.onCommitted.mock.calls.map(([event]) => event.previousItemId),
+    ).toEqual([undefined, null, 'conflict']);
+    expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+    f.capture.dispose();
+  });
+
+  it.each([{ delta: 'Partial' }, { content_index: 0 }, {}])(
+    'skips optional delta omission %j and still accepts the final',
+    async (fields) => {
+      const f = fixture();
+      await f.ready();
+      f.event({
+        type: 'conversation.item.input_audio_transcription.delta',
+        item_id: 'a',
+        ...fields,
+      });
+      f.event({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'a',
+        content_index: 0,
+        transcript: 'Final',
+      });
+      expect(f.callbacks.onDelta).not.toHaveBeenCalled();
+      expect(f.callbacks.onCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ transcript: 'Final' }),
+      );
+      expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+      f.capture.dispose();
+    },
+  );
+
+  it.each([
+    { content_index: null },
+    { content_index: -1 },
+    { content_index: '0' },
+    { delta: null },
+    { delta: 42 },
+    { content_index: 0, delta: null },
+  ])(
+    'rejects malformed-present delta fields even when another is omitted: %j',
+    async (fields) => {
+      const f = fixture();
+      await f.ready();
+      f.event({
+        type: 'conversation.item.input_audio_transcription.delta',
+        item_id: 'a',
+        ...fields,
+      });
+      expect(f.callbacks.onFatalError).toHaveBeenCalledOnce();
+      f.capture.dispose();
+    },
+  );
+
   it('projects bounded metadata from real provider parsing without retaining content or allowing observer failures to affect capture', async () => {
     const f = fixture();
     const observations: { kind: string; metadata: object }[] = [];
