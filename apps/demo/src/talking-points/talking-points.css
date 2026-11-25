@@ -22,3 +22,6 @@
 .talking-points-input-row input { flex: 1; min-width: 0; }
 .talking-points-dock form p { min-height: 1.3em; font-size: .8rem; }
 @media (max-width: 600px) { .talking-points-header { padding: 1rem; flex-direction: column; } .talking-points-topic { gap: .5rem; flex-wrap: wrap; } .talking-points-spoken { display: none; } .talking-points-dock { gap: .5rem; } }
+.talking-points-topic[data-spoken="true"] p { text-decoration: line-through; }
+.talking-points-take-controls { display: flex; align-items: center; gap: 1rem; }
+.talking-points-take-controls output { font: 2rem monospace; font-variant-numeric: tabular-nums; }

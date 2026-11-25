@@ -15,16 +15,19 @@ import {
   vessel,
 } from '@maelstrom-co/react';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { registerDemoVoice } from '../lib/demo-voice';
 import { createAdapter } from '../lib/voice-adapter';
 import type { DemoVoiceProvider } from '../lib/voice-provider';
+import { liveLayout, liveTopicDefinition } from './live-plan';
+import type { LiveTake } from './live-take';
 import {
   createPreparationOwner,
   type OutlineStore,
   type Topic,
 } from './outline.store';
+import { createPreparationAdmission } from './preparation-admission';
 import { outlineDefinition, topicDefinition } from './vessels';
 
 export const PREPARATION_VOICE_PROVIDERS = ['live', 'realtime'] as const;
@@ -44,7 +47,9 @@ export function createPreparationRuntime(
   provider: PreparationVoiceProvider,
 ) {
   const owner = createPreparationOwner();
+  const admission = createPreparationAdmission();
   const writer = store.forOwner(owner);
+  writer.clearSpoken();
   const initialDefinition = outlineDefinition(store.getSnapshot().topics);
   const m = createMaelstrom({
     vessels: [vessel(initialDefinition, OutlineController)] as const,
@@ -59,9 +64,18 @@ export function createPreparationRuntime(
         conversationInstructions:
           'You help prepare an ordered speaking outline in Talking Points. Submit all requested outline changes as natural-language intent. This is preparation, not a live speaking take.',
         onSession: registerDemoVoice,
+        createIntentScope: (orchestrator: Orchestrator) =>
+          admission.wrap(orchestrator.createIntentScope()),
       }),
     )
     .with((ctx) => ({
+      usePreparationIntake: () => {
+        const { orchestrator } = ctx.useMaelstromContext();
+        const [scope] = useState(() =>
+          admission.wrap(orchestrator.createIntentScope()),
+        );
+        return scope;
+      },
       usePreparationProjection: () => {
         const { orchestrator } = ctx.useMaelstromContext();
         useEffect(() => synchronize(orchestrator), [orchestrator]);
@@ -203,7 +217,7 @@ export function createPreparationRuntime(
     };
   }
 
-  return { m, owner, writer };
+  return { m, owner, writer, admission };
 }
 
 function outlineLayout(topics: readonly Topic[]): TilingLayout {
@@ -239,3 +253,62 @@ function apply(mutate: () => void) {
   mutate();
   return ok(undefined);
 }
+
+export function createLiveRuntime(take: LiveTake) {
+  const topics = take.getSnapshot().topics;
+  const entries = topics.map((topic, index) => {
+    const definition = liveTopicDefinition(topic);
+    function LiveTopic({ instanceId }: TypedVesselProps<typeof definition>) {
+      const snapshot = useSyncExternalStore(
+        take.subscribe,
+        take.getSnapshot,
+        take.getSnapshot,
+      );
+      m.useActions(definition.id, instanceId, {
+        mark: () => apply(() => take.automaticMark(topic.id)),
+      });
+      const spoken = snapshot.spoken.has(topic.id);
+      return (
+        <article
+          className="talking-points-topic"
+          aria-label={topic.content}
+          data-topic-id={topic.id}
+          data-spoken={spoken}
+        >
+          <span className="talking-points-number">{index + 1}</span>
+          <p>{topic.content}</p>
+          <button
+            type="button"
+            aria-pressed={spoken}
+            disabled={
+              snapshot.phase === 'preparing' || snapshot.phase === 'starting'
+            }
+            onClick={() => take.manualSet(topic.id, !spoken)}
+          >
+            {spoken ? 'Unmark spoken' : 'Mark spoken'}
+          </button>
+          {spoken && <span className="talking-points-spoken">Spoken</span>}
+        </article>
+      );
+    }
+    return vessel(definition, LiveTopic);
+  });
+  let retirePending = () => {};
+  const m = createMaelstrom({
+    vessels: entries,
+    motion: { disabled: true },
+  }).with((ctx) => {
+    ctx.onOrchestrator?.((orchestrator) => {
+      const scope = orchestrator.createIntentScope();
+      retirePending = () => scope.retire();
+      return () => scope.retire();
+    });
+    return {};
+  });
+  return {
+    m,
+    layout: liveLayout(topics.map((topic) => topic.id)),
+    retirePending: () => retirePending(),
+  };
+}
+export type LiveRuntime = ReturnType<typeof createLiveRuntime>;

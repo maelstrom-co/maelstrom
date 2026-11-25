@@ -32,6 +32,7 @@ import {
   llmPlanner,
 } from '@maelstrom-co/planner-llm';
 
+import { validateLivePlan } from '../talking-points/live-plan';
 import { latestOrderTool } from './latest-order-tool';
 import { PLAYGROUND_SYSTEM_RULES } from './planner-system-rules';
 import { searchProductsTool } from './search-products-tool';
@@ -93,6 +94,7 @@ export function createPlaygroundEngine(
         ? {}
         : { modelOptions: options.modelOptions }),
     }),
+    validatePlan: validateLivePlan,
     retry: { max: MAX_RETRIES },
     history: {
       store: createInMemoryStore(),
@@ -146,6 +148,7 @@ export function createJevPlaygroundEngine(
         ...modelOptions,
       }),
     }),
+    validatePlan: validateLivePlan,
     retry: false,
     history: {
       store: createInMemoryStore(),

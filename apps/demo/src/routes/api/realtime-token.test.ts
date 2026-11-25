@@ -268,3 +268,144 @@ describe('OPENAI_REALTIME_MODEL env fallback', () => {
     expect(lastMinterOptions?.model).toBe(DEFAULT_REALTIME_MODEL);
   });
 });
+
+describe('dedicated Talking Points transcription intent', () => {
+  async function transcriptionRoute(key: string) {
+    const original = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = key;
+    try {
+      const specifier = `./realtime-token.js?transcription-${key}`;
+      return (await import(specifier)) as typeof import('./realtime-token.js');
+    } finally {
+      if (original === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = original;
+    }
+  }
+  const request = (extra: Record<string, unknown> = {}) =>
+    new Request('http://x/api/realtime-token', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: 'openai',
+        sessionId: 'sess-1',
+        intent: 'talking-points-transcription',
+        ...extra,
+      }),
+    });
+
+  it('mints the fixed GA transcription session without returning the server key', async () => {
+    const { handleRealtimeTokenRequest: handle } =
+      await transcriptionRoute('server-test-key');
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        Response.json({ value: 'ek_capture', expires_at: 1_800_000_000 }),
+      );
+    try {
+      const response = await handle(request());
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        provider: 'openai',
+        value: 'ek_capture',
+        expiresAt: 1_800_000_000,
+        model: 'gpt-4o-transcribe',
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.openai.com/v1/realtime/client_secrets',
+        expect.objectContaining({
+          redirect: 'error',
+          headers: {
+            Authorization: 'Bearer server-test-key',
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+        expires_after: { anchor: 'created_at', seconds: 600 },
+        session: {
+          type: 'transcription',
+          audio: {
+            input: {
+              transcription: { model: 'gpt-4o-transcribe' },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
+              },
+            },
+          },
+        },
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it.each([
+    { intent: 'arbitrary' },
+    { model: 'other' },
+    { session: { type: 'realtime' } },
+    { sessionId: '' },
+    { provider: 'other' },
+  ])(
+    'rejects unsupported intent or transcription configuration: %j',
+    async (extra) => {
+      const { handleRealtimeTokenRequest: handle } =
+        await transcriptionRoute('server-test-key');
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      try {
+        const response = await handle(request(extra));
+        expect(response.status).toBe(400);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        fetchMock.mockRestore();
+      }
+    },
+  );
+
+  it('keeps missing-key precedence and redacts failed upstream response bodies', async () => {
+    const missing = await transcriptionRoute('');
+    expect((await missing.handleRealtimeTokenRequest(request())).status).toBe(
+      500,
+    );
+    const configured = await transcriptionRoute('server-test-key');
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response('sensitive upstream detail', { status: 401 }),
+      );
+    try {
+      const response = await configured.handleRealtimeTokenRequest(request());
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        error: 'upstream-failure',
+        upstreamStatus: 401,
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+  it.each(['bad-json', 'bad-grant', 'network'] as const)(
+    'redacts %s upstream failures',
+    async (failure) => {
+      const { handleRealtimeTokenRequest: handle } =
+        await transcriptionRoute('server-test-key');
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      if (failure === 'bad-json')
+        fetchMock.mockResolvedValue(new Response('sensitive upstream detail'));
+      if (failure === 'bad-grant')
+        fetchMock.mockResolvedValue(
+          Response.json({ value: '', expires_at: 'wrong' }),
+        );
+      if (failure === 'network')
+        fetchMock.mockRejectedValue(new Error('sensitive upstream detail'));
+      try {
+        const response = await handle(request());
+        expect(response.status).toBe(502);
+        expect(await response.json()).toEqual({ error: 'upstream-failure' });
+      } finally {
+        fetchMock.mockRestore();
+      }
+    },
+  );
+});

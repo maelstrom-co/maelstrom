@@ -108,6 +108,7 @@ export function createOutlineStore(
       };
       return {
         persist,
+        clearSpoken: () => commit(snapshot.topics, new Set(), false),
         create: (content: string) => {
           authorize();
           const text = contentSchema.parse(content);

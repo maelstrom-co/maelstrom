@@ -5,6 +5,10 @@ import {
   OpenAITokenGrantSchema,
 } from '@maelstrom-co/realtime-protocol/openai';
 
+import {
+  LIVE_TRANSCRIPTION_MODEL,
+  LIVE_TRANSCRIPTION_SESSION,
+} from '../talking-points/live-transcription-config';
 import { withFetchTimeout } from './fetch-timeout';
 
 /**
@@ -85,83 +89,132 @@ export function createBrowserMintToken(
   model: string,
   voice: OpenAIBuiltInVoice,
 ): () => Promise<OpenAITokenGrant> {
-  return async () => {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      throw new Error('No API key set — open the key drawer to add one.');
-    }
-
-    let res: Response;
-    try {
-      res = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        // expires_after is sent explicitly rather than left to OpenAI's
-        // default so both mint paths pin the same token lifetime — a
-        // default that shifts under us would silently change it for
-        // browser-direct visitors only. Trusted output voice is nested under
-        // session.audio.output so Realtime audio matches greeting TTS.
-        body: JSON.stringify({
-          expires_after: { anchor: 'created_at', seconds: 600 },
-          session: {
-            type: 'realtime',
-            model,
-            audio: { output: { voice } },
-          },
-        }),
-        redirect: 'error',
-        signal: withFetchTimeout(),
-      });
-    } catch {
-      // A rejected fetch (offline, DNS, a proxy blocking api.openai.com)
-      // surfaces a raw 'Failed to fetch' otherwise — that reads as "your key
-      // is bad" once it lands in the key drawer's error slot, which sends
-      // visitors to replace a perfectly good key.
-      throw new Error(
-        'Could not reach OpenAI — check your connection and try again.',
-      );
-    }
-
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error('Invalid API key.');
-      }
-      if (res.status === 403) {
-        throw new Error(
-          "This API key's project cannot use OpenAI Realtime. Check project permissions and model access.",
-        );
-      }
-      if (res.status === 429) {
-        throw new Error(
-          "OpenAI rate-limited voice startup. Check the API project's usage limits and try again.",
-        );
-      }
-      throw new Error(
-        `Failed to mint a realtime token (status ${res.status}).`,
-      );
-    }
-
-    let json: unknown;
-    try {
-      json = await res.json();
-    } catch {
-      // A captive portal or corporate TLS proxy can answer 200 with an HTML
-      // interstitial — res.json() then throws a raw SyntaxError that reads
-      // as "your key is broken" once it lands in the key drawer, which is
-      // exactly the failure mode the surrounding try/catch exists to avoid.
-      throw new Error(
-        'Could not reach OpenAI — check your connection and try again.',
-      );
-    }
-    const data = readOpenaiClientSecret(json);
-    return OpenAITokenGrantSchema.parse({
-      provider: 'openai',
-      value: data.value,
-      expiresAt: data.expiresAt,
+  return () =>
+    mintBrowserToken(getApiKey, model, {
+      type: 'realtime',
       model,
+      audio: { output: { voice } },
     });
-  };
+}
+
+/** Mints an input-only grant using only the visitor-owned in-memory key. */
+export function createBrowserMintTranscriptionToken(
+  getApiKey: () => string | null,
+): (signal: AbortSignal) => Promise<OpenAITokenGrant> {
+  return (signal) =>
+    mintBrowserToken(
+      getApiKey,
+      LIVE_TRANSCRIPTION_MODEL,
+      LIVE_TRANSCRIPTION_SESSION,
+      signal,
+    );
+}
+
+/** Requests the fixed transcription grant without exposing the server key. */
+export async function mintOpenAITranscriptionToken(
+  sessionId: SessionId,
+  signal: AbortSignal,
+): Promise<OpenAITokenGrant> {
+  const res = await fetch('/api/realtime-token', {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: 'openai',
+      sessionId,
+      intent: 'talking-points-transcription',
+    }),
+    signal: withFetchTimeout(signal),
+  });
+  if (!res.ok) throw new Error(`Token mint failed with status ${res.status}`);
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(
+      'Received an unexpected response from the token mint route.',
+    );
+  }
+  const grant = OpenAITokenGrantSchema.parse(body);
+  if (grant.model !== LIVE_TRANSCRIPTION_MODEL)
+    throw new Error('Unexpected transcription grant model.');
+  return grant;
+}
+
+async function mintBrowserToken(
+  getApiKey: () => string | null,
+  model: string,
+  session: unknown,
+  signal?: AbortSignal,
+): Promise<OpenAITokenGrant> {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('No API key set — open the key drawer to add one.');
+  }
+
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      // expires_after is sent explicitly rather than left to OpenAI's
+      // default so both mint paths pin the same token lifetime — a
+      // default that shifts under us would silently change it for
+      // browser-direct visitors only.
+      body: JSON.stringify({
+        expires_after: { anchor: 'created_at', seconds: 600 },
+        session,
+      }),
+      redirect: 'error',
+      signal: withFetchTimeout(signal),
+    });
+  } catch {
+    // A rejected fetch (offline, DNS, a proxy blocking api.openai.com)
+    // surfaces a raw 'Failed to fetch' otherwise — that reads as "your key
+    // is bad" once it lands in the key drawer's error slot, which sends
+    // visitors to replace a perfectly good key.
+    throw new Error(
+      'Could not reach OpenAI — check your connection and try again.',
+    );
+  }
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Invalid API key.');
+    }
+    if (res.status === 403) {
+      throw new Error(
+        "This API key's project cannot use OpenAI Realtime. Check project permissions and model access.",
+      );
+    }
+    if (res.status === 429) {
+      throw new Error(
+        "OpenAI rate-limited voice startup. Check the API project's usage limits and try again.",
+      );
+    }
+    throw new Error(`Failed to mint a realtime token (status ${res.status}).`);
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    // A captive portal or corporate TLS proxy can answer 200 with an HTML
+    // interstitial — res.json() then throws a raw SyntaxError that reads
+    // as "your key is broken" once it lands in the key drawer, which is
+    // exactly the failure mode the surrounding try/catch exists to avoid.
+    throw new Error(
+      'Could not reach OpenAI — check your connection and try again.',
+    );
+  }
+  const data = readOpenaiClientSecret(json);
+  return OpenAITokenGrantSchema.parse({
+    provider: 'openai',
+    value: data.value,
+    expiresAt: data.expiresAt,
+    model,
+  });
 }

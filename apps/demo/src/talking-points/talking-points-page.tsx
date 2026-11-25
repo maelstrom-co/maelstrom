@@ -25,6 +25,10 @@ import {
   isLiveInvalidKeyError,
 } from '../lib/invalid-key-error';
 import {
+  createBrowserMintTranscriptionToken,
+  mintOpenAITranscriptionToken,
+} from '../lib/mint-token';
+import {
   clearPlaygroundKey,
   playgroundKeyStore,
   setPlaygroundKey,
@@ -32,6 +36,7 @@ import {
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
+import { createLiveTake, type LiveTake } from './live-take';
 import {
   createPreparationRuntime,
   PREPARATION_LAYOUT,
@@ -39,6 +44,7 @@ import {
   preparationVoiceProvider,
   type PreparationRuntime,
 } from './maelstrom';
+import { createLiveRuntime, type LiveRuntime } from './maelstrom';
 import { createOutlineStore, type OutlineStore } from './outline.store';
 
 import './talking-points.css';
@@ -56,6 +62,19 @@ export function TalkingPointsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [live, setLive] = useState<
+    | (LiveRuntime & {
+        take: LiveTake;
+        sessionId: SessionId;
+        connector: ReturnType<typeof createDemoConnector>;
+      })
+    | null
+  >(null);
+  const [generation, setGeneration] = useState(0);
+  const [sealing, setSealing] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const currentTake = useRef<LiveTake | null>(null);
+  useLayoutEffect(() => () => currentTake.current?.dispose(), []);
   useEffect(() => {
     setStore(createOutlineStore());
   }, []);
@@ -74,13 +93,66 @@ export function TalkingPointsPage() {
             getApiKey: () => playgroundKeyStore.state.apiKey,
           });
     setBoundary({ ...runtime, sessionId, connector });
-    return () => runtime.owner.retire();
-  }, [store, apiKey, browserKeyMode]);
+    setSealing(false);
+    return () => {
+      runtime.owner.retire();
+      runtime.admission.retire();
+    };
+  }, [store, apiKey, browserKeyMode, generation]);
   const showKeyError = useCallback((message: string) => {
     setKeyError(message);
     setDrawerOpen(true);
   }, []);
   const m = boundary?.m;
+  const enterLive = () => {
+    if (!store || !boundary?.owner.isActive()) return;
+    if (!store.getSnapshot().topics.length) {
+      boundary.owner.retire();
+      boundary.admission.retire();
+      setStartError('Add at least one Topic before starting a take.');
+      setSealing(false);
+      setGeneration((value) => value + 1);
+      return;
+    }
+    boundary.owner.retire();
+    boundary.admission.retire();
+    let runtime: LiveRuntime | undefined;
+    const sessionId = SessionId(crypto.randomUUID());
+    const take = createLiveTake({
+      topics: store.getSnapshot().topics,
+      mintToken: browserKeyMode
+        ? createBrowserMintTranscriptionToken(
+            () => playgroundKeyStore.state.apiKey,
+          )
+        : (signal) => mintOpenAITranscriptionToken(sessionId, signal),
+      retirePending: () => runtime?.retirePending(),
+    });
+    runtime = createLiveRuntime(take);
+    currentTake.current = take;
+    setLive({
+      ...runtime,
+      take,
+      sessionId,
+      connector: createDemoConnector({
+        sessionId,
+        getApiKey: () => playgroundKeyStore.state.apiKey,
+      }),
+    });
+    void take.start();
+  };
+  if (live)
+    return (
+      <LiveWorkspace
+        runtime={live}
+        onReset={() => {
+          live.take.reset();
+          currentTake.current = null;
+          setLive(null);
+          setSealing(false);
+          setGeneration((value) => value + 1);
+        }}
+      />
+    );
 
   return (
     <div className="talking-points-app">
@@ -92,17 +164,41 @@ export function TalkingPointsPage() {
           initialLayout={PREPARATION_LAYOUT}
         >
           <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
-            <VoiceProviderSelect
-              useVoice={m.useVoice}
-              options={PREPARATION_VOICE_PROVIDERS}
-            />
+            {!sealing && (
+              <VoiceProviderSelect
+                useVoice={m.useVoice}
+                options={PREPARATION_VOICE_PROVIDERS}
+              />
+            )}
           </TalkingPointsHeader>
+          {startError && <p role="alert">{startError}</p>}
           <PreparationWorkspace
             runtime={boundary}
             store={store}
             draft={draft}
             onDraftChange={setDraft}
             onKeyError={showKeyError}
+            sealing={sealing}
+            onSeal={() => {
+              setStartError(null);
+              setSealing(true);
+            }}
+            onStart={enterLive}
+            onCancelStart={() => {
+              boundary.owner.retire();
+              boundary.admission.retire();
+              setSealing(false);
+              setGeneration((value) => value + 1);
+            }}
+            onStartFailed={() => {
+              boundary.owner.retire();
+              boundary.admission.retire();
+              setStartError(
+                'Preparation did not settle successfully. Start was stopped; check your outline before trying again.',
+              );
+              setSealing(false);
+              setGeneration((value) => value + 1);
+            }}
           />
         </m.Provider>
       ) : (
@@ -199,16 +295,27 @@ function PreparationWorkspace({
   draft,
   onDraftChange,
   onKeyError,
+  sealing,
+  onSeal,
+  onStart,
+  onStartFailed,
+  onCancelStart,
 }: {
   readonly runtime: PreparationRuntime;
   readonly store: OutlineStore;
   readonly draft: string;
   readonly onDraftChange: (text: string) => void;
   readonly onKeyError: (message: string) => void;
+  readonly sealing: boolean;
+  readonly onSeal: () => void;
+  readonly onStart: () => void;
+  readonly onStartFailed: () => void;
+  readonly onCancelStart: () => void;
 }) {
   const { m, owner } = runtime;
   m.usePreparationProjection();
-  const { enqueueIntent, connectionStatus } = m.useMaelstrom();
+  const { connectionStatus } = m.useMaelstrom();
+  const intake = m.usePreparationIntake();
   const voice = m.useVoice();
   const { topics } = useSyncExternalStore(
     store.subscribe,
@@ -235,7 +342,7 @@ function PreparationWorkspace({
   const submit = () => {
     const text = draft.trim();
     if (!text || !owner.isActive()) return;
-    const ticket = enqueueIntent(text);
+    const ticket = intake.enqueueIntent(text);
     const number = ++submissionNumber.current;
     if (ticket.accepted) changeDraft('');
     const submittedRevision = revision.current;
@@ -271,6 +378,40 @@ function PreparationWorkspace({
         <p role="status" aria-label={`Connection status: ${connectionStatus}`}>
           {connectionStatus}
         </p>
+        <button
+          type="button"
+          disabled={
+            sealing || !topics.length || connectionStatus !== 'connected'
+          }
+          onClick={() => {
+            onSeal();
+            setReceipt('Starting: waiting for accepted preparation to settle…');
+            void runtime.admission
+              .seal()
+              .then(async () => {
+                if (!owner.isActive()) return;
+                await voice.disconnect();
+                if (owner.isActive()) onStart();
+              })
+              .catch(() => {
+                if (!owner.isActive()) return;
+                setReceipt(
+                  'Preparation outcome not confirmed. Start was stopped; check your outline before trying again.',
+                );
+                onStartFailed();
+              });
+          }}
+        >
+          Start take
+        </button>
+        {sealing && (
+          <button type="button" onClick={onCancelStart}>
+            Reset
+          </button>
+        )}
+        {sealing && (
+          <p role="status">Starting: waiting for preparation to settle…</p>
+        )}
         <div
           className="talking-points-chart"
           style={{ height: Math.max(320, (topics.length + 1) * 160) }}
@@ -278,58 +419,128 @@ function PreparationWorkspace({
           <m.Chart />
         </div>
       </main>
-      <footer className="talking-points-dock">
-        <div className="talking-points-voice">
-          <div
-            onClickCapture={() => {
-              if (voice.state === 'idle' || voice.state === 'error')
-                prepareBrowserOpenAIVoice();
+      {!sealing && (
+        <footer className="talking-points-dock">
+          <div className="talking-points-voice">
+            <div
+              onClickCapture={() => {
+                if (voice.state === 'idle' || voice.state === 'error')
+                  prepareBrowserOpenAIVoice();
+              }}
+            >
+              <m.VoiceOrb size={48} />
+            </div>
+            <span role="status" aria-label="Voice status">
+              {voice.state === 'idle' ? 'Tap to talk' : voice.state}
+            </span>
+            <span>AI-generated voice</span>
+            <HoldToTalkControl
+              state={voice.state}
+              turnControl={voice.turnControl}
+              turnMode={voice.turnMode}
+              turnModeError={voice.turnModeError}
+            />
+            {playbackBlocked && (
+              <EnablePlaybackButton
+                provider={voice.provider}
+                state={voice.state}
+                session={voice.session}
+                switching={voice.switching}
+              />
+            )}
+          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
             }}
           >
-            <m.VoiceOrb size={48} />
-          </div>
-          <span role="status" aria-label="Voice status">
-            {voice.state === 'idle' ? 'Tap to talk' : voice.state}
-          </span>
-          <span>AI-generated voice</span>
-          <HoldToTalkControl
-            state={voice.state}
-            turnControl={voice.turnControl}
-            turnMode={voice.turnMode}
-            turnModeError={voice.turnModeError}
-          />
-          {playbackBlocked && (
-            <EnablePlaybackButton
-              provider={voice.provider}
-              state={voice.state}
-              session={voice.session}
-              switching={voice.switching}
-            />
-          )}
-        </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
-          <label htmlFor="talking-points-intent">Prepare your outline</label>
-          <div className="talking-points-input-row">
-            <input
-              id="talking-points-intent"
-              value={draft}
-              onChange={(event) => changeDraft(event.target.value)}
-              placeholder="Add, edit, remove or reorder Topics…"
-            />
-            <button type="submit" disabled={!draft.trim()}>
-              Send
-            </button>
-          </div>
-          <p role="status" aria-label="Preparation result">
-            {receipt}
-          </p>
-        </form>
-      </footer>
+            <label htmlFor="talking-points-intent">Prepare your outline</label>
+            <div className="talking-points-input-row">
+              <input
+                id="talking-points-intent"
+                value={draft}
+                onChange={(event) => changeDraft(event.target.value)}
+                placeholder="Add, edit, remove or reorder Topics…"
+              />
+              <button type="submit" disabled={!draft.trim()}>
+                Send
+              </button>
+            </div>
+            <p role="status" aria-label="Preparation result">
+              {receipt}
+            </p>
+          </form>
+        </footer>
+      )}
     </>
+  );
+}
+
+function LiveWorkspace({
+  runtime,
+  onReset,
+}: {
+  readonly runtime: LiveRuntime & {
+    take: LiveTake;
+    sessionId: SessionId;
+    connector: ReturnType<typeof createDemoConnector>;
+  };
+  readonly onReset: () => void;
+}) {
+  const { m, take } = runtime;
+  const snapshot = useSyncExternalStore(
+    take.subscribe,
+    take.getSnapshot,
+    take.getSnapshot,
+  );
+  const seconds = Math.floor(snapshot.elapsedMs / 1000);
+  return (
+    <div className="talking-points-app">
+      <main className="talking-points-main">
+        <h1>Talking Points</h1>
+        <div className="talking-points-take-controls">
+          <output aria-label="Elapsed time">
+            {String(Math.floor(seconds / 60)).padStart(2, '0')}:
+            {String(seconds % 60).padStart(2, '0')}
+          </output>
+          <button
+            type="button"
+            disabled={
+              snapshot.phase !== 'listening' && snapshot.phase !== 'starting'
+            }
+            onClick={() => take.stop()}
+          >
+            Stop
+          </button>
+          <button type="button" onClick={onReset}>
+            Reset
+          </button>
+        </div>
+        <p role="status" aria-label="Take status">
+          {snapshot.phase === 'starting'
+            ? 'Starting…'
+            : snapshot.phase === 'listening'
+              ? 'Listening'
+              : snapshot.phase === 'finalizing'
+                ? 'Finalizing…'
+                : 'Stopped · Reset before another take'}
+        </p>
+        {snapshot.error && <p role="alert">{snapshot.error}</p>}
+        {snapshot.warning && <p role="status">{snapshot.warning}</p>}
+        <m.Provider
+          sessionId={runtime.sessionId}
+          connector={runtime.connector}
+          initialLayout={runtime.layout}
+        >
+          <div
+            className="talking-points-chart"
+            style={{ height: Math.max(320, snapshot.topics.length * 160) }}
+          >
+            <m.Chart />
+          </div>
+        </m.Provider>
+      </main>
+    </div>
   );
 }
