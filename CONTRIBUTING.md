@@ -579,38 +579,6 @@ Verify the deployed website, docs, live GitHub star count, and installation path
 before announcing availability. The variable can remain true for normal
 deployments; removing the one-time launch gate is separate cleanup.
 
-## LLM-readable documentation
-
-The docs build exports each rendered documentation page to a sibling Markdown
-URL. For example, `/getting-started/quick-start/` also provides
-`/getting-started/quick-start.md`. The page export and Copy for AI use the same
-converter. Both include the source revision and core SDK manifest versions.
-The development server also serves these Markdown URLs.
-
-`llms-small.txt` contains the complete Getting Started section, including
-prerequisites and warnings. The build rejects output above 48,000 UTF-8 bytes.
-Curate the included pages before changing that budget. Keep the focused sets,
-workflow skills, standalone prompts, and starter discoverable from `llms.txt`.
-
-Run the authored-example consumer check from the repository root:
-
-```sh
-bun apps/docs/tools/skills/verify-authored-consumer.ts working-copy
-```
-
-The check compiles Quick Start, Vessel, Action, and Engine examples in a fresh
-consumer of the exact published versions in
-`apps/docs/tools/skills/published-examples/package.json.template`. Its separate
-frozen lockfile prevents workspace aliases from hiding release incompatibilities.
-The 0.2.1 Action example checks its literal fields against the published Action type and registers a handler for the transition. CI audits the frozen consumer when its dependencies change and on pushes to main.
-Compilation does not test a live Engine, provider, microphone, or browser.
-CI records its docs revision, installed package versions, and compiled files.
-
-Update the consumer manifest and lockfile together when changing the verified
-release baseline. If a page requires an unreleased API, label that requirement
-and keep its checks against the matching source revision. Do not claim that
-a current source manifest proves compatibility with an already published release.
-
 #### Blog narration
 
 In the GitHub `production` environment, use the existing
@@ -624,7 +592,9 @@ accounts only. On the production account, it also needs the existing Alchemy
 state backend permissions. The pinned adapter reads the Workers subdomain and
 script metadata, lists Secrets Store stores, and uses a temporary Workers
 edge-preview session bound to the existing state bearer. Scope the necessary
-Workers and Secrets Store privileges to production. The backend must already
+Workers and Secrets Store privileges to production. For the delivery Worker,
+grant Workers Scripts access in the production account and Workers Routes
+read and write access in the production website zone. The backend must already
 be available and current. Trusted production administrators and deployment
 principals retain access to that backend. Keep its credentials and this
 management identity outside the preview deployment environments and PR runners.
@@ -633,7 +603,10 @@ On the next eligible main deployment, check the two **Reconcile narration
 storage** jobs. They manage the retained private
 `maelstrom-blog-narration-cache` bucket in production and the retained public
 `maelstrom-blog-narration-preview` delivery bucket in the preview account.
-Both stacks store their state in production. Preview teardown only handles
+The cache job also reconciles the retained delivery Worker. It serves
+`/_blog-narration/*` on `maelstrom-ai.co` and `www.maelstrom-ai.co`.
+Keep both hostnames proxied in the production zone. All narration
+infrastructure stores its state in production. Preview teardown only handles
 per-PR stacks.
 
 After reconciliation, provide bucket-scoped S3 object credentials in
@@ -674,16 +647,29 @@ approval and website deployment continue with article text. The variable does
 not affect production narration.
 
 The first website deployment can precede narration infrastructure or object
-credential setup. It still serves article text. Once reconciliation succeeds
-and object credentials are configured, rerun the current production www
-deployment or approved preview. The shared production www queue serializes
-publication. Production reuses recordings when the rendered text and voice
-fingerprint match. Rerun the current publisher after a transient failure to
-reuse completed private chunks or restore expired preview copies.
+credential setup. It still serves article text. Once reconciliation succeeds and object credentials are configured, production
+recovery runs independently after a successful website release and hourly.
+Recovery skips checkout and dependency installation while the required
+storage credentials or voice settings are missing. Preview and recovery share a narration-only queue. The website
+deployment has no narration step or dependency on that queue.
+
+Production recovery reads the published article and checks its release, voice,
+and spoken words before synthesis and before commit. Existing matching audio
+stays available during a release or a recovery failure. Reload the same
+article URL to pick up a recovered recording. An already-open page does not
+poll for it. Old committed production audio remains available at its immutable
+URL for listeners who started earlier. The bucket has no production expiry.
+A verified recording made with the previous paragraph layout can be reused
+with offsets adjusted to the current article. The publisher rejects a
+recording before paying if its manifest could exceed 25 MiB.
 
 Each run considers up to 40 archive entries, starting with posts changed by the
-PR and then the newest remaining posts. It applies download, transcript,
-and new-synthesis budgets. It reports entries skipped by the archive,
+PR and then the newest remaining posts. Only a verified new post or a change
+in the canonical spoken text can use paid preview synthesis. Other articles
+can reuse complete recordings. The baseline renders the exact trusted PR
+comparison commit. An unavailable or unrecognized baseline allows cache
+reuse only. Date, link destination, and formatting-only edits preserve the
+spoken text. The publisher applies download, transcript, and new-synthesis budgets. It reports entries skipped by the archive,
 download, transcript, or synthesis limits. Production still handles every eligible article.
 
 The preview link arrives before narration. Reload the article when the
@@ -693,6 +679,54 @@ The retry keeps the delivery path embedded in the deployed preview and can
 reuse any completed chunks. A newer head needs its own approval and deploy.
 Without the management identity or verified storage, preview and production
 deployments continue with static articles.
+
+##### Retry a held narration attempt
+
+If a chunk attempt is held, find its version hash, chunk number, and attempt ID
+in the narrator log. The publisher automatically retries up to three attempts
+only after a known pre-send failure or ElevenLabs' documented overload
+rejection. It persists the next retry time. An uncertain result stays held.
+Existing complete audio and privately stored valid responses can be recovered
+without another paid request.
+
+To authorize a single additional attempt, run **Recover Production Blog
+Narration** on the default branch with the current version, chunk number, and
+attempt ID. That dispatch records authorization without contacting ElevenLabs.
+The next eligible production or approved preview publisher can consume it
+once. Rerun the applicable approved preview publisher for preview-only work.
+Never delete attempt objects to retry a recording.
+
+## LLM-readable documentation
+
+The docs build exports each rendered documentation page to a sibling Markdown
+URL. For example, `/getting-started/quick-start/` also provides
+`/getting-started/quick-start.md`. The page export and Copy for AI use the same
+converter. Both include the source revision and core SDK manifest versions.
+The development server also serves these Markdown URLs.
+
+`llms-small.txt` contains the complete Getting Started section, including
+prerequisites and warnings. The build rejects output above 48,000 UTF-8 bytes.
+Curate the included pages before changing that budget. Keep the focused sets,
+workflow skills, standalone prompts, and starter discoverable from `llms.txt`.
+
+Run the authored-example consumer check from the repository root:
+
+```sh
+bun apps/docs/tools/skills/verify-authored-consumer.ts working-copy
+```
+
+The check compiles Quick Start, Vessel, Action, and Engine examples in a fresh
+consumer of the exact published versions in
+`apps/docs/tools/skills/published-examples/package.json.template`. Its separate
+frozen lockfile prevents workspace aliases from hiding release incompatibilities.
+The 0.2.1 Action example checks its literal fields against the published Action type and registers a handler for the transition. CI audits the frozen consumer when its dependencies change and on pushes to main.
+Compilation does not test a live Engine, provider, microphone, or browser.
+CI records its docs revision, installed package versions, and compiled files.
+
+Update the consumer manifest and lockfile together when changing the verified
+release baseline. If a page requires an unreleased API, label that requirement
+and keep its checks against the matching source revision. Do not claim that
+a current source manifest proves compatibility with an already published release.
 
 ### Released docs in Context7
 

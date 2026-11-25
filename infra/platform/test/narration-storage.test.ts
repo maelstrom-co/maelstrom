@@ -4,7 +4,12 @@ import { readFileSync } from 'node:fs';
 import {
   inspectNarrationStorage,
   reconcileNarrationStorage,
+  reconcileProductionDelivery,
 } from '../narration-storage.js';
+import {
+  narrationDelivery,
+  narrationDeliveryRoutes,
+} from '../src/NarrationDeliveryContract.js';
 import { narrationBucketProps } from '../src/NarrationStorage.js';
 import {
   narrationProfile,
@@ -445,4 +450,267 @@ test('checks the whole stage inventory before planning and rechecks it before ap
     expect(deploys).toHaveLength(insertedDuringPlan ? 1 : 0);
     expect(deploys.every(({ args }) => args.includes('--dry-run'))).toBe(true);
   }
+});
+
+function productionDeliveryFixture() {
+  const cache = fixture('cache');
+  cache.seed();
+  const routeId = 'e'.repeat(32);
+  const liveRoutes: { id: string; pattern: string; script?: string }[] = [];
+  const state = {
+    fqn: narrationDelivery.fqn,
+    logicalId: narrationDelivery.fqn,
+    resourceType: 'Cloudflare.Worker',
+    providerMode: 'live',
+    removalPolicy: 'retain',
+    status: 'created',
+    props: {
+      name: narrationDelivery.name,
+      workersDev: false,
+      routes: narrationDeliveryRoutes,
+    },
+    attr: {
+      accountId: production,
+      workerName: narrationDelivery.name,
+      routes: narrationDeliveryRoutes.map((route) => ({
+        ...route,
+        id: routeId,
+      })),
+    },
+  };
+  const settings: { tags: string[]; bindings: Array<Record<string, string>> } =
+    {
+      tags: [
+        `alchemy:stack:${narrationDelivery.stack}`,
+        'alchemy:stage:prod',
+        `alchemy:id:${narrationDelivery.fqn}`,
+      ],
+      bindings: [
+        {
+          type: 'r2_bucket',
+          name: 'NARRATION_BUCKET',
+          bucket_name: cache.target.bucket,
+        },
+        { type: 'plain_text', name: 'ALCHEMY_PHASE', text: 'runtime' },
+        {
+          type: 'plain_text',
+          name: 'ALCHEMY_WORKER_NAME',
+          text: narrationDelivery.name,
+        },
+        {
+          type: 'plain_text',
+          name: 'ALCHEMY_STACK_NAME',
+          text: narrationDelivery.stack,
+        },
+        { type: 'plain_text', name: 'ALCHEMY_STAGE', text: 'prod' },
+        {
+          type: 'plain_text',
+          name: 'ALCHEMY_CLOUDFLARE_ACCOUNT_ID',
+          text: production,
+        },
+      ],
+    };
+  const deploys: string[][] = [];
+  let persisted = false;
+  let live = false;
+  let duringPlan: (() => void) | undefined;
+  const deps = {
+    token: cache.deps.token,
+    async runAlchemy(args: readonly string[], accountId: string) {
+      if (args.includes(cache.target.stack))
+        return cache.deps.runAlchemy(args, accountId);
+      expect(accountId).toBe(production);
+      if (args[1] === 'inventory')
+        return {
+          code: 0,
+          stdout: JSON.stringify(persisted ? [narrationDelivery.fqn] : []),
+        };
+      if (args[1] === 'get') {
+        return {
+          code: 0,
+          stdout: persisted
+            ? JSON.stringify(state)
+            : `(not found: ${narrationDelivery.stack}/prod/${narrationDelivery.fqn})
+`,
+        };
+      }
+      expect(args[0]).toBe('deploy');
+      deploys.push([...args]);
+      if (args.includes('--dry-run')) {
+        duringPlan?.();
+      } else {
+        live = persisted = true;
+        liveRoutes.push(
+          ...narrationDeliveryRoutes.map(({ pattern }) => ({
+            id: routeId,
+            pattern,
+            script: narrationDelivery.name,
+          })),
+        );
+      }
+      return { code: 0, stdout: '' };
+    },
+    async request(url: string, init: RequestInit) {
+      if (url.includes('/r2/buckets/')) return cache.deps.request(url, init);
+      expect(init.redirect).toBe('error');
+      expect(new Headers(init.headers).get('authorization')).toBe(
+        `Bearer ${cache.deps.token}`,
+      );
+      if (url.endsWith('/workers/routes')) {
+        expect(url).toContain(`/zones/${narrationDelivery.zoneId}/`);
+        return Response.json({ success: true, errors: [], result: liveRoutes });
+      }
+      expect(url).toContain(
+        `/accounts/${production}/workers/scripts/${narrationDelivery.name}/`,
+      );
+      if (!live)
+        return Response.json(
+          { success: false, errors: [{ code: 10007 }] },
+          { status: 404 },
+        );
+      return Response.json({
+        success: true,
+        errors: [],
+        result: url.endsWith('/subdomain')
+          ? { enabled: false, previews_enabled: false }
+          : settings,
+      });
+    },
+  };
+  return {
+    deploys,
+    liveRoutes,
+    state,
+    settings,
+    reconcile: (current = async () => true) =>
+      reconcileProductionDelivery(cache.target, deps, current),
+    createUnmanagedScript() {
+      live = true;
+    },
+    onPlan(action: () => void) {
+      duringPlan = action;
+    },
+  };
+}
+
+test('production delivery plans and applies only the separate retained Worker', async () => {
+  const mock = productionDeliveryFixture();
+  mock.liveRoutes.push({
+    id: 'www',
+    pattern: 'www.maelstrom-ai.co/*',
+    script: 'www',
+  });
+  expect(await mock.reconcile()).toBe(true);
+  const command = [
+    'deploy',
+    narrationDelivery.entrypoint,
+    '--stage',
+    'prod',
+    '--profile',
+    narrationProfile,
+    '--include',
+    narrationDelivery.fqn,
+    '--yes',
+  ];
+  expect(mock.deploys).toEqual([[...command, '--dry-run'], command]);
+  expect(mock.liveRoutes).toEqual([
+    { id: 'www', pattern: 'www.maelstrom-ai.co/*', script: 'www' },
+    ...narrationDeliveryRoutes.map(({ pattern }) => ({
+      id: 'e'.repeat(32),
+      pattern,
+      script: narrationDelivery.name,
+    })),
+  ]);
+});
+
+test('production delivery refuses to overwrite unmanaged Workers or narration routes', async () => {
+  const worker = productionDeliveryFixture();
+  worker.createUnmanagedScript();
+  await expect(worker.reconcile()).rejects.toThrow('ownership');
+  expect(worker.deploys).toEqual([]);
+
+  for (const route of [
+    { pattern: 'www.maelstrom-ai.co/_blog-narration/*' },
+    {
+      pattern: 'https://maelstrom-ai.co/_blog-narration/manifests/*',
+      script: 'other',
+    },
+  ]) {
+    const mock = productionDeliveryFixture();
+    mock.onPlan(() => mock.liveRoutes.push({ id: 'foreign-route', ...route }));
+    await expect(mock.reconcile()).rejects.toThrow('collision');
+    expect(mock.deploys).toHaveLength(1);
+    expect(mock.deploys[0]).toContain('--dry-run');
+  }
+});
+
+test('production delivery rejects unexpected or modified bindings after a valid deployment', async () => {
+  const mock = productionDeliveryFixture();
+  expect(await mock.reconcile()).toBe(true);
+  const expected = mock.settings.bindings;
+  for (const bindings of [
+    [...expected, { type: 'secret_text', name: 'OTHER' }],
+    [...expected, { type: 'r2_bucket', name: 'OTHER', bucket_name: 'private' }],
+    expected.map((binding) =>
+      binding.name === 'ALCHEMY_STAGE'
+        ? { ...binding, type: 'secret_text' }
+        : binding,
+    ),
+    expected.map((binding) =>
+      binding.name === 'ALCHEMY_CLOUDFLARE_ACCOUNT_ID'
+        ? { ...binding, text: preview }
+        : binding,
+    ),
+    expected.map((binding) =>
+      binding.name === 'NARRATION_BUCKET'
+        ? { ...binding, bucket_name: 'another-bucket' }
+        : binding,
+    ),
+  ]) {
+    mock.settings.bindings = bindings;
+    await expect(mock.reconcile()).rejects.toThrow('binding mismatch');
+    expect(mock.deploys).toHaveLength(2);
+  }
+});
+
+test('production delivery verifies an owned route still points to its original script', async () => {
+  const mock = productionDeliveryFixture();
+  expect(await mock.reconcile()).toBe(true);
+  mock.liveRoutes[0].script = 'unrelated';
+  await expect(mock.reconcile()).rejects.toThrow('collision');
+  expect(mock.deploys).toHaveLength(2);
+});
+
+test('production delivery leaves existing recordings available when reconciliation is superseded', async () => {
+  const mock = productionDeliveryFixture();
+  let revisionChecks = 0;
+  expect(
+    await mock.reconcile(async () => ++revisionChecks === 1),
+  ).toBeUndefined();
+  expect(mock.deploys).toHaveLength(1);
+  expect(mock.deploys[0]).toContain('--dry-run');
+});
+
+test('production provisions narration routes outside the website dependency chain', () => {
+  const workflow = readFileSync(
+    new URL(
+      '../../../.github/workflows/deploy-production.yml',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const reconciliation = workflow
+    .split('\n  narration-storage:\n')[1]
+    ?.split('\n  deploy:\n')[0];
+  expect(reconciliation).toContain(`ref: \${{ github.workflow_sha }}`);
+  expect(reconciliation).toContain(
+    'github.event.workflow_run.head_repository.full_name == github.repository',
+  );
+  expect(reconciliation).toContain(
+    'if [ "$NARRATION_STORAGE_KIND" = cache ]; then',
+  );
+  expect(reconciliation).toContain('reconcile production-delivery');
+  const siteJob = workflow.split('\n  deploy:\n')[1];
+  expect(siteJob).toContain('needs: platform');
+  expect(siteJob).not.toContain('needs.narration-storage');
 });

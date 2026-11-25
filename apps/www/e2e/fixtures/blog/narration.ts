@@ -7,6 +7,15 @@ export function memoryStore(
     async get(key) {
       return objects.get(key);
     },
+    async readVersioned(key) {
+      const value = objects.get(key);
+      return value === undefined ? undefined : { value, etag: value };
+    },
+    async compareAndSet(key, value, etag) {
+      if (objects.get(key) !== etag) return false;
+      objects.set(key, value);
+      return true;
+    },
     async put(key, value) {
       if (objects.has(key)) throw new Error('Unexpected overwrite');
       objects.set(key, value);

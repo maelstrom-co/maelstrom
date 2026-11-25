@@ -1,7 +1,6 @@
 import { S3Client } from 'bun';
 
 import {
-  publishNarration,
   type NarrationPublication,
   type NarrationStore,
 } from './blog-narration-publication';
@@ -26,12 +25,61 @@ export function narrationR2Client(account: string, prefix: string) {
   });
 }
 
-function r2Store(): NarrationStore {
-  const client = narrationR2Client(
-    required('BLOG_NARRATION_R2_ACCOUNT_ID'),
-    'BLOG_NARRATION_R2',
-  );
+export function signedNarrationStore(client: S3Client): NarrationStore {
+  async function readVersioned(key: string) {
+    try {
+      const result = await fetch(client.presign(key, { expiresIn: 60 }), {
+        redirect: 'error',
+        credentials: 'omit',
+        signal: AbortSignal.timeout(30_000),
+      });
+      const value = await result.text();
+      if (result.status === 404 && /<Code>NoSuchKey<\/Code>/u.test(value))
+        return;
+      const etag = result.headers.get('etag');
+      if (!result.ok || !etag || !/^"[^"]+"$/u.test(etag)) {
+        throw new Error('Versioned narration cache read failed');
+      }
+      return { value, etag };
+    } catch {
+      throw new Error('Versioned narration cache read failed');
+    }
+  }
+  async function compareAndSet(
+    key: string,
+    value: string,
+    etag: string | undefined,
+  ) {
+    try {
+      const type = 'application/json';
+      const headers = new Headers({ 'content-type': type });
+      headers.set(
+        etag === undefined ? 'if-none-match' : 'if-match',
+        etag ?? '*',
+      );
+      const response = await fetch(
+        client.presign(key, { method: 'PUT', expiresIn: 60, type }),
+        {
+          method: 'PUT',
+          headers,
+          body: value,
+          redirect: 'error',
+          credentials: 'omit',
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      await response.body?.cancel();
+      if (response.status === 412) return false;
+      if (!response.ok)
+        throw new Error('Conditional narration cache write failed');
+      return true;
+    } catch {
+      throw new Error('Conditional narration cache write failed');
+    }
+  }
   return {
+    readVersioned,
+    compareAndSet,
     async get(key) {
       try {
         return await client.file(key).text();
@@ -47,8 +95,10 @@ function r2Store(): NarrationStore {
     },
     async put(key, value) {
       try {
-        // The production-www concurrency group serializes trusted publishers.
-        await client.write(key, value, { type: 'application/json' });
+        const exists = !(await compareAndSet(key, value, undefined));
+        if (exists && (await readVersioned(key))?.value !== value) {
+          throw new Error('Narration cache contents changed');
+        }
       } catch {
         throw new Error('Narration cache write failed');
       }
@@ -56,18 +106,18 @@ function r2Store(): NarrationStore {
   };
 }
 
+export function narrationCacheClient() {
+  return narrationR2Client(
+    required('BLOG_NARRATION_R2_ACCOUNT_ID'),
+    'BLOG_NARRATION_R2',
+  );
+}
+
 export function readNarrationConfig(): NarrationPublication {
   return {
-    store: r2Store(),
+    store: signedNarrationStore(narrationCacheClient()),
     voiceId: required('ELEVENLABS_MYVOICE_ID'),
     voiceRevision: required('ELEVENLABS_MYVOICE_REVISION'),
     apiKey: required('ELEVENLABS_API_KEY'),
   };
-}
-
-if (import.meta.main) {
-  await publishNarration(
-    process.argv[2] ?? 'apps/www/dist/client',
-    readNarrationConfig(),
-  );
 }

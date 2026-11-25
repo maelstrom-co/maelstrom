@@ -1,6 +1,10 @@
 import { appendFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
+import {
+  narrationDelivery,
+  narrationDeliveryRoutes,
+} from './src/NarrationDeliveryContract.js';
 import { narrationBucketProps } from './src/NarrationStorage.js';
 import {
   narrationInspectionEntrypoint,
@@ -32,7 +36,17 @@ const publicHostname = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.r2\.dev$/u;
 const isPublicHostname = (value: unknown): value is string =>
   typeof value === 'string' && publicHostname.exec(value)?.[0] === value;
 
-async function verifyInventory(target: Target, runAlchemy: RunAlchemy) {
+interface InventoryTarget {
+  stack: string;
+  stage: Target['stage'];
+  fqn: string;
+  stateAccountId: string;
+}
+
+async function verifyInventory(
+  target: InventoryTarget,
+  runAlchemy: RunAlchemy,
+) {
   const { code, stdout } = await runAlchemy(
     [
       'state',
@@ -69,7 +83,10 @@ async function verifyInventory(target: Target, runAlchemy: RunAlchemy) {
   }
 }
 
-async function readState(target: Target, runAlchemy: RunAlchemy) {
+async function readResourceState(
+  target: InventoryTarget,
+  runAlchemy: RunAlchemy,
+) {
   const { code, stdout } = await runAlchemy(
     [
       'state',
@@ -99,16 +116,28 @@ async function readState(target: Target, runAlchemy: RunAlchemy) {
     throw new Error(`Malformed narration state output for ${target.stack}`);
   }
   const state = record(data);
-  const attr = record(state?.attr);
   if (
     !state ||
-    !attr ||
-    state.resourceType !== 'Cloudflare.R2.Bucket' ||
     state.fqn !== target.fqn ||
     state.logicalId !== target.fqn ||
     !['created', 'updated'].includes(String(state.status)) ||
     state.providerMode !== 'live' ||
-    state.removalPolicy !== 'retain' ||
+    state.removalPolicy !== 'retain'
+  ) {
+    throw new Error(
+      `Invalid narration resource ownership state for ${target.stack}; investigate an interrupted creation or identity mismatch`,
+    );
+  }
+  return state;
+}
+
+async function readState(target: Target, runAlchemy: RunAlchemy) {
+  const state = await readResourceState(target, runAlchemy);
+  if (!state) return;
+  const attr = record(state.attr);
+  if (
+    !attr ||
+    state.resourceType !== 'Cloudflare.R2.Bucket' ||
     record(state.props)?.name !== target.bucket ||
     attr.accountId !== target.accountId ||
     attr.bucketName !== target.bucket
@@ -377,16 +406,267 @@ export async function reconcileNarrationStorage(
   return verified;
 }
 
+function overlapsNarration(pattern: string) {
+  const route = pattern.replace(/^https?:\/\//iu, '');
+  const slash = route.indexOf('/');
+  if (slash === -1) return false;
+  const host = route.slice(0, slash).toLowerCase();
+  return (
+    route.slice(slash).startsWith(narrationDelivery.path) &&
+    narrationDelivery.hosts.some((candidate) =>
+      host.startsWith('*')
+        ? candidate.endsWith(host.slice(1))
+        : candidate === host,
+    )
+  );
+}
+
+const deliveryPatterns = new Set(
+  narrationDeliveryRoutes.map(({ pattern }) => pattern),
+);
+const validId = (id: unknown) =>
+  typeof id === 'string' && /^[a-f0-9]{32}$/u.test(id);
+
+function deliveryBindingsMatch(
+  bindings: unknown,
+  target: InventoryTarget & Pick<Target, 'accountId' | 'bucket'>,
+) {
+  // beta.85 adds these entries to both script and version uploads.
+  const runtime = {
+    ALCHEMY_PHASE: 'runtime',
+    ALCHEMY_WORKER_NAME: narrationDelivery.name,
+    ALCHEMY_STACK_NAME: target.stack,
+    ALCHEMY_STAGE: target.stage,
+    ALCHEMY_CLOUDFLARE_ACCOUNT_ID: target.accountId,
+  };
+  if (
+    !Array.isArray(bindings) ||
+    bindings.length !== Object.keys(runtime).length + 1
+  ) {
+    return false;
+  }
+
+  const entries = bindings.map(record);
+  return (
+    entries.some(
+      (binding) =>
+        binding?.name === 'NARRATION_BUCKET' &&
+        binding.type === 'r2_bucket' &&
+        binding.bucket_name === target.bucket &&
+        binding.jurisdiction == null,
+    ) &&
+    Object.entries(runtime).every(([name, text]) =>
+      entries.some(
+        (binding) =>
+          binding?.name === name &&
+          binding.type === 'plain_text' &&
+          binding.text === text,
+      ),
+    )
+  );
+}
+
+async function inspectDeliveryWorker(
+  target: InventoryTarget & Pick<Target, 'accountId' | 'bucket'>,
+  deps: Dependencies,
+) {
+  await verifyInventory(target, deps.runAlchemy);
+  const owned = await readResourceState(target, deps.runAlchemy);
+  const attr = record(owned?.attr);
+  const props = record(owned?.props);
+  if (
+    owned &&
+    (owned.resourceType !== 'Cloudflare.Worker' ||
+      props?.name !== narrationDelivery.name ||
+      props.workersDev !== false ||
+      !isDeepStrictEqual(props.routes, narrationDeliveryRoutes) ||
+      attr?.accountId !== target.accountId ||
+      attr.workerName !== narrationDelivery.name ||
+      attr.domain !== undefined)
+  ) {
+    throw new Error('Unexpected production narration delivery Worker state');
+  }
+  const script = `/accounts/${target.accountId}/workers/scripts/${narrationDelivery.name}`;
+  const get = async (endpoint: string, allowMissing = false) => {
+    const response = await deps.request(
+      `https://api.cloudflare.com/client/v4${endpoint}`,
+      {
+        headers: { authorization: `Bearer ${deps.token}` },
+        redirect: 'error',
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    const envelope = record(await response.json());
+    const errors = envelope?.errors;
+    if (
+      allowMissing &&
+      response.status === 404 &&
+      envelope?.success === false &&
+      Array.isArray(errors) &&
+      errors.length === 1 &&
+      record(errors[0])?.code === 10007
+    )
+      return;
+    const info = record(envelope?.result_info);
+    if (
+      !response.ok ||
+      envelope?.success !== true ||
+      !Array.isArray(errors) ||
+      errors.length > 0 ||
+      (typeof info?.total_pages === 'number' && info.total_pages > 1)
+    ) {
+      throw new Error(
+        `Delivery Worker inspection failed (HTTP ${response.status}, ${endpoint})`,
+      );
+    }
+    return envelope.result;
+  };
+  const [settingsResult, routes] = await Promise.all([
+    get(`${script}/settings`, true),
+    get(`/zones/${narrationDelivery.zoneId}/workers/routes`),
+  ]);
+  const live = record(settingsResult);
+  const tags = live?.tags;
+  const expectedTags = [
+    `alchemy:stack:${target.stack}`,
+    `alchemy:stage:${target.stage}`,
+    `alchemy:id:${target.fqn}`,
+  ];
+  if (
+    (settingsResult !== undefined && !live) ||
+    Boolean(owned) !== Boolean(live) ||
+    (live &&
+      (!Array.isArray(tags) ||
+        !expectedTags.every((tag) => tags.includes(tag)) ||
+        !deliveryBindingsMatch(live.bindings, target)))
+  ) {
+    throw new Error(
+      'Production narration delivery Worker ownership or binding mismatch',
+    );
+  }
+  if (!Array.isArray(routes))
+    throw new Error('Invalid production Worker route inventory');
+  const observed = new Map<string, string>();
+  for (const value of routes) {
+    const route = record(value);
+    if (typeof route?.pattern !== 'string' || typeof route.id !== 'string') {
+      throw new Error('Invalid production Worker route');
+    }
+    if (
+      route.script !== narrationDelivery.name &&
+      !overlapsNarration(route.pattern)
+    )
+      continue;
+    if (
+      !live ||
+      route.script !== narrationDelivery.name ||
+      !deliveryPatterns.has(route.pattern) ||
+      !validId(route.id) ||
+      observed.has(route.pattern)
+    ) {
+      throw new Error(
+        `Production narration delivery route collision at ${route.pattern}`,
+      );
+    }
+    observed.set(route.pattern, route.id);
+  }
+  if (live) {
+    const saved = attr?.routes;
+    const subdomain = record(await get(`${script}/subdomain`));
+    if (
+      !Array.isArray(saved) ||
+      saved.length !== deliveryPatterns.size ||
+      observed.size !== deliveryPatterns.size ||
+      !narrationDeliveryRoutes.every(({ pattern, zoneId }) =>
+        saved.some((row: unknown) => {
+          const route = record(row);
+          return (
+            route?.zoneId === zoneId &&
+            route.pattern === pattern &&
+            route.id === observed.get(pattern)
+          );
+        }),
+      ) ||
+      subdomain?.enabled !== false ||
+      subdomain.previews_enabled !== false
+    ) {
+      throw new Error(
+        'Production narration delivery routes or public endpoints drifted',
+      );
+    }
+  }
+
+  return { owned: Boolean(owned), routes: [...observed].sort() };
+}
+
+export async function reconcileProductionDelivery(
+  cache: Target,
+  deps: Dependencies,
+  current: () => Promise<boolean>,
+) {
+  if (!deps.token || !(await current())) return;
+  if (cache.public || cache.accountId !== cache.stateAccountId) {
+    throw new Error(
+      'Production delivery requires the private production cache',
+    );
+  }
+  if (!(await inspectNarrationStorage(cache, deps))) {
+    throw new Error(
+      'Private narration cache must be reconciled before configuring delivery',
+    );
+  }
+
+  const target = { ...cache, ...narrationDelivery };
+  const existing = await inspectDeliveryWorker(target, deps);
+  const args = [
+    'deploy',
+    target.entrypoint,
+    '--stage',
+    target.stage,
+    '--profile',
+    narrationProfile,
+    '--include',
+    target.fqn,
+    '--yes',
+  ];
+  if (
+    (await deps.runAlchemy([...args, '--dry-run'], target.accountId)).code !== 0
+  ) {
+    throw new Error('Production narration delivery dry run failed');
+  }
+  if (
+    !(await inspectNarrationStorage(cache, deps)) ||
+    !isDeepStrictEqual(existing, await inspectDeliveryWorker(target, deps))
+  ) {
+    throw new Error(
+      'Production narration delivery ownership changed during planning',
+    );
+  }
+  if (!(await current())) return;
+  if ((await deps.runAlchemy(args, target.accountId)).code !== 0) {
+    throw new Error('Production narration delivery apply failed');
+  }
+  if (!(await inspectDeliveryWorker(target, deps)).owned) {
+    throw new Error(
+      'Production narration delivery failed post-apply verification',
+    );
+  }
+  return true;
+}
+
 async function main() {
   const [command, kind] = Bun.argv.slice(2);
   if (
     (command !== 'discover' && command !== 'reconcile') ||
-    (kind !== 'cache' && kind !== 'delivery' && kind !== 'all') ||
+    (kind !== 'cache' &&
+      kind !== 'delivery' &&
+      kind !== 'all' &&
+      kind !== 'production-delivery') ||
     (command === 'reconcile' && kind === 'all') ||
-    (command === 'discover' && kind === 'delivery')
+    (command === 'discover' && kind !== 'cache' && kind !== 'all')
   ) {
     throw new Error(
-      'Usage: narration-storage.ts discover cache|all or reconcile cache|delivery',
+      'Usage: narration-storage.ts discover cache|all or reconcile cache|delivery|production-delivery',
     );
   }
   const token = process.env.CLOUDFLARE_API_TOKEN;
@@ -422,8 +702,7 @@ async function main() {
     },
   };
   if (command === 'reconcile') {
-    const target = narrationTarget(kind as NarrationStorageKind);
-    const result = await reconcileNarrationStorage(target, deps, async () => {
+    const current = async () => {
       const expected = process.env.DEPLOY_SHA;
       if (!expected || !/^[a-f0-9]{40}$/u.test(expected))
         throw new Error('Missing trusted deployment revision');
@@ -443,7 +722,20 @@ async function main() {
       if (latest !== expected)
         console.log('Skipping superseded narration storage reconciliation.');
       return latest === expected;
-    });
+    };
+    if (kind === 'production-delivery') {
+      if (
+        await reconcileProductionDelivery(
+          narrationTarget('cache'),
+          deps,
+          current,
+        )
+      )
+        console.log('Verified retained production narration delivery Worker.');
+      return;
+    }
+    const target = narrationTarget(kind as NarrationStorageKind);
+    const result = await reconcileNarrationStorage(target, deps, current);
     if (result)
       console.log(`Verified retained narration storage for ${target.stack}.`);
     return;

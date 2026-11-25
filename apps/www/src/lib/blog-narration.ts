@@ -15,10 +15,12 @@ export function extractNarration(
   sections: Iterable<Element> = document.querySelectorAll(
     '[data-narration-text]',
   ),
+  preserveParagraphs = false,
 ) {
   const points: (Point | undefined)[] = [];
   let text = '';
   let separator = '';
+  const blockSeparator = preserveParagraphs ? '\n\n' : ' ';
 
   function visit(node: Node) {
     if (node.nodeType === 3) {
@@ -41,7 +43,7 @@ export function extractNarration(
     } else if (node.nodeType === 1) {
       const element = node as HTMLElement;
       const boundary = element.matches(paragraphs);
-      if (boundary) separator = '\n\n';
+      if (boundary) separator = blockSeparator;
       if (
         !element.matches(skip) &&
         element.style?.display !== 'none' &&
@@ -49,12 +51,12 @@ export function extractNarration(
       ) {
         for (const child of element.childNodes) visit(child);
       }
-      if (boundary) separator = '\n\n';
+      if (boundary) separator = blockSeparator;
     }
   }
 
   for (const section of sections) {
-    separator = '\n\n';
+    separator = blockSeparator;
     visit(section);
   }
 
@@ -95,6 +97,7 @@ export interface NarrationChunk {
 }
 
 export interface NarrationManifest {
+  voiceHash?: string;
   version: string;
   textHash: string;
   chunks: NarrationChunk[];
@@ -168,4 +171,16 @@ export function validateManifest(
 
 export function narrationMediaPath(version: string, index: number) {
   return `/_blog-narration/${version}/${index}.wav`;
+}
+
+export function isNarrationHash(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length === 64 &&
+    digestPattern.test(value)
+  );
+}
+
+export function narrationManifestPath(voiceHash: string, textHash: string) {
+  return `/_blog-narration/manifests/${voiceHash}/${textHash}.json`;
 }

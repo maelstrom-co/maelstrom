@@ -405,9 +405,6 @@ describe('application infrastructure contract', () => {
     expect(productionWorkflow).toContain(
       `group: production-${'$'}{{ matrix.app }}`,
     );
-    expect(productionWorkflow).toContain(
-      `queue: ${'$'}{{ matrix.app == 'www' && 'max' || 'single' }}`,
-    );
 
     const initialCheck = workflowStep('Check deployment revision');
     expect(initialCheck).toContain('id: revision');
@@ -460,7 +457,7 @@ describe('application infrastructure contract', () => {
       productionWorkflow.match(
         /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN \}\}/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(2);
     expect(productionWorkflow).not.toContain('--adopt');
     expect(workflowStep('Smoke test primary domain')).toContain(

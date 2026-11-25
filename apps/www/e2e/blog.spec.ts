@@ -6,7 +6,11 @@ import { expect, test } from '@playwright/test';
 import type { NarrationManifest } from '../src/lib/blog-narration';
 import { previewNarrationBase } from '../src/lib/blog-narration-preview';
 import { publishPreviewNarration } from '../tools/blog-narration-preview-publication';
-import { publishNarration } from '../tools/blog-narration-publication';
+import { recoverProductionNarration } from '../tools/blog-narration-production-publication';
+import {
+  narrationVoiceHash,
+  publishNarration,
+} from '../tools/blog-narration-publication';
 import {
   addExtraPost,
   outputText,
@@ -655,6 +659,7 @@ test('preview narration becomes playable across origins after retrying only the 
     let rejectManifest = true;
     const options = {
       deliveryBase: delivery,
+      maySynthesize: (path: string) => path === '/blog/fixture-alpha/',
       readTarget: async () => site,
       async requestPage(url: URL) {
         return new Response(
@@ -789,5 +794,150 @@ test('preview narration becomes playable across origins after retrying only the 
     await page.keyboard.press('Home');
     await expect.poll(highlighted).toBe('Fictional');
     expect([...origins]).toEqual([site]);
+  });
+});
+
+test('the same production article becomes playable on reload after independent recovery', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, output, build, inject }) => {
+    const publication = {
+      apiKey: mockSecret,
+      voiceId: 'myvoice',
+      voiceRevision: '1',
+      store: memoryStore(),
+      request: fixtureSpeech,
+    };
+    const voiceHash = await narrationVoiceHash(publication);
+    await inject();
+    for (const slug of ['fixture-old', 'fixture-zeta']) {
+      await rm(join(root, 'src/content/blog', `${slug}.mdx`));
+    }
+    build(undefined, undefined, { voiceHash, release: 'a'.repeat(40) });
+    const origin = 'https://maelstrom-ai.co';
+    const path = '/blog/fixture-alpha/';
+    const location = origin + path;
+    const assets = new Map<
+      string,
+      { value: string | Uint8Array; type: string }
+    >();
+    const html = await outputText(output, 'blog/fixture-alpha/index.html');
+    let article = html;
+    await page.route(`${origin}/**`, async (route) => {
+      const requestPath = new URL(route.request().url()).pathname;
+      if (requestPath === path) {
+        await route.fulfill({ contentType: 'text/html', body: article });
+      } else if (requestPath.startsWith('/_blog-narration/')) {
+        const asset = assets.get(
+          requestPath.replace('/_blog-narration/', 'production-delivery/'),
+        );
+        if (!asset) {
+          await route.fulfill({
+            status: 404,
+            headers: { 'cache-control': 'no-store' },
+          });
+        } else if (typeof asset.value === 'string') {
+          // A large valid JSON envelope must still enable the actual player.
+          await route.fulfill({
+            contentType: asset.type,
+            body: asset.value.padEnd(2 * 1024 * 1024 + 1),
+          });
+        } else {
+          const body = Buffer.from(asset.value);
+          const start = Number(
+            route
+              .request()
+              .headers()
+              .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+          );
+          await route.fulfill({
+            status: 206,
+            contentType: asset.type,
+            body: body.subarray(start),
+            headers: {
+              'accept-ranges': 'bytes',
+              'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+            },
+          });
+        }
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(requestPath)) {
+        await route.fulfill({ path: join(output, requestPath.slice(1)) });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+
+    const manifestResponse = (status: number) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.startsWith(
+            '/_blog-narration/manifests/',
+          ) && response.status() === status,
+      );
+    const firstMiss = manifestResponse(404);
+    await page.goto(location);
+    await firstMiss;
+    const play = page.getByRole('button', { name: 'Play narration' });
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Fictional Alpha' }),
+    ).toBeVisible();
+    await expect(play).toBeHidden();
+
+    await recoverProductionNarration({
+      publication,
+      requestPage: async (url) =>
+        new Response(
+          await outputText(output, `${url.pathname.slice(1)}index.html`),
+          { headers: { 'content-type': 'text/html' } },
+        ),
+      async readDelivery() {
+        return undefined;
+      },
+      async deliver(key, value, type) {
+        assets.set(key, { value, type });
+      },
+    });
+    const nowReady = manifestResponse(200);
+    await page.reload();
+    await nowReady;
+    await expect(page).toHaveURL(location);
+    await play.click();
+    const audio = page.locator('audio');
+    await expect
+      .poll(() =>
+        audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+      )
+      .toBeGreaterThan(0);
+    const activeUrl = await audio.evaluate(
+      (element: HTMLAudioElement) => element.currentSrc,
+    );
+
+    article = html.replace('Fictional Alpha</h1>', 'Edited Alpha</h1>');
+    const newPage = await page.context().newPage();
+    try {
+      // Keep the first tab playing while a different release has no matching recording.
+      await newPage.route(`${origin}/**`, (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === path)
+          return route.fulfill({ contentType: 'text/html', body: article });
+        if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(url.pathname))
+          return route.fulfill({ path: join(output, url.pathname.slice(1)) });
+        return route.fulfill({ status: 404 });
+      });
+      await newPage.goto(location);
+      await expect(
+        newPage.getByRole('heading', { level: 1, name: 'Edited Alpha' }),
+      ).toBeVisible();
+      await expect(
+        newPage.getByRole('button', { name: 'Play narration' }),
+      ).toBeHidden();
+      expect(
+        await audio.evaluate((element: HTMLAudioElement) => element.currentSrc),
+      ).toBe(activeUrl);
+      await expect(audio).toHaveJSProperty('paused', false);
+    } finally {
+      await newPage.close();
+    }
   });
 });

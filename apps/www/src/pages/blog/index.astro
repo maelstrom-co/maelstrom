@@ -21,6 +21,8 @@ const previewNarration = parsePreviewNarrationBase(
   <main
     class="container blog-page blog-archive"
     data-narration-preview-base={previewNarration?.href}
+    data-narration-release={import.meta.env.PUBLIC_BLOG_NARRATION_RELEASE}
+    data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
   >
     <header class="blog-archive-header">
       <div>

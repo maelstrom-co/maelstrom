@@ -1,0 +1,126 @@
+name: Recover Production Blog Narration
+
+on:
+  workflow_run:
+    workflows: [Deploy Production]
+    types: [completed]
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Held narration version hash
+        required: true
+        type: string
+      chunk:
+        description: Held chunk index
+        required: true
+        type: string
+      attempt:
+        description: Current held attempt ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover:
+    name: Recover production narration
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event.repository.private == false
+      && vars.PUBLIC_LAUNCH_READY == 'true'
+      && (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.head_repository.full_name == github.repository
+          && github.event.workflow_run.head_branch == 'main'
+          && github.event.workflow_run.event == 'workflow_run'))
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+    environment:
+      name: production
+      deployment: false
+    concurrency:
+      group: blog-narration-writers
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Check narration bootstrap configuration
+        id: configuration
+        env:
+          MANAGEMENT_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
+          OBJECT_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
+          OBJECT_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
+          ELEVENLABS_API_KEY: ${{ github.event_name != 'workflow_dispatch' && secrets.ELEVENLABS_API_KEY || '' }}
+          VOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
+          VOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
+        run: |
+          if [ -z "$MANAGEMENT_TOKEN" ] || [ -z "$OBJECT_ACCESS_KEY_ID" ] || [ -z "$OBJECT_SECRET_ACCESS_KEY" ]; then
+            echo "Narration storage credentials are not configured."
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then exit 1; fi
+            exit 0
+          fi
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && { [ -z "$ELEVENLABS_API_KEY" ] || [ -z "$VOICE_ID" ] || [ -z "$VOICE_REVISION" ]; }; then
+            echo "Narration voice settings are not configured."
+            exit 0
+          fi
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+
+      - name: Verify production website publication
+        id: website
+        if: steps.configuration.outputs.ready == 'true' && github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ && "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          count="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" --jq '.jobs[] | select(.name == "Deploy www" and .conclusion == "success") | .steps[] | select(.name == "Smoke test primary domain" and .conclusion == "success") | .name' | wc -l | tr -d ' ')"
+          if [ "$count" = 1 ]; then echo 'current=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Check out trusted recovery code
+        if: steps.configuration.outputs.ready == 'true' && (github.event_name != 'workflow_run' || steps.website.outputs.current == 'true')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - name: Set up Bun for narration recovery
+        if: steps.configuration.outputs.ready == 'true' && (github.event_name != 'workflow_run' || steps.website.outputs.current == 'true')
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Install trusted recovery dependencies
+        if: steps.configuration.outputs.ready == 'true' && (github.event_name != 'workflow_run' || steps.website.outputs.current == 'true')
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Discover the trusted narration bucket
+        id: storage
+        if: steps.configuration.outputs.ready == 'true' && (github.event_name != 'workflow_run' || steps.website.outputs.current == 'true')
+        run: bun --no-env-file --no-install infra/platform/narration-storage.ts discover cache
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+      - name: Recover currently published production narration
+        if: github.event_name != 'workflow_dispatch' && steps.storage.outputs.cache-bucket != ''
+        run: bun --no-env-file --no-install apps/www/tools/recover-blog-narration.ts
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
+          ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
+          BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          BLOG_NARRATION_R2_BUCKET: ${{ steps.storage.outputs.cache-bucket }}
+          BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
+          BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
+      - name: Authorize one held narration attempt
+        if: github.event_name == 'workflow_dispatch'
+        run: bun --no-env-file --no-install apps/www/tools/recover-blog-narration.ts authorize
+        env:
+          NARRATION_RETRY_VERSION: ${{ inputs.version }}
+          NARRATION_RETRY_CHUNK: ${{ inputs.chunk }}
+          NARRATION_RETRY_ATTEMPT: ${{ inputs.attempt }}
+          BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          BLOG_NARRATION_R2_BUCKET: ${{ steps.storage.outputs.cache-bucket }}
+          BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
+          BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}

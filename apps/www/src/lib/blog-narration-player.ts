@@ -1,6 +1,8 @@
 import {
   extractNarration,
+  isNarrationHash,
   narrationDigest,
+  narrationManifestPath,
   narrationMediaPath,
   validateManifest,
   type WordTiming,
@@ -27,23 +29,30 @@ async function setup(player: HTMLElement) {
   const seek = player.querySelector('input');
   const timeLabel = player.querySelector('output');
   const status = player.querySelector('[role="status"]');
-  const manifestUrl = player.dataset.narrationPlayer;
+  const configuredVoice = player.dataset.narrationVoice;
+  const assets = player.dataset.narrationAssets;
+  const voice =
+    !assets && isNarrationHash(configuredVoice) ? configuredVoice : undefined;
+  const { text, range } = extractNarration(document);
+  const textHash = await narrationDigest(text);
+  const manifestUrl = voice
+    ? narrationManifestPath(voice, textHash)
+    : player.dataset.narrationPlayer;
   if (!audio || !toggle || !seek || !timeLabel || !status || !manifestUrl)
     return;
 
-  const assets = player.dataset.narrationAssets;
   const response = await fetch(
     manifestUrl,
-    assets
+    assets || voice
       ? { cache: 'no-store', credentials: 'omit', redirect: 'error' }
       : undefined,
   );
   if (!response.ok) return;
   const manifest: unknown = await response.json();
-  const { text, range } = extractNarration(document);
   if (
     !validateManifest(manifest, text) ||
-    (await narrationDigest(text)) !== manifest.textHash
+    textHash !== manifest.textHash ||
+    (voice !== undefined && manifest.voiceHash !== voice)
   )
     return;
 

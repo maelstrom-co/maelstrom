@@ -14,6 +14,11 @@ import {
   type NarrationManifest,
   type WordTiming,
 } from '../src/lib/blog-narration';
+import {
+  fencedSpeech,
+  NarrationAttemptUnavailable,
+  type NarrationStore,
+} from './blog-narration-attempt';
 
 const synthesis = {
   model_id: 'eleven_multilingual_v2',
@@ -24,10 +29,8 @@ const sampleRate = 16_000;
 const chunkLimit = 3_000;
 const maxAssetBytes = 25 * 1024 * 1024;
 
-export interface NarrationStore {
-  get(key: string): Promise<string | undefined>;
-  put(key: string, value: string): Promise<void>;
-}
+export type { NarrationStore } from './blog-narration-attempt';
+export { NarrationAttemptUnavailable } from './blog-narration-attempt';
 
 export interface NarrationPublication {
   store: NarrationStore;
@@ -37,6 +40,9 @@ export interface NarrationPublication {
   request?: (url: string, init: RequestInit) => Promise<Response>;
   limit?: number;
   beforeSynthesis?: (characters: number) => Promise<void>;
+  beforeSend?: () => Promise<void>;
+  now?: () => number;
+  legacyText?: string;
 }
 
 interface SourceChunk {
@@ -233,9 +239,8 @@ function align(
   return timings;
 }
 
-async function synthesize(source: SourceChunk, options: NarrationPublication) {
-  await options.beforeSynthesis?.(source.text.length);
-  const response = await (options.request ?? fetch)(
+function speechRequest(source: SourceChunk, options: NarrationPublication) {
+  return (options.request ?? fetch)(
     `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(options.voiceId)}/with-timestamps?output_format=${format}`,
     {
       method: 'POST',
@@ -245,12 +250,14 @@ async function synthesize(source: SourceChunk, options: NarrationPublication) {
       },
       body: JSON.stringify({ ...synthesis, text: source.text }),
       redirect: 'error',
+      keepalive: false,
       signal: AbortSignal.timeout(120_000),
     },
   );
-  if (!response.ok)
-    throw new Error(`Narration provider returned HTTP ${response.status}`);
-  const { audio_base64: audio, alignment } = (await response.json()) as Record<
+}
+
+async function decodeResponse(source: SourceChunk, raw: string) {
+  const { audio_base64: audio, alignment } = JSON.parse(raw) as Record<
     string,
     unknown
   >;
@@ -268,36 +275,64 @@ async function synthesize(source: SourceChunk, options: NarrationPublication) {
 async function cachedChunk(
   source: SourceChunk,
   text: string,
-  key: string,
+  version: string,
+  index: number,
   maySynthesize: boolean,
   options: NarrationPublication,
 ) {
+  const key = `blog-narration/${version}/${index}.json`;
   const stored = await options.store.get(key);
   if (stored === undefined && !maySynthesize)
     throw new Error('Committed narration is missing audio');
-  const chunk: { timing: unknown; audio: unknown } =
-    stored === undefined
-      ? await synthesize(source, options)
-      : JSON.parse(stored);
-  const media = toWave(decodeAudio(chunk.audio));
-  const { timing } = chunk;
-  if (
-    !validateTiming(timing, text) ||
-    timing.duration !== (media.length - 44) / (sampleRate * 2) ||
-    timing.sha256 !== (await narrationDigest(media))
-  )
-    throw new Error('Invalid cached narration chunk');
-  if (
-    timing.words.length !== source.words.length ||
-    timing.words.some(
-      ({ from, to }, index) =>
-        from !== source.words[index].from || to !== source.words[index].to,
+  const validateChunk = async (chunk: { timing: unknown; audio: unknown }) => {
+    const media = toWave(decodeAudio(chunk.audio));
+    const { timing } = chunk;
+    if (
+      !validateTiming(timing, text) ||
+      timing.duration !== (media.length - 44) / (sampleRate * 2) ||
+      timing.sha256 !== (await narrationDigest(media))
     )
-  ) {
-    throw new Error('Narration word offsets do not match this chunk');
-  }
-  if (stored === undefined) await options.store.put(key, JSON.stringify(chunk));
-  return { timing, media };
+      throw new Error('Invalid cached narration chunk');
+    if (
+      timing.words.length !== source.words.length ||
+      timing.words.some(
+        ({ from, to }, index) =>
+          from !== source.words[index].from || to !== source.words[index].to,
+      )
+    ) {
+      throw new Error('Narration word offsets do not match this chunk');
+    }
+    return {
+      timing: {
+        duration: timing.duration,
+        sha256: timing.sha256,
+        words: timing.words.map(({ from, to, start, end }) => ({
+          from,
+          to,
+          start,
+          end,
+        })),
+      },
+      media,
+    };
+  };
+  if (stored !== undefined) return validateChunk(JSON.parse(stored));
+  const { chunk, validated } = await fencedSpeech({
+    store: options.store,
+    version,
+    index,
+    maySynthesize,
+    now: options.now,
+    beforeSynthesis: async () => options.beforeSynthesis?.(source.text.length),
+    beforeSend: options.beforeSend,
+    request: () => speechRequest(source, options),
+    async decode(raw) {
+      const chunk = await decodeResponse(source, raw);
+      return { chunk, validated: await validateChunk(chunk) };
+    },
+  });
+  await options.store.put(key, JSON.stringify(chunk));
+  return validated;
 }
 
 async function writeAsset(file: string, value: string | Uint8Array) {
@@ -312,43 +347,175 @@ interface NarrationDestination {
   writeManifest: (manifest: string) => Promise<void>;
 }
 
-export async function publishNarrationArticle(
-  text: string,
-  options: NarrationPublication,
-  destination: NarrationDestination,
+export function narrationVoiceHash(
+  options: Pick<NarrationPublication, 'voiceId' | 'voiceRevision' | 'limit'>,
 ) {
-  const textHash = await narrationDigest(text);
-  const limit = options.limit ?? chunkLimit;
-  const version = await narrationDigest(
+  return narrationDigest(
+    JSON.stringify({
+      algorithm: narrationVersion,
+      synthesis,
+      format,
+      limit: options.limit ?? chunkLimit,
+      voiceId: options.voiceId,
+      voiceRevision: options.voiceRevision,
+    }),
+  );
+}
+
+function recordingVersion(textHash: string, options: NarrationPublication) {
+  return narrationDigest(
     JSON.stringify({
       textHash,
       algorithm: narrationVersion,
       synthesis,
       format,
-      limit,
+      limit: options.limit ?? chunkLimit,
       voiceId: options.voiceId,
       voiceRevision: options.voiceRevision,
     }),
   );
-  const prefix = `blog-narration/${version}`;
+}
+
+function canonicalOffsets(legacy: string) {
+  const positions: number[] = [];
+  let position = 0;
+  let inWhitespace = false;
+  for (let index = 0; index < legacy.length; index++) {
+    const whitespace = /\s/u.test(legacy[index]);
+    if (whitespace && inWhitespace) {
+      positions.push(position - 1);
+      continue;
+    }
+    positions.push(position++);
+    inWhitespace = whitespace;
+  }
+  return positions;
+}
+
+function checkManifestCapacity(sources: SourceChunk[]) {
+  if (!sources.some((source) => source.words.length > 0)) {
+    throw new NarrationAttemptUnavailable(
+      'Narration has no highlightable words',
+    );
+  }
+  // Reserve more than the JSON keys, separators, full finite-number encodings
+  // and digests can occupy, including the public voice hash.
+  const estimate = sources.reduce(
+    (size, source) => size + 160 + source.words.length * 128,
+    512,
+  );
+  if (sources.length > 10_000 || estimate > maxAssetBytes) {
+    throw new NarrationAttemptUnavailable(
+      'Narration manifest would exceed its serving limit',
+    );
+  }
+}
+
+export async function publishNarrationArticle(
+  text: string,
+  options: NarrationPublication,
+  destination: NarrationDestination,
+) {
+  const canonicalHash = await narrationDigest(text);
+  const canonicalVersion = await recordingVersion(canonicalHash, options);
+  const selectionKey = `blog-narration-aliases/${canonicalVersion}.json`;
+  const selected = await options.store.get(selectionKey);
+  const selection =
+    selected === undefined
+      ? undefined
+      : (JSON.parse(selected) as { text?: unknown; version?: unknown } | null);
+  let recordingText = text;
+  let textHash = canonicalHash;
+  let version = canonicalVersion;
+  let prefix = `blog-narration/${version}`;
+  let previous = await options.store.get(`${prefix}/manifest.json`);
+  if (selected !== undefined) {
+    if (
+      typeof selection?.text !== 'string' ||
+      (selection.text !== text && selection.text.replace(/\s+/gu, ' ') !== text)
+    )
+      throw new Error('Invalid narration version selection');
+    recordingText = selection.text;
+    textHash = await narrationDigest(recordingText);
+    version = await recordingVersion(textHash, options);
+    if (selection.version !== version)
+      throw new Error('Invalid narration version selection');
+    if (version !== canonicalVersion) {
+      prefix = `blog-narration/${version}`;
+      previous = await options.store.get(`${prefix}/manifest.json`);
+    }
+  } else {
+    const legacy = options.legacyText;
+    if (
+      previous === undefined &&
+      legacy &&
+      legacy !== text &&
+      legacy.replace(/\s+/gu, ' ') === text &&
+      (await options.store.get(`${prefix}/0.json`)) === undefined &&
+      (await options.store.readVersioned(
+        `blog-narration-attempts/${version}/0.json`,
+      )) === undefined
+    ) {
+      const legacyHash = await narrationDigest(legacy);
+      const legacyVersion = await recordingVersion(legacyHash, options);
+      const legacyPrefix = `blog-narration/${legacyVersion}`;
+      const legacyManifest = await options.store.get(
+        `${legacyPrefix}/manifest.json`,
+      );
+      if (
+        legacyManifest !== undefined ||
+        (await options.store.get(`${legacyPrefix}/0.json`)) !== undefined
+      ) {
+        recordingText = legacy;
+        textHash = legacyHash;
+        version = legacyVersion;
+        prefix = legacyPrefix;
+        previous = legacyManifest;
+      }
+    }
+  }
+
+  let pinned = selected !== undefined;
+  const pinRecording = async () => {
+    if (pinned) return;
+    if (
+      !(await options.store.compareAndSet(
+        selectionKey,
+        JSON.stringify({ text: recordingText, version }),
+        undefined,
+      ))
+    )
+      throw new NarrationAttemptUnavailable(
+        'Narration recording selection already changed',
+      );
+    pinned = true;
+  };
+  const candidate = {
+    ...options,
+    async beforeSynthesis(characters: number) {
+      await options.beforeSynthesis?.(characters);
+      await pinRecording();
+    },
+  };
   const manifestKey = `${prefix}/manifest.json`;
-  const previous = await options.store.get(manifestKey);
-  const sources = splitNarration(text, limit);
+  const sources = splitNarration(recordingText, options.limit ?? chunkLimit);
+  checkManifestCapacity(sources);
   const manifest: NarrationManifest = { version, textHash, chunks: [] };
   for (const [index, source] of sources.entries()) {
     const { timing, media } = await cachedChunk(
       source,
-      text,
-      `${prefix}/${index}.json`,
+      recordingText,
+      version,
+      index,
       previous === undefined,
-      options,
+      candidate,
     );
     manifest.chunks.push(timing);
     await destination.writeAudio(narrationMediaPath(version, index), media);
   }
   const manifestJson = JSON.stringify(manifest);
   if (
-    !validateManifest(manifest, text) ||
+    !validateManifest(manifest, recordingText) ||
     Buffer.byteLength(manifestJson) > maxAssetBytes
   ) {
     throw new Error('Invalid narration manifest');
@@ -358,7 +525,28 @@ export async function publishNarrationArticle(
   }
   if (previous === undefined)
     await options.store.put(manifestKey, manifestJson);
-  await destination.writeManifest(manifestJson);
+  await pinRecording();
+  if (recordingText === text) {
+    await destination.writeManifest(manifestJson);
+    return;
+  }
+  const positions = canonicalOffsets(recordingText);
+  const publicManifest = {
+    ...manifest,
+    textHash: canonicalHash,
+    chunks: manifest.chunks.map((chunk) => ({
+      ...chunk,
+      words: chunk.words.map((word) => ({
+        ...word,
+        from: positions[word.from],
+        to: positions[word.to - 1] + 1,
+      })),
+    })),
+  };
+  if (!validateManifest(publicManifest, text)) {
+    throw new Error('Legacy narration offsets do not match canonical text');
+  }
+  await destination.writeManifest(JSON.stringify(publicManifest));
 }
 
 export async function publishNarration(
@@ -374,11 +562,18 @@ export async function publishNarration(
       const document = parseNarrationHtml(await readFile(page, 'utf8'));
       const { text } = extractNarration(document);
       if (!text) throw new Error('Missing narration text');
-      await publishNarrationArticle(text, options, {
-        writeAudio: (path, media) => writeAsset(join(output, path), media),
-        writeManifest: (manifest) =>
-          writeAsset(join(dirname(page), 'narration.json'), manifest),
-      });
+      await publishNarrationArticle(
+        text,
+        {
+          ...options,
+          legacyText: extractNarration(document, undefined, true).text,
+        },
+        {
+          writeAudio: (path, media) => writeAsset(join(output, path), media),
+          writeManifest: (manifest) =>
+            writeAsset(join(dirname(page), 'narration.json'), manifest),
+        },
+      );
     } catch (error) {
       failures.push(
         `${dirname(article)}: ${error instanceof Error ? error.message : 'Narration failed'}`,

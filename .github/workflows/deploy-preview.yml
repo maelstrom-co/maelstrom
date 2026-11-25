@@ -160,6 +160,7 @@ jobs:
       cache-bucket: ${{ steps.storage.outputs.cache-bucket }}
       delivery-bucket: ${{ steps.storage.outputs.delivery-bucket }}
       origin: ${{ steps.storage.outputs.origin }}
+      workers-dev-suffix: ${{ steps.preview-suffix.outputs.suffix }}
     steps:
       - name: Checkout trusted narration infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,6 +177,19 @@ jobs:
         run: bun --no-env-file scripts/alchemy-version.ts
         env:
           ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+      - name: Validate the public preview Worker suffix
+        id: preview-suffix
+        env:
+          PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+        run: |
+          bun --no-env-file --no-install -e '
+            import { appendFileSync } from "node:fs";
+            import { isWorkersDevSuffix } from "./scripts/preview-worker-url.ts";
+            const suffix = process.env.PREVIEW_WORKERS_DEV_SUFFIX ?? "";
+            if (isWorkersDevSuffix(suffix)) {
+              appendFileSync(process.env.GITHUB_OUTPUT, `suffix=${suffix}\n`);
+            }
+          '
       - name: Inspect trusted preview narration storage
         id: storage
         run: bun --no-env-file --no-install infra/platform/narration-storage.ts discover all
@@ -358,11 +372,83 @@ jobs:
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts finish-deployment
 
+  render-blog-narration-baseline:
+    name: Render exact PR blog baseline
+    needs: [approve, narration-storage]
+    if: >-
+      needs.approve.result == 'success'
+      && needs.approve.outputs.pr-number != ''
+      && needs.narration-storage.result == 'success'
+      && needs.narration-storage.outputs.origin != ''
+      && needs.narration-storage.outputs.workers-dev-suffix != ''
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      inventory: ${{ steps.baseline.outputs.inventory }}
+    env:
+      PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
+      APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
+    steps:
+      - name: Checkout trusted baseline tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install trusted baseline tool dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Resolve the immutable upstream merge base
+        id: comparison
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bun --no-env-file --no-install apps/www/tools/render-preview-narration-baseline.ts resolve
+      - name: Checkout the exact upstream base
+        if: steps.comparison.outputs.merge-base != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ steps.comparison.outputs.merge-base }}
+          path: baseline-source
+      - name: Build upstream website with its own templates
+        if: steps.comparison.outputs.merge-base != ''
+        working-directory: baseline-source
+        env:
+          MERGE_BASE: ${{ steps.comparison.outputs.merge-base }}
+          CLOUDFLARE_ENV: preview
+          PUBLIC_PLAYGROUND_URL: https://maelstrom-playground-alchemy-pr-${{ needs.approve.outputs.pr-number }}.${{ needs.narration-storage.outputs.workers-dev-suffix }}/
+          PUBLIC_TURNSTILE_ENVIRONMENT: preview
+          PUBLIC_BLOG_NARRATION_PREVIEW_BASE: ${{ format('{0}/pr-{1}/{2}/', needs.narration-storage.outputs.origin, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha) }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MERGE_BASE"
+          bun install --frozen-lockfile
+          bunx nx run @maelstrom-co/www:build --skip-nx-cache
+      - name: Hash the complete upstream route inventory
+        id: baseline
+        if: steps.comparison.outputs.merge-base != ''
+        env:
+          MERGE_BASE: ${{ steps.comparison.outputs.merge-base }}
+          BLOG_NARRATION_BASELINE_PATHS: ${{ steps.comparison.outputs.hash-paths }}
+        run: bun --no-env-file --no-install apps/www/tools/render-preview-narration-baseline.ts inventory baseline-source/apps/www/dist/client "$MERGE_BASE"
+
   publish-blog-narration:
     name: Publish Preview Blog Narration
-    needs: [approve, deploy, narration-storage]
+    needs: [approve, deploy, narration-storage, render-blog-narration-baseline]
     if: >-
-      needs.deploy.result == 'success'
+      always() && !cancelled()
+      && needs.deploy.result == 'success'
       && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
       && needs.narration-storage.result == 'success'
       && needs.narration-storage.outputs.cache-bucket != ''
@@ -378,7 +464,7 @@ jobs:
       name: production
       deployment: false
     concurrency:
-      group: production-www
+      group: blog-narration-writers
       cancel-in-progress: false
       queue: max
     steps:
@@ -402,6 +488,8 @@ jobs:
           bun --no-env-file --no-install apps/www/tools/publish-preview-blog-narration.ts
         env:
           GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BLOG_NARRATION_BASELINE: ${{ needs.render-blog-narration-baseline.result == 'success' && needs.render-blog-narration-baseline.outputs.inventory || '' }}
           PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}

@@ -1,21 +1,27 @@
-import { extractNarration } from '../src/lib/blog-narration';
 import {
+  NarrationAttemptUnavailable,
   parseNarrationHtml,
   publishNarrationArticle,
   type NarrationPublication,
 } from './blog-narration-publication';
+import {
+  articlePath,
+  maxArticleCharacters,
+  maxResponseBytes,
+  maxTotalBytes,
+  maxTotalCharacters,
+  readNarrationText,
+} from './preview-narration-baseline';
 
-const articlePath = /^\/blog\/(?!index\/|pages\/)[a-z0-9]+(?:-[a-z0-9]+)*\/$/u;
 const maxArticles = 40;
-const maxResponseBytes = 2 * 1024 * 1024;
-const maxTotalBytes = 10 * 1024 * 1024;
-const maxArticleCharacters = 20_000;
-const maxTotalCharacters = 100_000;
 const maxSynthesisCharacters = 20_000;
 
 interface PreviewPublication {
   readTarget: () => Promise<string | undefined>;
+  report?: (message: string) => void;
   readPriorityPaths?: () => Promise<readonly string[]>;
+  maySynthesize?: (path: string, text: string) => boolean;
+  requireSynthesisCurrent?: () => Promise<void>;
   deliveryBase: URL;
   deliver: (
     key: string,
@@ -127,9 +133,11 @@ export async function publishPreviewNarration(options: PreviewPublication) {
     download: 0,
     transcript: 0,
     budget: 0,
+    held: 0,
+    cacheOnly: 0,
   };
   let characters = 0;
-  const articles: { path: string; text: string }[] = [];
+  const articles: { path: string; text: string; legacyText?: string }[] = [];
   for (const [index, path] of selected.entries()) {
     let document: Document;
     try {
@@ -159,26 +167,8 @@ export async function publishPreviewNarration(options: PreviewPublication) {
         `Deployed preview narration locator does not match ${path}`,
       );
     }
-    const sections = [
-      ...document.querySelectorAll(
-        'main.blog-page > article > header > h1[data-narration-text]',
-      ),
-      ...document.querySelectorAll(
-        'main.blog-page > article > header > p[data-narration-text]',
-      ),
-      ...document.querySelectorAll(
-        'main.blog-page > article > div.blog-prose[data-narration-text]',
-      ),
-    ];
-    const marked = [...document.querySelectorAll('[data-narration-text]')];
-    const { text } = extractNarration(document, sections);
-    if (
-      sections.length !== 3 ||
-      sections.map((section) => section.tagName).join(' ') !== 'H1 P DIV' ||
-      marked.length !== 3 ||
-      sections.some((section, index) => section !== marked[index]) ||
-      !text
-    )
+    const text = readNarrationText(document, false);
+    if (!text)
       throw new Error(`Missing eligible preview narration text in ${path}`);
     if (
       text.length > maxArticleCharacters ||
@@ -188,7 +178,11 @@ export async function publishPreviewNarration(options: PreviewPublication) {
       continue;
     }
     characters += text.length;
-    articles.push({ path, text });
+    articles.push({
+      path,
+      text,
+      legacyText: readNarrationText(document, false, true),
+    });
   }
 
   const prefix = options.deliveryBase.pathname.slice(1, -1);
@@ -196,18 +190,31 @@ export async function publishPreviewNarration(options: PreviewPublication) {
   const exhaustedBudget = new Error(
     'Preview narration synthesis budget exhausted',
   );
+  const cacheOnly = new Error(
+    'Preview narration has no verified spoken-text change',
+  );
   let published = 0;
-  for (const { path, text } of articles) {
+  for (const { path, text, legacyText } of articles) {
     try {
       await publishNarrationArticle(
         text,
         {
           ...options.publication,
+          legacyText,
+          async beforeSend() {
+            await requireCurrent();
+            await options.requireSynthesisCurrent?.();
+          },
           async beforeSynthesis(length) {
+            if (options.maySynthesize?.(path, text) !== true) {
+              throw cacheOnly;
+            }
             if (length > remainingSynthesis) {
               throw exhaustedBudget;
             }
+            await options.publication.beforeSynthesis?.(length);
             await requireCurrent();
+            await options.requireSynthesisCurrent?.();
             remainingSynthesis -= length;
           },
         },
@@ -226,8 +233,12 @@ export async function publishPreviewNarration(options: PreviewPublication) {
       );
       published++;
     } catch (error) {
-      if (error !== exhaustedBudget) throw error;
-      skipped.budget++;
+      if (error === cacheOnly) skipped.cacheOnly++;
+      else if (error === exhaustedBudget) skipped.budget++;
+      else if (error instanceof NarrationAttemptUnavailable) {
+        skipped.held++;
+        options.report?.(error.message);
+      } else throw error;
     }
   }
   return { status: 'published', published, skipped } as const;

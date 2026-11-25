@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { isPreviewComparisonCurrent } from '../../../scripts/preview-lifecycle';
 import {
   fixtureSpeech,
   memoryStore,
@@ -12,6 +13,7 @@ import { previewNarrationBase } from '../src/lib/blog-narration-preview';
 import { publishPreviewNarration } from './blog-narration-preview-publication';
 import {
   publishNarration,
+  publishNarrationArticle,
   type NarrationPublication,
 } from './blog-narration-publication';
 
@@ -63,6 +65,12 @@ function html(content: string) {
   });
 }
 
+import {
+  baselineCandidatePaths,
+  buildNarrationBaseline,
+  compareNarrationBaseline,
+} from './preview-narration-baseline';
+
 const settings = { apiKey: mockSecret, voiceId: 'myvoice', voiceRevision: '1' };
 
 test('trusted preview fetches served HTML, stages speech before its manifest, and production reuses identical bytes', async () => {
@@ -101,6 +109,7 @@ test('trusted preview fetches served HTML, stages speech before its manifest, an
     },
   };
   const options = {
+    maySynthesize: () => true,
     readTarget: async () => server.url.href,
     deliveryBase: base,
     publication,
@@ -117,7 +126,7 @@ test('trusted preview fetches served HTML, stages speech before its manifest, an
     );
     const earlier = spoken.join('');
     expect(earlier).toBe(
-      'Story title\n\nShort description.\n\nA spoken label repeats repeats.',
+      'Story title Short description. A spoken label repeats repeats.',
     );
     expect(requested).toEqual(['/blog/', path]);
     expect(delivered.size).toBeGreaterThan(1);
@@ -186,6 +195,7 @@ test('archive redirects, unsafe links and oversized public responses authorize n
     },
   });
   const options = {
+    maySynthesize: () => true,
     readTarget: async () => server.url.href,
     deliveryBase: base,
     async deliver() {
@@ -244,6 +254,7 @@ test('queued or replaced preview heads cannot spend or publish a reader manifest
     },
   };
   const options = {
+    maySynthesize: () => true,
     deliveryBase: base,
     publication,
     async requestPage(url: URL) {
@@ -268,6 +279,7 @@ test('queued or replaced preview heads cannot spend or publish a reader manifest
   const run = (maximumChecks: number) =>
     publishPreviewNarration({
       ...options,
+      publication: { ...publication, store: memoryStore() },
       readTarget: async () => (++checks <= maximumChecks ? target : undefined),
     });
   await expect(run(1)).rejects.toThrow('no longer current');
@@ -276,6 +288,11 @@ test('queued or replaced preview heads cannot spend or publish a reader manifest
 
   checks = 0;
   await expect(run(2)).rejects.toThrow('no longer current');
+  expect(providerCalls).toBe(0);
+  expect(delivered).toEqual([]);
+
+  checks = 0;
+  await expect(run(3)).rejects.toThrow('no longer current');
   expect(providerCalls).toBe(1);
   expect(delivered).toHaveLength(1);
   expect(delivered[0]).toEndWith('.wav');
@@ -292,6 +309,7 @@ test('preview rejects extra narration marks and bounds text and total paid chara
   const manifests: string[] = [];
   let paths = [path];
   const options = {
+    maySynthesize: () => true,
     deliveryBase: base,
     readTarget: async () => 'https://preview.example/',
     async requestPage(url: URL) {
@@ -350,9 +368,7 @@ test('preview rejects extra narration marks and bounds text and total paid chara
     published: 2,
     skipped: { budget: 1 },
   });
-  expect(paid).toBe(
-    'Story title\n\nShort description.\n\n'.length + 18_000 - 1,
-  );
+  expect(paid).toBe('Story title Short description. '.length + 18_000 - 1);
   expect(manifests).toEqual([
     prefix + manifestPath,
     `${prefix}${cached.slice(1)}narration.json`,
@@ -370,6 +386,7 @@ test('a new post is narrated even when older posts fill the archive and transcri
   const result = await publishPreviewNarration({
     deliveryBase: base,
     readTarget: async () => 'https://preview.example/',
+    maySynthesize: () => true,
     readPriorityPaths: async () => [
       edited,
       'https://external.example/blog/other/',
@@ -415,6 +432,7 @@ test('older responses cannot discard a priority article when downloads hit their
     publishPreviewNarration({
       deliveryBase: base,
       readTarget: async () => 'https://preview.example/',
+      maySynthesize: () => true,
       readPriorityPaths: async () => [path],
       async requestPage(url) {
         visited.push(url.pathname);
@@ -465,3 +483,328 @@ test('older responses cannot discard a priority article when downloads hit their
       .map((route) => `${prefix}${route.slice(1)}narration.json`),
   ]);
 });
+
+test('only added or changed speech from a complete legacy baseline consumes the cold-cache budget', async () => {
+  const output = await mkdtemp(join(tmpdir(), 'narration-baseline-'));
+  const alpha = '/blog/modified/';
+  const old = '/blog/old-name/';
+  const renamed = '/blog/new-name/';
+  const deleted = '/blog/deleted/';
+  const fresh = '/blog/added/';
+  const relocated = '/blog/relocated/';
+  const oversized = '/blog/unrelated-long/';
+  const missingUnrelated = '/blog/missing-unrelated/';
+  const missing = '/blog/missing/';
+  const untouched = '/blog/untouched/';
+  const changed = '/blog/changed/';
+  const identity = {
+    run: '100',
+    attempt: '1',
+    job: 'render-blog-narration-baseline',
+    repository: 'example/project',
+    pull: '42',
+    head: 'a'.repeat(40),
+    mergeBase: 'b'.repeat(40),
+  };
+  const changes = [
+    { path: alpha, previousPath: alpha },
+    { path: changed, previousPath: changed },
+    { path: renamed, previousPath: old },
+    { path: fresh, previousPath: null },
+    { path: relocated, previousPath: null },
+    { path: missing, previousPath: missing },
+  ];
+  const write = async (path: string, markup: string) => {
+    const slug = join(output, path);
+    await mkdir(slug, { recursive: true });
+    await writeFile(join(slug, 'index.html'), markup);
+  };
+  const removedPaths = [deleted];
+  const candidates = baselineCandidatePaths({ posts: changes, removedPaths });
+  expect(candidates).toEqual([alpha, changed, old, missing, deleted]);
+  const comparePaths = [
+    alpha,
+    changed,
+    old,
+    deleted,
+    untouched,
+    oversized,
+    missingUnrelated,
+  ];
+  const legacy = (body: string) =>
+    article(body)
+      .replaceAll(' data-narration-text', '')
+      .replace(
+        '<section data-narration-assets',
+        '<section hidden data-narration-assets',
+      )
+      .replace(
+        '</header>',
+        '<p><time>2000-01-01</time> By Owner</p><ul class="blog-labels"><li>Old label</li></ul></header>',
+      );
+  const headPaths = [
+    alpha,
+    changed,
+    renamed,
+    fresh,
+    relocated,
+    missing,
+    untouched,
+  ];
+  const served = new Map([
+    [
+      alpha,
+      'Same visible <strong>words</strong></p><p>inside a <a href="/new-link">link</a>.',
+    ],
+    [changed, 'New words for edited article.'],
+    [renamed, 'Same spoken words for renamed article.'],
+    [fresh, 'Newly added article.'],
+    [relocated, 'Deleted <strong>article</strong>.'],
+    [missing, 'No known base article.'],
+    [untouched, 'Existing archive article.'],
+  ]);
+  const spoken: string[] = [];
+  const publication: NarrationPublication = {
+    ...settings,
+    store: memoryStore(),
+    async request(url, init) {
+      spoken.push(JSON.parse(String(init.body)).text);
+      return fixtureSpeech(url, init);
+    },
+  };
+  const options = {
+    deliveryBase: base,
+    readTarget: async () => 'https://preview.example/',
+    requestPage: async (url: URL) =>
+      url.pathname === '/blog/'
+        ? html(archive(headPaths))
+        : html(
+            article(served.get(url.pathname) ?? '', undefined, url.pathname),
+          ),
+    deliver: async () => {},
+    publication,
+  };
+  try {
+    await write('/blog/', archive(comparePaths));
+    await write(
+      alpha,
+      legacy(
+        'Same visible <em>words</em> inside a <a href="/old-link">link</a>.',
+      ),
+    );
+    await write(changed, legacy('Previous words for edited article.'));
+    await write(old, legacy('Same spoken words for renamed article.'));
+    await write(deleted, legacy('Deleted article.'));
+    await write(untouched, legacy('Existing archive article.'));
+    await write(
+      oversized,
+      legacy('An oversized unrelated article. '.repeat(2_000)),
+    );
+    const inventory = await buildNarrationBaseline(
+      output,
+      identity,
+      candidates,
+    );
+    const eligibleOnPublisherRetry = compareNarrationBaseline(
+      inventory,
+      { ...identity, attempt: '2' },
+      changes,
+      removedPaths,
+    );
+    const stale = compareNarrationBaseline(
+      inventory,
+      { ...identity, run: '999', attempt: '2' },
+      changes,
+      removedPaths,
+    );
+    expect(
+      await publishPreviewNarration({ ...options, maySynthesize: stale }),
+    ).toMatchObject({
+      published: 0,
+      skipped: { cacheOnly: 7 },
+    });
+    expect(spoken).toHaveLength(0);
+    expect(
+      await publishPreviewNarration({
+        ...options,
+        maySynthesize: eligibleOnPublisherRetry,
+      }),
+    ).toMatchObject({
+      published: 2,
+      skipped: { cacheOnly: 5 },
+    });
+    expect(spoken).toEqual([
+      'Story title Short description. New words for edited article.',
+      'Story title Short description. Newly added article.',
+    ]);
+    expect(await publishPreviewNarration(options)).toMatchObject({
+      published: 2,
+      skipped: { cacheOnly: 5 },
+    });
+    expect(spoken).toHaveLength(2);
+
+    const warmStore = memoryStore();
+    const warmPublication = { ...publication, store: warmStore };
+    await publishNarrationArticle(
+      'Story title Short description. Same visible words inside a link.',
+      warmPublication,
+      { async writeAudio() {}, async writeManifest() {} },
+    );
+    const afterWarmSeed = spoken.length;
+    expect(
+      await publishPreviewNarration({
+        ...options,
+        publication: warmPublication,
+        maySynthesize: eligibleOnPublisherRetry,
+        // Permit only the already-generated formatting case in this warm-cache read.
+        readPriorityPaths: async () => [alpha],
+        requestPage: async (url: URL) =>
+          url.pathname === '/blog/'
+            ? html(archive([alpha]))
+            : html(article(served.get(alpha) ?? '', undefined, alpha)),
+      }),
+    ).toMatchObject({ published: 1 });
+    expect(spoken).toHaveLength(afterWarmSeed);
+    spoken.pop();
+
+    await write(old, legacy('Previous spoken words for renamed article.'));
+    const editedRename = compareNarrationBaseline(
+      await buildNarrationBaseline(output, identity, candidates),
+      identity,
+      changes,
+      removedPaths,
+    );
+    expect(
+      await publishPreviewNarration({
+        ...options,
+        maySynthesize: editedRename,
+      }),
+    ).toMatchObject({
+      published: 3,
+      skipped: { cacheOnly: 4 },
+    });
+    expect(spoken).toHaveLength(3);
+    expect(spoken[2]).toEndWith('Same spoken words for renamed article.');
+
+    await write(
+      '/blog/',
+      archive(comparePaths.filter((path) => path !== deleted)),
+    );
+    await expect(
+      buildNarrationBaseline(output, identity, candidates),
+    ).rejects.toThrow('Incomplete baseline archive');
+    await write('/blog/', archive(comparePaths));
+    await write(old, '<main>Unknown template</main>');
+    await write(deleted, '<main>Unknown template</main>');
+    const unknown = compareNarrationBaseline(
+      await buildNarrationBaseline(output, identity, candidates),
+      identity,
+      changes,
+      removedPaths,
+    );
+    expect(
+      await publishPreviewNarration({
+        ...options,
+        publication: { ...publication, store: memoryStore() },
+        maySynthesize: unknown,
+      }),
+    ).toMatchObject({ published: 1, skipped: { cacheOnly: 6 } });
+    expect(spoken).toHaveLength(4);
+    expect(spoken[3]).toEndWith('New words for edited article.');
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+for (const afterClaim of [false, true]) {
+  test(
+    afterClaim
+      ? 'a PR retargeted during claim persistence makes no paid request'
+      : 'retargeting an otherwise approved PR between chunks stops further paid requests',
+    async () => {
+      const context = {
+        repository: 'example/project',
+        prNumber: '42',
+        approvedSha: 'a'.repeat(40),
+      };
+      const baseTip = {
+        repository: context.repository,
+        ref: 'main',
+        sha: 'b'.repeat(40),
+      };
+      let baseRef = baseTip.ref;
+      let providerCalls = 0;
+      let manifests = 0;
+      const store = memoryStore();
+      const github = {
+        githubToken: 'mock',
+        fetch: (async () =>
+          Response.json({
+            state: 'open',
+            head: {
+              sha: context.approvedSha,
+              ref: 'topic',
+              repo: { full_name: context.repository },
+            },
+            base: {
+              sha: baseTip.sha,
+              ref: baseRef,
+              repo: { full_name: context.repository },
+            },
+            labels: [{ name: 'deploy-preview' }],
+          })) as typeof fetch,
+      };
+      await expect(
+        publishPreviewNarration({
+          deliveryBase: base,
+          readTarget: async () => 'https://preview.example/',
+          maySynthesize: () => true,
+          async requireSynthesisCurrent() {
+            if (!(await isPreviewComparisonCurrent(context, baseTip, github))) {
+              throw new Error(
+                'Preview narration comparison is no longer current',
+              );
+            }
+          },
+          requestPage: async (url) =>
+            url.pathname === '/blog/'
+              ? html(archive())
+              : html(
+                  article(
+                    'Multiple chunks to cover a retarget between requests. '.repeat(
+                      5,
+                    ),
+                  ),
+                ),
+          async deliver(key) {
+            if (key.endsWith('narration.json')) manifests++;
+          },
+          publication: {
+            ...settings,
+            limit: 60,
+            store: {
+              ...store,
+              async compareAndSet(key, value, etag) {
+                const persisted = await store.compareAndSet(key, value, etag);
+                if (
+                  persisted &&
+                  afterClaim &&
+                  key.startsWith('blog-narration-attempts/')
+                )
+                  baseRef = 'release';
+                return persisted;
+              },
+            },
+            async request(url, init) {
+              providerCalls++;
+              baseRef = 'release';
+              return fixtureSpeech(url, init);
+            },
+          },
+        }),
+      ).rejects.toThrow('comparison is no longer current');
+      expect(providerCalls).toBe(afterClaim ? 0 : 1);
+      expect(manifests).toBe(0);
+    },
+  );
+}

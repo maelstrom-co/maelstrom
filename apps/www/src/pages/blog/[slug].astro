@@ -34,7 +34,11 @@ const previewNarration = parsePreviewNarrationBase(
   keywords={keywords}
   article={{ date, author, authorUrl, labels }}
 >
-  <main class="container blog-page">
+  <main
+    class="container blog-page"
+    data-narration-release={import.meta.env.PUBLIC_BLOG_NARRATION_RELEASE}
+    data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
+  >
     <a href={blogPath()}>← All posts</a>
     <article>
       <header>
@@ -64,6 +68,7 @@ const previewNarration = parsePreviewNarrationBase(
             : `${blogPath(post.id)}narration.json`
         }
         data-narration-assets={previewNarration?.href}
+        data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
         hidden
       >
         <button type="button">Play narration</button>

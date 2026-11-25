@@ -2621,38 +2621,81 @@ test('narration trusts only completed www state for the current open and labeled
   expect(await read()).toBeUndefined();
 });
 
-test('preview article priority includes only deployed candidates from changed MDX paths', async () => {
-  const deps = dependencies(
-    githubFetch(
-      baseState({
-        files: [
-          {
-            status: 'modified',
-            filename: 'apps/www/src/content/blog/edited-old-post.mdx',
-          },
-          {
-            status: 'added',
-            filename: 'apps/www/src/content/blog/new-post.mdx',
-          },
-          {
-            status: 'removed',
-            filename: 'apps/www/src/content/blog/deleted-post.mdx',
-          },
-          {
-            status: 'modified',
-            filename: 'apps/www/src/content/blog/subdir/nested-post.mdx',
-          },
-          {
-            status: 'modified',
-            filename: 'apps/docs/src/content/blog/unrelated.mdx',
-          },
-        ],
-      }),
-      [],
-    ),
-  );
-  expect(await readPreviewBlogChanges(REPOSITORY, '42', deps)).toEqual([
-    '/blog/edited-old-post/',
-    '/blog/new-post/',
-  ]);
+test('preview comparison pins the live upstream tip and keeps rename provenance for the merge base', async () => {
+  const tip = 'd'.repeat(40);
+  const head = 'e'.repeat(40);
+  const mergeBase = 'f'.repeat(40);
+  const endpoint = `/repos/${REPOSITORY}/compare/${tip}...${head}?per_page=1&page=1`;
+  const prefix = 'apps/www/src/content/blog/';
+  const files = [
+    { status: 'modified', filename: `${prefix}edited.mdx` },
+    { status: 'added', filename: `${prefix}new.mdx` },
+    { status: 'removed', filename: `${prefix}deleted.mdx` },
+    {
+      status: 'renamed',
+      filename: `${prefix}renamed.mdx`,
+      previous_filename: `${prefix}old.mdx`,
+    },
+    { status: 'modified', filename: 'unrelated.css' },
+  ];
+  const pull = () => ({
+    state: 'open',
+    head: { sha: head, ref: 'topic', repo: { full_name: REPOSITORY } },
+    base: { sha: tip, ref: 'main', repo: { full_name: REPOSITORY } },
+    labels: [{ name: 'deploy-preview' }],
+    changed_files: files.length,
+  });
+  const compare = (overrides?: {
+    files?: unknown[];
+    liveTip?: string;
+    stale?: boolean;
+  }) => {
+    let reads = 0;
+    return readPreviewBlogChanges(
+      {
+        repository: REPOSITORY,
+        prNumber: '42',
+        approvedSha: head,
+        defaultBranch: 'main',
+      },
+      {
+        githubToken: 'mock',
+        fetch: (async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith('/pulls/42')) {
+            const value = pull();
+            if (++reads === 2) {
+              if (overrides?.liveTip) value.base.sha = overrides.liveTip;
+              if (overrides?.stale) value.labels = [];
+            }
+            return Response.json(value);
+          }
+          expect(url.pathname + url.search).toBe(endpoint);
+          return Response.json({
+            base_commit: { sha: tip },
+            merge_base_commit: { sha: mergeBase },
+            files: overrides?.files ?? files,
+          });
+        }) as typeof fetch,
+      },
+    );
+  };
+  expect(await compare()).toEqual({
+    base: { sha: tip, ref: 'main', repository: REPOSITORY },
+    mergeBase,
+    removedPaths: ['/blog/deleted/'],
+    posts: [
+      { path: '/blog/edited/', previousPath: '/blog/edited/' },
+      { path: '/blog/new/', previousPath: null },
+      { path: '/blog/renamed/', previousPath: '/blog/old/' },
+    ],
+  });
+  expect(await compare({ files: files.slice(1) })).toBeUndefined();
+  expect(
+    await compare({
+      files: [{ ...files[0], status: 'unknown' }, ...files.slice(1)],
+    }),
+  ).toBeUndefined();
+  expect(await compare({ liveTip: 'a'.repeat(40) })).toBeUndefined();
+  expect(await compare({ stale: true })).toBeUndefined();
 });

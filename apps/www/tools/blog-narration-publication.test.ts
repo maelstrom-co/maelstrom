@@ -76,7 +76,7 @@ test('publication restores immutable media on a fresh runner and versions spoken
   const initial = await manifest(first);
   const transcript = spoken.join('');
   expect(transcript).toBe(
-    'Visible title\n\nFirst description.\n\nText & café again. again in print.\n\nLast heading 🐚. 2026.',
+    'Visible title First description. Text & café again. again in print. Last heading 🐚. 2026.',
   );
   expect(initial.chunks.length).toBeGreaterThan(1);
   expect(calls).toBe(initial.chunks.length);
@@ -101,6 +101,10 @@ test('publication restores immutable media on a fresh runner and versions spoken
   ]);
   expect(JSON.stringify(initial)).not.toContain(mockSecret);
 
+  // Older complete cache entries have no per-chunk attempt records.
+  for (const key of objects.keys()) {
+    if (key.startsWith('blog-narration-attempts/')) objects.delete(key);
+  }
   const fresh = await build();
   await publishNarration(fresh, { ...input, store: memoryStore(objects) });
   expect(await manifest(fresh)).toEqual(initial);
@@ -151,13 +155,15 @@ test('a failed chunk write leaves no manifest and a retry reuses independently c
       },
     }),
   ).rejects.toThrow('transient write');
-  expect(objects.size).toBe(1);
+  expect(
+    [...objects.keys()].filter((key) => key.startsWith('blog-narration/')),
+  ).toHaveLength(1);
   expect(calls).toBe(2);
   await expect(manifest(root)).rejects.toThrow();
 
   const retry = await build();
   await publishNarration(retry, { ...input, store });
-  expect(calls).toBe((await manifest(retry)).chunks.length + 1);
+  expect(calls).toBe((await manifest(retry)).chunks.length);
 });
 
 test('authorization and committed-media read failures cannot cause another paid request', async () => {
@@ -219,7 +225,9 @@ test('invalid provider data cannot create a durable audio chunk or a playable ar
         },
       }),
     ).rejects.toThrow();
-    expect(objects.size).toBe(0);
+    expect(
+      [...objects.keys()].some((key) => key.startsWith('blog-narration/')),
+    ).toBe(false);
     await expect(manifest(root)).rejects.toThrow();
   }
 });
@@ -255,13 +263,15 @@ test('a source word with no usable timing cannot poison the durable cache', asyn
           return Response.json(data);
         },
       }),
-    ).rejects.toThrow('Invalid cached narration chunk');
-    expect(objects.size).toBe(0);
+    ).rejects.toThrow('Held narration');
+    expect(
+      [...objects.keys()].some((key) => key.startsWith('blog-narration/')),
+    ).toBe(false);
     await expect(manifest(root)).rejects.toThrow();
-    await publishNarration(root, { ...input, store });
-    const firstWord = (await manifest(root)).chunks[0].words[0];
-    expect(firstWord.from).toBe(0);
-    expect(firstWord.to).toBe(7);
+    await expect(publishNarration(root, { ...input, store })).rejects.toThrow(
+      'Held narration',
+    );
+    expect(calls).toBe(0);
   }
 });
 

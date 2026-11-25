@@ -153,7 +153,12 @@ jobs:
         env:
           ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
       - name: Verify and reconcile retained narration storage
-        run: bun --no-env-file --no-install infra/platform/narration-storage.ts reconcile "$NARRATION_STORAGE_KIND"
+        run: |
+          set -euo pipefail
+          bun --no-env-file --no-install infra/platform/narration-storage.ts reconcile "$NARRATION_STORAGE_KIND"
+          if [ "$NARRATION_STORAGE_KIND" = cache ]; then
+            bun --no-env-file --no-install infra/platform/narration-storage.ts reconcile production-delivery
+          fi
         env:
           DEPLOY_SHA: ${{ github.workflow_sha }}
           GH_TOKEN: ${{ github.token }}
@@ -174,8 +179,6 @@ jobs:
     concurrency:
       group: production-${{ matrix.app }}
       cancel-in-progress: false
-      # Keep a waiting www deploy when another writer queues for its cache.
-      queue: ${{ matrix.app == 'www' && 'max' || 'single' }}
     strategy:
       fail-fast: false
       matrix:
@@ -251,6 +254,19 @@ jobs:
             echo '::warning::GitHub star metadata unavailable; using the public build fallback.' >&2
           fi
 
+      - name: Set public website narration voice
+        id: narration-voice
+        if: steps.revision.outputs.current == 'true' && matrix.app == 'www'
+        continue-on-error: true
+        run: |
+          voice_hash="$(bun --no-env-file --no-install apps/www/tools/narration-build-voice.ts)"
+          if [[ "$voice_hash" =~ ^[a-f0-9]{64}$ ]]; then
+            printf 'hash=%s\n' "$voice_hash" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
+          ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
+
       # Do not trust remote or local cache entries for production artifacts.
       # Credentials are intentionally absent while application code executes.
       - name: Build production artifact
@@ -261,34 +277,8 @@ jobs:
           PUBLIC_TURNSTILE_ENVIRONMENT: production
           PUBLIC_TURNSTILE_SITE_KEY: ${{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}
           PUBLIC_GITHUB_STAR_COUNT: ${{ steps.github-stars.outputs.count }}
-
-      - name: Inspect trusted production narration cache
-        id: narration-cache
-        if: steps.revision.outputs.current == 'true' && matrix.app == 'www'
-        continue-on-error: true
-        run: bun --no-env-file --no-install infra/platform/narration-storage.ts discover cache
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
-          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
-          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
-
-      - name: Publish blog narration into the production artifact
-        if: steps.revision.outputs.current == 'true' && matrix.app == 'www' && steps.narration-cache.outputs.cache-bucket != ''
-        continue-on-error: true
-        run: |
-          if [ -z "$ELEVENLABS_API_KEY" ] || [ -z "$BLOG_NARRATION_R2_ACCESS_KEY_ID" ] || [ -z "$BLOG_NARRATION_R2_SECRET_ACCESS_KEY" ]; then
-            echo "Skipping narration until publication credentials are configured."
-            exit 0
-          fi
-          bun --no-env-file apps/www/tools/publish-blog-narration.ts
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
-          ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
-          BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
-          BLOG_NARRATION_R2_BUCKET: ${{ steps.narration-cache.outputs.cache-bucket }}
-          BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
-          BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
+          PUBLIC_BLOG_NARRATION_RELEASE: ${{ matrix.app == 'www' && env.DEPLOY_SHA || '' }}
+          PUBLIC_BLOG_NARRATION_VOICE_HASH: ${{ steps.narration-voice.outputs.hash }}
 
       # CI can turn green for a newer revision while this artifact builds.
       - name: Recheck deployment revision
