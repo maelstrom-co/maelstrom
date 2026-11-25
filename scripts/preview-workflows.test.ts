@@ -1473,3 +1473,76 @@ test('optional storage failure does not suppress approved preview and production
   expect(production).not.toContain('vars.BLOG_NARRATION_R2_BUCKET');
   expect(preview).not.toContain('vars.BLOG_NARRATION_PREVIEW_ORIGIN');
 });
+
+test('narration storage only reconciles the trusted workflow revision of a same-repository main push', () => {
+  const workflow = Bun.YAML.parse(read('deploy-production.yml')) as {
+    jobs: Record<
+      string,
+      {
+        if: string;
+        steps: {
+          name?: string;
+          uses?: string;
+          with?: Record<string, string>;
+          env?: Record<string, string>;
+        }[];
+      }
+    >;
+  };
+  const job = workflow.jobs['narration-storage'];
+  const repository = 'maelstrom-co/maelstrom';
+  const sha = 'a'.repeat(40);
+  const run = {
+    conclusion: 'success',
+    event: 'push',
+    head_branch: 'main',
+    head_repository: { full_name: repository },
+    head_sha: sha,
+  };
+  const context = {
+    event_name: 'workflow_run',
+    ref: 'refs/heads/main',
+    repository,
+    workflow_sha: sha,
+    event: { workflow_run: run, repository: { private: false } },
+  };
+  const allowed = new Function('github', 'vars', `return ${job.if}`);
+  expect(allowed(context, { PUBLIC_LAUNCH_READY: 'true' })).toBe(true);
+  for (const workflowRun of [
+    { ...run, conclusion: 'failure' },
+    { ...run, event: 'pull_request' },
+    { ...run, head_branch: 'release' },
+    { ...run, head_repository: { full_name: 'fork/maelstrom' } },
+    { ...run, head_sha: 'b'.repeat(40) },
+  ]) {
+    expect(
+      allowed(
+        { ...context, event: { ...context.event, workflow_run: workflowRun } },
+        { PUBLIC_LAUNCH_READY: 'true' },
+      ),
+    ).toBe(false);
+  }
+  expect(
+    allowed(
+      { ...context, ref: 'refs/heads/release' },
+      { PUBLIC_LAUNCH_READY: 'true' },
+    ),
+  ).toBe(false);
+  expect(
+    allowed(
+      { ...context, event_name: 'workflow_dispatch' },
+      { PUBLIC_LAUNCH_READY: 'true' },
+    ),
+  ).toBe(false);
+  expect(allowed(context, { PUBLIC_LAUNCH_READY: 'false' })).toBe(false);
+
+  const checkout = job.steps.filter((entry) =>
+    entry.uses?.startsWith('actions/checkout@'),
+  );
+  expect(checkout).toHaveLength(1);
+  expect(checkout[0]?.with?.ref).toBe(expression('github.workflow_sha'));
+  const reconcile = job.steps.find(
+    (entry) => entry.name === 'Verify and reconcile retained narration storage',
+  );
+  expect(reconcile?.env?.DEPLOY_SHA).toBe(expression('github.workflow_sha'));
+});

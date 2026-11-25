@@ -116,9 +116,13 @@ jobs:
   narration-storage:
     name: Reconcile narration storage (${{ matrix.kind }})
     if: >-
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'workflow_run'
+      && github.ref == 'refs/heads/main'
+      && github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.head_sha == github.workflow_sha
       && github.event.repository.private == false
       && vars.PUBLIC_LAUNCH_READY == 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -137,7 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: ${{ github.workflow_sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
@@ -151,6 +155,7 @@ jobs:
       - name: Verify and reconcile retained narration storage
         run: bun --no-env-file --no-install infra/platform/narration-storage.ts reconcile "$NARRATION_STORAGE_KIND"
         env:
+          DEPLOY_SHA: ${{ github.workflow_sha }}
           GH_TOKEN: ${{ github.token }}
           NARRATION_STORAGE_KIND: ${{ matrix.kind }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
