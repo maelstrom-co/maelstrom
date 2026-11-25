@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { ConnectorEvent } from '@maelstrom-co/client';
+import { DiagnosticChannel, type ConnectorEvent } from '@maelstrom-co/client';
 import {
   ActionName,
   type ChartRequestMessage,
@@ -57,11 +57,23 @@ vi.mock('./live-capture', () => ({
     return {
       start: () =>
         new Promise((resolve) => {
-          liveCapture.ready = () =>
+          options.diagnostics?.captureState('starting');
+          liveCapture.ready = () => {
+            options.diagnostics?.control(true, true);
+            options.diagnostics?.captureState('ready');
             resolve({ inputOnly: true, turnMode: 'server_vad' });
+          };
         }),
-      beginCapture: liveCapture.begin,
-      stopCapture: liveCapture.stop,
+      beginCapture: () => {
+        liveCapture.begin();
+        options.diagnostics?.captureState('capturing');
+        options.diagnostics?.microphone(true);
+      },
+      stopCapture: () => {
+        liveCapture.stop();
+        options.diagnostics?.captureState('stopped');
+        options.diagnostics?.microphone(false);
+      },
       dispose: liveCapture.dispose,
       commitFinalAudio: liveCapture.commit,
     };
@@ -254,6 +266,65 @@ it('shows only the active runtime DevTools through preparation, Start, Reset and
   await act(async () => liveCapture.ready!());
   const oldCapture = liveCapture.callbacks!;
   const oldEngine = engine.connections[1]!;
+  click(live, 'Voice');
+  const evidenceSource = live.querySelector('[aria-label="Evidence source"]')!;
+  fireEvent.change(evidenceSource, { target: { value: 'live' } });
+  await waitFor(() =>
+    expect(live.querySelector('.voice-events')?.textContent).toContain(
+      'listening',
+    ),
+  );
+  expect(
+    live.querySelector('[aria-label="Voice evidence timeline"]'),
+  ).not.toBeNull();
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'Not linked to a turn',
+  );
+  expect(live.querySelector('.voice-requests')).toBeNull();
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'Capture ready',
+  );
+  expect(live.querySelector('.voice-events')?.textContent).toContain('begin');
+  act(() => {
+    oldCapture.diagnostics!.providerEvent(
+      'conversation.item.input_audio_transcription.failed',
+    );
+    oldCapture.onTranscriptionFailed({
+      itemId: 'failed',
+      contentIndex: 0,
+      previousItemId: undefined,
+    });
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  const select = (name: string, text: string) => {
+    const field = live.querySelector(`[aria-label="${name}"]`)!;
+    const option = Array.from(field.querySelectorAll('option')).find((option) =>
+      option.textContent?.includes(text),
+    );
+    expect(option).toBeDefined();
+    fireEvent.change(field, { target: { value: option!.value } });
+  };
+  select('Voice provider lifetime', 'talking-points-live-capture');
+  select('Voice generation', 'Provider generation 1');
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'conversation.item.input_audio_transcription.failed',
+  );
+  const failedRow = [...live.querySelectorAll('.voice-events tr')].find((row) =>
+    row.textContent?.includes(
+      'conversation.item.input_audio_transcription.failed',
+    ),
+  )!;
+  fireEvent.click(failedRow.querySelector('button')!);
+  click(live, 'Raw JSON');
+  expect(live.querySelector('.json-raw')?.textContent).toContain(
+    '"observedFailed": 1',
+  );
+  expect(live.querySelector('.json-raw')?.textContent).toContain(
+    '"providerGeneration": 1',
+  );
+  expect(live.querySelector('.json-raw')?.textContent).not.toMatch(
+    /requestId|responseId|invocationId|runId/,
+  );
   act(() =>
     oldCapture.onDelta({
       itemId: 'private',
@@ -265,6 +336,9 @@ it('shows only the active runtime DevTools through preparation, Start, Reset and
     screen.getByRole('region', { name: 'Live transcript' }).textContent,
   ).toContain('Private live transcription');
   expect(live.textContent).not.toContain('Private live transcription');
+  expect(live.querySelector('.voice-events')?.textContent).not.toMatch(
+    /Tool called|Provider response|Assistant/,
+  );
 
   fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
   await screen.findByRole('status', { name: 'Connection status: connected' });
@@ -312,6 +386,26 @@ it.each([false, true])(
       }),
     );
     const { diagnosticCapture } = await import('../lib/diagnostic-capture');
+    const emissions = vi.spyOn(DiagnosticChannel.prototype, 'emitDiagnostic');
+    const diagnosticsModule = await import('./live-capture-diagnostics');
+    const createDiagnostics = diagnosticsModule.createLiveCaptureDiagnostics;
+    const observers = new Set<object>();
+    const diagnosticFactory = vi
+      .spyOn(diagnosticsModule, 'createLiveCaptureDiagnostics')
+      .mockImplementation((id) => {
+        const source = createDiagnostics(id);
+        const subscribe = source.subscribe;
+        source.subscribe = (listener) => {
+          const token = {};
+          observers.add(token);
+          const release = subscribe(listener);
+          return () => {
+            observers.delete(token);
+            release();
+          };
+        };
+        return source;
+      });
     const subscribe = diagnosticCapture.subscribe;
     const subscribers = new Set<() => void>();
     const subscription = vi
@@ -352,14 +446,88 @@ it.each([false, true])(
     try {
       await screen.findByRole('button', { name: 'Start take' });
       await assertCurrent();
+      expect(observers.size).toBe(0);
+      const lifetimes = new Set<string | number | boolean>();
       for (let cycle = 0; cycle < 3; cycle++) {
         liveCapture.ready = undefined;
         fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
         await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+        await act(async () => liveCapture.ready!());
         await assertCurrent();
+        expect(observers.size).toBe(1);
+        const old = liveCapture.callbacks!;
+        const identity = old.diagnostics!.getSnapshot().providerInstanceId!;
+        expect(lifetimes.has(identity)).toBe(false);
+        lifetimes.add(identity);
+        const canary = 'PRIVATE_RECORDING_TRANSCRIPT_PROVIDER_ERROR_192.0.2.1';
+        act(() => {
+          old.diagnostics!.providerEvent(canary);
+          old.onDelta({ itemId: 'a', contentIndex: 0, delta: canary });
+          old.onCompleted({
+            itemId: 'a',
+            contentIndex: 0,
+            previousItemId: undefined,
+            transcript: canary,
+          });
+        });
+        const exported = JSON.parse(diagnosticCapture.export()) as {
+          events: {
+            kind: string;
+            metadata?: Record<string, unknown>;
+            content?: unknown;
+          }[];
+        };
+        const bridge = exported.events.filter(
+          (event) => event.metadata?.provider === 'talking-points-live-capture',
+        );
+        expect(bridge.length).toBeGreaterThan(0);
+        expect(JSON.stringify(bridge)).not.toContain(canary);
+        expect(bridge.every((event) => !Object.hasOwn(event, 'content'))).toBe(
+          true,
+        );
+        const bridgeEmissions = emissions.mock.calls.filter(
+          ([, metadata]) =>
+            metadata?.provider === 'talking-points-live-capture',
+        );
+        expect(bridgeEmissions.length).toBeGreaterThan(0);
+        expect(bridgeEmissions.every((call) => call.length === 2)).toBe(true);
+        const rowsBeforeReset = bridge.length;
         fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
         await screen.findByRole('button', { name: 'Start take' });
         await assertCurrent();
+        expect(observers.size).toBe(0);
+        act(() => {
+          old.diagnostics!.providerEvent(
+            'conversation.item.input_audio_transcription.failed',
+          );
+          old.onDelta({ itemId: 'late', contentIndex: 0, delta: canary });
+        });
+        const after = JSON.parse(diagnosticCapture.export()) as typeof exported;
+        expect(
+          after.events.filter(
+            (event) =>
+              event.metadata?.provider === 'talking-points-live-capture',
+          ),
+        ).toHaveLength(rowsBeforeReset);
+        const root = document.querySelector(
+          '[data-maelstrom-devtools]',
+        )!.shadowRoot!;
+        const click = (name: string) =>
+          fireEvent.click(
+            [...root.querySelectorAll('button')].find(
+              (button) =>
+                (button.getAttribute('aria-label') ?? button.textContent) ===
+                name,
+            )!,
+          );
+        click('Open Maelstrom Devtools');
+        click('Voice');
+        fireEvent.change(
+          root.querySelector('[aria-label="Evidence source"]')!,
+          { target: { value: 'live' } },
+        );
+        expect(root.querySelector('.voice-events')).toBeNull();
+        expect(root.textContent).not.toContain(String(identity));
       }
       mounted.unmount();
       await waitFor(() => expect(subscribers.size).toBe(baseline));
@@ -373,6 +541,7 @@ it.each([false, true])(
       await assertCurrent();
       mounted.unmount();
       await waitFor(() => expect(subscribers.size).toBe(baseline));
+      expect(observers.size).toBe(0);
       expect(diagnosticCapture.getSnapshot().active).toBe(true);
       expect(diagnosticCapture.export()).toContain(
         'Recording survives runtime disposal',
@@ -384,6 +553,8 @@ it.each([false, true])(
       diagnosticCapture.clear();
       releaseExternal();
       subscription.mockRestore();
+      diagnosticFactory.mockRestore();
+      emissions.mockRestore();
     }
   },
 );

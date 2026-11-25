@@ -316,6 +316,12 @@ export function createLiveRuntime(take: LiveTake) {
   })
     .with((ctx) => {
       ctx.onOrchestrator?.((orchestrator) => {
+        const releaseDiagnostics = orchestrator.diagnostics.addDiagnosticSource(
+          () =>
+            take.diagnostics.subscribe((kind, metadata) => {
+              orchestrator.diagnostics.emitDiagnostic(kind, metadata);
+            }),
+        );
         coverage = createSemanticCoverage(take, orchestrator);
         const original = coverage;
         retirePending = () => original.retire();
@@ -346,6 +352,7 @@ export function createLiveRuntime(take: LiveTake) {
         );
         return () => {
           observing = false;
+          releaseDiagnostics();
           unsubscribeStatus();
           unsubscribeError();
           original.retire();

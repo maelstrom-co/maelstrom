@@ -44,6 +44,72 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('seeds take metadata without observing elapsed ticks and bounds streaming summaries while distinguishing callback delivery from display eligibility', async () => {
+  vi.useFakeTimers();
+  const { take, callbacks, ready, capture } = setup();
+  const starting = take.start();
+  const seen = vi.fn();
+  const release = take.diagnostics.subscribe(seen);
+  expect(seen.mock.calls[0]).toEqual([
+    'voice.capture.snapshot',
+    expect.objectContaining({
+      phase: 'starting',
+      providerInstanceId: take.generation,
+      providerGeneration: 1,
+    }),
+  ]);
+  ready();
+  await starting;
+  const baseline = seen.mock.calls.length;
+  vi.advanceTimersByTime(10000);
+  expect(seen).toHaveBeenCalledTimes(baseline);
+  for (let i = 0; i < 1000; i++) {
+    callbacks().onDelta({ itemId: 'a', contentIndex: 0, delta: 'P' });
+    vi.advanceTimersByTime(100);
+  }
+  expect(seen.mock.calls.length - baseline).toBeLessThanOrEqual(8);
+  expect(take.diagnostics.getSnapshot()).toMatchObject({
+    callbacksDelta: 1000,
+    displayAccepted: 1000,
+    displaySuppressed: 0,
+  });
+  take.stop();
+  callbacks().onCompleted({
+    itemId: 'a',
+    contentIndex: 0,
+    previousItemId: undefined,
+    transcript: 'PRIVATE_FINAL',
+  });
+  vi.advanceTimersByTime(3000);
+  callbacks().onDelta({
+    itemId: 'late',
+    contentIndex: 0,
+    delta: 'PRIVATE_LATE',
+  });
+  expect(take.diagnostics.getSnapshot()).toMatchObject({
+    callbacksDelta: 1001,
+    callbacksCompleted: 1,
+    displayAccepted: 1001,
+    displaySuppressed: 1,
+    phase: 'stopped',
+    finalCommit: 'sent',
+  });
+  expect(JSON.stringify(seen.mock.calls)).not.toContain('PRIVATE');
+  const disposeCalls = vi.mocked(capture.dispose).mock.calls.length;
+  release();
+  expect(vi.mocked(capture.dispose)).toHaveBeenCalledTimes(disposeCalls);
+  expect(vi.getTimerCount()).toBe(0);
+  take.reset();
+  const after = seen.mock.calls.length;
+  callbacks().onDelta({
+    itemId: 'late',
+    contentIndex: 0,
+    delta: 'PRIVATE_LATE',
+  });
+  vi.advanceTimersByTime(1000);
+  expect(seen).toHaveBeenCalledTimes(after);
+});
+
 it('starts the clock only at readiness and retains final reception for the entire fixed Stop window', async () => {
   vi.useFakeTimers();
   const { take, capture, callbacks, ready, retire } = setup();

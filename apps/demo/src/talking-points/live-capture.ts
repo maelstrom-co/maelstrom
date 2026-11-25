@@ -1,4 +1,5 @@
 import { withFetchTimeout } from '../lib/fetch-timeout';
+import type { LiveCaptureDiagnostics } from './live-capture-diagnostics';
 import { LIVE_TRANSCRIPTION_MODEL } from './live-transcription-config';
 
 /** Effective provider readiness, not permission to start sending microphone content. */
@@ -62,6 +63,8 @@ export class LiveCaptureError extends Error {
 
 /** Application callbacks own evidence, finalization deadlines, and all semantic decisions. */
 export interface LiveCaptureOptions {
+  /** Optional take-owned, metadata-only observation; never controls capture. */
+  readonly diagnostics?: LiveCaptureDiagnostics;
   readonly mintToken: (
     signal: AbortSignal,
   ) => Promise<{ readonly value: string }>;
@@ -75,7 +78,7 @@ export interface LiveCaptureOptions {
   readonly onFatalError: (error: LiveCaptureError) => void;
 }
 
-/** Only browser boundaries are injectable; no timers or application policy live here. */
+/** Injectable browser boundaries, independent of application finalization policy. */
 export interface LiveCapturePlatform {
   readonly getUserMedia: (
     constraints: MediaStreamConstraints,
@@ -112,6 +115,7 @@ export function createLiveCapture(
   platform: Partial<LiveCapturePlatform> = {},
 ): LiveCapture {
   const controller = new AbortController();
+  const diagnostics = options.diagnostics;
   const getUserMedia =
     platform.getUserMedia ??
     ((constraints) => navigator.mediaDevices.getUserMedia(constraints));
@@ -135,6 +139,158 @@ export function createLiveCapture(
   let configured = false;
   let finalCommitEventId: string | undefined;
   const predecessors = new Map<string, string | null>();
+  const transceivers: RTCRtpTransceiver[] = [];
+  let statsPending = false;
+
+  function audioSender() {
+    const tracks = stream?.getAudioTracks();
+    const transceiver = transceivers.length === 1 ? transceivers[0] : undefined;
+    const source = tracks?.length === 1 ? tracks[0] : undefined;
+    return { transceiver, source };
+  }
+
+  function observeTransport() {
+    if (!diagnostics) return;
+    const unavailable = {
+      transceiverDirection: 'unavailable',
+      transceiverCurrentDirection: 'unavailable',
+      transceiverStopped: 'unavailable',
+      senderTrackPresent: 'unavailable',
+      senderSameSource: 'unavailable',
+      sourceLive: 'unavailable',
+      sourceMuted: 'unavailable',
+      sourceEnabled: 'unavailable',
+    } as const;
+    try {
+      const { transceiver, source } = audioSender();
+      const stopped =
+        transceiver && 'stopped' in transceiver
+          ? transceiver.stopped
+          : undefined;
+      const direction = (value: unknown) =>
+        value === 'sendonly' ||
+        value === 'sendrecv' ||
+        value === 'recvonly' ||
+        value === 'inactive' ||
+        value === 'stopped'
+          ? value
+          : 'unavailable';
+      diagnostics.transport({
+        transceiverDirection: direction(transceiver?.direction),
+        transceiverCurrentDirection:
+          transceiver?.currentDirection === null
+            ? 'not-negotiated'
+            : direction(transceiver?.currentDirection),
+        transceiverStopped:
+          typeof stopped === 'boolean' ? stopped : 'unavailable',
+        senderTrackPresent: transceiver?.sender
+          ? !!transceiver.sender.track
+          : 'unavailable',
+        senderSameSource:
+          source && transceiver?.sender
+            ? transceiver.sender.track === source
+            : 'unavailable',
+        sourceLive: source ? source.readyState === 'live' : 'unavailable',
+        sourceMuted:
+          typeof source?.muted === 'boolean' ? source.muted : 'unavailable',
+        sourceEnabled:
+          typeof source?.enabled === 'boolean' ? source.enabled : 'unavailable',
+      });
+    } catch {
+      diagnostics.transport(unavailable);
+    }
+  }
+
+  function observeAudio() {
+    let observing = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function sample(index: number) {
+      if (!observing || state !== 'capturing') return;
+      let projected: {
+        outboundPackets?: number;
+        outboundBytes?: number;
+        sourceEnergy?: number;
+        sourceDuration?: number;
+      } = {};
+      try {
+        const { transceiver, source } = audioSender();
+        const sender = transceiver?.sender;
+        if (
+          !statsPending &&
+          source &&
+          sender?.track === source &&
+          typeof sender.getStats === 'function'
+        ) {
+          statsPending = true;
+          let reports: RTCStatsReport;
+          try {
+            reports = await sender.getStats();
+          } finally {
+            statsPending = false;
+          }
+          if (!observing || state !== 'capturing') return;
+          const outbound: Record<string, unknown>[] = [];
+          const sources: Record<string, unknown>[] = [];
+          reports.forEach((row: unknown) => {
+            if (!record(row)) return;
+            if (
+              row.type === 'outbound-rtp' &&
+              (row.kind === 'audio' || row.mediaType === 'audio')
+            )
+              outbound.push(row);
+            if (
+              row.type === 'media-source' &&
+              row.kind === 'audio' &&
+              row.trackIdentifier === source.id
+            )
+              sources.push(row);
+          });
+          const sent = outbound.length === 1 ? outbound[0] : undefined;
+          const audio = sources.length === 1 ? sources[0] : undefined;
+          if (sent)
+            projected = {
+              outboundPackets:
+                typeof sent.packetsSent === 'number'
+                  ? sent.packetsSent
+                  : undefined,
+              outboundBytes:
+                typeof sent.bytesSent === 'number' ? sent.bytesSent : undefined,
+            };
+          if (
+            sent &&
+            audio &&
+            typeof audio.id === 'string' &&
+            sent.mediaSourceId === audio.id
+          )
+            projected = {
+              ...projected,
+              sourceEnergy:
+                typeof audio.totalAudioEnergy === 'number'
+                  ? audio.totalAudioEnergy
+                  : undefined,
+              sourceDuration:
+                typeof audio.totalSamplesDuration === 'number'
+                  ? audio.totalSamplesDuration
+                  : undefined,
+            };
+        }
+      } catch {
+        // Unsupported or unattributable stats are unknown, not zero audio.
+      }
+      if (!observing || state !== 'capturing') return;
+      diagnostics?.stats(index, projected);
+      if (index < 2)
+        timer = setTimeout(() => {
+          void sample(index + 1);
+        }, 1000);
+    }
+    observeTransport();
+    void sample(0);
+    return () => {
+      observing = false;
+      clearTimeout(timer);
+    };
+  }
 
   function stopTracks(source = stream) {
     for (const track of source?.getTracks() ?? []) {
@@ -147,8 +303,11 @@ export function createLiveCapture(
   function terminate(error: LiveCaptureError) {
     if (state === 'disposed') return;
     state = 'disposed';
+    diagnostics?.setProbe();
+    diagnostics?.captureState(state);
     controller.abort();
     stopTracks();
+    diagnostics?.microphone(false);
     if (channel) {
       channel.onopen = null;
       channel.onmessage = null;
@@ -168,6 +327,7 @@ export function createLiveCapture(
   function fail(reason: LiveCaptureError['reason']) {
     if (state === 'disposed') return;
     const error = new LiveCaptureError(reason);
+    diagnostics?.failure(reason);
     terminate(error);
     options.onFatalError(error);
   }
@@ -180,6 +340,7 @@ export function createLiveCapture(
       channel?.readyState === 'open'
     ) {
       state = 'ready';
+      diagnostics?.captureState(state);
       resolveStart?.({ inputOnly: true, turnMode: 'server_vad' });
     }
   }
@@ -198,6 +359,7 @@ export function createLiveCapture(
       fail('protocol');
       return;
     }
+    diagnostics?.providerEvent(event.type);
     if (event.type === 'session.created' || event.type === 'session.updated') {
       const session = event.session;
       const audio = record(session) && session.audio;
@@ -215,6 +377,7 @@ export function createLiveCapture(
         return;
       }
       configured = true;
+      diagnostics?.control(sdpApplied, configured);
       maybeReady();
     } else if (event.type === 'input_audio_buffer.committed') {
       if (
@@ -278,6 +441,11 @@ export function createLiveCapture(
         record(event.error) &&
         event.error.event_id === finalCommitEventId
       ) {
+        diagnostics?.finalCommit(
+          event.error.code === 'input_audio_buffer_commit_empty'
+            ? 'empty-buffer'
+            : 'rejected',
+        );
         options.onFinalCommitIssue({
           eventId: finalCommitEventId,
           reason:
@@ -318,7 +486,10 @@ export function createLiveCapture(
       stage = 'transport';
       peer = createPeer();
       peer.ontrack = ({ track }) => track.stop();
+      diagnostics?.peer(peer.connectionState);
       peer.onconnectionstatechange = () => {
+        if (state === 'disposed') return;
+        if (peer) diagnostics?.peer(peer.connectionState);
         if (
           peer &&
           ['disconnected', 'failed', 'closed'].includes(peer.connectionState)
@@ -326,15 +497,26 @@ export function createLiveCapture(
           fail('transport');
       };
       channel = peer.createDataChannel('oai-events');
-      channel.onopen = maybeReady;
+      diagnostics?.channel(channel.readyState);
+      channel.onopen = () => {
+        if (state === 'disposed') return;
+        if (channel) diagnostics?.channel(channel.readyState);
+        maybeReady();
+      };
       channel.onmessage = ({ data }) => handleMessage(data);
-      channel.onclose = () => fail('transport');
+      channel.onclose = () => {
+        if (state === 'disposed') return;
+        diagnostics?.channel('closed');
+        fail('transport');
+      };
       channel.onerror = () => fail('transport');
       for (const track of stream.getAudioTracks()) {
-        peer.addTransceiver(track, {
-          direction: 'sendonly',
-          streams: [stream],
-        });
+        transceivers.push(
+          peer.addTransceiver(track, {
+            direction: 'sendonly',
+            streams: [stream],
+          }),
+        );
       }
       stage = 'grant';
       const grant = await options.mintToken(controller.signal);
@@ -364,6 +546,8 @@ export function createLiveCapture(
       await peer.setRemoteDescription({ type: 'answer', sdp });
       if (controller.signal.aborted) return;
       sdpApplied = true;
+      diagnostics?.control(sdpApplied, configured);
+      observeTransport();
       maybeReady();
     } catch {
       if (!controller.signal.aborted) fail(stage);
@@ -376,6 +560,7 @@ export function createLiveCapture(
       if (state !== 'new')
         return Promise.reject(new LiveCaptureError('disposed'));
       state = 'starting';
+      diagnostics?.captureState(state);
       startPromise = new Promise((resolve, reject) => {
         resolveStart = resolve;
         rejectStart = reject;
@@ -387,6 +572,10 @@ export function createLiveCapture(
       if (state !== 'ready') throw new LiveCaptureError('readiness');
       state = 'capturing';
       for (const track of stream?.getAudioTracks() ?? []) track.enabled = true;
+      diagnostics?.captureState(state);
+      diagnostics?.microphone(true);
+      observeTransport();
+      diagnostics?.setProbe(observeAudio);
     },
     stopCapture() {
       if (state === 'new' || state === 'starting') {
@@ -395,15 +584,21 @@ export function createLiveCapture(
       }
       if (state === 'disposed' || state === 'stopped') return;
       state = 'stopped';
+      diagnostics?.setProbe();
       stopTracks();
+      observeTransport();
+      diagnostics?.captureState(state);
+      diagnostics?.microphone(false);
     },
     commitFinalAudio() {
       if (
         state !== 'stopped' ||
         channel?.readyState !== 'open' ||
         finalCommitEventId
-      )
+      ) {
+        if (state !== 'disposed') diagnostics?.finalCommit('unavailable');
         return { status: 'unavailable' };
+      }
       finalCommitEventId = 'talking-points-final-commit';
       try {
         channel.send(
@@ -412,8 +607,10 @@ export function createLiveCapture(
             event_id: finalCommitEventId,
           }),
         );
+        diagnostics?.finalCommit('sent');
         return { status: 'sent', eventId: finalCommitEventId };
       } catch {
+        diagnostics?.finalCommit('unavailable');
         fail('transport');
         return { status: 'unavailable' };
       }

@@ -4,6 +4,10 @@ import {
   type LiveCaptureOptions,
 } from './live-capture';
 import {
+  createLiveCaptureDiagnostics,
+  type LiveCaptureDiagnostics,
+} from './live-capture-diagnostics';
+import {
   createLiveTranscript,
   type TranscriptPart,
 } from './live-transcript.store';
@@ -51,6 +55,8 @@ export function createLiveTake(options: {
 }) {
   const now = options.now ?? (() => performance.now());
   const generation = crypto.randomUUID();
+  const diagnostics: LiveCaptureDiagnostics =
+    createLiveCaptureDiagnostics(generation);
   let active = true;
   let automatic = true;
   let origin = 0;
@@ -76,6 +82,7 @@ export function createLiveTake(options: {
   };
   const publish = (change: Partial<TakeSnapshot>) => {
     snapshot = { ...snapshot, ...change };
+    if (change.phase) diagnostics.phase(change.phase);
     for (const listener of listeners) listener();
   };
   const phase = (): TakePhase => snapshot.phase;
@@ -90,10 +97,14 @@ export function createLiveTake(options: {
     for (const listener of evidenceListeners) listener(item);
   };
   function display(event: Parameters<typeof transcript.accept>[0]) {
-    if (!eligible()) return;
+    if (!eligible()) {
+      diagnostics.display('suppressed');
+      return;
+    }
     transcript.accept(event);
-    if (snapshot.transcript !== transcript.getSnapshot())
-      publish({ transcript: transcript.getSnapshot() });
+    const changed = snapshot.transcript !== transcript.getSnapshot();
+    diagnostics.display(changed ? 'accepted' : 'unchanged');
+    if (changed) publish({ transcript: transcript.getSnapshot() });
   }
   function close() {
     automatic = false;
@@ -119,6 +130,7 @@ export function createLiveTake(options: {
   }
   return {
     generation,
+    diagnostics,
     getSnapshot: () => snapshot,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -156,14 +168,25 @@ export function createLiveTake(options: {
         if (!active || phase() !== 'starting') return;
         capture = (options.createCapture ?? createLiveCapture)({
           mintToken: options.mintToken,
-          onCommitted: (event) => retain({ type: 'committed', event }),
-          onDelta: display,
+          diagnostics,
+          onCommitted: (event) => {
+            diagnostics.callback('committed');
+            retain({ type: 'committed', event });
+          },
+          onDelta: (event) => {
+            diagnostics.callback('delta');
+            display(event);
+          },
           onCompleted: (event) => {
+            diagnostics.callback('completed');
             display(event);
             retain({ type: 'completed', event });
           },
-          onTranscriptionFailed: (event) => retain({ type: 'failed', event }),
-          onFinalCommitIssue: () => {},
+          onTranscriptionFailed: (event) => {
+            diagnostics.callback('failed');
+            retain({ type: 'failed', event });
+          },
+          onFinalCommitIssue: (event) => diagnostics.finalCommit(event.reason),
           onFatalError: () => fail(),
         });
         await capture.start();
@@ -205,7 +228,9 @@ export function createLiveTake(options: {
         },
         Math.max(0, deadline - now()),
       );
-      capture?.commitFinalAudio();
+      diagnostics.finalCommit(
+        capture?.commitFinalAudio().status ?? 'unavailable',
+      );
     },
     manualSet(id: string, value: boolean) {
       if (
@@ -229,6 +254,7 @@ export function createLiveTake(options: {
       publish({ spoken: new Set([...snapshot.spoken, id]) });
     },
     reset() {
+      diagnostics.dispose();
       active = false;
       automatic = false;
       close();
@@ -246,6 +272,7 @@ export function createLiveTake(options: {
       });
     },
     dispose() {
+      diagnostics.dispose();
       active = false;
       close();
       evidence.clear();
