@@ -310,17 +310,19 @@ export function createLiveRuntime(take: LiveTake) {
           >
             {topic.content}
           </p>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            aria-pressed={spoken}
-            disabled={
-              snapshot.phase === 'preparing' || snapshot.phase === 'starting'
-            }
-            onClick={() => take.manualSet(topic.id, !spoken)}
-          >
-            {spoken ? 'Unmark spoken' : 'Mark spoken'}
-          </button>
+          {spoken && (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              aria-pressed={spoken}
+              disabled={
+                snapshot.phase === 'preparing' || snapshot.phase === 'starting'
+              }
+              onClick={() => take.manualSet(topic.id, false)}
+            >
+              Unmark spoken
+            </button>
+          )}
           {spoken && <span className="talking-points-spoken">Spoken</span>}
         </article>
       );

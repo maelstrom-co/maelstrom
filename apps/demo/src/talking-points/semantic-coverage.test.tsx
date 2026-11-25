@@ -358,20 +358,31 @@ it('keeps uncertain or unrelated Planner outcomes unmarked and quotes command-li
   expect(screen.getAllByRole('article')).toHaveLength(2);
 });
 
-it('keeps a manual unmark locked against both the old result and a newer coverage request', async () => {
+it('offers only an Unmark correction after a voice-driven Engine mark and locks it against pending and newer coverage', async () => {
   const live = await journey();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
   live.commit('a', null);
   live.final('a', 'Small rollout limits impact with quick rollback.');
   await waitFor(() => expect(live.requests).toHaveLength(1));
-  const article = screen.getByRole('article', { name: topics[0]!.content });
-  fireEvent.click(article.querySelector('button')!);
-  fireEvent.click(article.querySelector('button')!);
+  await live.release(['rollout']);
+  await waitFor(() => expect(spoken('rollout')).toBe('true'));
+  expect(screen.getByText('Spoken')).toBeTruthy();
+  live.commit('b', 'a');
+  live.final('b', 'Our infrastructure costs will fall next quarter.');
+  await waitFor(() => expect(live.requests).toHaveLength(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Unmark spoken' }));
+  expect(spoken('rollout')).toBe('false');
+  expect(live.take.getSnapshot().manualLocks.has('rollout')).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
+  expect(screen.queryByText('Spoken')).toBeNull();
   await live.release(['rollout', 'cost']);
   expect(spoken('rollout')).toBe('false');
   expect(spoken('cost')).toBe('true');
-  live.commit('b', 'a');
-  live.final('b', 'An independent newer explanation.');
-  await waitFor(() => expect(live.requests).toHaveLength(2));
+  live.commit('c', 'b');
+  live.final('c', 'An independent newer explanation.');
+  await waitFor(() => expect(live.requests).toHaveLength(3));
   await live.release(['rollout']);
   expect(spoken('rollout')).toBe('false');
 });

@@ -138,6 +138,24 @@ vi.mock('../lib/connector', () => ({
         const intent = reason?.type === 'user_intent' ? reason.intent : '';
         if (intent === 'Unconfirmed preparation')
           throw new Error('Connection lost after submission');
+        if (
+          intent.startsWith('Evaluate semantic coverage') &&
+          message.request.layout?.type === 'tiling'
+        )
+          return {
+            type: 'maelstrom_response',
+            requestId: message.id,
+            userMessage: '',
+            rationale: '',
+            layout: message.request.layout,
+            executionPlan: message.request.layout.instances.map(
+              ({ instanceId }) => ({
+                instanceId,
+                action: ActionName('mark'),
+                params: {},
+              }),
+            ),
+          };
         const topics = publishedTopics(message);
         const steps: [string, Record<string, unknown>][] = [];
         if (intent === 'Add opening and closing') {
@@ -332,9 +350,8 @@ it('shows only the active runtime DevTools through preparation, Start, Reset and
       delta: 'Private live transcription',
     }),
   );
-  expect(
-    screen.getByRole('region', { name: 'Live transcript' }).textContent,
-  ).toContain('Private live transcription');
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(screen.queryByText('Private live transcription')).toBeNull();
   expect(live.textContent).not.toContain('Private live transcription');
   expect(live.querySelector('.voice-events')?.textContent).not.toMatch(
     /Tool called|Provider response|Assistant/,
@@ -739,7 +756,7 @@ it('seals actual voice and typed prep, freezes only after accepted batches settl
   expect(engine.sessions).toHaveLength(3);
 });
 
-it('shows only silent take controls and frozen Topics, keeps manual marks through fixed finalization, then resets', async () => {
+it('shows only silent take controls and frozen Topics, keeps voice-driven marks through fixed finalization, then resets', async () => {
   localStorage.setItem(
     OUTLINE_STORAGE_KEY,
     JSON.stringify({
@@ -758,14 +775,25 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
     liveCapture.ready!();
   });
   expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
-  const transcript = screen.getByRole('region', { name: 'Live transcript' });
-  expect(transcript.textContent).toContain('Listening for speech…');
-  const chart = document.querySelector('.talking-points-chart')!;
-  expect(chart.contains(transcript)).toBe(false);
-  expect(
-    chart.compareDocumentPosition(transcript) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).not.toBe(0);
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
+  act(() => {
+    liveCapture.callbacks!.onCommitted({
+      itemId: 'covered',
+      previousItemId: null,
+    });
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'covered',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Opening.',
+    });
+  });
+  await screen.findByRole('button', { name: 'Unmark spoken' });
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
+  expect(screen.queryByText('Engine: connected')).toBeNull();
+  expect(screen.queryByText('Opening.')).toBeNull();
   act(() =>
     liveCapture.callbacks!.onDelta({
       itemId: 'a',
@@ -773,10 +801,10 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
       delta: 'Live words',
     }),
   );
-  expect(transcript.textContent).toContain('Live words');
+  expect(screen.queryByText('Live words')).toBeNull();
   expect(screen.queryByText('AI-generated voice')).toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Mark spoken' }));
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
   expect(
     screen
       .getByRole('article', { name: 'Opening' })
@@ -795,8 +823,8 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
       transcript: 'Final words retained.',
     }),
   );
-  expect(transcript.textContent).toContain('Final words retained.');
-  expect(transcript.textContent).not.toContain('Live words');
+  expect(screen.queryByText('Final words retained.')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
   act(() => vi.advanceTimersByTime(1));
   act(() =>
     liveCapture.callbacks!.onDelta({
@@ -805,8 +833,8 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
       delta: 'After cutoff',
     }),
   );
-  expect(transcript.textContent).toContain('Final words retained.');
-  expect(transcript.textContent).not.toContain('After cutoff');
+  expect(screen.queryByText('After cutoff')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
   expect(screen.getByLabelText('Take status').textContent).toMatch(/Stopped/);
   expect(screen.getByText(/tail may be incomplete/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Start take' })).toBeNull();
@@ -905,9 +933,7 @@ it('waits for the real live Engine connection, then stops an idle take immediate
   expect(liveCapture.ready).toBeUndefined();
   expect(screen.getByLabelText('Take status').textContent).toBe('Starting…');
   expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
-  expect(
-    screen.getByLabelText('Engine connection status').textContent,
-  ).toContain('connecting');
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
   await act(async () => {
     engine.connections[1]!.ready();
   });
@@ -917,11 +943,24 @@ it('waits for the real live Engine connection, then stops an idle take immediate
     liveCapture.ready!();
   });
   expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
-  fireEvent.click(screen.getByRole('button', { name: 'Mark spoken' }));
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  act(() => {
+    liveCapture.callbacks!.onCommitted({ itemId: 'a', previousItemId: null });
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'a',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Opening.',
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByRole('button', { name: 'Unmark spoken' })).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(1200);
   });
-  expect(engine.requests).toHaveLength(0);
+  expect(engine.requests).toHaveLength(1);
   const elapsed = screen.getByLabelText('Elapsed time').textContent;
   act(() =>
     engine.connections[1]!.emit({
@@ -939,9 +978,7 @@ it('waits for the real live Engine connection, then stops an idle take immediate
   expect(screen.getByRole('alert').textContent).not.toContain(
     'private transport detail',
   );
-  expect(
-    screen.getByLabelText('Engine connection status').textContent,
-  ).toContain('disconnected');
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
   expect(
     screen
       .getByRole('article', { name: 'Opening' })
@@ -953,7 +990,7 @@ it('waits for the real live Engine connection, then stops an idle take immediate
   expect(screen.getByLabelText('Elapsed time').textContent).toBe(elapsed);
   expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
   expect(liveCapture.begin).toHaveBeenCalledTimes(1);
-  expect(engine.requests).toHaveLength(0);
+  expect(engine.requests).toHaveLength(1);
 });
 
 it('stops a failed Engine startup before microphone setup and cannot revive it on readiness', async () => {
@@ -1047,9 +1084,7 @@ it('stops capture setup on Engine errors and isolates late Engine/capture events
     });
   });
   expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
-  expect(
-    screen.getByLabelText('Engine connection status').textContent,
-  ).toContain('connected');
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();
   expect(liveCapture.stop).toHaveBeenCalledTimes(stops);
   expect(liveCapture.begin).toHaveBeenCalledTimes(1);

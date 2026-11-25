@@ -37,7 +37,6 @@ import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { createLiveTake, type LiveTake } from './live-take';
-import { LiveTranscript } from './live-transcript';
 import {
   createPreparationRuntime,
   PREPARATION_LAYOUT,
@@ -535,17 +534,6 @@ function PreparationWorkspace({
   );
 }
 
-function LiveEngineStatus({ runtime }: { readonly runtime: LiveRuntime }) {
-  const connectionStatus = runtime.m.useMaelstrom(
-    (state) => state.connectionStatus,
-  );
-  return (
-    <p role="status" aria-label="Engine connection status">
-      Engine: {connectionStatus}
-    </p>
-  );
-}
-
 function LiveWorkspace({
   runtime,
   onReset,
@@ -604,7 +592,6 @@ function LiveWorkspace({
           initialLayout={runtime.layout}
           onError={runtime.engineFailed}
         >
-          <LiveEngineStatus runtime={runtime} />
           <div
             className="talking-points-chart"
             style={{
@@ -614,7 +601,6 @@ function LiveWorkspace({
             <m.Chart />
           </div>
         </m.Provider>
-        <LiveTranscript take={take} />
       </main>
     </div>
   );
