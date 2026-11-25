@@ -155,6 +155,7 @@ const deploymentOptions = {
   approvedSha: HEAD,
   ciRunId: '123',
   bunExecutable: '/usr/bin/bun',
+  hasAgui: true,
   sourceRoot: '/tmp/source',
   accountId: 'preview',
   apiToken: 'fake-token',
@@ -166,7 +167,7 @@ const deploymentProcess =
   (f: ReturnType<typeof fixture>): LifecycleDependencies['runProcess'] =>
   async (options) => {
     if (options.argv[0] === '/usr/bin/git')
-      return { stdout: options.argv[1] === 'rev-parse' ? HEAD : '' };
+      return { stdout: options.argv.includes('rev-parse') ? HEAD : '' };
     const app = options.cwd.split('/').at(-1)!;
     if (options.argv[2] === 'deploy') {
       f.mutations.push(app);
@@ -467,7 +468,7 @@ describe('maintainer preview lifetime', () => {
           options: Parameters<LifecycleDependencies['runProcess']>[0],
         ) => {
           if (options.argv[0] === '/usr/bin/git')
-            return { stdout: options.argv[1] === 'rev-parse' ? HEAD : '' };
+            return { stdout: options.argv.includes('rev-parse') ? HEAD : '' };
           f.mutations.push('deploy');
           throw new Error('Unexpected deployment after revocation');
         },
@@ -481,6 +482,7 @@ describe('maintainer preview lifetime', () => {
             approvedSha: HEAD,
             ciRunId: '123',
             bunExecutable: '/usr/bin/bun',
+            hasAgui: true,
             sourceRoot: '/tmp/source',
             accountId: 'preview',
             apiToken: 'fake-token',

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -6,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
@@ -454,6 +456,99 @@ describe('preview workflows', () => {
     expect(workflow).not.toMatch(
       /alchemy (?:deploy|destroy)|bun scripts\/delete-preview-workers\.ts|PREVIEW_WORKER_SCOPE: (?:all|current)/,
     );
+  });
+
+  test('only the exact approved tree selects AG-UI before installing or building source', async () => {
+    const workflow = read('deploy-preview.yml');
+    type Step = {
+      name: string;
+      id?: string;
+      if?: string;
+      run?: string;
+      env?: Record<string, string>;
+    };
+    const {
+      jobs: {
+        deploy: { steps },
+      },
+    } = Bun.YAML.parse(workflow) as { jobs: { deploy: { steps: Step[] } } };
+    const select = steps.find(
+      (s) => s.name === 'Select approved preview apps',
+    )!;
+    expect(select).toBeDefined();
+    expect(select.env?.APPROVED_SHA).toBe(
+      expression('needs.approve.outputs.head-sha'),
+    );
+    expect(steps.indexOf(select)).toBeLessThan(
+      steps.findIndex((s) => s.name === 'Install source dependencies'),
+    );
+    const build = steps.filter((s) =>
+      s.run?.includes('@maelstrom-co/agui-demo:build-hosted'),
+    );
+    expect(build).toHaveLength(1);
+    expect(build[0]?.if).toBe(`steps.${select.id}.outputs.agui == 'true'`);
+    for (const name of ['Deploy demo preview', 'Deploy remaining previews'])
+      expect(steps.find((s) => s.name === name)?.env?.HAS_AGUI_PREVIEW).toBe(
+        expression(`steps.${select.id}.outputs.agui`),
+      );
+    expect(step(workflow, 'Deploy remaining previews')).toMatch(
+      /for runtime_file in [^\n]*infra\/platform\/retire-agui-preview\.run\.ts /,
+    );
+
+    const cwd = await mkdtemp(join(tmpdir(), 'preview-tree-'));
+    const source = join(cwd, 'source');
+    const output = join(cwd, 'outputs');
+    const git = (...args: string[]) =>
+      execFileSync(
+        '/usr/bin/git',
+        [
+          '-c',
+          'user.name=fixture',
+          '-c',
+          'user.email=fixture@example.org',
+          '-c',
+          'commit.gpgsign=false',
+          '-c',
+          'core.hooksPath=/dev/null',
+          ...args,
+        ],
+        {
+          cwd: source,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_CONFIG_NOSYSTEM: '1',
+          },
+        },
+      ).trim();
+    const selectTree = (sha: string) =>
+      execFileSync('/bin/bash', ['-e', '-o', 'pipefail', '-c', select.run!], {
+        cwd,
+        env: {
+          PATH: process.env.PATH,
+          APPROVED_SHA: sha,
+          GITHUB_OUTPUT: output,
+        },
+      });
+    try {
+      await mkdir(source);
+      git('init', '-q');
+      git('commit', '-q', '--allow-empty', '-m', 'original');
+      const old = git('rev-parse', 'HEAD');
+      await mkdir(join(source, 'apps/agui-demo'), { recursive: true });
+      await writeFile(join(source, 'apps/agui-demo/package.json'), '{}');
+      selectTree(old);
+      expect(await readFile(output, 'utf8')).toBe('agui=false\n');
+      git('add', 'apps');
+      git('commit', '-q', '-m', 'with app');
+      await writeFile(output, '');
+      selectTree(git('rev-parse', 'HEAD'));
+      expect(await readFile(output, 'utf8')).toBe('agui=true\n');
+      expect(() => selectTree(old)).toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   test('every credentialed preview mutation asserts the expected account', () => {

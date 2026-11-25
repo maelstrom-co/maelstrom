@@ -1,4 +1,6 @@
 import { appendFileSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   assertWorkspaceAlchemyVersion,
@@ -36,7 +38,7 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BOT_LOGIN = 'github-actions[bot]';
 
-export type PreviewApp = 'demo' | 'docs' | 'www';
+export type PreviewApp = 'demo' | 'agui-demo' | 'docs' | 'www';
 export type TeardownScope = 'all' | 'legacy' | 'skip';
 export type TeardownTrigger = 'closed' | 'manual' | 'schedule' | 'unlabeled';
 
@@ -653,6 +655,7 @@ export const renderDeployedComment = (state: {
   readonly approvedSha: string;
   readonly deployedSha: string;
   readonly demoUrl: string;
+  readonly aguiUrl?: string;
   readonly docsUrl: string;
   readonly wwwUrl: string;
 }) => `${renderPreviewHeader(state.repository, state)}
@@ -661,9 +664,9 @@ export const renderDeployedComment = (state: {
 | --- | --- |
 | Website | ${state.wwwUrl} |
 | Documentation | ${state.docsUrl} |
-| Demo | ${state.demoUrl} |
+| Demo | ${state.demoUrl} |${state.aguiUrl ? `\n| AG-UI demo | ${state.aguiUrl} |` : ''}
 
-The demo is bring-your-own-key. This preview runs the approved PR branch code, so use a throwaway key or only open trusted previews.
+The demos are bring-your-own-key. These previews run the approved PR branch code, so use a throwaway key or only open trusted previews.
 
 Remove the \`deploy-preview\` label or close this PR to tear the preview down.`;
 
@@ -1014,6 +1017,11 @@ const APP_METADATA = {
     stack: 'MaelstromDemoPreview',
     workerPrefix: 'maelstrom-playground-alchemy',
   },
+  'agui-demo': {
+    directory: 'agui-demo',
+    stack: 'MaelstromAguiPreview',
+    workerPrefix: 'maelstrom-agui-alchemy',
+  },
   docs: {
     directory: 'docs',
     stack: 'MaelstromDocsPreview',
@@ -1075,7 +1083,7 @@ const assertApprovedSourceRevision = async (
   const environment = processEnvironment({});
   const sourceHead = (
     await dependencies.runProcess({
-      argv: ['/usr/bin/git', 'rev-parse', 'HEAD'],
+      argv: ['/usr/bin/git', '--no-replace-objects', 'rev-parse', 'HEAD'],
       cwd: sourceRoot,
       env: environment,
       timeoutMs: 10_000,
@@ -1086,7 +1094,14 @@ const assertApprovedSourceRevision = async (
   }
   try {
     await dependencies.runProcess({
-      argv: ['/usr/bin/git', 'diff', '--quiet', 'HEAD', '--'],
+      argv: [
+        '/usr/bin/git',
+        '--no-replace-objects',
+        'diff',
+        '--quiet',
+        'HEAD',
+        '--',
+      ],
       cwd: sourceRoot,
       env: environment,
       timeoutMs: 10_000,
@@ -1098,7 +1113,15 @@ const assertApprovedSourceRevision = async (
   }
   try {
     await dependencies.runProcess({
-      argv: ['/usr/bin/git', 'diff', '--cached', '--quiet', 'HEAD', '--'],
+      argv: [
+        '/usr/bin/git',
+        '--no-replace-objects',
+        'diff',
+        '--cached',
+        '--quiet',
+        'HEAD',
+        '--',
+      ],
       cwd: sourceRoot,
       env: environment,
       timeoutMs: 10_000,
@@ -1111,6 +1134,7 @@ const assertApprovedSourceRevision = async (
 const deployApp = async (
   options: {
     readonly app: PreviewApp;
+    readonly hasAgui: boolean;
     readonly repository: string;
     readonly prNumber: string;
     readonly approvedSha: string;
@@ -1130,7 +1154,10 @@ const deployApp = async (
   validateBunExecutable(options.bunExecutable);
   assertExpectedAccount(options.accountId, options.expectedAccountId);
   const metadata = APP_METADATA[options.app];
-  if (!metadata) throw new Error('Preview app must be demo, www, or docs');
+  if (!metadata)
+    throw new Error('Preview app must be demo, agui-demo, www, or docs');
+  if (options.app === 'agui-demo' && !options.hasAgui)
+    throw new Error('Approved source does not contain the AG-UI preview');
   await assertApprovedSourceRevision(
     options.sourceRoot,
     options.approvedSha,
@@ -1146,10 +1173,12 @@ const deployApp = async (
   assertWorkspaceAlchemyVersion(
     options.sourceRoot,
     process.env.ALCHEMY_REQUIRED_VERSION,
+    options.hasAgui,
   );
   assertPreviewStateStore(
     options.sourceRoot,
     process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
+    options.hasAgui,
   );
   const cwd = `${options.sourceRoot}/apps/${metadata.directory}`;
   const env = cloudflareEnvironment(
@@ -1224,32 +1253,6 @@ export const deployPreviewApp = async (
   return url;
 };
 
-const validateDeploymentUrls = (
-  prNumber: string,
-  suffix: string,
-  urls: {
-    readonly demoUrl: string;
-    readonly docsUrl: string;
-    readonly wwwUrl: string;
-  },
-) => ({
-  demoUrl: validatePreviewWorkerUrl(
-    urls.demoUrl,
-    `maelstrom-playground-alchemy-pr-${prNumber}`,
-    suffix,
-  ),
-  docsUrl: validatePreviewWorkerUrl(
-    urls.docsUrl,
-    `maelstrom-docs-alchemy-pr-${prNumber}`,
-    suffix,
-  ),
-  wwwUrl: validatePreviewWorkerUrl(
-    urls.wwwUrl,
-    `maelstrom-www-alchemy-pr-${prNumber}`,
-    suffix,
-  ),
-});
-
 export const finishPreviewDeployment = async (
   options: {
     readonly repository: string;
@@ -1263,6 +1266,7 @@ export const finishPreviewDeployment = async (
     readonly expectedAccountId: string;
     readonly workersDevSuffix: string;
     readonly demoUrl: string;
+    readonly hasAgui: boolean;
   },
   dependencies: LifecycleDependencies,
 ) => {
@@ -1276,17 +1280,20 @@ export const finishPreviewDeployment = async (
     `maelstrom-playground-alchemy-pr-${options.prNumber}`,
     options.workersDevSuffix,
   );
+  // Capture the workflow-verified entrypoint before any source process runs.
+  const retirementConfig = options.hasAgui
+    ? undefined
+    : await readFile(
+        new URL(
+          '../infra/platform/retire-agui-preview.run.ts',
+          import.meta.url,
+        ),
+      );
   const wwwUrl = await deployApp({ ...options, app: 'www' }, dependencies);
   const docsUrl = await deployApp({ ...options, app: 'docs' }, dependencies);
-  const urls = validateDeploymentUrls(
-    options.prNumber,
-    options.workersDevSuffix,
-    {
-      demoUrl,
-      docsUrl,
-      wwwUrl,
-    },
-  );
+  const aguiUrl = options.hasAgui
+    ? await deployApp({ ...options, app: 'agui-demo' }, dependencies)
+    : undefined;
   await assertApprovedSourceRevision(
     options.sourceRoot,
     options.approvedSha,
@@ -1299,13 +1306,56 @@ export const finishPreviewDeployment = async (
     dependencies,
     options.ciRunId,
   );
+  if (retirementConfig) {
+    // The old checkout has no AG-UI entrypoint. Use its verified platform CLI
+    // with a trusted, empty stack declaration to destroy any prior PR state.
+    assertWorkspaceAlchemyVersion(
+      options.sourceRoot,
+      process.env.ALCHEMY_REQUIRED_VERSION,
+      false,
+    );
+    assertPreviewStateStore(
+      options.sourceRoot,
+      process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
+      false,
+    );
+    const cwd = join(options.sourceRoot, 'infra/platform');
+    const directory = await mkdtemp(join(cwd, '.retire-agui-'));
+    try {
+      const config = join(directory, 'retire.run.ts');
+      await writeFile(config, retirementConfig, { flag: 'wx' });
+      await dependencies.runProcess({
+        argv: [
+          options.bunExecutable,
+          'alchemy',
+          'destroy',
+          config,
+          '--stage',
+          `pr-${options.prNumber}`,
+          '--profile',
+          'preview-ci',
+          '--yes',
+        ],
+        env: cloudflareEnvironment(
+          options.accountId,
+          options.apiToken,
+          options.prNumber,
+          options.expectedAccountId,
+        ),
+        cwd,
+        timeoutMs: 600_000,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
   const cleaned = await dependencies.deleteWorkers(
     {
       accountId: options.accountId,
       apiToken: options.apiToken,
       prNumber: options.prNumber,
       attempts: 1,
-      workerScope: 'legacy',
+      workerScope: options.hasAgui ? 'legacy' : 'legacy-and-agui',
     },
     async () => {
       await readIntent(
@@ -1318,7 +1368,7 @@ export const finishPreviewDeployment = async (
       return true;
     },
   );
-  if (!cleaned) throw new Error('Legacy preview Worker cleanup failed');
+  if (!cleaned) throw new Error('Superseded preview Worker cleanup failed');
   const intent = await readIntent(
     options.repository,
     options.prNumber,
@@ -1334,7 +1384,10 @@ export const finishPreviewDeployment = async (
       repository: options.repository,
       approvedSha: options.approvedSha,
       deployedSha: options.approvedSha,
-      ...urls,
+      demoUrl,
+      aguiUrl,
+      docsUrl,
+      wwwUrl,
     }),
     dependencies,
   );
@@ -1782,7 +1835,7 @@ const renderTeardownComment = (complete: boolean) => `${COMMENT_MARKER}
 ${stateMarker({})}
 ${
   complete
-    ? '🧹 **Preview removed.** The three known Alchemy preview stacks and exact preview Worker names were cleaned up.'
+    ? '🧹 **Preview removed.** The four known Alchemy preview stacks and exact preview Worker names were cleaned up.'
     : '⚠️ **Preview teardown incomplete.** At least one known Cloudflare cleanup operation failed. Retry this workflow before assuming cleanup finished.'
 }
 
@@ -1842,7 +1895,7 @@ export const teardownPreview = async (
     }
   }
   if (authority === 'all') {
-    for (const app of ['docs', 'www', 'demo'] as const) {
+    for (const app of ['docs', 'www', 'agui-demo', 'demo'] as const) {
       const live = await readTeardownPolicy(
         options.repository,
         options.prNumber,
@@ -1855,10 +1908,12 @@ export const teardownPreview = async (
         assertWorkspaceAlchemyVersion(
           options.root,
           process.env.ALCHEMY_REQUIRED_VERSION,
+          true,
         );
         assertPreviewStateStore(
           options.root,
           process.env.ALCHEMY_PREVIEW_STATE_STORE_WORKER,
+          true,
         );
         await dependencies.runProcess({
           argv: [
@@ -2006,6 +2061,12 @@ const cli = async () => {
   const dependencies = defaultDependencies();
   const repository = environment.GITHUB_REPOSITORY ?? '';
   const prNumber = environment.PR_NUMBER ?? '';
+  const hasAgui = () => {
+    const value = required(environment, 'HAS_AGUI_PREVIEW');
+    if (value !== 'true' && value !== 'false')
+      throw new Error('Invalid approved preview app selection');
+    return value === 'true';
+  };
   if (command === 'approve') {
     await approvePreview(
       {
@@ -2094,6 +2155,7 @@ const cli = async () => {
   if (command === 'finish-deployment') {
     await finishPreviewDeployment(
       {
+        hasAgui: hasAgui(),
         repository,
         prNumber,
         approvedSha: required(environment, 'APPROVED_SHA'),
@@ -2115,11 +2177,17 @@ const cli = async () => {
   }
   if (command === 'deploy-app') {
     const app = Bun.argv[3];
-    if (app !== 'demo' && app !== 'docs' && app !== 'www') {
-      throw new Error('deploy-app requires demo, www, or docs');
+    if (
+      app !== 'demo' &&
+      app !== 'agui-demo' &&
+      app !== 'docs' &&
+      app !== 'www'
+    ) {
+      throw new Error('deploy-app requires demo, agui-demo, www, or docs');
     }
     await deployPreviewApp(
       {
+        hasAgui: hasAgui(),
         app,
         repository,
         prNumber,
