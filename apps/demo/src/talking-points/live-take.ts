@@ -3,6 +3,10 @@ import {
   type LiveCapture,
   type LiveCaptureOptions,
 } from './live-capture';
+import {
+  createLiveTranscript,
+  type TranscriptPart,
+} from './live-transcript.store';
 import type { Topic } from './outline.store';
 import { createSemanticEvidence } from './semantic-evidence';
 
@@ -20,6 +24,7 @@ export interface TakeSnapshot {
   readonly elapsedMs: number;
   readonly error: string | null;
   readonly warning: string | null;
+  readonly transcript: readonly TranscriptPart[];
 }
 export type TakeEvidence =
   | {
@@ -54,6 +59,7 @@ export function createLiveTake(options: {
   let cutoff: ReturnType<typeof setTimeout> | undefined;
   let capture: LiveCapture | undefined;
   const evidence = createSemanticEvidence(generation, crypto.randomUUID());
+  const transcript = createLiveTranscript();
   const evidenceListeners = new Set<(item: TakeEvidence) => void>();
   const listeners = new Set<() => void>();
   let snapshot: TakeSnapshot = {
@@ -66,6 +72,7 @@ export function createLiveTake(options: {
     elapsedMs: 0,
     error: null,
     warning: null,
+    transcript: transcript.getSnapshot(),
   };
   const publish = (change: Partial<TakeSnapshot>) => {
     snapshot = { ...snapshot, ...change };
@@ -82,6 +89,12 @@ export function createLiveTake(options: {
     evidence.accept(item);
     for (const listener of evidenceListeners) listener(item);
   };
+  function display(event: Parameters<typeof transcript.accept>[0]) {
+    if (!eligible()) return;
+    transcript.accept(event);
+    if (snapshot.transcript !== transcript.getSnapshot())
+      publish({ transcript: transcript.getSnapshot() });
+  }
   function close() {
     automatic = false;
     clearInterval(ticker);
@@ -144,7 +157,11 @@ export function createLiveTake(options: {
         capture = (options.createCapture ?? createLiveCapture)({
           mintToken: options.mintToken,
           onCommitted: (event) => retain({ type: 'committed', event }),
-          onCompleted: (event) => retain({ type: 'completed', event }),
+          onDelta: display,
+          onCompleted: (event) => {
+            display(event);
+            retain({ type: 'completed', event });
+          },
           onTranscriptionFailed: (event) => retain({ type: 'failed', event }),
           onFinalCommitIssue: () => {},
           onFatalError: () => fail(),
@@ -217,7 +234,9 @@ export function createLiveTake(options: {
       close();
       evidence.clear();
       evidenceListeners.clear();
+      transcript.clear();
       publish({
+        transcript: transcript.getSnapshot(),
         phase: 'preparing',
         spoken: new Set(),
         manualLocks: new Set(),
@@ -231,6 +250,8 @@ export function createLiveTake(options: {
       close();
       evidence.clear();
       evidenceListeners.clear();
+      transcript.clear();
+      publish({ transcript: transcript.getSnapshot() });
     },
   };
 }

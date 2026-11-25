@@ -25,3 +25,8 @@
 .talking-points-topic[data-spoken="true"] p { text-decoration: line-through; }
 .talking-points-take-controls { display: flex; align-items: center; gap: 1rem; }
 .talking-points-take-controls output { font: 2rem monospace; font-variant-numeric: tabular-nums; }
+.talking-points-transcript { margin-top: 1rem; border-top: 1px solid var(--line, #35403b); padding-top: 1rem; }
+.talking-points-transcript h2 { font-size: .9rem; font-weight: 600; margin-bottom: .5rem; }
+.talking-points-transcript-scroll { height: 8rem; max-height: 25dvh; overflow-y: auto; overscroll-behavior: contain; }
+.talking-points-transcript p { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: .5rem; }
+.talking-points-transcript [data-status="draft"] { color: var(--ink-2, #a3b4a9); font-style: italic; }

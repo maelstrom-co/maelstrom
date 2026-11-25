@@ -37,6 +37,7 @@ import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { createLiveTake, type LiveTake } from './live-take';
+import { LiveTranscript } from './live-transcript';
 import {
   createPreparationRuntime,
   PREPARATION_LAYOUT,
@@ -553,6 +554,7 @@ function LiveWorkspace({
             <m.Chart />
           </div>
         </m.Provider>
+        <LiveTranscript take={take} />
       </main>
     </div>
   );

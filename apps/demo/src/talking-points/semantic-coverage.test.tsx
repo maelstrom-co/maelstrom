@@ -19,9 +19,10 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { createMockConnector } from '../lib/__tests__/mock-connector';
-import type { LiveCaptureOptions } from './live-capture';
+import { createLiveCapture } from './live-capture';
 import { validateLivePlan } from './live-plan';
 import { createLiveTake } from './live-take';
+import { LiveTranscript } from './live-transcript';
 import { createLiveRuntime } from './maelstrom';
 
 const topics = [
@@ -50,7 +51,22 @@ async function journey() {
       disconnect() {}
     },
   );
-  let callbacks!: LiveCaptureOptions;
+  const track = { enabled: true, stop: vi.fn(), onended: null };
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+  const channel = {
+    readyState: 'open',
+    send: vi.fn(),
+    close: vi.fn(),
+    onmessage: null as ((event: { data: string }) => void) | null,
+  };
+  const peer = {
+    createDataChannel: () => channel,
+    addTransceiver: vi.fn(),
+    createOffer: async () => ({ sdp: 'test-offer' }),
+    setLocalDescription: async () => {},
+    setRemoteDescription: vi.fn(async () => {}),
+    close: vi.fn(),
+  };
   let runtime!: ReturnType<typeof createLiveRuntime>;
   let clock = 0;
   const take = createLiveTake({
@@ -58,16 +74,12 @@ async function journey() {
     topics,
     mintToken: async () => ({ value: 'test-grant' }),
     retirePending: () => runtime.retirePending(),
-    createCapture: (options) => {
-      callbacks = options;
-      return {
-        start: async () => ({ inputOnly: true, turnMode: 'server_vad' }),
-        beginCapture() {},
-        stopCapture() {},
-        commitFinalAudio: () => ({ status: 'unavailable' }),
-        dispose() {},
-      };
-    },
+    createCapture: (options) =>
+      createLiveCapture(options, {
+        getUserMedia: async () => stream as unknown as MediaStream,
+        createPeerConnection: () => peer as unknown as RTCPeerConnection,
+        fetch: async () => new Response('test-answer'),
+      }),
   });
   runtime = createLiveRuntime(take);
   const requests: ChartRequestMessage[] = [];
@@ -116,23 +128,53 @@ async function journey() {
       initialLayout={runtime.layout}
     >
       <m.Chart />
+      <LiveTranscript take={take} />
     </m.Provider>,
   );
   disposers.push(() => take.dispose());
-  await act(async () => {
-    await take.start();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  const starting = take.start();
+  await vi.waitFor(() => expect(peer.setRemoteDescription).toHaveBeenCalled());
+  expect(track.enabled).toBe(false);
+  const receive = channel.onmessage!;
+  const event = (body: unknown) =>
+    act(() => receive({ data: JSON.stringify(body) }));
+  event({
+    type: 'session.created',
+    session: {
+      type: 'transcription',
+      audio: {
+        input: {
+          transcription: { model: 'gpt-4o-transcribe' },
+          turn_detection: { type: 'server_vad' },
+        },
+      },
+    },
   });
+  await act(async () => {
+    await starting;
+  });
+  expect(track.enabled).toBe(true);
   const commit = (itemId: string, previousItemId: string | null) =>
-    act(() => callbacks.onCommitted({ itemId, previousItemId }));
+    event({
+      type: 'input_audio_buffer.committed',
+      item_id: itemId,
+      previous_item_id: previousItemId,
+    });
   const final = (itemId: string, transcript: string) =>
-    act(() =>
-      callbacks.onCompleted({
-        itemId,
-        previousItemId: undefined,
-        contentIndex: 0,
-        transcript,
-      }),
-    );
+    event({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: itemId,
+      content_index: 0,
+      transcript,
+    });
+  const delta = (itemId: string, delta: string, contentIndex = 0) =>
+    event({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: itemId,
+      content_index: contentIndex,
+      delta,
+    });
   const release = async (
     mark: string[] = [],
     actionName = 'mark',
@@ -152,6 +194,11 @@ async function journey() {
     releases,
     commit,
     final,
+    delta,
+    event,
+    track,
+    channel,
+    peer,
     release,
     mounted,
     setClock: (value: number) => {
@@ -433,4 +480,169 @@ it('blocks a conflicting late source event even when that source text has alread
   );
   expect(intent(live.requests[1]!)).not.toContain('Conflicting late final.');
   await live.release();
+});
+
+it('shows raw drafts without evaluating coverage, replaces them with full finals, then marks only after an explicit ordered commit', async () => {
+  const live = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  expect(transcript.textContent).toContain('Listening for speech…');
+  live.delta('a', 'Staged ');
+  live.delta('a', 'rollout');
+  expect(transcript.textContent).toContain('Staged rollout');
+  expect(transcript.querySelector('[data-status="draft"]')).not.toBeNull();
+  expect(live.requests).toHaveLength(0);
+  expect(spoken('rollout')).toBe('false');
+  live.final('a', 'A staged rollout limits customer impact.');
+  expect(transcript.textContent).not.toContain('Staged rollout');
+  expect(transcript.querySelector('[data-status="final"]')?.textContent).toBe(
+    'A staged rollout limits customer impact.',
+  );
+  expect(live.requests).toHaveLength(0);
+  live.commit('a', null);
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  expect(intent(live.requests[0]!)).not.toContain('Staged rollout');
+  await live.release(['rollout']);
+  await waitFor(() => expect(spoken('rollout')).toBe('true'));
+  live.final('a', 'A staged rollout limits customer impact.');
+  live.delta('a', 'late draft');
+  expect(transcript.querySelectorAll('[data-status="final"]')).toHaveLength(1);
+  expect(transcript.textContent).not.toContain('late draft');
+  expect(live.requests).toHaveLength(1);
+});
+
+it('rolls display independently of ordering metadata, retaining at most four items and 8000 Unicode code points even for unfinished speech', async () => {
+  const live = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  live.delta('a', 'x'.repeat(8000));
+  live.delta('a', '😀'.repeat(25));
+  expect(transcript.querySelector('p')?.textContent).toBe(
+    'x'.repeat(7975) + '😀'.repeat(25),
+  );
+  for (const id of ['b', 'c', 'd', 'e']) live.final(id, `Speech ${id}.`);
+  expect(
+    [...transcript.querySelectorAll('p')].map((part) => part.textContent),
+  ).toEqual(['Speech b.', 'Speech c.', 'Speech d.', 'Speech e.']);
+  live.delta('a', 'Old speech must not reappear.');
+  live.final('a', 'A late final for evicted speech.');
+  expect(transcript.textContent).not.toContain('Old speech');
+  expect(transcript.textContent).not.toContain('late final');
+  expect(live.requests).toHaveLength(0);
+});
+
+it('displays out-of-order finals without treating an unseen predecessor as a semantic root, then accepts a late explicit anchor', async () => {
+  const live = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  live.final('b', 'Second speech arrived first.');
+  live.commit('b', 'a');
+  expect(transcript.textContent).toContain('Second speech arrived first.');
+  expect(live.requests).toHaveLength(0);
+  live.final('a', 'First speech arrived later.');
+  expect(live.requests).toHaveLength(0);
+  live.commit('a', null);
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  const payload = JSON.parse(intent(live.requests[0]!).split('\n').at(-1)!);
+  expect(
+    payload.evidence.items.map((item: { itemId: string }) => item.itemId),
+  ).toEqual(['a', 'b']);
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('true');
+});
+
+it('replaces corrected display finals but preserves conservative semantic conflict and finalized content identities', async () => {
+  const live = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  live.delta('a', 'Later content.', 1);
+  live.delta('a', 'Earlier content.', 0);
+  expect(
+    [...transcript.querySelectorAll('p')].map((part) => part.textContent),
+  ).toEqual(['Earlier content.', 'Later content.']);
+  live.final('a', 'A small rollout contains impact.');
+  live.commit('a', null);
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  live.final('a', 'Corrected final contradicts the original.');
+  live.delta('a', 'Ignored after final.', 0);
+  expect(transcript.textContent).toContain(
+    'Corrected final contradicts the original.',
+  );
+  expect(transcript.textContent).not.toContain('A small rollout');
+  expect(transcript.textContent).not.toContain('Ignored after final.');
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('false');
+  expect(live.requests).toHaveLength(1);
+});
+
+it('receives the 2999ms Stop tail but blocks display and evidence at the absolute 3000ms cutoff, and Reset isolates a fresh take', async () => {
+  const old = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  act(() => old.take.stop());
+  expect(old.track.stop).toHaveBeenCalledOnce();
+  expect(
+    old.channel.send.mock.calls.map(([message]) => JSON.parse(message)),
+  ).toEqual([
+    {
+      type: 'input_audio_buffer.commit',
+      event_id: 'talking-points-final-commit',
+    },
+  ]);
+  old.setClock(2999);
+  old.delta('tail', 'Allowed draft.');
+  old.final('tail', 'Allowed final.');
+  expect(transcript.textContent).toContain('Allowed final.');
+  expect(old.requests).toHaveLength(0);
+  old.setClock(3000);
+  old.final('tail', 'Too late correction.');
+  old.delta('late', 'Too late draft.');
+  old.commit('tail', null);
+  expect(transcript.textContent).toContain('Allowed final.');
+  expect(transcript.textContent).not.toContain('Too late');
+  expect(old.requests).toHaveLength(0);
+  act(() => old.take.reset());
+  expect(old.take.getSnapshot().transcript).toEqual([]);
+  old.mounted.unmount();
+  const fresh = await journey();
+  old.delta('stale', 'Stale take speech.');
+  old.final('stale', 'Stale final.');
+  expect(
+    screen.getByRole('region', { name: 'Live transcript' }).textContent,
+  ).toContain('Listening for speech…');
+  expect(fresh.take.getSnapshot().transcript).toEqual([]);
+  expect(old.take.getSnapshot().transcript).toEqual([]);
+});
+
+it('scrolls to the latest display update without storage, logging, response generation, or playback, and retains text on error until Reset', async () => {
+  const live = await journey();
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  const scroll = transcript.querySelector('div')!;
+  Object.defineProperty(scroll, 'scrollHeight', { value: 123 });
+  const storage = vi.spyOn(Storage.prototype, 'setItem');
+  const logs = [
+    vi.spyOn(console, 'log'),
+    vi.spyOn(console, 'info'),
+    vi.spyOn(console, 'debug'),
+    vi.spyOn(console, 'warn'),
+    vi.spyOn(console, 'error'),
+  ];
+  const play = vi.spyOn(HTMLMediaElement.prototype, 'play');
+  live.delta('a', 'Private unfinished display.');
+  expect(scroll.scrollTop).toBe(123);
+  scroll.scrollTop = 0;
+  live.final('a', 'Private finalized display.');
+  expect(scroll.scrollTop).toBe(123);
+  expect(live.requests).toHaveLength(0);
+  expect(live.channel.send).not.toHaveBeenCalled();
+  expect(live.peer.addTransceiver).toHaveBeenCalledWith(
+    live.track,
+    expect.objectContaining({ direction: 'sendonly' }),
+  );
+  expect(document.querySelector('audio, video')).toBeNull();
+  expect(play).not.toHaveBeenCalled();
+  expect(storage).not.toHaveBeenCalled();
+  for (const log of logs) expect(log).not.toHaveBeenCalled();
+  live.event({ type: 'error', error: { code: 'test-error' } });
+  expect(live.take.getSnapshot().phase).toBe('stopped');
+  live.delta('late', 'After error.');
+  expect(transcript.textContent).toContain('Private finalized display.');
+  expect(transcript.textContent).not.toContain('After error.');
+  act(() => live.take.reset());
+  expect(live.take.getSnapshot().transcript).toEqual([]);
 });

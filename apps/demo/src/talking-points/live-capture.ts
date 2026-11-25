@@ -13,6 +13,13 @@ export interface LiveCaptureCommitted {
   readonly previousItemId: string | null;
 }
 
+/** Display-only text appended to an unfinished item/content pair, never semantic evidence. */
+export interface LiveCaptureDelta {
+  readonly itemId: string;
+  readonly contentIndex: number;
+  readonly delta: string;
+}
+
 /** A full final transcript replaces any partial text for this item/content pair. */
 export interface LiveCaptureCompleted {
   readonly itemId: string;
@@ -59,6 +66,7 @@ export interface LiveCaptureOptions {
     signal: AbortSignal,
   ) => Promise<{ readonly value: string }>;
   readonly onCommitted: (event: LiveCaptureCommitted) => void;
+  readonly onDelta: (event: LiveCaptureDelta) => void;
   readonly onCompleted: (event: LiveCaptureCompleted) => void;
   readonly onTranscriptionFailed: (
     event: LiveCaptureTranscriptionFailed,
@@ -226,6 +234,7 @@ export function createLiveCapture(
         previousItemId: event.previous_item_id,
       });
     } else if (
+      event.type === 'conversation.item.input_audio_transcription.delta' ||
       event.type === 'conversation.item.input_audio_transcription.completed' ||
       event.type === 'conversation.item.input_audio_transcription.failed'
     ) {
@@ -244,7 +253,19 @@ export function createLiveCapture(
         contentIndex: event.content_index,
         previousItemId: predecessors.get(event.item_id),
       };
-      if (event.type === 'conversation.item.input_audio_transcription.failed') {
+      if (event.type === 'conversation.item.input_audio_transcription.delta') {
+        if (typeof event.delta === 'string') {
+          options.onDelta({
+            itemId: event.item_id,
+            contentIndex: event.content_index,
+            delta: event.delta,
+          });
+        } else {
+          fail('protocol');
+        }
+      } else if (
+        event.type === 'conversation.item.input_audio_transcription.failed'
+      ) {
         options.onTranscriptionFailed(identity);
       } else if (typeof event.transcript === 'string') {
         options.onCompleted({ ...identity, transcript: event.transcript });

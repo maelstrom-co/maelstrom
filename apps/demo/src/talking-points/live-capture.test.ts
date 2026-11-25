@@ -47,6 +47,7 @@ function fixture() {
   const fetchMock = vi.fn(async () => new Response('answer-sdp'));
   const callbacks = {
     onCommitted: vi.fn(),
+    onDelta: vi.fn(),
     onCompleted: vi.fn(),
     onTranscriptionFailed: vi.fn(),
     onFinalCommitIssue: vi.fn(),
@@ -341,6 +342,15 @@ describe('Talking Points input-only capture', () => {
           transcript: 'late',
         }),
       });
+      queuedMessage?.({
+        data: JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.delta',
+          item_id: 'late',
+          content_index: 0,
+          delta: 'late draft',
+        }),
+      });
+      expect(f.callbacks.onDelta).not.toHaveBeenCalled();
       const output = { stop: vi.fn() };
       queuedTrack?.({ track: output });
       expect(output.stop).toHaveBeenCalledOnce();
@@ -494,6 +504,28 @@ describe('Talking Points input-only capture', () => {
     expect(f.channel.send).toHaveBeenCalledOnce();
     f.capture.dispose();
   });
+
+  it.each([
+    { item_id: '', content_index: 0, delta: 'text' },
+    { item_id: 'a', content_index: -1, delta: 'text' },
+    { item_id: 'a', content_index: 0.5, delta: 'text' },
+    { item_id: 'a', content_index: Number.MAX_SAFE_INTEGER + 1, delta: 'text' },
+    { item_id: 'a', content_index: 0, delta: 42 },
+  ])(
+    'fails closed on malformed display delta identity or text: %j',
+    async (event) => {
+      const f = fixture();
+      await f.ready();
+      f.event({
+        type: 'conversation.item.input_audio_transcription.delta',
+        ...event,
+      });
+      expect(f.callbacks.onDelta).not.toHaveBeenCalled();
+      expect(f.callbacks.onFatalError).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'protocol' }),
+      );
+    },
+  );
 
   it('does not claim a sent commit when sending throws', async () => {
     const f = fixture();

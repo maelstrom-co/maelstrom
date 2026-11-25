@@ -172,3 +172,25 @@ it('Stop during setup cannot be revived by late readiness', async () => {
   expect(take.getSnapshot()).toMatchObject({ phase: 'stopped', elapsedMs: 0 });
   expect(capture.beginCapture).not.toHaveBeenCalled();
 });
+
+it('retains the final display when its semantic evidence immediately fails coverage evaluation', async () => {
+  const { take, ready, callbacks } = setup();
+  const starting = take.start();
+  ready();
+  await starting;
+  take.subscribeEvidence(() => take.coverageFailed());
+  callbacks().onCompleted({
+    itemId: 'a',
+    contentIndex: 0,
+    previousItemId: undefined,
+    transcript: 'Final speech before failure.',
+  });
+  expect(take.getSnapshot().phase).toBe('stopped');
+  expect(take.getSnapshot().transcript.map((part) => part.text)).toEqual([
+    'Final speech before failure.',
+  ]);
+  callbacks().onDelta({ itemId: 'late', contentIndex: 0, delta: 'Too late.' });
+  expect(take.getSnapshot().transcript).toHaveLength(1);
+  take.dispose();
+  expect(take.getSnapshot().transcript).toEqual([]);
+});

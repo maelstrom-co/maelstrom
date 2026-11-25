@@ -401,6 +401,22 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
     liveCapture.ready!();
   });
   expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  const transcript = screen.getByRole('region', { name: 'Live transcript' });
+  expect(transcript.textContent).toContain('Listening for speech…');
+  const chart = document.querySelector('.talking-points-chart')!;
+  expect(chart.contains(transcript)).toBe(false);
+  expect(
+    chart.compareDocumentPosition(transcript) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
+  act(() =>
+    liveCapture.callbacks!.onDelta({
+      itemId: 'a',
+      contentIndex: 0,
+      delta: 'Live words',
+    }),
+  );
+  expect(transcript.textContent).toContain('Live words');
   expect(screen.queryByText('AI-generated voice')).toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Mark spoken' }));
@@ -414,7 +430,26 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
   expect(liveCapture.stop).toHaveBeenCalledOnce();
   act(() => vi.advanceTimersByTime(2999));
   expect(screen.getByLabelText('Take status').textContent).toBe('Finalizing…');
+  act(() =>
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'a',
+      contentIndex: 0,
+      previousItemId: undefined,
+      transcript: 'Final words retained.',
+    }),
+  );
+  expect(transcript.textContent).toContain('Final words retained.');
+  expect(transcript.textContent).not.toContain('Live words');
   act(() => vi.advanceTimersByTime(1));
+  act(() =>
+    liveCapture.callbacks!.onDelta({
+      itemId: 'late',
+      contentIndex: 0,
+      delta: 'After cutoff',
+    }),
+  );
+  expect(transcript.textContent).toContain('Final words retained.');
+  expect(transcript.textContent).not.toContain('After cutoff');
   expect(screen.getByLabelText('Take status').textContent).toMatch(/Stopped/);
   expect(screen.getByText(/tail may be incomplete/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Start take' })).toBeNull();
@@ -432,6 +467,10 @@ it('shows only silent take controls and frozen Topics, keeps manual marks throug
       .getAttribute('data-spoken'),
   ).toBe('false');
   expect(screen.queryByLabelText('Elapsed time')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).not.toContain(
+    'Final words',
+  );
 });
 
 it('fails Start visibly after an unknown preparation outcome without freezing or replay', async () => {
