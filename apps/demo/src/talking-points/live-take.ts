@@ -4,6 +4,7 @@ import {
   type LiveCaptureOptions,
 } from './live-capture';
 import type { Topic } from './outline.store';
+import { createSemanticEvidence } from './semantic-evidence';
 
 export type TakePhase =
   | 'preparing'
@@ -52,7 +53,8 @@ export function createLiveTake(options: {
   let ticker: ReturnType<typeof setInterval> | undefined;
   let cutoff: ReturnType<typeof setTimeout> | undefined;
   let capture: LiveCapture | undefined;
-  const evidence: TakeEvidence[] = [];
+  const evidence = createSemanticEvidence(generation, crypto.randomUUID());
+  const evidenceListeners = new Set<(item: TakeEvidence) => void>();
   const listeners = new Set<() => void>();
   let snapshot: TakeSnapshot = {
     phase: 'preparing',
@@ -76,7 +78,9 @@ export function createLiveTake(options: {
     (snapshot.phase === 'listening' ||
       (snapshot.phase === 'finalizing' && now() < deadline));
   const retain = (item: TakeEvidence) => {
-    if (eligible()) evidence.push(item);
+    if (!eligible()) return;
+    evidence.accept(item);
+    for (const listener of evidenceListeners) listener(item);
   };
   function close() {
     automatic = false;
@@ -85,7 +89,9 @@ export function createLiveTake(options: {
     options.retirePending();
     capture?.dispose();
   }
-  function fail() {
+  function fail(
+    message = 'Live capture failed. Your marks were retained. Reset before trying again.',
+  ) {
     if (!active || snapshot.phase === 'stopped') return;
     const elapsedMs =
       snapshot.phase === 'listening' ? now() - origin : snapshot.elapsedMs;
@@ -95,8 +101,7 @@ export function createLiveTake(options: {
     publish({
       phase: 'stopped',
       elapsedMs,
-      error:
-        'Live capture failed. Your marks were retained. Reset before trying again.',
+      error: message,
     });
   }
   return {
@@ -108,19 +113,41 @@ export function createLiveTake(options: {
         listeners.delete(listener);
       };
     },
-    getEvidence: (): readonly TakeEvidence[] => [...evidence],
-    async start() {
+    getEvidence: evidence.getSnapshot,
+    canEvaluate: eligible,
+    engineFailed() {
+      fail(
+        'Engine connection failed. Your marks and elapsed time were retained. Reset before trying again.',
+      );
+    },
+    coverageFailed() {
+      if (!eligible()) return;
+      fail();
+      publish({
+        error:
+          'Coverage evaluation was not confirmed. Your marks were retained. Reset before trying again.',
+      });
+    },
+    subscribeEvidence(listener: (item: TakeEvidence) => void) {
+      evidenceListeners.add(listener);
+      return () => {
+        evidenceListeners.delete(listener);
+      };
+    },
+    async start(engineReady?: Promise<void>) {
       if (!active || snapshot.phase !== 'preparing') return;
       publish({ phase: 'starting' });
       if (!active || phase() !== 'starting') return;
       try {
+        if (engineReady) await engineReady;
+        if (!active || phase() !== 'starting') return;
         capture = (options.createCapture ?? createLiveCapture)({
           mintToken: options.mintToken,
           onCommitted: (event) => retain({ type: 'committed', event }),
           onCompleted: (event) => retain({ type: 'completed', event }),
           onTranscriptionFailed: (event) => retain({ type: 'failed', event }),
           onFinalCommitIssue: () => {},
-          onFatalError: fail,
+          onFatalError: () => fail(),
         });
         await capture.start();
         if (!active || phase() !== 'starting') return;
@@ -188,7 +215,8 @@ export function createLiveTake(options: {
       active = false;
       automatic = false;
       close();
-      evidence.length = 0;
+      evidence.clear();
+      evidenceListeners.clear();
       publish({
         phase: 'preparing',
         spoken: new Set(),
@@ -201,7 +229,8 @@ export function createLiveTake(options: {
     dispose() {
       active = false;
       close();
-      evidence.length = 0;
+      evidence.clear();
+      evidenceListeners.clear();
     },
   };
 }

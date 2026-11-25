@@ -28,6 +28,7 @@ import {
   type Topic,
 } from './outline.store';
 import { createPreparationAdmission } from './preparation-admission';
+import { createSemanticCoverage } from './semantic-coverage';
 import { outlineDefinition, topicDefinition } from './vessels';
 
 export const PREPARATION_VOICE_PROVIDERS = ['live', 'realtime'] as const;
@@ -255,7 +256,16 @@ function apply(mutate: () => void) {
 }
 
 export function createLiveRuntime(take: LiveTake) {
+  let settleEngine!: () => void;
+  const engineReady = new Promise<void>((resolve) => {
+    settleEngine = resolve;
+  });
+  let failEngine = () => {
+    take.engineFailed();
+    settleEngine();
+  };
   const topics = take.getSnapshot().topics;
+  let coverage: ReturnType<typeof createSemanticCoverage> | undefined;
   const entries = topics.map((topic, index) => {
     const definition = liveTopicDefinition(topic);
     function LiveTopic({ instanceId }: TypedVesselProps<typeof definition>) {
@@ -265,7 +275,10 @@ export function createLiveRuntime(take: LiveTake) {
         take.getSnapshot,
       );
       m.useActions(definition.id, instanceId, {
-        mark: () => apply(() => take.automaticMark(topic.id)),
+        mark: () =>
+          apply(() => {
+            if (coverage?.canMark()) take.automaticMark(topic.id);
+          }),
       });
       const spoken = snapshot.spoken.has(topic.id);
       return (
@@ -299,14 +312,47 @@ export function createLiveRuntime(take: LiveTake) {
     motion: { disabled: true },
   }).with((ctx) => {
     ctx.onOrchestrator?.((orchestrator) => {
-      const scope = orchestrator.createIntentScope();
-      retirePending = () => scope.retire();
-      return () => scope.retire();
+      coverage = createSemanticCoverage(take, orchestrator);
+      const original = coverage;
+      retirePending = () => original.retire();
+      let observing = true;
+      let attempted = false;
+      let failed = false;
+      const fail = () => {
+        if (!observing || failed) return;
+        failed = true;
+        take.engineFailed();
+        settleEngine();
+        // Cancel transport retries without replacing the original active ticket.
+        void orchestrator.disconnect().catch(() => {});
+      };
+      failEngine = fail;
+      const unsubscribeStatus = orchestrator.connectionManager.events.on(
+        'connection_status_changed',
+        ({ status }) => {
+          if (!observing || failed) return;
+          if (status === 'connecting') attempted = true;
+          else if (status === 'connected') settleEngine();
+          else if (status === 'error' || attempted) fail();
+        },
+      );
+      const unsubscribeError = orchestrator.connectionManager.events.on(
+        'connection_error',
+        fail,
+      );
+      return () => {
+        observing = false;
+        unsubscribeStatus();
+        unsubscribeError();
+        original.retire();
+      };
     });
     return {};
   });
   return {
     m,
+    engineReady,
+    engineFailed: () => failEngine(),
     layout: liveLayout(topics.map((topic) => topic.id)),
     retirePending: () => retirePending(),
   };

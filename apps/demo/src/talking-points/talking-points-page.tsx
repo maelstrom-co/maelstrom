@@ -138,7 +138,7 @@ export function TalkingPointsPage() {
         getApiKey: () => playgroundKeyStore.state.apiKey,
       }),
     });
-    void take.start();
+    void take.start(runtime.engineReady);
   };
   if (live)
     return (
@@ -477,6 +477,17 @@ function PreparationWorkspace({
   );
 }
 
+function LiveEngineStatus({ runtime }: { readonly runtime: LiveRuntime }) {
+  const connectionStatus = runtime.m.useMaelstrom(
+    (state) => state.connectionStatus,
+  );
+  return (
+    <p role="status" aria-label="Engine connection status">
+      Engine: {connectionStatus}
+    </p>
+  );
+}
+
 function LiveWorkspace({
   runtime,
   onReset,
@@ -532,7 +543,9 @@ function LiveWorkspace({
           sessionId={runtime.sessionId}
           connector={runtime.connector}
           initialLayout={runtime.layout}
+          onError={runtime.engineFailed}
         >
+          <LiveEngineStatus runtime={runtime} />
           <div
             className="talking-points-chart"
             style={{ height: Math.max(320, snapshot.topics.length * 160) }}

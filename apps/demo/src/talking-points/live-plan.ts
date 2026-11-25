@@ -1,5 +1,6 @@
 import type { PlanValidator } from '@maelstrom-co/engine';
 import {
+  type ChartRequest,
   defineVessel,
   formatTilingSplitToken,
   InstanceId,
@@ -59,6 +60,12 @@ export function liveLayout(ids: readonly string[]): TilingLayout {
 }
 
 // Catalog identity is set by the app runtime, never by speech or an update reason.
+export function isLiveRequest(request: Pick<ChartRequest, 'vessels'>) {
+  return request.vessels.some((definition) =>
+    definition.id.startsWith(LIVE_PREFIX),
+  );
+}
+
 export const validateLivePlan: PlanValidator = ({ request, response }) => {
   const live = request.vessels.filter((definition) =>
     definition.id.startsWith(LIVE_PREFIX),

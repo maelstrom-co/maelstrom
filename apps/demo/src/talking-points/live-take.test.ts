@@ -69,7 +69,7 @@ it('starts the clock only at readiness and retains final reception for the entir
     transcript: 'Opening',
   });
   expect(take.getSnapshot().phase).toBe('finalizing');
-  expect(take.getEvidence()).toHaveLength(2);
+  expect(take.getEvidence().items).toHaveLength(1);
   expect(capture.dispose).not.toHaveBeenCalled();
   vi.advanceTimersByTime(1);
   expect(take.getSnapshot()).toMatchObject({
@@ -101,7 +101,7 @@ it('Reset invalidates capture readiness and all old mutation authority before te
     elapsedMs: 0,
   });
   expect([...take.getSnapshot().spoken]).toEqual([]);
-  expect(take.getEvidence()).toEqual([]);
+  expect(take.getEvidence().items).toEqual([]);
 });
 
 it('manual values lock only their Topic, including pending automatic marks and finalization', async () => {
@@ -138,7 +138,7 @@ it('checks the absolute cutoff at actual writes even before a delayed cutoff tim
     transcript: 'Opening',
   });
   expect([...take.getSnapshot().spoken]).toEqual([]);
-  expect(take.getEvidence()).toEqual([]);
+  expect(take.getEvidence().items).toEqual([]);
   take.dispose();
   vi.restoreAllMocks();
 });

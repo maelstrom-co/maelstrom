@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ConnectorEvent } from '@maelstrom-co/client';
 import {
   ActionName,
   type ChartRequestMessage,
@@ -69,12 +70,51 @@ const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   sessions: [] as string[],
   release: undefined as (() => void) | undefined,
+  delayConnection: false,
+  connections: [] as {
+    emit: (event: ConnectorEvent) => void;
+    ready: () => void;
+    reject: () => void;
+    connect: ReturnType<typeof vi.fn>;
+  }[],
 }));
 vi.mock('../lib/connector', () => ({
   createDemoConnector: ({ sessionId }: { sessionId: string }) => {
     engine.sessions.push(sessionId);
+    const subscribers = new Set<(event: ConnectorEvent) => void>();
+    const base = createMockConnector();
+    const connection = {
+      emit: (event: ConnectorEvent) => {
+        for (const listener of [...subscribers]) listener(event);
+      },
+      ready: () => {},
+      reject: () => {},
+      connect: vi.fn(async () => {
+        if (engine.delayConnection)
+          await new Promise<void>((resolve, reject) => {
+            connection.ready = resolve;
+            connection.reject = () =>
+              reject(new Error('private startup error'));
+          });
+        await base.connect(sessionId as never);
+      }),
+    };
+    engine.connections.push(connection);
     return {
-      ...createMockConnector(),
+      ...base,
+      connect: connection.connect,
+      subscribe: (listener: (event: ConnectorEvent) => void) => {
+        subscribers.add(listener);
+        return () => {
+          subscribers.delete(listener);
+        };
+      },
+      disconnect: async () =>
+        connection.emit({
+          type: 'disconnected',
+          clean: true,
+          message: 'test disconnect',
+        }),
       process: async (
         message: ChartRequestMessage,
       ): Promise<MaelstromResponse> => {
@@ -136,6 +176,8 @@ beforeEach(() => {
   engine.requests = [];
   engine.sessions = [];
   engine.release = undefined;
+  engine.delayConnection = false;
+  engine.connections = [];
   FakeRealtimeSession.instances = [];
   liveCapture.callbacks = undefined;
   liveCapture.ready = undefined;
@@ -157,6 +199,7 @@ afterEach(() => {
   clearPlaygroundKey();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 it('queues text and actual voice-bridge preparation, projects stable Topic Vessels, and restores only the ordered outline', async () => {
@@ -442,4 +485,177 @@ it('Reset during the preparation barrier retires authority before old active Act
   expect(visibleTopics()).toEqual(['Existing']);
   expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).toBe(durable);
   expect(liveCapture.ready).toBeUndefined();
+});
+
+it('waits for the real live Engine connection, then stops an idle take immediately on Engine loss without reconnecting or losing marks/time', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  engine.delayConnection = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(engine.connections).toHaveLength(2));
+  await waitFor(() =>
+    expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1),
+  );
+  expect(liveCapture.ready).toBeUndefined();
+  expect(screen.getByLabelText('Take status').textContent).toBe('Starting…');
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
+  expect(
+    screen.getByLabelText('Engine connection status').textContent,
+  ).toContain('connecting');
+  await act(async () => {
+    engine.connections[1]!.ready();
+  });
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  vi.useFakeTimers();
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  fireEvent.click(screen.getByRole('button', { name: 'Mark spoken' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1200);
+  });
+  expect(engine.requests).toHaveLength(0);
+  const elapsed = screen.getByLabelText('Elapsed time').textContent;
+  act(() =>
+    engine.connections[1]!.emit({
+      type: 'disconnected',
+      clean: false,
+      message: 'private transport detail',
+    }),
+  );
+  expect(liveCapture.stop).toHaveBeenCalledTimes(1);
+  expect(liveCapture.dispose).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(screen.getByRole('alert').textContent).toMatch(
+    /Engine connection.*retained/i,
+  );
+  expect(screen.getByRole('alert').textContent).not.toContain(
+    'private transport detail',
+  );
+  expect(
+    screen.getByLabelText('Engine connection status').textContent,
+  ).toContain('disconnected');
+  expect(
+    screen
+      .getByRole('article', { name: 'Opening' })
+      .getAttribute('data-spoken'),
+  ).toBe('true');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe(elapsed);
+  expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
+  expect(liveCapture.begin).toHaveBeenCalledTimes(1);
+  expect(engine.requests).toHaveLength(0);
+});
+
+it('stops a failed Engine startup before microphone setup and cannot revive it on readiness', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  engine.delayConnection = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() =>
+    expect(engine.connections[1]?.connect).toHaveBeenCalledTimes(1),
+  );
+  await act(async () => {
+    engine.connections[1]!.reject();
+  });
+  expect(screen.getByRole('alert').textContent).toMatch(
+    /Engine connection.*retained/i,
+  );
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
+  expect(liveCapture.ready).toBeUndefined();
+  await act(async () => {
+    engine.connections[1]!.ready();
+  });
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
+});
+
+it('stops capture setup on Engine errors and isolates late Engine/capture events after Reset from the replacement take', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  const oldEngine = engine.connections[1]!;
+  const oldReady = liveCapture.ready!;
+  const oldCapture = liveCapture.callbacks!;
+  act(() =>
+    oldEngine.emit({
+      type: 'error',
+      error: new Error('private connection error'),
+    }),
+  );
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(liveCapture.stop).toHaveBeenCalledTimes(1);
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  await act(async () => {
+    oldReady();
+  });
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await screen.findByRole('button', { name: 'Start take' });
+  liveCapture.ready = undefined;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  const stops = liveCapture.stop.mock.calls.length;
+  act(() => {
+    oldEngine.emit({
+      type: 'disconnected',
+      clean: false,
+      message: 'old socket',
+    });
+    oldEngine.emit({ type: 'error', error: new Error('old error') });
+    oldCapture.onFatalError(new Error('old capture') as never);
+    oldCapture.onCompleted({
+      itemId: 'old',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'old speech',
+    });
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  expect(
+    screen.getByLabelText('Engine connection status').textContent,
+  ).toContain('connected');
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(liveCapture.stop).toHaveBeenCalledTimes(stops);
+  expect(liveCapture.begin).toHaveBeenCalledTimes(1);
+  expect(engine.requests).toHaveLength(0);
 });
