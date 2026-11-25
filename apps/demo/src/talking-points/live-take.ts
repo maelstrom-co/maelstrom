@@ -121,7 +121,9 @@ export function createLiveTake(options: {
       snapshot.phase === 'listening' ? now() - origin : snapshot.elapsedMs;
     automatic = false;
     capture?.stopCapture();
+    if (!active) return;
     close();
+    if (!active) return;
     publish({
       phase: 'stopped',
       elapsedMs,
@@ -148,11 +150,9 @@ export function createLiveTake(options: {
     },
     coverageFailed() {
       if (!eligible()) return;
-      fail();
-      publish({
-        error:
-          'Coverage evaluation was not confirmed. Your marks were retained. Reset before trying again.',
-      });
+      fail(
+        'Coverage evaluation was not confirmed. Your marks were retained. Reset before trying again.',
+      );
     },
     subscribeEvidence(listener: (item: TakeEvidence) => void) {
       evidenceListeners.add(listener);

@@ -352,6 +352,107 @@ it.each(['beginCapture', 'stopCapture'] as const)(
   },
 );
 
+it.each([
+  ['fatal', 'stopCapture'],
+  ['engine', 'stopCapture'],
+  ['coverage', 'stopCapture'],
+  ['setup-stop', 'stopCapture'],
+  ['fatal', 'dispose'],
+  ['coverage', 'dispose'],
+] as const)(
+  'Reset during %s failure %s notification retains reset state',
+  async (failure, boundary) => {
+    vi.useFakeTimers();
+    const { take, capture, ready, callbacks, retire } = setup();
+    const captureState = boundary === 'stopCapture' ? 'stopped' : 'disposed';
+    vi.mocked(capture[boundary]).mockImplementation(() => {
+      take.diagnostics.captureState(captureState);
+    });
+    const unsubscribe = take.diagnostics.subscribe(() => {
+      if (take.diagnostics.getSnapshot().captureState === captureState)
+        take.reset();
+    });
+    const starting = take.start();
+    if (failure !== 'setup-stop') {
+      ready();
+      await starting;
+      vi.advanceTimersByTime(500);
+      take.manualSet('one', true);
+    }
+    if (failure === 'fatal')
+      callbacks().onFatalError(new Error('redacted') as never);
+    else if (failure === 'engine') take.engineFailed();
+    else if (failure === 'coverage') take.coverageFailed();
+    else {
+      take.stop();
+      ready();
+      await starting;
+    }
+    expect(take.getSnapshot()).toMatchObject({
+      phase: 'preparing',
+      elapsedMs: 0,
+      error: null,
+      warning: null,
+    });
+    expect([...take.getSnapshot().spoken]).toEqual([]);
+    expect([...take.getSnapshot().manualLocks]).toEqual([]);
+    expect(capture.stopCapture).toHaveBeenCalledOnce();
+    const cleanups = boundary === 'stopCapture' ? 1 : 2;
+    expect(capture.dispose).toHaveBeenCalledTimes(cleanups);
+    expect(retire).toHaveBeenCalledTimes(cleanups);
+    expect(capture.commitFinalAudio).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    unsubscribe();
+  },
+);
+
+it.each(['fatal', 'coverage'] as const)(
+  'Reset during %s stopped publication retains reset state',
+  async (failure) => {
+    vi.useFakeTimers();
+    const { take, ready, callbacks } = setup();
+    const starting = take.start();
+    ready();
+    await starting;
+    const unsubscribe = take.diagnostics.subscribe(() => {
+      if (take.diagnostics.getSnapshot().phase === 'stopped') take.reset();
+    });
+    if (failure === 'fatal')
+      callbacks().onFatalError(new Error('redacted') as never);
+    else take.coverageFailed();
+    expect(take.getSnapshot()).toMatchObject({
+      phase: 'preparing',
+      elapsedMs: 0,
+      error: null,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    unsubscribe();
+  },
+);
+
+it('retains marks and elapsed time with the coverage failure message and ordinary cleanup', async () => {
+  vi.useFakeTimers();
+  const { take, capture, ready, retire } = setup();
+  const starting = take.start();
+  ready();
+  await starting;
+  vi.advanceTimersByTime(500);
+  take.manualSet('one', true);
+  take.coverageFailed();
+  vi.advanceTimersByTime(5000);
+  expect(take.getSnapshot()).toMatchObject({
+    phase: 'stopped',
+    elapsedMs: 500,
+    error:
+      'Coverage evaluation was not confirmed. Your marks were retained. Reset before trying again.',
+  });
+  expect([...take.getSnapshot().spoken]).toEqual(['one']);
+  expect(capture.stopCapture).toHaveBeenCalledOnce();
+  expect(capture.dispose).toHaveBeenCalledOnce();
+  expect(retire).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it('does not resurrect failed drafts from late deltas, even when failure arrived first', async () => {
   const { take, ready, callbacks } = setup();
   const starting = take.start();
