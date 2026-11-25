@@ -139,14 +139,20 @@ export function createLiveCapture(
   let configured = false;
   let finalCommitEventId: string | undefined;
   const predecessors = new Map<string, string | null>();
-  const transceivers: RTCRtpTransceiver[] = [];
+  const audioSources: {
+    source: MediaStreamTrack;
+    sender: RTCRtpSender;
+  }[] = [];
   let statsPending = false;
 
   function audioSender() {
-    const tracks = stream?.getAudioTracks();
-    const transceiver = transceivers.length === 1 ? transceivers[0] : undefined;
-    const source = tracks?.length === 1 ? tracks[0] : undefined;
-    return { transceiver, source };
+    const attachment = audioSources.length === 1 ? audioSources[0] : undefined;
+    const transceiver = attachment
+      ? peer
+          ?.getTransceivers()
+          .find(({ sender }) => sender === attachment.sender)
+      : undefined;
+    return { transceiver, source: attachment?.source };
   }
 
   function observeTransport() {
@@ -333,12 +339,28 @@ export function createLiveCapture(
   }
 
   function maybeReady() {
+    if (state !== 'starting' || !sdpApplied) return;
+    const transceivers = peer?.getTransceivers() ?? [];
     if (
-      state === 'starting' &&
-      sdpApplied &&
-      configured &&
-      channel?.readyState === 'open'
+      !audioSources.every(({ source, sender }) => {
+        const transceiver = transceivers.find(
+          (entry) => entry.sender === sender,
+        );
+        return (
+          source.readyState === 'live' &&
+          sender?.track === source &&
+          transceiver &&
+          transceiver.direction !== 'stopped' &&
+          !('stopped' in transceiver && transceiver.stopped === true) &&
+          (transceiver.currentDirection === 'sendonly' ||
+            transceiver.currentDirection === 'sendrecv')
+        );
+      })
     ) {
+      fail('readiness');
+      return;
+    }
+    if (configured && channel?.readyState === 'open') {
       state = 'ready';
       diagnostics?.captureState(state);
       resolveStart?.({ inputOnly: true, turnMode: 'server_vad' });
@@ -511,12 +533,10 @@ export function createLiveCapture(
       };
       channel.onerror = () => fail('transport');
       for (const track of stream.getAudioTracks()) {
-        transceivers.push(
-          peer.addTransceiver(track, {
-            direction: 'sendonly',
-            streams: [stream],
-          }),
-        );
+        audioSources.push({
+          source: track,
+          sender: peer.addTrack(track, stream),
+        });
       }
       stage = 'grant';
       const grant = await options.mintToken(controller.signal);
@@ -526,6 +546,11 @@ export function createLiveCapture(
       if (controller.signal.aborted) return;
       await peer.setLocalDescription(offer);
       if (controller.signal.aborted) return;
+      const localSdp = peer.localDescription?.sdp;
+      if (!localSdp) {
+        fail('sdp');
+        return;
+      }
       const answer = await doFetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         redirect: 'error',
@@ -533,7 +558,7 @@ export function createLiveCapture(
           Authorization: `Bearer ${grant.value}`,
           'Content-Type': 'application/sdp',
         },
-        body: offer.sdp,
+        body: localSdp,
         signal: withFetchTimeout(controller.signal),
       });
       if (controller.signal.aborted) return;

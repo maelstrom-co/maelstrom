@@ -51,7 +51,12 @@ async function journey() {
       disconnect() {}
     },
   );
-  const track = { enabled: true, stop: vi.fn(), onended: null };
+  const track = {
+    enabled: true,
+    readyState: 'live',
+    stop: vi.fn(),
+    onended: null,
+  };
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
   const channel = {
     readyState: 'open',
@@ -59,11 +64,22 @@ async function journey() {
     close: vi.fn(),
     onmessage: null as ((event: { data: string }) => void) | null,
   };
+  const sender = { track };
+  const transceiver = {
+    sender,
+    direction: 'sendrecv',
+    currentDirection: 'sendonly',
+    stopped: false,
+  };
   const peer = {
     createDataChannel: () => channel,
-    addTransceiver: vi.fn(),
+    addTrack: vi.fn(() => sender),
+    getTransceivers: () => [transceiver],
+    localDescription: null as RTCSessionDescriptionInit | null,
     createOffer: async () => ({ sdp: 'test-offer' }),
-    setLocalDescription: async () => {},
+    setLocalDescription: async () => {
+      peer.localDescription = { type: 'offer', sdp: 'applied-test-offer' };
+    },
     setRemoteDescription: vi.fn(async () => {}),
     close: vi.fn(),
   };
@@ -630,9 +646,9 @@ it('scrolls to the latest display update without storage, logging, response gene
   expect(scroll.scrollTop).toBe(123);
   expect(live.requests).toHaveLength(0);
   expect(live.channel.send).not.toHaveBeenCalled();
-  expect(live.peer.addTransceiver).toHaveBeenCalledWith(
+  expect(live.peer.addTrack).toHaveBeenCalledWith(
     live.track,
-    expect.objectContaining({ direction: 'sendonly' }),
+    expect.objectContaining({ getAudioTracks: expect.any(Function) }),
   );
   expect(document.querySelector('audio, video')).toBeNull();
   expect(play).not.toHaveBeenCalled();

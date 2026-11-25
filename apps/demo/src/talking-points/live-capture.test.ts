@@ -13,7 +13,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function fixture() {
+function fixture(diagnosticsEnabled = true) {
   const track = {
     id: 'PRIVATE_DEVICE_SOURCE',
     enabled: true,
@@ -33,8 +33,8 @@ function fixture() {
     onmessage: null as ((event: { data: string }) => void) | null,
   };
   const transceiver = {
-    direction: 'sendonly',
-    currentDirection: 'inactive',
+    direction: 'sendrecv',
+    currentDirection: 'sendonly' as RTCRtpTransceiverDirection | null,
     stopped: false,
     sender: {
       track,
@@ -46,9 +46,13 @@ function fixture() {
     onconnectionstatechange: null as (() => void) | null,
     ontrack: null as ((event: { track: { stop: () => void } }) => void) | null,
     createDataChannel: vi.fn(() => channel),
-    addTransceiver: vi.fn(() => transceiver),
+    addTrack: vi.fn(() => transceiver.sender),
+    getTransceivers: vi.fn(() => [transceiver]),
+    localDescription: null as RTCSessionDescriptionInit | null,
     createOffer: vi.fn(async () => ({ type: 'offer', sdp: 'local-sdp' })),
-    setLocalDescription: vi.fn(async () => {}),
+    setLocalDescription: vi.fn(async () => {
+      peer.localDescription = { type: 'offer', sdp: 'applied-local-sdp' };
+    }),
     setRemoteDescription: vi.fn(async () => {}),
     close: vi.fn(),
   };
@@ -67,7 +71,11 @@ function fixture() {
   };
   const diagnostics = createLiveCaptureDiagnostics('fixture-take');
   const capture = createLiveCapture(
-    { mintToken, ...callbacks, diagnostics },
+    {
+      mintToken,
+      ...callbacks,
+      diagnostics: diagnosticsEnabled ? diagnostics : undefined,
+    },
     {
       getUserMedia,
       createPeerConnection: () => peer as unknown as RTCPeerConnection,
@@ -197,7 +205,7 @@ describe('Talking Points input-only capture', () => {
     f.capture.dispose();
     f.diagnostics.dispose();
   });
-  it('samples only the same audio sender while observed, reports inactive direction without repairing it, and rejects late detached samples', async () => {
+  it('samples only the same negotiated audio sender while observed and rejects late detached samples', async () => {
     const f = fixture();
     await f.ready();
     vi.useFakeTimers();
@@ -208,8 +216,8 @@ describe('Talking Points input-only capture', () => {
       const release = f.diagnostics.subscribe(seen);
       await vi.advanceTimersByTimeAsync(0);
       expect(f.diagnostics.getSnapshot()).toMatchObject({
-        transceiverDirection: 'sendonly',
-        transceiverCurrentDirection: 'inactive',
+        transceiverDirection: 'sendrecv',
+        transceiverCurrentDirection: 'sendonly',
         senderSameSource: true,
         sourceLive: true,
         sourceMuted: false,
@@ -494,15 +502,12 @@ describe('Talking Points input-only capture', () => {
     );
     expect(f.track.enabled).toBe(false);
     expect(() => f.capture.beginCapture()).toThrow();
-    expect(f.peer.addTransceiver).toHaveBeenCalledWith(f.track, {
-      direction: 'sendonly',
-      streams: [f.stream],
-    });
+    expect(f.peer.addTrack).toHaveBeenCalledWith(f.track, f.stream);
     expect(f.fetchMock).toHaveBeenCalledWith(
       'https://api.openai.com/v1/realtime/calls',
       expect.objectContaining({
         method: 'POST',
-        body: 'local-sdp',
+        body: 'applied-local-sdp',
         redirect: 'error',
         headers: {
           Authorization: 'Bearer ek_capture',
@@ -525,6 +530,279 @@ describe('Talking Points input-only capture', () => {
     expect(remote.stop).toHaveBeenCalledOnce();
     f.capture.dispose();
   });
+  it.each(['missing-description', 'missing-sdp', 'empty-sdp'] as const)(
+    'rejects %s after applying the local offer without posting an unapplied SDP',
+    async (description) => {
+      const f = fixture();
+      f.peer.setLocalDescription.mockImplementation(async () => {
+        f.peer.localDescription =
+          description === 'missing-description'
+            ? null
+            : description === 'missing-sdp'
+              ? { type: 'offer' }
+              : { type: 'offer', sdp: '' };
+      });
+      const error = await f.capture.start().catch((error: unknown) => error);
+      expect(error).toMatchObject({
+        reason: 'sdp',
+        message: 'Live transcription capture: sdp.',
+      });
+      expect(f.callbacks.onFatalError).toHaveBeenCalledExactlyOnceWith(error);
+      expect(f.fetchMock).not.toHaveBeenCalled();
+      expect(f.peer.setRemoteDescription).not.toHaveBeenCalled();
+      expect(f.track.enabled).toBe(false);
+      expect(f.track.stop).toHaveBeenCalledOnce();
+      expect(f.channel.close).toHaveBeenCalledOnce();
+      expect(f.peer.close).toHaveBeenCalledOnce();
+      expect(f.channel.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['sendonly', 'sendrecv'] as const)(
+    'accepts negotiated %s on the exact source sender, not the first transceiver, only after the answer applies',
+    async (direction) => {
+      const f = fixture();
+      const answer = deferred<void>();
+      f.transceiver.currentDirection = null;
+      const unrelated = {
+        ...f.transceiver,
+        currentDirection: 'inactive' as const,
+        sender: { ...f.transceiver.sender, track: { ...f.track } },
+      };
+      f.peer.getTransceivers.mockReturnValue([unrelated, f.transceiver]);
+      f.peer.setRemoteDescription.mockImplementation(() => answer.promise);
+      let settled = false;
+      const started = f.capture.start().then((value) => {
+        settled = true;
+        return value;
+      });
+      await vi.waitFor(() =>
+        expect(f.peer.setRemoteDescription).toHaveBeenCalled(),
+      );
+      f.channel.readyState = 'open';
+      f.channel.onopen?.();
+      f.event({ type: 'session.created', session: f.session });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+      f.transceiver.currentDirection = direction;
+      answer.resolve();
+      expect(await started).toEqual({
+        inputOnly: true,
+        turnMode: 'server_vad',
+      });
+      expect(f.track.enabled).toBe(false);
+      expect(f.diagnostics.getSnapshot()).toMatchObject({
+        senderSameSource: true,
+        transceiverCurrentDirection: direction,
+      });
+      f.capture.beginCapture();
+      expect(f.track.enabled).toBe(true);
+      expect(f.channel.send).not.toHaveBeenCalled();
+      f.capture.dispose();
+    },
+  );
+
+  it.each([
+    'missing-transceiver',
+    'missing-sender',
+    'null-sender',
+    'null-track',
+    'wrong-source',
+    'ended-source',
+    'stopped',
+    'stopped-direction',
+  ] as const)(
+    'rejects %s after applying the answer without waiting for channel or configuration',
+    async (attachment) => {
+      const f = fixture(false);
+      const unrelatedTrack = { ...f.track, stop: vi.fn() };
+      if (attachment === 'missing-sender')
+        f.peer.addTrack.mockReturnValue(undefined as never);
+      f.peer.setRemoteDescription.mockImplementation(async () => {
+        if (attachment === 'missing-transceiver')
+          f.peer.getTransceivers.mockReturnValue([]);
+        if (attachment === 'null-sender') f.transceiver.sender = null as never;
+        if (attachment === 'null-track')
+          f.transceiver.sender.track = null as never;
+        if (attachment === 'wrong-source')
+          f.transceiver.sender.track = unrelatedTrack;
+        if (attachment === 'ended-source') f.track.readyState = 'ended';
+        if (attachment === 'stopped') f.transceiver.stopped = true;
+        if (attachment === 'stopped-direction')
+          f.transceiver.direction = 'stopped';
+      });
+      const started = f.capture.start().catch((error: unknown) => error);
+      await vi.waitFor(() =>
+        expect(f.callbacks.onFatalError).toHaveBeenCalledOnce(),
+      );
+      expect(f.peer.setRemoteDescription).toHaveBeenCalledOnce();
+      expect(await started).toMatchObject({ reason: 'readiness' });
+      expect(f.callbacks.onFatalError).toHaveBeenCalledOnce();
+      expect(f.track.enabled).toBe(false);
+      expect(f.track.stop).toHaveBeenCalledOnce();
+      expect(unrelatedTrack.stop).not.toHaveBeenCalled();
+      expect(f.channel.close).toHaveBeenCalledOnce();
+      expect(f.peer.close).toHaveBeenCalledOnce();
+      expect(f.channel.send).not.toHaveBeenCalled();
+      expect(() => f.capture.beginCapture()).toThrow();
+    },
+  );
+
+  it.each(['sendrecv', 'inactive'] as const)(
+    'validates every owned source when the second source negotiates %s',
+    async (direction) => {
+      const f = fixture(false);
+      const secondTrack = {
+        ...f.track,
+        id: 'SECOND_PRIVATE_SOURCE',
+        stop: vi.fn(),
+      };
+      const secondSender = { ...f.transceiver.sender, track: secondTrack };
+      const secondTransceiver = {
+        ...f.transceiver,
+        sender: secondSender,
+        currentDirection: direction,
+      };
+      vi.spyOn(f.stream, 'getTracks').mockReturnValue([f.track, secondTrack]);
+      vi.spyOn(f.stream, 'getAudioTracks').mockReturnValue([
+        f.track,
+        secondTrack,
+      ]);
+      f.peer.addTrack
+        .mockReturnValueOnce(f.transceiver.sender)
+        .mockReturnValueOnce(secondSender);
+      f.peer.getTransceivers.mockReturnValue([
+        secondTransceiver,
+        f.transceiver,
+      ]);
+      const started = f.capture.start().catch((error: unknown) => error);
+      await vi.waitFor(() =>
+        expect(f.peer.setRemoteDescription).toHaveBeenCalled(),
+      );
+      f.channel.readyState = 'open';
+      f.channel.onopen?.();
+      f.event({ type: 'session.created', session: f.session });
+      expect(f.peer.addTrack).toHaveBeenNthCalledWith(1, f.track, f.stream);
+      expect(f.peer.addTrack).toHaveBeenNthCalledWith(2, secondTrack, f.stream);
+      if (direction === 'inactive') {
+        expect(await started).toMatchObject({ reason: 'readiness' });
+        expect(f.callbacks.onFatalError).toHaveBeenCalledOnce();
+        expect(() => f.capture.beginCapture()).toThrow();
+        expect(f.track.stop).toHaveBeenCalledOnce();
+        expect(secondTrack.stop).toHaveBeenCalledOnce();
+      } else {
+        expect(await started).toEqual({
+          inputOnly: true,
+          turnMode: 'server_vad',
+        });
+        expect(f.track.enabled).toBe(false);
+        expect(secondTrack.enabled).toBe(false);
+        f.capture.beginCapture();
+        expect(f.track.enabled).toBe(true);
+        expect(secondTrack.enabled).toBe(true);
+        f.capture.dispose();
+      }
+      expect(f.channel.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never constructs an output sink and stops remote tracks even after disposal', async () => {
+    const audio = vi.fn();
+    const audioContext = vi.fn();
+    vi.stubGlobal('Audio', audio);
+    vi.stubGlobal('AudioContext', audioContext);
+    try {
+      const f = fixture();
+      await f.ready();
+      f.capture.beginCapture();
+      const ontrack = f.peer.ontrack;
+      const remote = { stop: vi.fn() };
+      ontrack?.({ track: remote });
+      expect(remote.stop).toHaveBeenCalledOnce();
+      f.capture.dispose();
+      const staleRemote = { stop: vi.fn() };
+      ontrack?.({ track: staleRemote });
+      expect(staleRemote.stop).toHaveBeenCalledOnce();
+      expect(audio).not.toHaveBeenCalled();
+      expect(audioContext).not.toHaveBeenCalled();
+      expect(f.channel.send).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['inactive', 'recvonly', null] as const)(
+    'rejects a negotiated %s answer even when configuration and channel arrive first, cleaning up without stale revival',
+    async (direction) => {
+      const f = fixture(false);
+      const answer = deferred<void>();
+      f.transceiver.currentDirection = null;
+      f.peer.setRemoteDescription.mockImplementation(() => answer.promise);
+      let settled = false;
+      const started = f.capture.start().then(
+        (value) => {
+          settled = true;
+          return value;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        },
+      );
+      await vi.waitFor(() =>
+        expect(f.peer.setRemoteDescription).toHaveBeenCalled(),
+      );
+      f.channel.readyState = 'open';
+      f.channel.onopen?.();
+      f.event({ type: 'session.created', session: f.session });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+      expect(f.track.enabled).toBe(false);
+      const queuedMessage = f.channel.onmessage;
+      const queuedOpen = f.channel.onopen;
+      const queuedTrack = f.peer.ontrack;
+      const queuedEnded = f.track.onended;
+      f.transceiver.currentDirection = direction;
+      answer.resolve();
+      const error = await started;
+      expect(error).toMatchObject({
+        reason: 'readiness',
+        message: 'Live transcription capture: readiness.',
+      });
+      expect(f.callbacks.onFatalError).toHaveBeenCalledExactlyOnceWith(error);
+      expect(f.track.enabled).toBe(false);
+      expect(f.track.stop).toHaveBeenCalledOnce();
+      expect(f.mintToken.mock.calls[0][0].aborted).toBe(true);
+      expect(f.channel.close).toHaveBeenCalledOnce();
+      expect(f.peer.close).toHaveBeenCalledOnce();
+      expect(() => f.capture.beginCapture()).toThrow();
+      queuedOpen?.();
+      queuedEnded?.();
+      queuedMessage?.({
+        data: JSON.stringify({ type: 'session.created', session: f.session }),
+      });
+      queuedMessage?.({
+        data: JSON.stringify({
+          type: 'conversation.item.input_audio_transcription.completed',
+          item_id: 'stale',
+          content_index: 0,
+          transcript: 'PRIVATE_TRANSCRIPT',
+        }),
+      });
+      const remote = { stop: vi.fn() };
+      queuedTrack?.({ track: remote });
+      expect(remote.stop).toHaveBeenCalledOnce();
+      expect(f.callbacks.onCompleted).not.toHaveBeenCalled();
+      expect(f.channel.send).not.toHaveBeenCalled();
+      f.capture.dispose();
+      expect(f.callbacks.onFatalError).toHaveBeenCalledOnce();
+      expect(f.channel.close).toHaveBeenCalledOnce();
+      expect(f.peer.close).toHaveBeenCalledOnce();
+    },
+  );
+
   it('stops capture immediately, keeps committed and completed identities separate, and settles out-of-order finals without replaying a VAD-raced commit', async () => {
     const f = fixture();
     await f.ready();
