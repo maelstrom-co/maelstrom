@@ -195,6 +195,7 @@ it('checks the absolute cutoff at actual writes even before a delayed cutoff tim
   ready();
   await starting;
   take.stop();
+  callbacks().onCommitted({ itemId: 'late', previousItemId: null });
   vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 4000);
   take.automaticMark('one');
   callbacks().onCompleted({
@@ -204,7 +205,9 @@ it('checks the absolute cutoff at actual writes even before a delayed cutoff tim
     transcript: 'Opening',
   });
   expect([...take.getSnapshot().spoken]).toEqual([]);
-  expect(take.getEvidence().items).toEqual([]);
+  expect(take.getEvidence().items).toMatchObject([
+    { itemId: 'late', parts: [] },
+  ]);
   take.dispose();
   vi.restoreAllMocks();
 });
@@ -259,4 +262,56 @@ it('retains the final display when its semantic evidence immediately fails cover
   expect(take.getSnapshot().transcript).toHaveLength(1);
   take.dispose();
   expect(take.getSnapshot().transcript).toEqual([]);
+});
+
+it('removes only the failed draft, preserves neighboring parts and finals, and ignores failures after cutoff', async () => {
+  const { take, ready, callbacks } = setup();
+  const starting = take.start();
+  ready();
+  await starting;
+  const identity = { itemId: 'a', contentIndex: 0, previousItemId: null };
+  callbacks().onDelta({ ...identity, delta: 'Failed draft' });
+  callbacks().onDelta({ ...identity, contentIndex: 1, delta: 'Neighbor' });
+  callbacks().onDelta({ ...identity, itemId: 'b', delta: 'Other item' });
+  callbacks().onTranscriptionFailed(identity);
+  expect(take.getSnapshot().transcript.map((part) => part.text)).toEqual([
+    'Neighbor',
+    'Other item',
+  ]);
+  callbacks().onCompleted({
+    ...identity,
+    contentIndex: 1,
+    transcript: 'Final neighbor',
+  });
+  callbacks().onTranscriptionFailed({ ...identity, contentIndex: 1 });
+  expect(take.getSnapshot().transcript[0]?.text).toBe('Final neighbor');
+  take.stop();
+  const snapshot = take.getSnapshot().transcript;
+  vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 4000);
+  callbacks().onTranscriptionFailed({ ...identity, itemId: 'b' });
+  expect(take.getSnapshot().transcript).toBe(snapshot);
+  take.dispose();
+  vi.restoreAllMocks();
+});
+
+it('does not create capture when Engine failure precedes late Engine readiness', async () => {
+  const createCapture = vi.fn();
+  const take = createLiveTake({
+    topics: [],
+    mintToken: async () => ({ value: 'grant' }),
+    createCapture,
+    retirePending: vi.fn(),
+  });
+  let ready!: () => void;
+  const engineReady = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const starting = take.start(engineReady);
+  expect(take.getSnapshot().phase).toBe('starting');
+  take.engineFailed();
+  ready();
+  await starting;
+  expect(take.getSnapshot().phase).toBe('stopped');
+  expect(createCapture).not.toHaveBeenCalled();
+  take.dispose();
 });

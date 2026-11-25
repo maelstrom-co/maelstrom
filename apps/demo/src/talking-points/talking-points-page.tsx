@@ -2,7 +2,10 @@ import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
 import {
+  type Dispatch,
   type ReactNode,
+  type RefObject,
+  type SetStateAction,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -46,6 +49,7 @@ import {
 } from './maelstrom';
 import { createLiveRuntime, type LiveRuntime } from './maelstrom';
 import { createOutlineStore, type OutlineStore } from './outline.store';
+import { preparationChartHeight } from './preparation-layout';
 
 import './talking-points.css';
 
@@ -53,6 +57,8 @@ type Boundary = PreparationRuntime & {
   sessionId: SessionId;
   connector: ReturnType<typeof createDemoConnector> | null;
 };
+
+type UnsentInstruction = { number: number; text: string };
 
 export function TalkingPointsPage() {
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -62,6 +68,8 @@ export function TalkingPointsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [recovery, setRecovery] = useState<readonly UnsentInstruction[]>([]);
+  const submissionNumber = useRef(0);
   const [live, setLive] = useState<
     | (LiveRuntime & {
         take: LiveTake;
@@ -194,6 +202,9 @@ export function TalkingPointsPage() {
                 store={store}
                 draft={draft}
                 onDraftChange={setDraft}
+                recovery={recovery}
+                onRecoveryChange={setRecovery}
+                submissionNumber={submissionNumber}
                 onKeyError={showKeyError}
                 sealing={sealing}
                 onSeal={() => {
@@ -227,10 +238,7 @@ export function TalkingPointsPage() {
               </TalkingPointsHeader>
               <main className="talking-points-preview">
                 <h2>Prepare your next talk</h2>
-                <p>
-                  Create and revise an ordered outline by voice or text. Refresh
-                  to reuse it.
-                </p>
+                <PreparationInstructions />
                 {store && <SavedOutline store={store} />}
                 {browserKeyMode && (
                   <button
@@ -326,11 +334,25 @@ function SavedOutline({ store }: { readonly store: OutlineStore }) {
   ) : null;
 }
 
+function PreparationInstructions() {
+  return (
+    <p className="talking-points-instructions">
+      Build your outline with voice or text, then start a take and speak
+      naturally. Topics turn green and are crossed out as you cover them. Stop
+      keeps your time and progress; Reset clears the take so you can rehearse
+      again.
+    </p>
+  );
+}
+
 function PreparationWorkspace({
   runtime,
   store,
   draft,
   onDraftChange,
+  recovery,
+  onRecoveryChange: setRecovery,
+  submissionNumber,
   onKeyError,
   sealing,
   onSeal,
@@ -342,6 +364,11 @@ function PreparationWorkspace({
   readonly store: OutlineStore;
   readonly draft: string;
   readonly onDraftChange: (text: string) => void;
+  readonly recovery: readonly UnsentInstruction[];
+  readonly onRecoveryChange: Dispatch<
+    SetStateAction<readonly UnsentInstruction[]>
+  >;
+  readonly submissionNumber: RefObject<number>;
   readonly onKeyError: (message: string) => void;
   readonly sealing: boolean;
   readonly onSeal: () => void;
@@ -361,7 +388,6 @@ function PreparationWorkspace({
   );
   const [receipt, setReceipt] = useState('');
   const revision = useRef(0);
-  const submissionNumber = useRef(0);
   const playbackBlocked = useLivePlaybackBlocked(voice.session);
   useEffect(() => {
     if (voice.state !== 'error') return;
@@ -376,25 +402,40 @@ function PreparationWorkspace({
     revision.current++;
     onDraftChange(text);
   };
-  const submit = () => {
-    const text = draft.trim();
+  const submit = (retry?: UnsentInstruction) => {
+    const text = retry?.text ?? draft.trim();
     if (!text || !owner.isActive()) return;
     const ticket = intake.enqueueIntent(text);
     const number = ++submissionNumber.current;
-    if (ticket.accepted) changeDraft('');
+    if (ticket.accepted) {
+      if (retry)
+        setRecovery((items) =>
+          items.filter((item) => item.number !== retry.number),
+        );
+      else changeDraft('');
+    }
     const submittedRevision = revision.current;
     setReceipt(
       ticket.accepted ? 'Queued…' : 'Not submitted. Try again when connected.',
     );
     void ticket.result.then((result) => {
-      if (!owner.isActive() || number !== submissionNumber.current) return;
+      if (!owner.isActive()) return;
+      if (result.status === 'not_submitted' && ticket.accepted) {
+        if (
+          !retry &&
+          number === submissionNumber.current &&
+          revision.current === submittedRevision
+        )
+          changeDraft(text);
+        else setRecovery((items) => [...items, { number, text }]);
+      }
+      if (number !== submissionNumber.current) return;
       switch (result.status) {
         case 'applied':
           setReceipt(result.response.userMessage || 'Outline prepared.');
           break;
         case 'not_submitted':
           setReceipt('Not submitted. You can try again.');
-          if (revision.current === submittedRevision) changeDraft(text);
           break;
         case 'failed':
         case 'unknown':
@@ -412,6 +453,7 @@ function PreparationWorkspace({
   return (
     <>
       <main className="talking-points-main">
+        <PreparationInstructions />
         <div className="talking-points-toolbar">
           <p
             className="status-pill"
@@ -465,7 +507,7 @@ function PreparationWorkspace({
         <div
           className="talking-points-chart"
           style={{
-            height: `calc(${topics.length + 1} * var(--talking-points-row-height))`,
+            height: preparationChartHeight(topics.length),
           }}
         >
           <m.Chart />
@@ -501,6 +543,29 @@ function PreparationWorkspace({
               />
             )}
           </div>
+          {recovery.length > 0 && (
+            <section aria-label="Unsent instructions">
+              <h2>Not submitted</h2>
+              {recovery.map((item) => (
+                <div key={item.number}>
+                  <p>{item.text}</p>
+                  <button type="button" onClick={() => submit(item)}>
+                    Retry instruction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRecovery((items) =>
+                        items.filter((entry) => entry.number !== item.number),
+                      )
+                    }
+                  >
+                    Dismiss instruction
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
           <form
             onSubmit={(event) => {
               event.preventDefault();

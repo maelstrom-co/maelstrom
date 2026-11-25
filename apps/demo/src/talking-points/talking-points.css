@@ -26,21 +26,20 @@
 .talking-points-main, .talking-points-preview { max-width: 960px; margin: auto; padding: 1.25rem 1rem; }
 .talking-points-preview { display: grid; gap: 1rem; }
 .talking-points-preview h2 { font-size: 20px; }
+.talking-points-instructions { margin-bottom: 1rem; font-size: 14px; line-height: 1.6; color: var(--color-ink-2); }
 .talking-points-preview li { padding: .75rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.talking-points-controller { height: 100%; min-height: 0; }
-.talking-points-controller > .vessel-card { overflow: auto; }
-.talking-points-controller .p-5 { padding: 14px 16px; }
-.talking-points-controller .mb-3 { margin-bottom: 6px; }
-.talking-points-controller p { font-size: 12px; line-height: 1.5; }
-.talking-points-controller .talking-points-hint { margin-top: 4px; }
+.talking-points-controller { height: 100%; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: auto; }
+.talking-points-outline-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.talking-points-outline-heading h2 { font-size: 14px; font-weight: 500; }
+.talking-points-outline-heading span { font: 11px var(--font-mono); color: var(--color-ink-3); }
+.talking-points-controller p { font-size: 12px; line-height: 1.5; color: var(--color-ink-3); }
 .talking-points-topic { height: 100%; min-height: 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; overflow: auto; }
 .talking-points-topic p { flex: 1; min-width: 0; max-height: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
 .talking-points-topic .btn { flex-shrink: 0; font-size: 12px; padding: 8px 12px; }
-.talking-points-number { flex-shrink: 0; font: 12px var(--font-mono); color: var(--color-ink-3); min-width: 1.5em; }
+.talking-points-check { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; border: 1px solid var(--color-ink-3); border-radius: 4px; font-size: 14px; line-height: 1; }
+.talking-points-check[aria-checked="true"] { background: var(--color-green); border-color: var(--color-green); color: var(--color-bg); }
 .talking-points-topic[data-spoken="true"] { background: color-mix(in srgb, var(--color-green) 20%, var(--color-bg-2)); border-color: color-mix(in srgb, var(--color-green) 55%, var(--color-bg-2)); }
 .talking-points-topic[data-spoken="true"] p { text-decoration: line-through; text-decoration-color: var(--color-green); color: var(--color-ink-2); }
-.talking-points-topic[data-spoken="true"] .talking-points-number { color: var(--color-green); }
-.talking-points-spoken { font: 10px var(--font-mono); color: var(--color-green); }
 .talking-points-dock { display: flex; gap: 1rem; align-items: center; max-width: 960px; margin: 0 auto; padding: 1rem; border-top: 1px solid var(--line); }
 .talking-points-voice { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--color-ink-3); flex-shrink: 0; }
 .talking-points-dock form { flex: 1; min-width: 0; }

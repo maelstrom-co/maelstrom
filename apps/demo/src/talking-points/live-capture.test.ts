@@ -957,14 +957,14 @@ describe('Talking Points input-only capture', () => {
           await boundary.promise;
           return new Response('late-answer');
         });
+      const readAnswer = vi.fn(async () => {
+        await boundary.promise;
+        return 'late-answer';
+      });
       if (stage === 'answer-body')
-        f.fetchMock.mockResolvedValue({
-          ok: true,
-          text: async () => {
-            await boundary.promise;
-            return 'late-answer';
-          },
-        } as Response);
+        f.fetchMock.mockResolvedValue(
+          Object.assign(new Response(), { text: readAnswer }),
+        );
       if (stage === 'remote-description')
         f.peer.setRemoteDescription.mockImplementation(async () => {
           await boundary.promise;
@@ -979,7 +979,9 @@ describe('Talking Points input-only capture', () => {
               ? f.peer.setLocalDescription
               : stage === 'remote-description'
                 ? f.peer.setRemoteDescription
-                : f.fetchMock;
+                : stage === 'answer-body'
+                  ? readAnswer
+                  : f.fetchMock;
       await vi.waitFor(() => expect(called).toHaveBeenCalled());
       const queuedMessage = f.channel.onmessage;
       const queuedOpen = f.channel.onopen;
@@ -1200,4 +1202,83 @@ describe('Talking Points input-only capture', () => {
       expect.objectContaining({ reason: 'transport' }),
     );
   });
+});
+
+it.each(['confirmation', 'channel'] as const)(
+  'bounds missing readiness %s and ignores late readiness',
+  async (missing) => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      const started = f.capture.start().catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(f.peer.setRemoteDescription).toHaveBeenCalledOnce();
+      if (missing === 'confirmation') {
+        f.channel.readyState = 'open';
+        f.channel.onopen?.();
+      } else f.event({ type: 'session.created', session: f.session });
+      const late = f.channel.onmessage;
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(await started).toMatchObject({ reason: 'readiness' });
+      expect(f.track.stop).toHaveBeenCalledOnce();
+      expect(f.channel.close).toHaveBeenCalledOnce();
+      expect(f.peer.close).toHaveBeenCalledOnce();
+      late?.({
+        data: JSON.stringify({ type: 'session.created', session: f.session }),
+      });
+      expect(f.callbacks.onFatalError).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it.each(['ready', 'disposed'] as const)(
+  'clears the readiness timer when %s',
+  async (outcome) => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      const started = f.capture.start().catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      if (outcome === 'ready') {
+        f.channel.readyState = 'open';
+        f.channel.onopen?.();
+        f.event({ type: 'session.created', session: f.session });
+        expect(await started).toMatchObject({ inputOnly: true });
+      } else {
+        f.capture.dispose();
+        expect(await started).toMatchObject({ reason: 'disposed' });
+      }
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+      f.capture.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it('settles disposal from a synchronous starting diagnostic before starting setup', async () => {
+  const f = fixture();
+  f.diagnostics.subscribe((_kind, metadata) => {
+    if (metadata.captureState === 'starting') f.capture.dispose();
+  });
+  await expect(f.capture.start()).rejects.toMatchObject({ reason: 'disposed' });
+  expect(f.getUserMedia).not.toHaveBeenCalled();
+  expect(f.peer.createDataChannel).not.toHaveBeenCalled();
+  expect(f.mintToken).not.toHaveBeenCalled();
+});
+
+it('accepts an omitted predecessor without inventing a root', async () => {
+  const f = fixture();
+  await f.ready();
+  f.event({ type: 'input_audio_buffer.committed', item_id: 'unknown' });
+  expect(f.callbacks.onCommitted).toHaveBeenCalledWith({
+    itemId: 'unknown',
+    previousItemId: undefined,
+  });
+  expect(f.callbacks.onFatalError).not.toHaveBeenCalled();
+  f.capture.dispose();
 });

@@ -157,6 +157,23 @@ vi.mock('../lib/connector', () => ({
             ),
           };
         const topics = publishedTopics(message);
+        if (intent === 'Mark closing spoken')
+          return {
+            type: 'maelstrom_response',
+            requestId: message.id,
+            userMessage: 'Marked.',
+            rationale: '',
+            layout: message.request.layout,
+            executionPlan: [
+              {
+                instanceId: InstanceId(
+                  `topic-${topics.find((topic) => topic.content === 'Closing with a question')!.id}-main`,
+                ),
+                action: ActionName('mark'),
+                params: {},
+              },
+            ],
+          };
         const steps: [string, Record<string, unknown>][] = [];
         if (intent === 'Add opening and closing') {
           await new Promise<void>((resolve) => {
@@ -580,6 +597,17 @@ it('queues text and actual voice-bridge preparation, projects stable Topic Vesse
   const { TalkingPointsPage } = await import('./talking-points-page');
   const mounted = render(<TalkingPointsPage />);
   await screen.findByRole('status', { name: 'Connection status: connected' });
+  expect(
+    screen.getByText(/Build your outline with voice or text/),
+  ).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Your outline' })).toBeTruthy();
+  expect(
+    screen.getByText('Add your first Topic by voice or text below.'),
+  ).toBeTruthy();
+  expect(
+    document.querySelector('.talking-points-controller .vessel-card'),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
   await ask('Add opening and closing');
   await waitFor(() => expect(engine.release).toBeTypeOf('function'));
   const session = FakeRealtimeSession.instances.at(-1)!;
@@ -603,7 +631,29 @@ it('queues text and actual voice-bridge preparation, projects stable Topic Vesse
     version: 1,
     topics: [{ id: closingId, content: 'Closing with a question' }, created[0]],
   });
-  fireEvent.click(screen.getAllByRole('button', { name: 'Mark spoken' })[0]!);
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
+  await act(async () => {
+    const marked = voiceScope.enqueueIntent('Mark closing spoken');
+    expect((await marked.result).status).toBe('applied');
+  });
+  const markedIndicator = screen.getByRole('checkbox', {
+    name: 'Spoken',
+    checked: true,
+  });
+  expect(markedIndicator.getAttribute('aria-readonly')).toBe('true');
+  fireEvent.click(markedIndicator);
+  expect(markedIndicator.getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Unmark spoken' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull(),
+  );
+  expect(screen.queryByRole('checkbox', { checked: true })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  await act(async () => {
+    const marked = voiceScope.enqueueIntent('Mark closing spoken');
+    expect((await marked.result).status).toBe('applied');
+  });
   await waitFor(() =>
     expect(
       screen
@@ -649,6 +699,9 @@ it('queues text and actual voice-bridge preparation, projects stable Topic Vesse
   });
   expect(restored.getAttribute('data-topic-id')).toBe(closingId);
   expect(restored.getAttribute('data-spoken')).toBe('false');
+  expect(
+    screen.getByRole('checkbox', { name: 'Spoken', checked: false }),
+  ).toBeTruthy();
   expect(visibleTopics()).toEqual(['Closing with a question']);
   voiceScope.retire();
 });
@@ -775,6 +828,9 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
     liveCapture.ready!();
   });
   expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  expect(
+    screen.queryByText(/Build your outline with voice or text/),
+  ).toBeNull();
   expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
   act(() => {
@@ -852,6 +908,9 @@ it('shows only silent take controls and frozen Topics, keeps voice-driven marks 
       .getAttribute('data-spoken'),
   ).toBe('false');
   expect(screen.queryByLabelText('Elapsed time')).toBeNull();
+  expect(
+    screen.getByRole('checkbox', { name: 'Spoken', checked: false }),
+  ).toBeTruthy();
   expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
   expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).not.toContain(
     'Final words',
@@ -993,7 +1052,7 @@ it('waits for the real live Engine connection, then stops an idle take immediate
   expect(engine.requests).toHaveLength(1);
 });
 
-it('stops a failed Engine startup before microphone setup and cannot revive it on readiness', async () => {
+it('stops a failed Engine startup before microphone setup', async () => {
   localStorage.setItem(
     OUTLINE_STORAGE_KEY,
     JSON.stringify({
@@ -1020,9 +1079,7 @@ it('stops a failed Engine startup before microphone setup and cannot revive it o
   expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
   expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
   expect(liveCapture.ready).toBeUndefined();
-  await act(async () => {
-    engine.connections[1]!.ready();
-  });
+  expect(liveCapture.ready).toBeUndefined();
   expect(liveCapture.begin).not.toHaveBeenCalled();
   expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
 });
@@ -1088,5 +1145,141 @@ it('stops capture setup on Engine errors and isolates late Engine/capture events
   expect(screen.queryByRole('alert')).toBeNull();
   expect(liveCapture.stop).toHaveBeenCalledTimes(stops);
   expect(liveCapture.begin).toHaveBeenCalledTimes(1);
+  expect(engine.requests).toHaveLength(0);
+});
+
+it.each(['retry', 'dismiss'] as const)(
+  'retains expired instructions and the newer draft through failed Start and reconnect until explicit %s',
+  async (action) => {
+    localStorage.setItem(
+      OUTLINE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        topics: [
+          { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+        ],
+      }),
+    );
+    engine.delayConnection = true;
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    render(<TalkingPointsPage />);
+    await waitFor(() =>
+      expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+    );
+    vi.useFakeTimers();
+    await ask('Older instruction');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    await ask('Newer instruction');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Still editing' },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5001);
+    });
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    await act(async () => {
+      engine.connections[0]!.ready();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(engine.requests).toHaveLength(1);
+    expect(engine.requests[0]!.request.context.updateReasons).toContainEqual(
+      expect.objectContaining({
+        type: 'user_intent',
+        intent: 'Newer instruction',
+      }),
+    );
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(screen.getByLabelText('Preparation result').textContent).not.toMatch(
+      /Not submitted/,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Start was stopped',
+    );
+    expect(engine.connections).toHaveLength(2);
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    expect(engine.requests).toHaveLength(1);
+    await ask('Another expired instruction');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Still editing' },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_001);
+      engine.connections[1]!.ready();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const unsent = screen.getByRole('region', { name: 'Unsent instructions' });
+    expect(unsent.textContent).toContain('Older instruction');
+    expect(unsent.textContent).toContain('Another expired instruction');
+    expect(
+      screen.getAllByRole('button', { name: 'Retry instruction' }),
+    ).toHaveLength(2);
+    expect(engine.requests).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(
+        screen.getAllByRole('button', {
+          name:
+            action === 'retry' ? 'Retry instruction' : 'Dismiss instruction',
+        })[0]!,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(engine.requests).toHaveLength(action === 'retry' ? 2 : 1);
+    if (action === 'retry')
+      expect(engine.requests[1]!.request.context.updateReasons).toContainEqual(
+        expect.objectContaining({
+          type: 'user_intent',
+          intent: 'Older instruction',
+        }),
+      );
+    expect(unsent.textContent).not.toContain('Older instruction');
+    expect(unsent.textContent).toContain('Another expired instruction');
+    expect(
+      screen.getAllByRole('button', { name: 'Dismiss instruction' }),
+    ).toHaveLength(1);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Dismiss instruction' }),
+    );
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    expect(
+      screen.queryByRole('region', { name: 'Unsent instructions' }),
+    ).toBeNull();
+  },
+);
+
+it('leaves a refused instruction in the draft without duplicating recovery', async () => {
+  engine.delayConnection = true;
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await waitFor(() =>
+    expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+  );
+  for (let i = 0; i < 8; i++) await ask(`Queued ${i}`);
+  await ask('Refused instruction');
+  expect(
+    (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+  ).toBe('Refused instruction');
+  expect(
+    screen.queryByRole('region', { name: 'Unsent instructions' }),
+  ).toBeNull();
   expect(engine.requests).toHaveLength(0);
 });

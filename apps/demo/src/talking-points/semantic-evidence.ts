@@ -31,6 +31,7 @@ export interface CoverageEvidence {
 export function createSemanticEvidence(takeId: string, connectionId: string) {
   const items = new Map<string, Item>();
   let snapshot: CoverageEvidence = { takeId, connectionId, items: [] };
+  let orderedIds = new Set<string>();
   function reconcile() {
     const successors = new Map<string | null, Item[]>();
     for (const item of items.values()) {
@@ -49,6 +50,7 @@ export function createSemanticEvidence(takeId: string, connectionId: string) {
       ordered.push(item);
       following = successors.get(item.itemId);
     }
+    orderedIds = visited;
     const retained = ordered.slice(-COVERAGE_ITEM_LIMIT);
     const evict = (item: Item) => {
       item.evicted = true;
@@ -99,6 +101,8 @@ export function createSemanticEvidence(takeId: string, connectionId: string) {
   }
   return {
     getSnapshot: () => snapshot,
+    sourcesOrdered: (ids: readonly string[]) =>
+      ids.every((id) => orderedIds.has(id) && !items.get(id)?.uncertain),
     accept(input: TakeEvidence) {
       const { event } = input;
       let item = items.get(event.itemId);
@@ -115,10 +119,13 @@ export function createSemanticEvidence(takeId: string, connectionId: string) {
       if (input.type === 'committed') {
         if (
           item.committed &&
+          item.previousItemId !== undefined &&
+          input.event.previousItemId !== undefined &&
           item.previousItemId !== input.event.previousItemId
         )
           item.uncertain = true;
-        else item.previousItemId = input.event.previousItemId;
+        else if (input.event.previousItemId !== undefined)
+          item.previousItemId = input.event.previousItemId;
         item.committed = true;
       } else if (!item.evicted) {
         const previousPart = item.parts.get(input.event.contentIndex);
@@ -142,6 +149,7 @@ export function createSemanticEvidence(takeId: string, connectionId: string) {
     },
     clear() {
       items.clear();
+      orderedIds.clear();
       snapshot = { takeId, connectionId, items: [] };
     },
   };

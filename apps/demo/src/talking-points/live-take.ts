@@ -139,6 +139,7 @@ export function createLiveTake(options: {
       };
     },
     getEvidence: evidence.getSnapshot,
+    sourcesOrdered: evidence.sourcesOrdered,
     canEvaluate: eligible,
     engineFailed() {
       fail(
@@ -184,6 +185,7 @@ export function createLiveTake(options: {
           },
           onTranscriptionFailed: (event) => {
             diagnostics.callback('failed');
+            display(event);
             retain({ type: 'failed', event });
           },
           onFinalCommitIssue: (event) => diagnostics.finalCommit(event.reason),

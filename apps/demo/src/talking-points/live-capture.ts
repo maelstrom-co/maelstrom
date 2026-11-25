@@ -11,7 +11,7 @@ export interface LiveCaptureReady {
 /** Provider item insertion order, independent of transcription completion order. */
 export interface LiveCaptureCommitted {
   readonly itemId: string;
-  readonly previousItemId: string | null;
+  readonly previousItemId: string | null | undefined;
 }
 
 /** Display-only text appended to an unfinished item/content pair, never semantic evidence. */
@@ -135,10 +135,11 @@ export function createLiveCapture(
   let startPromise: Promise<LiveCaptureReady> | undefined;
   let resolveStart: ((ready: LiveCaptureReady) => void) | undefined;
   let rejectStart: ((error: LiveCaptureError) => void) | undefined;
+  let readinessTimer: ReturnType<typeof setTimeout> | undefined;
   let sdpApplied = false;
   let configured = false;
   let finalCommitEventId: string | undefined;
-  const predecessors = new Map<string, string | null>();
+  const predecessors = new Map<string, string | null | undefined>();
   const audioSources: {
     source: MediaStreamTrack;
     sender: RTCRtpSender;
@@ -309,6 +310,7 @@ export function createLiveCapture(
   function terminate(error: LiveCaptureError) {
     if (state === 'disposed') return;
     state = 'disposed';
+    clearTimeout(readinessTimer);
     diagnostics?.setProbe();
     diagnostics?.captureState(state);
     controller.abort();
@@ -362,6 +364,7 @@ export function createLiveCapture(
     }
     if (configured && channel?.readyState === 'open') {
       state = 'ready';
+      clearTimeout(readinessTimer);
       diagnostics?.captureState(state);
       resolveStart?.({ inputOnly: true, turnMode: 'server_vad' });
     }
@@ -406,6 +409,7 @@ export function createLiveCapture(
         typeof event.item_id !== 'string' ||
         !event.item_id ||
         !(
+          event.previous_item_id === undefined ||
           event.previous_item_id === null ||
           typeof event.previous_item_id === 'string'
         )
@@ -571,6 +575,7 @@ export function createLiveCapture(
       await peer.setRemoteDescription({ type: 'answer', sdp });
       if (controller.signal.aborted) return;
       sdpApplied = true;
+      readinessTimer = setTimeout(() => fail('readiness'), 10000);
       diagnostics?.control(sdpApplied, configured);
       observeTransport();
       maybeReady();
@@ -585,12 +590,12 @@ export function createLiveCapture(
       if (state !== 'new')
         return Promise.reject(new LiveCaptureError('disposed'));
       state = 'starting';
-      diagnostics?.captureState(state);
       startPromise = new Promise((resolve, reject) => {
         resolveStart = resolve;
         rejectStart = reject;
       });
-      void setup();
+      diagnostics?.captureState(state);
+      if (state === 'starting') void setup();
       return startPromise;
     },
     beginCapture() {

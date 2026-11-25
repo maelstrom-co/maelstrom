@@ -367,7 +367,14 @@ it('offers only an Unmark correction after a voice-driven Engine mark and locks 
   await waitFor(() => expect(live.requests).toHaveLength(1));
   await live.release(['rollout']);
   await waitFor(() => expect(spoken('rollout')).toBe('true'));
-  expect(screen.getByText('Spoken')).toBeTruthy();
+  const indicator = screen.getByRole('checkbox', {
+    name: 'Spoken',
+    checked: true,
+  });
+  expect(indicator.getAttribute('aria-readonly')).toBe('true');
+  expect(indicator.tabIndex).toBe(-1);
+  fireEvent.click(indicator);
+  expect(spoken('rollout')).toBe('true');
   live.commit('b', 'a');
   live.final('b', 'Our infrastructure costs will fall next quarter.');
   await waitFor(() => expect(live.requests).toHaveLength(2));
@@ -376,7 +383,8 @@ it('offers only an Unmark correction after a voice-driven Engine mark and locks 
   expect(live.take.getSnapshot().manualLocks.has('rollout')).toBe(true);
   expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
-  expect(screen.queryByText('Spoken')).toBeNull();
+  expect(screen.queryByRole('checkbox', { checked: true })).toBeNull();
+  expect(screen.getAllByRole('checkbox', { checked: false })).toHaveLength(2);
   await live.release(['rollout', 'cost']);
   expect(spoken('rollout')).toBe('false');
   expect(spoken('cost')).toBe('true');
@@ -641,6 +649,7 @@ it('scrolls to the latest display update without storage, logging, response gene
   const transcript = screen.getByRole('region', { name: 'Live transcript' });
   const scroll = transcript.querySelector('div')!;
   Object.defineProperty(scroll, 'scrollHeight', { value: 123 });
+  Object.defineProperty(scroll, 'clientHeight', { value: 40 });
   const storage = vi.spyOn(Storage.prototype, 'setItem');
   const logs = [
     vi.spyOn(console, 'log'),
@@ -653,7 +662,12 @@ it('scrolls to the latest display update without storage, logging, response gene
   live.delta('a', 'Private unfinished display.');
   expect(scroll.scrollTop).toBe(123);
   scroll.scrollTop = 0;
+  fireEvent.scroll(scroll);
   live.final('a', 'Private finalized display.');
+  expect(scroll.scrollTop).toBe(0);
+  scroll.scrollTop = 83;
+  fireEvent.scroll(scroll);
+  live.delta('b', 'Following again.');
   expect(scroll.scrollTop).toBe(123);
   expect(live.requests).toHaveLength(0);
   expect(live.channel.send).not.toHaveBeenCalled();
@@ -672,4 +686,70 @@ it('scrolls to the latest display update without storage, logging, response gene
   expect(transcript.textContent).not.toContain('After error.');
   act(() => live.take.reset());
   expect(live.take.getSnapshot().transcript).toEqual([]);
+});
+
+it.each([null, 'a'])(
+  'revokes submitted b evidence when a competing successor forks at %s',
+  async (anchor) => {
+    const live = await journey();
+    live.commit('a', null);
+    live.commit('b', 'a');
+    live.final('b', 'A small rollout limits impact with fast rollback.');
+    await waitFor(() => expect(live.requests).toHaveLength(1));
+    live.commit('c', anchor);
+    await live.release(['rollout']);
+    expect(spoken('rollout')).toBe('false');
+    expect(live.requests).toHaveLength(1);
+  },
+);
+
+it('keeps b-only authority when an unused empty predecessor conflicts, without resubmitting unchanged evidence', async () => {
+  const live = await journey();
+  live.commit('a', null);
+  live.commit('b', 'a');
+  live.final('b', 'A small rollout limits impact with fast rollback.');
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  live.commit('a', 'unknown');
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('true');
+  expect(live.requests).toHaveLength(1);
+});
+
+it('keeps submitted authority when a fork affects only later unused material', async () => {
+  const live = await journey();
+  live.commit('a', null);
+  live.final('a', 'A small rollout limits impact with fast rollback.');
+  await waitFor(() => expect(live.requests).toHaveLength(1));
+  live.commit('b', 'a');
+  live.commit('c', 'b');
+  live.commit('d', 'b');
+  await live.release(['rollout']);
+  expect(spoken('rollout')).toBe('true');
+  expect(live.requests).toHaveLength(1);
+});
+
+it('shows a stopped empty transcript after a silent take', async () => {
+  const live = await journey();
+  expect(screen.getByText('Listening for speech…')).toBeTruthy();
+  vi.useFakeTimers();
+  act(() => live.take.stop());
+  act(() => live.setClock(4000));
+  act(() => vi.advanceTimersByTime(3000));
+  expect(screen.getByText('No speech was transcribed.')).toBeTruthy();
+  expect(screen.queryByText('Listening for speech…')).toBeNull();
+});
+
+it('shows a stopped empty transcript after startup failure rather than claiming to listen', async () => {
+  const take = createLiveTake({
+    topics: [],
+    mintToken: async () => ({ value: 'grant' }),
+    retirePending: vi.fn(),
+  });
+  render(<LiveTranscript take={take} />);
+  await act(async () => {
+    await take.start(Promise.reject(new Error('Engine startup failed')));
+  });
+  expect(screen.getByText('No speech was transcribed.')).toBeTruthy();
+  expect(screen.queryByText('Listening for speech…')).toBeNull();
+  take.dispose();
 });

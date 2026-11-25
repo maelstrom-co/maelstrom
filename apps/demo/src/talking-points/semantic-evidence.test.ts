@@ -219,3 +219,45 @@ it('bounds finals waiting for ordering metadata and never revives their conserva
   });
   expect(evidence.getSnapshot().items[0]?.parts).toEqual([]);
 });
+
+it.each([null, 'anchor'])(
+  'resolves unknown ordering only on an explicit predecessor %s',
+  (previousItemId) => {
+    const evidence = createSemanticEvidence('take', 'connection');
+    evidence.accept({
+      type: 'committed',
+      event: { itemId: 'a', previousItemId: undefined },
+    });
+    evidence.accept({
+      type: 'completed',
+      event: {
+        itemId: 'a',
+        contentIndex: 0,
+        previousItemId: undefined,
+        transcript: 'Final',
+      },
+    });
+    expect(evidence.getSnapshot().items).toEqual([]);
+    expect(evidence.sourcesOrdered(['a'])).toBe(false);
+    if (previousItemId)
+      evidence.accept({
+        type: 'committed',
+        event: { itemId: previousItemId, previousItemId: null },
+      });
+    evidence.accept({
+      type: 'committed',
+      event: { itemId: 'a', previousItemId },
+    });
+    expect(evidence.getSnapshot().items.at(-1)).toMatchObject({
+      itemId: 'a',
+      status: 'committed',
+      parts: [{ transcript: 'Final' }],
+    });
+    expect(evidence.sourcesOrdered(['a'])).toBe(true);
+    evidence.accept({
+      type: 'committed',
+      event: { itemId: 'a', previousItemId: 'contradiction' },
+    });
+    expect(evidence.sourcesOrdered(['a'])).toBe(false);
+  },
+);

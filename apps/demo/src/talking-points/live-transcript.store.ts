@@ -1,4 +1,8 @@
-import type { LiveCaptureCompleted, LiveCaptureDelta } from './live-capture';
+import type {
+  LiveCaptureCompleted,
+  LiveCaptureDelta,
+  LiveCaptureTranscriptionFailed,
+} from './live-capture';
 
 export interface TranscriptPart {
   readonly itemId: string;
@@ -18,10 +22,25 @@ export function createLiveTranscript() {
   let snapshot: readonly TranscriptPart[] = [];
   return {
     getSnapshot: () => snapshot,
-    accept(event: LiveCaptureDelta | LiveCaptureCompleted) {
+    accept(
+      event:
+        | LiveCaptureDelta
+        | LiveCaptureCompleted
+        | LiveCaptureTranscriptionFailed,
+    ) {
       if (evicted.has(event.itemId)) return;
       let parts = items.get(event.itemId);
       const previous = parts?.get(event.contentIndex);
+      if (!('delta' in event) && !('transcript' in event)) {
+        if (previous?.status !== 'draft') return;
+        parts?.delete(event.contentIndex);
+        snapshot = snapshot.filter(
+          (part) =>
+            part.itemId !== event.itemId ||
+            part.contentIndex !== event.contentIndex,
+        );
+        return;
+      }
       if ('delta' in event && (!event.delta || previous?.status === 'final'))
         return;
       const next: TranscriptPart = {

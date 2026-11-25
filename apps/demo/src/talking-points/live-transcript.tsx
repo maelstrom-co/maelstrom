@@ -9,8 +9,10 @@ export function LiveTranscript({ take }: { readonly take: LiveTake }) {
     take.getSnapshot,
   );
   const scroll = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
   useLayoutEffect(() => {
-    if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+    if (scroll.current && following.current)
+      scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [transcript]);
   if (phase === 'preparing') return null;
   return (
@@ -19,6 +21,11 @@ export function LiveTranscript({ take }: { readonly take: LiveTake }) {
       <div
         className="talking-points-transcript-scroll"
         ref={scroll}
+        onScroll={(event) => {
+          const node = event.currentTarget;
+          following.current =
+            node.scrollHeight - node.clientHeight - node.scrollTop <= 32;
+        }}
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus this scrollable region.
         tabIndex={0}
       >
@@ -32,7 +39,15 @@ export function LiveTranscript({ take }: { readonly take: LiveTake }) {
             </p>
           ))
         ) : (
-          <p className="talking-points-hint">Listening for speech…</p>
+          <p className="talking-points-hint">
+            {phase === 'stopped'
+              ? 'No speech was transcribed.'
+              : phase === 'starting'
+                ? 'Preparing transcription…'
+                : phase === 'finalizing'
+                  ? 'Finishing transcription…'
+                  : 'Listening for speech…'}
+          </p>
         )}
       </div>
     </section>

@@ -1,13 +1,5 @@
 import type { Orchestrator } from '@maelstrom-co/client';
-import {
-  InstanceId,
-  ok,
-  type TilingLayout,
-  type TilingNode,
-  tilingLeafToken,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import { ok } from '@maelstrom-co/protocol';
 import {
   createMaelstrom,
   type DynamicVesselHandle,
@@ -18,7 +10,6 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import { VesselCard } from '../components/vessel-card';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
@@ -31,6 +22,11 @@ import {
   type Topic,
 } from './outline.store';
 import { createPreparationAdmission } from './preparation-admission';
+import {
+  MOBILE_TOPIC_MEDIA,
+  preparationLayout,
+  TOPIC_ROW_HEIGHT,
+} from './preparation-layout';
 import { createSemanticCoverage } from './semantic-coverage';
 import { outlineDefinition, topicDefinition } from './vessels';
 
@@ -44,7 +40,7 @@ export function preparationVoiceProvider(
   return provider === 'livekit' ? 'live' : provider;
 }
 
-export const PREPARATION_LAYOUT: TilingLayout = outlineLayout([]);
+export const PREPARATION_LAYOUT = preparationLayout([]);
 
 export function createPreparationRuntime(
   store: OutlineStore,
@@ -108,21 +104,13 @@ export function createPreparationRuntime(
         className="talking-points-controller"
         aria-label="Outline preparation"
       >
-        <VesselCard
-          accent="brand"
-          label="Your outline"
-          meta={`${snapshot.topics.length} Topics`}
-        >
-          <p>
-            {snapshot.topics.length
-              ? 'Ordered from top to bottom'
-              : 'Start with “Add an opening, the main idea, and a closing question.”'}
-          </p>
-          <p className="talking-points-hint">
-            Prepare by voice or text. Only Topic content and order are saved in
-            this browser when storage is available.
-          </p>
-        </VesselCard>
+        <div className="talking-points-outline-heading">
+          <h2>Your outline</h2>
+          <span>{snapshot.topics.length} Topics</span>
+        </div>
+        {!snapshot.topics.length && (
+          <p>Add your first Topic by voice or text below.</p>
+        )}
       </section>
     );
   }
@@ -155,8 +143,14 @@ export function createPreparationRuntime(
           data-topic-id={topic.id}
           data-spoken={spoken}
         >
-          <span className="talking-points-number">
-            {snapshot.topics.indexOf(current) + 1}
+          <span
+            className="talking-points-check"
+            role="checkbox"
+            aria-label="Spoken"
+            aria-checked={spoken}
+            aria-readonly="true"
+          >
+            <span aria-hidden="true">{spoken ? '✓' : ''}</span>
           </span>
           <p
             // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus overflowing Topic content.
@@ -164,15 +158,16 @@ export function createPreparationRuntime(
           >
             {current.content}
           </p>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            aria-pressed={spoken}
-            onClick={() => executeAction(spoken ? 'unmark' : 'mark')}
-          >
-            {spoken ? 'Unmark spoken' : 'Mark spoken'}
-          </button>
-          {spoken && <span className="talking-points-spoken">Spoken</span>}
+          {spoken && (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              aria-pressed={spoken}
+              onClick={() => executeAction('unmark')}
+            >
+              Unmark spoken
+            </button>
+          )}
         </article>
       );
     }
@@ -181,6 +176,7 @@ export function createPreparationRuntime(
   }
 
   function synchronize(orchestrator: Orchestrator) {
+    const mobile = window.matchMedia(MOBILE_TOPIC_MEDIA);
     const topics = new Map<string, ReturnType<typeof registerTopic>>();
     let publishedOutline = '';
     const publish = () => {
@@ -218,49 +214,27 @@ export function createPreparationRuntime(
         topics.delete(id);
       }
       // Registration only publishes capabilities. This separate app-owned projection creates visible Instances after the response batch.
-      const layout = outlineLayout(snapshot.topics);
+      const layout = preparationLayout(
+        snapshot.topics,
+        mobile.matches ? TOPIC_ROW_HEIGHT.mobile : TOPIC_ROW_HEIGHT.desktop,
+      );
       if (
         JSON.stringify(processor.store.state.layout) !== JSON.stringify(layout)
       )
         processor.setLayout(layout);
     };
+    mobile.addEventListener('change', publish);
     const unsubscribeStore = store.subscribe(publish);
     const unsubscribeSettled = orchestrator.onSettled(publish);
     publish();
     return () => {
+      mobile.removeEventListener('change', publish);
       unsubscribeStore();
       unsubscribeSettled();
     };
   }
 
   return { m, owner, writer, admission };
-}
-
-function outlineLayout(topics: readonly Topic[]): TilingLayout {
-  const ids = [
-    InstanceId('outline-main'),
-    ...topics.map((topic) => InstanceId(`topic-${topic.id}-main`)),
-  ];
-  return {
-    type: 'tiling',
-    tree: ids.flatMap<TilingNode>((id, index) =>
-      index < ids.length - 1
-        ? [`H:1,${ids.length - index - 1}`, tilingLeafToken(id)]
-        : [tilingLeafToken(id)],
-    ),
-    instances: [
-      {
-        instanceId: InstanceId('outline-main'),
-        vesselId: VesselId('outline'),
-        variant: VariantName('prepare'),
-      },
-      ...topics.map((topic) => ({
-        instanceId: InstanceId(`topic-${topic.id}-main`),
-        vesselId: VesselId(`topic-${topic.id}`),
-        variant: VariantName('topic'),
-      })),
-    ],
-  };
 }
 
 export type PreparationRuntime = ReturnType<typeof createPreparationRuntime>;
@@ -281,7 +255,7 @@ export function createLiveRuntime(take: LiveTake) {
   };
   const topics = take.getSnapshot().topics;
   let coverage: ReturnType<typeof createSemanticCoverage> | undefined;
-  const entries = topics.map((topic, index) => {
+  const entries = topics.map((topic) => {
     const definition = liveTopicDefinition(topic);
     function LiveTopic({ instanceId }: TypedVesselProps<typeof definition>) {
       const snapshot = useSyncExternalStore(
@@ -303,7 +277,15 @@ export function createLiveRuntime(take: LiveTake) {
           data-topic-id={topic.id}
           data-spoken={spoken}
         >
-          <span className="talking-points-number">{index + 1}</span>
+          <span
+            className="talking-points-check"
+            role="checkbox"
+            aria-label="Spoken"
+            aria-checked={spoken}
+            aria-readonly="true"
+          >
+            <span aria-hidden="true">{spoken ? '✓' : ''}</span>
+          </span>
           <p
             // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus overflowing Topic content.
             tabIndex={0}
@@ -323,7 +305,6 @@ export function createLiveRuntime(take: LiveTake) {
               Unmark spoken
             </button>
           )}
-          {spoken && <span className="talking-points-spoken">Spoken</span>}
         </article>
       );
     }

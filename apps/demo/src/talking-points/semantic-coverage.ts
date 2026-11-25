@@ -50,6 +50,7 @@ export function createSemanticCoverage(
   let submitted = '';
   let applyingEvidence: CoverageEvidence | undefined;
   let invalidated = false;
+  let sourceIds: string[] = [];
   const read = () => {
     const evidence = take.getEvidence();
     const groups = segments(evidence);
@@ -65,6 +66,7 @@ export function createSemanticCoverage(
     if (!key || key === submitted) return;
     submitted = key;
     applyingEvidence = evidence;
+    sourceIds = groups.flat().map((part) => part.itemId);
     invalidated = false;
     busy = true;
     const ticket = scope.enqueueIntent(
@@ -102,25 +104,22 @@ export function createSemanticCoverage(
     });
   }
   function onEvidence(input: TakeEvidence) {
-    const source = applyingEvidence?.items.find(
-      (item) => item.itemId === input.event.itemId,
-    );
-    if (source) {
-      if (input.type === 'committed') {
-        if (source.previousItemId !== input.event.previousItemId)
-          invalidated = true;
-      } else {
-        const part = source.parts.find(
-          (part) => part.contentIndex === input.event.contentIndex,
+    if (applyingEvidence && input.type !== 'committed') {
+      const part = segments(applyingEvidence)
+        .flat()
+        .find(
+          (part) =>
+            part.itemId === input.event.itemId &&
+            part.contentIndex === input.event.contentIndex,
         );
-        if (
-          part?.status === 'final' &&
-          (input.type !== 'completed' ||
-            part.transcript !== input.event.transcript)
-        )
-          invalidated = true;
-      }
+      if (
+        part &&
+        (input.type !== 'completed' ||
+          part.transcript !== input.event.transcript)
+      )
+        invalidated = true;
     }
+    if (applyingEvidence && !take.sourcesOrdered(sourceIds)) invalidated = true;
     pump();
   }
   const unsubscribe = take.subscribeEvidence(onEvidence);
