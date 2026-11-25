@@ -135,6 +135,7 @@ export function HomePage() {
           key={keyEpoch}
           sessionId={sessionId}
           connector={connector}
+          readyTimeoutMs={5_000}
           initialLayout={initialLayout}
           debug={debug}
         >

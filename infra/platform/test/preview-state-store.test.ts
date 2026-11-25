@@ -27,14 +27,18 @@ test('preview callers cannot fall back to the shared Cloud backend or an inferre
     previewStateStoreOptions(env),
   );
 });
-test('the advertised capability routes all three preview entrypoints and the maintenance reader', async () => {
+test('the advertised capabilities route all preview entrypoints and the maintenance reader', async () => {
   const root = import.meta.dir + '/../../..';
   const pkg = JSON.parse(await readFile(root + '/package.json', 'utf8'));
   expect(pkg.maelstromPreviewStateStore).toBe(OSS_PREVIEW_STATE_STORE_WORKER);
-  for (const app of ['www', 'docs', 'demo'])
+  for (const app of ['www', 'docs', 'demo', 'agui-demo'])
     expect(
       await readFile(`${root}/apps/${app}/alchemy.preview.run.ts`, 'utf8'),
     ).toContain('Cloudflare.state(previewStateStoreOptions())');
+  const agui = JSON.parse(
+    await readFile(root + '/apps/agui-demo/package.json', 'utf8'),
+  );
+  expect(agui.maelstromPreviewStateStore).toBe(OSS_PREVIEW_STATE_STORE_WORKER);
   expect(
     await readFile(root + '/infra/platform/state.run.ts', 'utf8'),
   ).toContain('Cloudflare.state(inspectionStateStoreOptions())');

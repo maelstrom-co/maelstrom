@@ -106,10 +106,10 @@ describe('JournalComponent entry view ruled-paper', () => {
     // component with VESSEL_ACCENTS.journal mocked to a different accent is
     // the only way to observe that the rule color follows the mapping.
     vi.resetModules();
-    vi.doMock('../lib/design-tokens', async () => {
+    vi.doMock('@maelstrom-co/demo-vessels/lib/design-tokens', async () => {
       const actual = await vi.importActual<
-        typeof import('../lib/design-tokens')
-      >('../lib/design-tokens');
+        typeof import('@maelstrom-co/demo-vessels/lib/design-tokens')
+      >('@maelstrom-co/demo-vessels/lib/design-tokens');
       return {
         ...actual,
         VESSEL_ACCENTS: { ...actual.VESSEL_ACCENTS, journal: 'amber' },
@@ -133,7 +133,7 @@ describe('JournalComponent entry view ruled-paper', () => {
       accentAlpha(ACCENT_HEX.green, 0.1),
     );
 
-    vi.doUnmock('../lib/design-tokens');
+    vi.doUnmock('@maelstrom-co/demo-vessels/lib/design-tokens');
     vi.resetModules();
   });
 
