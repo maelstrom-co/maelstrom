@@ -234,7 +234,11 @@ export function TalkingPointsPage() {
                 </p>
                 {store && <SavedOutline store={store} />}
                 {browserKeyMode && (
-                  <button type="button" onClick={() => setDrawerOpen(true)}>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={() => setDrawerOpen(true)}
+                  >
                     Add an API key to prepare
                   </button>
                 )}
@@ -282,13 +286,24 @@ function TalkingPointsHeader({
     <header className="talking-points-header">
       <div>
         <a href="/">← Dayline</a>
-        <h1>Talking Points</h1>
-        <span>Powered by Maelstrom</span>
+        <h1 className="eyebrow">Talking Points</h1>
+        <a className="powered-by-badge" href="https://maelstrom-ai.co">
+          <img
+            src="/brand/powered-by-badge-dark.svg"
+            alt="Powered by Maelstrom"
+            width={135}
+            height={28}
+          />
+        </a>
       </div>
       <div className="talking-points-controls">
         {children}
         {usesBrowserKey() && (
-          <button type="button" onClick={onRequireKey}>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={onRequireKey}
+          >
             API key
           </button>
         )}
@@ -398,46 +413,61 @@ function PreparationWorkspace({
   return (
     <>
       <main className="talking-points-main">
-        <p role="status" aria-label={`Connection status: ${connectionStatus}`}>
-          {connectionStatus}
-        </p>
-        <button
-          type="button"
-          disabled={
-            sealing || !topics.length || connectionStatus !== 'connected'
-          }
-          onClick={() => {
-            onSeal();
-            setReceipt('Starting: waiting for accepted preparation to settle…');
-            void runtime.admission
-              .seal()
-              .then(async () => {
-                if (!owner.isActive()) return;
-                await voice.disconnect();
-                if (owner.isActive()) onStart();
-              })
-              .catch(() => {
-                if (!owner.isActive()) return;
-                setReceipt(
-                  'Preparation outcome not confirmed. Start was stopped; check your outline before trying again.',
-                );
-                onStartFailed();
-              });
-          }}
-        >
-          Start take
-        </button>
-        {sealing && (
-          <button type="button" onClick={onCancelStart}>
-            Reset
+        <div className="talking-points-toolbar">
+          <p
+            className="status-pill"
+            role="status"
+            aria-label={`Connection status: ${connectionStatus}`}
+          >
+            {connectionStatus}
+          </p>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={
+              sealing || !topics.length || connectionStatus !== 'connected'
+            }
+            onClick={() => {
+              onSeal();
+              setReceipt(
+                'Starting: waiting for accepted preparation to settle…',
+              );
+              void runtime.admission
+                .seal()
+                .then(async () => {
+                  if (!owner.isActive()) return;
+                  await voice.disconnect();
+                  if (owner.isActive()) onStart();
+                })
+                .catch(() => {
+                  if (!owner.isActive()) return;
+                  setReceipt(
+                    'Preparation outcome not confirmed. Start was stopped; check your outline before trying again.',
+                  );
+                  onStartFailed();
+                });
+            }}
+          >
+            Start take
           </button>
-        )}
-        {sealing && (
-          <p role="status">Starting: waiting for preparation to settle…</p>
-        )}
+          {sealing && (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={onCancelStart}
+            >
+              Reset
+            </button>
+          )}
+          {sealing && (
+            <p role="status">Starting: waiting for preparation to settle…</p>
+          )}
+        </div>
         <div
           className="talking-points-chart"
-          style={{ height: Math.max(320, (topics.length + 1) * 160) }}
+          style={{
+            height: `calc(${topics.length + 1} * var(--talking-points-row-height))`,
+          }}
         >
           <m.Chart />
         </div>
@@ -451,7 +481,7 @@ function PreparationWorkspace({
                   prepareBrowserOpenAIVoice();
               }}
             >
-              <m.VoiceOrb size={48} />
+              <m.VoiceOrb size={44} />
             </div>
             <span role="status" aria-label="Voice status">
               {voice.state === 'idle' ? 'Tap to talk' : voice.state}
@@ -481,12 +511,17 @@ function PreparationWorkspace({
             <label htmlFor="talking-points-intent">Prepare your outline</label>
             <div className="talking-points-input-row">
               <input
+                className="intent-pill"
                 id="talking-points-intent"
                 value={draft}
                 onChange={(event) => changeDraft(event.target.value)}
                 placeholder="Add, edit, remove or reorder Topics…"
               />
-              <button type="submit" disabled={!draft.trim()}>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={!draft.trim()}
+              >
                 Send
               </button>
             </div>
@@ -532,13 +567,14 @@ function LiveWorkspace({
   return (
     <div className="talking-points-app">
       <main className="talking-points-main">
-        <h1>Talking Points</h1>
+        <h1 className="eyebrow">Talking Points</h1>
         <div className="talking-points-take-controls">
           <output aria-label="Elapsed time">
             {String(Math.floor(seconds / 60)).padStart(2, '0')}:
             {String(seconds % 60).padStart(2, '0')}
           </output>
           <button
+            className="btn btn-ghost"
             type="button"
             disabled={
               snapshot.phase !== 'listening' && snapshot.phase !== 'starting'
@@ -547,11 +583,11 @@ function LiveWorkspace({
           >
             Stop
           </button>
-          <button type="button" onClick={onReset}>
+          <button className="btn btn-ghost" type="button" onClick={onReset}>
             Reset
           </button>
         </div>
-        <p role="status" aria-label="Take status">
+        <p className="status-pill" role="status" aria-label="Take status">
           {snapshot.phase === 'starting'
             ? 'Starting…'
             : snapshot.phase === 'listening'
@@ -571,7 +607,9 @@ function LiveWorkspace({
           <LiveEngineStatus runtime={runtime} />
           <div
             className="talking-points-chart"
-            style={{ height: Math.max(320, snapshot.topics.length * 160) }}
+            style={{
+              height: `calc(${Math.max(1, snapshot.topics.length)} * var(--talking-points-row-height))`,
+            }}
           >
             <m.Chart />
           </div>

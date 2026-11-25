@@ -26,11 +26,9 @@ afterEach(() => {
 });
 
 describe('app identity', () => {
-  it('links to Talking Points without exposing the hidden Tasklane lane', () => {
-    const { getByRole, container } = render(<DemoHeader>{null}</DemoHeader>);
-    expect(
-      getByRole('link', { name: 'Talking Points' }).getAttribute('href'),
-    ).toBe('/talking-points');
+  it('keeps Talking Points and Tasklane discoverable only by URL', () => {
+    const { container } = render(<DemoHeader>{null}</DemoHeader>);
+    expect(container.querySelector('a[href="/talking-points"]')).toBeNull();
     expect(container.querySelector('a[href="/tasks"]')).toBeNull();
   });
 

@@ -18,6 +18,7 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+import { VesselCard } from '../components/vessel-card';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
@@ -107,16 +108,21 @@ export function createPreparationRuntime(
         className="talking-points-controller"
         aria-label="Outline preparation"
       >
-        <h2>Your outline</h2>
-        <p>
-          {snapshot.topics.length
-            ? `${snapshot.topics.length} Topics · ordered from top to bottom`
-            : 'Start with “Add an opening, the main idea, and a closing question.”'}
-        </p>
-        <p className="talking-points-hint">
-          Prepare by voice or text. Only Topic content and order are saved in
-          this browser when storage is available.
-        </p>
+        <VesselCard
+          accent="brand"
+          label="Your outline"
+          meta={`${snapshot.topics.length} Topics`}
+        >
+          <p>
+            {snapshot.topics.length
+              ? 'Ordered from top to bottom'
+              : 'Start with “Add an opening, the main idea, and a closing question.”'}
+          </p>
+          <p className="talking-points-hint">
+            Prepare by voice or text. Only Topic content and order are saved in
+            this browser when storage is available.
+          </p>
+        </VesselCard>
       </section>
     );
   }
@@ -144,7 +150,7 @@ export function createPreparationRuntime(
       const spoken = snapshot.spoken.has(topic.id);
       return (
         <article
-          className="talking-points-topic"
+          className="talking-points-topic vessel-card"
           aria-label={current.content}
           data-topic-id={topic.id}
           data-spoken={spoken}
@@ -152,8 +158,14 @@ export function createPreparationRuntime(
           <span className="talking-points-number">
             {snapshot.topics.indexOf(current) + 1}
           </span>
-          <p>{current.content}</p>
+          <p
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus overflowing Topic content.
+            tabIndex={0}
+          >
+            {current.content}
+          </p>
           <button
+            className="btn btn-ghost"
             type="button"
             aria-pressed={spoken}
             onClick={() => executeAction(spoken ? 'unmark' : 'mark')}
@@ -286,14 +298,20 @@ export function createLiveRuntime(take: LiveTake) {
       const spoken = snapshot.spoken.has(topic.id);
       return (
         <article
-          className="talking-points-topic"
+          className="talking-points-topic vessel-card"
           aria-label={topic.content}
           data-topic-id={topic.id}
           data-spoken={spoken}
         >
           <span className="talking-points-number">{index + 1}</span>
-          <p>{topic.content}</p>
+          <p
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to focus overflowing Topic content.
+            tabIndex={0}
+          >
+            {topic.content}
+          </p>
           <button
+            className="btn btn-ghost"
             type="button"
             aria-pressed={spoken}
             disabled={
