@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  type IntentSubmission,
   Orchestrator,
   type OrchestratorOptions,
   type SettledAgentRun,
@@ -29,67 +30,168 @@ async function flush() {
   for (let count = 0; count < 20; count++) await Promise.resolve();
 }
 
-test('createRealtimeInstance shares FIFO admission and retires only its pending voice lifetime', async () => {
-  const sent: ChartRequestMessage[] = [];
-  const release: Array<(response: MaelstromResponse) => void> = [];
+test.each([false, true])(
+  'createRealtimeInstance shares FIFO admission and retires only its pending voice lifetime, custom scope: %s',
+  async (customScope) => {
+    const sent: ChartRequestMessage[] = [];
+    const release: Array<(response: MaelstromResponse) => void> = [];
+    const client = new Orchestrator(
+      createMockConnector({
+        process: (request) => {
+          sent.push(request);
+          return new Promise((resolve) => {
+            release.push(resolve);
+          });
+        },
+      }),
+    );
+    try {
+      await client.connect();
+      const tracked: IntentSubmission[] = [];
+      const instance = createRealtimeInstance(
+        client,
+        customScope
+          ? {
+              createIntentScope: (orchestrator) => {
+                const underlying = orchestrator.createIntentScope();
+                return {
+                  enqueueIntent: (intent) => {
+                    const submission = underlying.enqueueIntent(intent);
+                    tracked.push(submission);
+                    return submission;
+                  },
+                  retire: () => underlying.retire(),
+                };
+              },
+            }
+          : {},
+      );
+      const scope = instance.createIntentScope?.();
+      expect(scope).toBeDefined();
+      if (!scope) throw new Error('missing scoped admission');
+      const active = client.enqueueIntent('typed-active');
+      await flush();
+      const first = scope.enqueueIntent('voice-first');
+      const typed = client.enqueueIntent('typed-second');
+      const retired = scope.enqueueIntent('voice-retired');
+      expect(first.accepted).toBe(true);
+      expect(retired.accepted).toBe(true);
+      if (customScope) {
+        expect(first).toBe(tracked[0]);
+        expect(retired).toBe(tracked[1]);
+      }
+      expect(first.store.state).toMatchObject({
+        status: 'queued',
+        queuePosition: 1,
+      });
+      expect(typed.store.state).toMatchObject({
+        status: 'queued',
+        queuePosition: 2,
+      });
+      expect(sent).toHaveLength(1);
+      const finish = (index: number) =>
+        release[index]({
+          type: 'maelstrom_response',
+          requestId: sent[index].id,
+          userMessage: 'Applied',
+          rationale: '',
+          executionPlan: [],
+          layout: { type: 'tiling', tree: [], instances: [] },
+        });
+      finish(0);
+      await active.result;
+      await flush();
+      expect(first.store.state.status).toBe('processing');
+      scope.retire();
+      expect(await retired.result).toEqual({
+        status: 'not_submitted',
+        reason: 'owner_retired',
+      });
+      finish(1);
+      expect((await first.result).status).toBe('applied');
+      await flush();
+      expect(sent[2].request.context.updateReasons).toContainEqual({
+        type: 'user_intent',
+        intent: 'typed-second',
+      });
+      finish(2);
+      expect((await typed.result).status).toBe('applied');
+      expect(sent).toHaveLength(3);
+      const refused = scope.enqueueIntent('after-retirement');
+      expect(refused.accepted).toBe(false);
+      expect(await refused.result).toEqual({
+        status: 'not_submitted',
+        reason: 'owner_retired',
+      });
+      if (customScope) expect(refused).toBe(tracked[2]);
+    } finally {
+      await client.dispose();
+    }
+  },
+);
+
+test('createRealtimeInstance lazily delegates scope creation to the factory with its owning Orchestrator', async () => {
+  const client = new Orchestrator(createMockConnector());
+  const owners: Orchestrator[] = [];
+  const scopes: ReturnType<Orchestrator['createIntentScope']>[] = [];
+  try {
+    const instance = createRealtimeInstance(client, {
+      createIntentScope: (orchestrator) => {
+        owners.push(orchestrator);
+        const scope = orchestrator.createIntentScope();
+        scopes.push(scope);
+        return scope;
+      },
+    });
+    expect(owners).toEqual([]);
+    const createScope = instance.createIntentScope;
+    if (!createScope) throw new Error('missing scoped admission');
+
+    expect(createScope()).toBe(scopes[0]);
+    expect(createScope()).toBe(scopes[1]);
+    expect(scopes[0]).not.toBe(scopes[1]);
+    expect(owners).toEqual([client, client]);
+  } finally {
+    await client.dispose();
+  }
+});
+
+test('a custom scope preserves the original submission and its unknown outcome', async () => {
+  const failure = new Error('transport outcome is unknown');
   const client = new Orchestrator(
     createMockConnector({
-      process: (request) => {
-        sent.push(request);
-        return new Promise((resolve) => {
-          release.push(resolve);
-        });
+      process: async () => {
+        throw failure;
       },
     }),
   );
+  let original: IntentSubmission | undefined;
   try {
     await client.connect();
-    const instance = createRealtimeInstance(client);
+    const instance = createRealtimeInstance(client, {
+      createIntentScope: (orchestrator) => {
+        const scope = orchestrator.createIntentScope();
+        return {
+          enqueueIntent: (intent) => {
+            original = scope.enqueueIntent(intent);
+            return original;
+          },
+          retire: () => scope.retire(),
+        };
+      },
+    });
     const scope = instance.createIntentScope?.();
-    expect(scope).toBeDefined();
     if (!scope) throw new Error('missing scoped admission');
-    const active = client.enqueueIntent('typed-active');
-    await flush();
-    const first = scope.enqueueIntent('voice-first');
-    const typed = client.enqueueIntent('typed-second');
-    const retired = scope.enqueueIntent('voice-retired');
-    expect(first.store.state).toMatchObject({
-      status: 'queued',
-      queuePosition: 1,
+    const submission = scope.enqueueIntent('uncertain change');
+    if (!original) throw new Error('missing original submission');
+    expect(submission).toBe(original);
+    expect(submission.accepted).toBe(true);
+    expect(submission.result).toBe(original.result);
+    expect(await submission.result).toEqual({
+      status: 'unknown',
+      error: failure,
     });
-    expect(typed.store.state).toMatchObject({
-      status: 'queued',
-      queuePosition: 2,
-    });
-    expect(sent).toHaveLength(1);
-    const finish = (index: number) =>
-      release[index]({
-        type: 'maelstrom_response',
-        requestId: sent[index].id,
-        userMessage: 'Applied',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'tiling', tree: [], instances: [] },
-      });
-    finish(0);
-    await active.result;
-    await flush();
-    expect(first.store.state.status).toBe('processing');
-    scope.retire();
-    expect(await retired.result).toEqual({
-      status: 'not_submitted',
-      reason: 'owner_retired',
-    });
-    finish(1);
-    expect((await first.result).status).toBe('applied');
-    await flush();
-    expect(sent[2].request.context.updateReasons).toContainEqual({
-      type: 'user_intent',
-      intent: 'typed-second',
-    });
-    finish(2);
-    expect((await typed.result).status).toBe('applied');
-    expect(sent).toHaveLength(3);
+    expect(submission.store.state.status).toBe('unknown');
   } finally {
     await client.dispose();
   }

@@ -1,5 +1,6 @@
 import type {
   AgentMessageSubmission,
+  IntentScope,
   Orchestrator,
   SettledAgentRun,
 } from '@maelstrom-co/client';
@@ -7,6 +8,15 @@ import type { RealtimeInstance } from '@maelstrom-co/realtime';
 
 /** Options for {@link createRealtimeInstance}. */
 export interface RealtimeInstanceOptions {
+  /**
+   * Creates a fresh connection-owned scope backed by this Orchestrator's intent
+   * scheduler. Called lazily on connect, including reconnects. Defaults to
+   * `orchestrator.createIntentScope()`. Wrappers must preserve the original
+   * submission tickets and results, and forward retirement only to their own
+   * scope so pending work retires without interrupting active work. Unused when
+   * `sendAgentMessage` is set.
+   */
+  readonly createIntentScope?: (orchestrator: Orchestrator) => IntentScope;
   /**
    * Sends one voice intent to the agent, normally by calling
    * `orchestrator.sendMessage(text, { source: 'voice' })` through the app's
@@ -30,7 +40,7 @@ export function createRealtimeInstance(
   orchestrator: Orchestrator,
   options: RealtimeInstanceOptions = {},
 ): RealtimeInstance {
-  const { sendAgentMessage } = options;
+  const { createIntentScope, sendAgentMessage } = options;
   return {
     ...(sendAgentMessage
       ? {
@@ -66,7 +76,10 @@ export function createRealtimeInstance(
         };
       },
     },
-    createIntentScope: () => orchestrator.createIntentScope(),
+    createIntentScope: () =>
+      createIntentScope
+        ? createIntentScope(orchestrator)
+        : orchestrator.createIntentScope(),
     submitIntent: (intent) =>
       orchestrator
         .processIntent(intent)

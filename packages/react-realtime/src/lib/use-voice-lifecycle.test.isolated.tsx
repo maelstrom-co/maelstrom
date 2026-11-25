@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
 import {
+  type IntentScope,
   type IntentSubmission,
   Orchestrator,
   type TimedTranscriptFragment,
@@ -822,6 +823,136 @@ test('submitted tool results retain their original provider and generation after
   }
 });
 
+test('custom intent scopes follow connect, reconnect and provider replacement without retiring active or typed work', async () => {
+  const sent: ChartRequestMessage[] = [];
+  const release: Array<(response: MaelstromResponse) => void> = [];
+  const client = new Orchestrator(
+    createMockConnector({
+      process: (request) => {
+        sent.push(request);
+        return new Promise((resolve) => release.push(resolve));
+      },
+    }),
+  );
+  const scopes: IntentScope[] = [];
+  const owners: Orchestrator[] = [];
+  const submissions: IntentSubmission[] = [];
+  const retired: IntentScope[] = [];
+  const adapters = Array.from({ length: 2 }, () => {
+    const listeners = new Set<(event: RealtimeAdapterEvent) => void>();
+    const results: ToolResult[] = [];
+    return Object.assign(makeAdapter(), {
+      results,
+      on: (listener: (event: RealtimeAdapterEvent) => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      emit: (intent: string) => {
+        for (const listener of listeners)
+          listener({
+            type: 'tool_call',
+            callId: ToolCallId(intent),
+            name: 'submit_intent',
+            argumentsJson: JSON.stringify({ intent }),
+          });
+      },
+      sendToolResult: async (_callId: ToolCallId, result: ToolResult) => {
+        results.push(result);
+      },
+    });
+  });
+  const extension = maelstromRealtime({
+    providers: ['first', 'second'],
+    createAdapter: ({ provider }) => adapters[provider === 'first' ? 0 : 1],
+    createIntentScope: (orchestrator) => {
+      owners.push(orchestrator);
+      const scope = orchestrator.createIntentScope();
+      scopes.push(scope);
+      return {
+        enqueueIntent: (intent) => {
+          const submission = scope.enqueueIntent(intent);
+          submissions.push(submission);
+          return submission;
+        },
+        retire: () => {
+          retired.push(scope);
+          scope.retire();
+        },
+      };
+    },
+  })(diagnosticContext(client));
+  let voice!: UseVoiceResult<Provider>;
+  function Controls() {
+    voice = extension.useVoice();
+    return null;
+  }
+  const finish = (index: number) =>
+    release[index]({
+      type: 'maelstrom_response',
+      requestId: sent[index].id,
+      rationale: '',
+      userMessage: 'Applied',
+      executionPlan: [],
+      layout: { type: 'tiling', tree: [], instances: [] },
+    });
+  try {
+    await client.connect();
+    render(<Controls />);
+    expect(scopes).toHaveLength(0);
+    await act(async () => voice.connect());
+    expect(scopes).toHaveLength(1);
+    await act(async () => voice.disconnect());
+    expect(retired).toEqual([scopes[0]]);
+    await act(async () => voice.connect());
+    expect(scopes).toHaveLength(2);
+    expect(scopes[1]).not.toBe(scopes[0]);
+    await act(async () => {
+      adapters[0].emit('voice-active');
+      await waitFor(() => expect(sent).toHaveLength(1));
+      adapters[0].emit('voice-pending');
+      await waitFor(() => expect(submissions).toHaveLength(2));
+    });
+    const [active, pending] = submissions;
+    const typed = client.enqueueIntent('typed-pending');
+    expect(active.accepted).toBe(true);
+    expect(pending.accepted).toBe(true);
+    await act(async () => voice.switchProvider('second'));
+    expect(await pending.result).toEqual({
+      status: 'not_submitted',
+      reason: 'owner_retired',
+    });
+    expect(active.store.state.status).toBe('processing');
+    expect(typed.store.state.status).toBe('queued');
+    expect(retired).toEqual([scopes[0], scopes[1]]);
+    expect(scopes).toHaveLength(2);
+    await act(async () => voice.connect());
+    expect(scopes).toHaveLength(3);
+    expect(scopes[2]).not.toBe(scopes[1]);
+    expect(owners).toEqual([client, client, client]);
+    await act(async () => {
+      finish(0);
+      expect((await active.result).status).toBe('applied');
+      await waitFor(() => expect(sent).toHaveLength(2));
+    });
+    expect(sent[1].request.context.updateReasons).toContainEqual({
+      type: 'user_intent',
+      intent: 'typed-pending',
+    });
+    await act(async () => {
+      finish(1);
+      await typed.result;
+    });
+    expect((await typed.result).status).toBe('applied');
+    expect(adapters[0].results).toEqual([]);
+    expect(adapters[1].results).toEqual([]);
+  } finally {
+    cleanup();
+    await client.dispose();
+  }
+});
+
 test('sendAgentMessage routes provider submit_intent intents to the agent instead of the intent scheduler', async () => {
   const processed: ChartRequestMessage[] = [];
   const client = new Orchestrator(
@@ -849,8 +980,13 @@ test('sendAgentMessage routes provider submit_intent intents to the agent instea
     },
   });
   const sent: Array<{ orchestrator: Orchestrator; text: string }> = [];
+  let scopeCalls = 0;
   const extension = maelstromRealtime({
     createAdapter: () => adapter,
+    createIntentScope: (orchestrator) => {
+      scopeCalls += 1;
+      return orchestrator.createIntentScope();
+    },
     sendAgentMessage: (orchestrator, text) => {
       sent.push({ orchestrator, text });
       return {
@@ -881,6 +1017,7 @@ test('sendAgentMessage routes provider submit_intent intents to the agent instea
     expect(sent[0]?.orchestrator).toBe(client);
     expect(sent[0]?.text).toBe('show the board');
     expect(processed).toEqual([]);
+    expect(scopeCalls).toBe(0);
   } finally {
     cleanup();
     await client.dispose();
