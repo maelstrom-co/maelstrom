@@ -745,7 +745,7 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
  import { Command, Flag } from "effect/cli";
  import * as Argument from "effect/cli/Argument";
  import * as Console from "effect/Console";
-@@ -113,7 +118,66 @@
+@@ -113,3 +118,80 @@
          Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` })),
        ),
      );
@@ -795,7 +795,25 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
 +    }),
 +  ),
 +);
- 
++
++const inventoryCommand = Command.make(
++  "inventory",
++  {
++    stack: Flag.String("stack"),
++    stageName: Flag.String("stage"),
++    main: legacyMain,
++    envFile,
++    profile,
++    local: legacyLocal,
++  },
++  legacyInstrumentCommand("state.inventory")(
++    Effect.fn(function* ({ stack, stageName, ...args }) {
++      const store = yield* Alchemist.State.store(legacySource(args));
++      yield* Console.log(JSON.stringify([...(yield* store.list({ stack, stage: stageName }))].sort()));
++    }),
++  ),
++);
++
 +const stacksCommand = Command.make(
 +  "stacks",
 +  { main: legacyMain, envFile, profile, local: legacyLocal },
@@ -808,16 +826,12 @@ diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
 +  ),
 +);
 +
-+
- const listCommand = Command.make(
-   "list",
-   { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName },
-@@ -453,7 +517,7 @@
+@@ -453,7 +535,7 @@
    ),
  ).pipe(
    Command.withDescription("Inspect and manage deployment state"),
 -  Command.withSubcommands([
-+  Command.withSubcommands([getCommand, stacksCommand, 
++  Command.withSubcommands([getCommand, inventoryCommand, stacksCommand,
      listCommand,
      readCommand,
      deleteCommand,
@@ -1456,7 +1470,7 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
  import { Command, Flag } from "effect/cli";
  import * as Argument from "effect/cli/Argument";
  import * as Console from "effect/Console";
-@@ -55,6 +60,35 @@
+@@ -55,6 +60,46 @@
  /** Run a state tree operation against a resolved store, mapping a bad path
   * to a single-line user error instead of a cause dump. */
  const usingStore = (store) => (operation) => provideStore(store)(operation).pipe(Effect.catchTag("InvalidStatePath", (error) => Effect.fail(new UserInputError({ message: `${error.path}: ${error.reason}` }))));
@@ -1484,6 +1498,17 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
 +        ? `(not found: ${stack}/${stageName}/${fqn})`
 +        : JSON.stringify(encodeState(value), null, 2));
 +})));
++const inventoryCommand = Command.make("inventory", {
++    stack: Flag.String("stack"),
++    stageName: Flag.String("stage"),
++    main: legacyMain,
++    envFile,
++    profile,
++    local: legacyLocal,
++}, legacyInstrumentCommand("state.inventory")(Effect.fn(function* ({ stack, stageName, ...args }) {
++    const store = yield* Alchemist.State.store(legacySource(args));
++    yield* Console.log(JSON.stringify([...(yield* store.list({ stack, stage: stageName }))].sort()));
++})));
 +const stacksCommand = Command.make("stacks", { main: legacyMain, envFile, profile, local: legacyLocal }, legacyInstrumentCommand("state.stacks")(Effect.fn(function* (args) {
 +    const store = yield* Alchemist.State.store(legacySource(args));
 +    const stacks = [...(yield* store.listStacks())].sort();
@@ -1492,16 +1517,16 @@ diff --git a/lib/Cli/commands/state.js b/lib/Cli/commands/state.js
  const listCommand = Command.make("list", { path: pathArgument, recursive, main: config, envFile, profile, backend, name: storeName }, instrumentCommand("state.list")(Effect.fn(function* ({ path, recursive, ...args }) {
      const store = yield* Alchemist.State.store(source(args));
      const items = yield* usingStore(store)(State.listState({
-@@ -229,7 +263,7 @@
+@@ -229,7 +274,7 @@
          return yield* failWithHelp(["alchemy", "state"]);
      }
      yield* stateExplorer(args);
 -}))).pipe(Command.withDescription("Inspect and manage deployment state"), Command.withSubcommands([
-+}))).pipe(Command.withDescription("Inspect and manage deployment state"), Command.withSubcommands([getCommand, stacksCommand,
++}))).pipe(Command.withDescription("Inspect and manage deployment state"), Command.withSubcommands([getCommand, inventoryCommand, stacksCommand,
      listCommand,
      readCommand,
      deleteCommand,
-@@ -239,4 +273,3 @@
+@@ -239,4 +284,3 @@
      logsCommand,
      unsafeCommand,
  ]));

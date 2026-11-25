@@ -135,3 +135,91 @@ index 33ec499b05fa2720c8d27070f0ca331397df1ea0..369f3f22a873d7e51df66e352123235f
      }),
      reconcile: Effect.fn(function* ({ id, news, output }) {
        const zoneId = output?.zoneId ?? zoneIdOf(news.zone);
+diff --git a/src/R2/Bucket.ts b/src/R2/Bucket.ts
+--- a/src/R2/Bucket.ts
++++ b/src/R2/Bucket.ts
+@@ -286,4 +286,6 @@
+    * @default false
+    */
+   forceDestroy?: boolean;
++  /** Require an atomic create when no managed bucket is recorded. */
++  exclusiveCreate?: boolean;
+ };
+@@ -1351,7 +1353,8 @@
+           // Observe — fetch the bucket. R2 reports a deleted bucket as
+           // `NoSuchBucket`; tolerate that so the reconciler falls
+           // through to the create path.
+-          let observed = yield* r2
++          const exclusive = news.exclusiveCreate === true && output === undefined;
++          let observed = exclusive ? undefined : yield* r2
+             .getBucket({
+               accountId: acct,
+               bucketName: name,
+@@ -1372,8 +1375,8 @@
+                 locationHint: news.locationHint,
+               })
+               .pipe(
+-                Effect.catchTag("BucketAlreadyExists", () =>
+-                  r2
++                Effect.catchTag("BucketAlreadyExists", (error) =>
++                  exclusive ? Effect.fail(error) : r2
+                     .getBucket({
+                       accountId: acct,
+                       bucketName: name,
+@@ -1592,6 +1595,11 @@
+               jurisdiction: output?.jurisdiction ?? olds?.jurisdiction,
+             })
+             .pipe(
++              Effect.tap(() =>
++                olds?.exclusiveCreate && output === undefined
++                  ? Effect.fail(new BucketOperationFailed({ message: "Existing R2 bucket has no managed state" }))
++                  : Effect.void,
++              ),
+               Effect.map((bucket) => ({
+                 bucketName: bucket.name!,
+                 // Distilled widened generated string enums to open unions.
+diff --git a/lib/R2/Bucket.js b/lib/R2/Bucket.js
+--- a/lib/R2/Bucket.js
++++ b/lib/R2/Bucket.js
+@@ -818,7 +818,8 @@
+             // Observe — fetch the bucket. R2 reports a deleted bucket as
+             // `NoSuchBucket`; tolerate that so the reconciler falls
+             // through to the create path.
+-            let observed = yield* r2
++            const exclusive = news.exclusiveCreate === true && output === undefined;
++            let observed = exclusive ? undefined : yield* r2
+                 .getBucket({
+                 accountId: acct,
+                 bucketName: name,
+@@ -837,7 +838,7 @@
+                     jurisdiction: news.jurisdiction,
+                     locationHint: news.locationHint,
+                 })
+-                    .pipe(Effect.catchTag("BucketAlreadyExists", () => r2
++                    .pipe(Effect.catchTag("BucketAlreadyExists", (error) => exclusive ? Effect.fail(error) : r2
+                     .getBucket({
+                     accountId: acct,
+                     bucketName: name,
+@@ -989,7 +990,9 @@
+                 bucketName: name,
+                 jurisdiction: output?.jurisdiction ?? olds?.jurisdiction,
+             })
+-                .pipe(Effect.map((bucket) => ({
++                .pipe(Effect.tap(() => olds?.exclusiveCreate && output === undefined
++                ? Effect.fail(new BucketOperationFailed({ message: "Existing R2 bucket has no managed state" }))
++                : Effect.void), Effect.map((bucket) => ({
+                 bucketName: bucket.name,
+                 // Distilled widened generated string enums to open unions.
+                 storageClass: (bucket.storageClass ?? "Standard"),
+diff --git a/lib/R2/Bucket.d.ts b/lib/R2/Bucket.d.ts
+--- a/lib/R2/Bucket.d.ts
++++ b/lib/R2/Bucket.d.ts
+@@ -266,6 +266,8 @@
+      * @default false
+      */
+     forceDestroy?: boolean;
++    /** Require an atomic create when no managed bucket is recorded. */
++    exclusiveCreate?: boolean;
+ };
+ export type Bucket = Resource<"Cloudflare.R2.Bucket", BucketProps, {
+     bucketName: BucketName;

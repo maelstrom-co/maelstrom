@@ -444,14 +444,23 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
-    // Two credentialed steps, each also asserting the expected account.
+    // Both application deployment steps assert the expected account.
     expect(
       productionWorkflow.match(/(?<!EXPECTED_)CLOUDFLARE_ACCOUNT_ID:/g),
     ).toHaveLength(2);
     expect(
       productionWorkflow.match(/EXPECTED_CLOUDFLARE_ACCOUNT_ID:/g),
     ).toHaveLength(2);
-    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(2);
+    expect(
+      productionWorkflow.match(
+        /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_PRODUCTION_API_TOKEN \}\}/g,
+      ),
+    ).toHaveLength(2);
+    expect(
+      productionWorkflow.match(
+        /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN \}\}/g,
+      ),
+    ).toHaveLength(2);
     expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(2);
     expect(productionWorkflow).not.toContain('--adopt');
     expect(workflowStep('Smoke test primary domain')).toContain(
@@ -572,7 +581,7 @@ describe('application infrastructure contract', () => {
     const patchPath = 'patches/alchemy@2.0.0-beta.85.patch';
     expect(root.patchedDependencies?.['alchemy@2.0.0-beta.85']).toBe(patchPath);
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
-      'f7eca03128375a3468af4945bd825430da0c8c9a5b1dbeac2dc7b2f18bf9f8a0',
+      '74b65e77c203b0ecdd90f9cde215c8d467c807e0ef44638582b0628be3e4a22a',
     );
     const lockfile = read('bun.lock');
     expect(lockfile).toContain('alchemy@2.0.0-beta.85');
@@ -580,7 +589,7 @@ describe('application infrastructure contract', () => {
     expect(lockfile).not.toContain('alchemy@2.0.0-beta.83');
     const providerPatchHashes = {
       cloudflare:
-        '80ff00070e2bd0c0a3dd7513971200358e7720ab5a7fcdf0051c3224cdb9caa5',
+        'd77e6598342d0471005a864fe31e880a7ff6277d04ff1deba1c4207a6efb8c5a',
       aws: 'c962d33a5c2bae56e1bc0352523cee95538788a82414561688c20639cdec6ea5',
     };
     for (const [provider, hash] of Object.entries(providerPatchHashes)) {

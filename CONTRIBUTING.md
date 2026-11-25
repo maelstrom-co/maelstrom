@@ -613,59 +613,73 @@ a current source manifest proves compatibility with an already published release
 
 #### Blog narration
 
-In the GitHub `production` environment, set `ELEVENLABS_MYVOICE_ID` to the
-ElevenLabs MyVoice ID and set `ELEVENLABS_MYVOICE_REVISION` to an explicit
-revision such as `1`. Set the `ELEVENLABS_API_KEY` secret to a key with
-text-to-speech access. Bump the revision whenever you replace or edit the voice
-or its saved settings, even if its ID stays the same.
+In the GitHub `production` environment, use the existing
+`ELEVENLABS_API_KEY`, `ELEVENLABS_MYVOICE_ID`, and
+`ELEVENLABS_MYVOICE_REVISION` settings. Bump the revision when you replace or
+edit the voice or its settings.
 
-Create a private R2 bucket in the production account and set
-`BLOG_NARRATION_R2_BUCKET` to its name. Create bucket-scoped object read/write
-credentials and set the `BLOG_NARRATION_R2_ACCESS_KEY_ID` and
-`BLOG_NARRATION_R2_SECRET_ACCESS_KEY` secrets. The workflow uses
-`PRODUCTION_ACCOUNT_ID` as the R2 account ID. Keep the bucket private and retain
-committed objects so a rollback can reuse its recordings.
+Configure `CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN` in that same protected
+environment. Give it Workers R2 Storage Write on the production and preview
+accounts only. On the production account, it also needs the existing Alchemy
+state backend permissions. The pinned adapter reads the Workers subdomain and
+script metadata, lists Secrets Store stores, and uses a temporary Workers
+edge-preview session bound to the existing state bearer. Scope the necessary
+Workers and Secrets Store privileges to production. The backend must already
+be available and current. Trusted production administrators and deployment
+principals retain access to that backend. Keep its credentials and this
+management identity outside the preview deployment environments and PR runners.
 
-The production www deployment slot serializes publication. It restores existing
-recordings or generates missing chunks before the final deployment revision
-check. If narration fails, completed articles keep their narration and the
-website can still deploy. Rerun the current production www job after a transient
-failure. Committed chunks resume from R2. A corrupt committed cache fails
-validation and needs investigation before another attempt. Keep the same voice
-revision during a transient failure so the retry can reuse its completed work.
+On the next eligible main deployment, check the two **Reconcile narration
+storage** jobs. They manage the retained private
+`maelstrom-blog-narration-cache` bucket in production and the retained public
+`maelstrom-blog-narration-preview` delivery bucket in the preview account.
+Both stacks store their state in production. Preview teardown only handles
+per-PR stacks.
+
+After reconciliation, provide bucket-scoped S3 object credentials in
+`production`. Set `BLOG_NARRATION_R2_ACCESS_KEY_ID` and
+`BLOG_NARRATION_R2_SECRET_ACCESS_KEY` for reads and writes on the private cache.
+Set `BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID` and
+`BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY` for delivery writes on the
+preview bucket. Keep `CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` available in
+`production` for preview URL verification. The trusted jobs discover both
+bucket names and the public delivery origin from Alchemy state and Cloudflare.
+Remove the previous manual bucket and origin variables after moving the
+object credentials to the managed buckets.
+
+If reconciliation reports an unmanaged bucket collision or interrupted
+creation, inspect the trusted state and physical bucket identity before trying
+again. Restore a verified state backup when available. For a conflicting
+unowned bucket, choose a distinct managed name in a reviewed change. Keep any
+existing recordings until their ownership and migration are resolved. The
+workflow leaves existing buckets in place.
 
 ##### Approved preview narration
 
-Merge the preview reader and trusted publisher into the default branch before
-enabling narration. Then approve and deploy a preview that contains the reader.
-Older previews stay readable without narration.
+Merge the reader and trusted publisher into the default branch before enabling
+narration. Keep deployment approval on `preview` and `preview-auto`. Only the
+trusted publisher receives object credentials. The PR build receives the public
+locator derived for that exact head. Alchemy enables the managed HTTPS
+`r2.dev` development endpoint, anonymous GET and HEAD, CORS for byte ranges,
+and 30-day object expiry on the delivery bucket. WAVs are cached in the browser
+for up to one day. Manifest uploads specify `no-store` so retries can restore
+playback at the same locator.
 
-Create a separate public-read R2 bucket in the preview account. Set the
-repository variable `BLOG_NARRATION_PREVIEW_ORIGIN` to its HTTPS custom origin
-without a trailing slash. Configure that bucket's CORS policy to allow anonymous
-`GET` and `HEAD` from the preview sites and allow the `Range` request header.
-An allowed origin of `*` works for these public assets. Bypass edge caching for
-`*/narration.json` and avoid caching errors on the delivery origin. Cache
-versioned WAV files for up to one day. Set an R2 lifecycle policy to expire
-preview delivery objects after 30 days. This policy applies only to the delivery
-bucket. A publisher retry can restore expired objects from the private cache.
+Preview discovery runs before the website build. Keep the `production`
+environment free of required reviewers and wait timers if previews should
+discover narration automatically. Before adding either protection, set the
+repository variable `BLOG_NARRATION_PREVIEW_DISABLED` to `true`. This skips
+discovery before it requests environment access and lets the existing preview
+approval and website deployment continue with article text. The variable does
+not affect production narration.
 
-Keep the existing deployment approval on `preview` and `preview-auto`.
-The trusted narrator job uses the `production` environment without creating a
-GitHub production deployment record. It uses the ElevenLabs key, voice settings,
-and private production cache configured above. The shared cache uses
-`BLOG_NARRATION_R2_BUCKET`, `BLOG_NARRATION_R2_ACCESS_KEY_ID`, and
-`BLOG_NARRATION_R2_SECRET_ACCESS_KEY`.
-
-Make `CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` available to the job in
-`production` so it can verify the approved website URL. It uses the repository's
-existing `PREVIEW_ACCOUNT_ID`. Set `BLOG_NARRATION_PREVIEW_R2_BUCKET` in
-`production` to the public delivery bucket in the preview account. Give the
-trusted job bucket-scoped write access using the
-`BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID` and
-`BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY` secrets in `production`.
-These credentials belong to the preview delivery bucket. Production reuses a
-recording when the rendered text and voice fingerprint match.
+The first website deployment can precede narration infrastructure or object
+credential setup. It still serves article text. Once reconciliation succeeds
+and object credentials are configured, rerun the current production www
+deployment or approved preview. The shared production www queue serializes
+publication. Production reuses recordings when the rendered text and voice
+fingerprint match. Rerun the current publisher after a transient failure to
+reuse completed private chunks or restore expired preview copies.
 
 Each run considers up to 40 archive entries, starting with posts changed by the
 PR and then the newest remaining posts. It applies download, transcript,
@@ -677,8 +691,8 @@ The preview link arrives before narration. Reload the article when the
 synthesis, rerun the failed job while the PR is still approved at the same head.
 The retry keeps the delivery path embedded in the deployed preview and can
 reuse any completed chunks. A newer head needs its own approval and deploy.
-Leaving `BLOG_NARRATION_PREVIEW_ORIGIN` unset keeps preview narration disabled.
-Production can still generate any missing recordings.
+Without the management identity or verified storage, preview and production
+deployments continue with static articles.
 
 ### Released docs in Context7
 

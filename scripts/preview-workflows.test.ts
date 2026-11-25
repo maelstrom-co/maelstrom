@@ -1308,7 +1308,7 @@ test('preview narration joins the production www queue from a trusted post-deplo
   const start = preview.indexOf('  publish-blog-narration:');
   const job = preview.slice(start, preview.indexOf('  benchmark-gate:', start));
   const deploy = preview.slice(preview.indexOf('  deploy:'), start);
-  expect(job).toContain('needs: [approve, deploy]');
+  expect(job).toContain('needs: [approve, deploy, narration-storage]');
   expect(job).toContain("needs.deploy.result == 'success'");
   expect(job).toContain(
     "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
@@ -1340,11 +1340,136 @@ test('preview narration joins the production www queue from a trusted post-deplo
   }
   const build = step(deploy, 'Build website preview');
   expect(build).toContain(
-    "format('{0}/pr-{1}/{2}/', vars.BLOG_NARRATION_PREVIEW_ORIGIN, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha)",
+    "format('{0}/pr-{1}/{2}/', needs.narration-storage.outputs.origin, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha)",
   );
   expect(build).not.toContain('github.run_attempt');
   expect(production).toContain(`group: production-${expression('matrix.app')}`);
   expect(production).toContain(
     `queue: ${expression("matrix.app == 'www' && 'max' || 'single'")}`,
   );
+});
+
+test('optional storage failure does not suppress approved preview and production deployment jobs', () => {
+  const preview = read('deploy-preview.yml');
+  const production = read('deploy-production.yml');
+  const jobs = (source: string) =>
+    (
+      Bun.YAML.parse(source) as {
+        jobs: Record<
+          string,
+          {
+            needs?: string | string[];
+            if?: string;
+            environment?: unknown;
+            outputs?: Record<string, string>;
+          }
+        >;
+      }
+    ).jobs;
+  const previewJobs = jobs(preview);
+  const productionJobs = jobs(production);
+  const discovery = previewJobs['narration-storage'];
+  expect(discovery.needs).toBe('approve');
+  expect(discovery.environment).toEqual({
+    name: 'production',
+    deployment: false,
+  });
+  expect(discovery.if).toContain(
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+  );
+  const canDiscover = new Function(
+    'vars',
+    'needs',
+    'github',
+    'format',
+    `return ${discovery.if?.replaceAll('needs.approve.outputs.pr-number', "needs.approve.outputs['pr-number']")}`,
+  );
+  const current = {
+    ref: 'refs/heads/main',
+    event: { repository: { default_branch: 'main' } },
+  };
+  const approvedHead = {
+    approve: { result: 'success', outputs: { 'pr-number': '42' } },
+  };
+  const format = (pattern: string, replacement: string) =>
+    pattern.replace('{0}', replacement);
+  expect(canDiscover({}, approvedHead, current, format)).toBe(true);
+  expect(
+    canDiscover(
+      { BLOG_NARRATION_PREVIEW_DISABLED: 'true' },
+      approvedHead,
+      current,
+      format,
+    ),
+  ).toBe(false);
+  expect(Object.keys(discovery.outputs ?? {}).sort()).toEqual([
+    'cache-bucket',
+    'delivery-bucket',
+    'origin',
+  ]);
+  expect(step(preview, 'Checkout trusted narration infrastructure')).toContain(
+    `ref: ${expression('github.workflow_sha')}`,
+  );
+  const discoveryStep = step(
+    preview,
+    'Inspect trusted preview narration storage',
+  );
+  expect(discoveryStep).toContain('discover all');
+  expect(discoveryStep).toContain(
+    expression('secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN'),
+  );
+  expect(discoveryStep).not.toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
+
+  const deployJob = previewJobs.deploy;
+  expect(deployJob.needs).toEqual(['approve', 'narration-storage']);
+  expect(deployJob.if).toContain('always() && !cancelled()');
+  const when = new Function(
+    'needs',
+    'always',
+    'cancelled',
+    `return ${deployJob.if?.replaceAll('needs.approve.outputs.pr-number', "needs.approve.outputs['pr-number']")}`,
+  );
+  const approved = { result: 'success', outputs: { 'pr-number': '42' } };
+  for (const result of ['success', 'failure', 'skipped']) {
+    expect(
+      when(
+        { approve: approved, 'narration-storage': { result } },
+        () => true,
+        () => false,
+      ),
+    ).toBe(true);
+  }
+  expect(
+    when(
+      { approve: approved },
+      () => true,
+      () => true,
+    ),
+  ).toBe(false);
+  expect(step(preview, 'Build website preview')).toContain(
+    "needs.narration-storage.result == 'success'",
+  );
+  const prJob = preview.slice(
+    preview.indexOf('  deploy:'),
+    preview.indexOf('  publish-blog-narration:'),
+  );
+  expect(prJob).not.toContain('CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN');
+  expect(prJob).not.toContain('cache-bucket');
+  expect(prJob).not.toContain('delivery-bucket');
+  expect(previewJobs['publish-blog-narration'].if).toContain(
+    "needs.narration-storage.result == 'success'",
+  );
+  expect(productionJobs.platform.needs).toBeUndefined();
+  expect(productionJobs.deploy.needs).toBe('platform');
+  expect(productionJobs['narration-storage'].needs).toBeUndefined();
+  const cache = step(production, 'Inspect trusted production narration cache');
+  expect(cache).toContain('continue-on-error: true');
+  expect(cache).toContain('discover cache');
+  expect(
+    step(production, 'Publish blog narration into the production artifact'),
+  ).toContain(
+    `BLOG_NARRATION_R2_BUCKET: ${expression('steps.narration-cache.outputs.cache-bucket')}`,
+  );
+  expect(production).not.toContain('vars.BLOG_NARRATION_R2_BUCKET');
+  expect(preview).not.toContain('vars.BLOG_NARRATION_PREVIEW_ORIGIN');
 });

@@ -13,6 +13,7 @@
     "alchemy.run.ts",
     "drizzle.config.ts",
     "state.run.ts",
+    "narration*.ts",
     "src/**/*.ts",
     "test/**/*.ts"
   ]

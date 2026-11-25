@@ -141,10 +141,56 @@ jobs:
             gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
           fi
 
+  narration-storage:
+    name: Discover narration storage
+    needs: approve
+    if: >-
+      vars.BLOG_NARRATION_PREVIEW_DISABLED != 'true'
+      && needs.approve.result == 'success'
+      && needs.approve.outputs.pr-number != ''
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    environment:
+      name: production
+      deployment: false
+    outputs:
+      cache-bucket: ${{ steps.storage.outputs.cache-bucket }}
+      delivery-bucket: ${{ steps.storage.outputs.delivery-bucket }}
+      origin: ${{ steps.storage.outputs.origin }}
+    steps:
+      - name: Checkout trusted narration infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Install trusted narration infrastructure dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Require the coordinated Alchemy version
+        if: vars.ALCHEMY_REQUIRED_VERSION != ''
+        run: bun --no-env-file scripts/alchemy-version.ts
+        env:
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+      - name: Inspect trusted preview narration storage
+        id: storage
+        run: bun --no-env-file --no-install infra/platform/narration-storage.ts discover all
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+
   deploy:
     name: Deploy Preview
-    needs: approve
-    if: needs.approve.result == 'success' && needs.approve.outputs.pr-number != ''
+    needs: [approve, narration-storage]
+    if: >-
+      always() && !cancelled()
+      && needs.approve.result == 'success'
+      && needs.approve.outputs.pr-number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: ${{ github.event_name == 'workflow_run' && 'preview-auto' || 'preview' }}
     timeout-minutes: 45
@@ -276,7 +322,7 @@ jobs:
           CLOUDFLARE_ENV: preview
           PUBLIC_PLAYGROUND_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
           PUBLIC_TURNSTILE_ENVIRONMENT: preview
-          PUBLIC_BLOG_NARRATION_PREVIEW_BASE: ${{ vars.BLOG_NARRATION_PREVIEW_ORIGIN != '' && format('{0}/pr-{1}/{2}/', vars.BLOG_NARRATION_PREVIEW_ORIGIN, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha) || '' }}
+          PUBLIC_BLOG_NARRATION_PREVIEW_BASE: ${{ needs.narration-storage.result == 'success' && needs.narration-storage.outputs.origin != '' && format('{0}/pr-{1}/{2}/', needs.narration-storage.outputs.origin, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha) || '' }}
         run: bunx nx run @maelstrom-co/www:build --skip-nx-cache
 
       - name: Deploy remaining previews
@@ -314,11 +360,14 @@ jobs:
 
   publish-blog-narration:
     name: Publish Preview Blog Narration
-    needs: [approve, deploy]
+    needs: [approve, deploy, narration-storage]
     if: >-
       needs.deploy.result == 'success'
       && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-      && vars.BLOG_NARRATION_PREVIEW_ORIGIN != ''
+      && needs.narration-storage.result == 'success'
+      && needs.narration-storage.outputs.cache-bucket != ''
+      && needs.narration-storage.outputs.delivery-bucket != ''
+      && needs.narration-storage.outputs.origin != ''
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 12
     permissions:
@@ -345,22 +394,27 @@ jobs:
       - name: Install trusted publisher dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Publish narration for the current approved website
-        run: bun --no-env-file --no-install apps/www/tools/publish-preview-blog-narration.ts
+        run: |
+          if [ -z "$ELEVENLABS_API_KEY" ] || [ -z "$BLOG_NARRATION_R2_ACCESS_KEY_ID" ] || [ -z "$BLOG_NARRATION_R2_SECRET_ACCESS_KEY" ] || [ -z "$BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID" ] || [ -z "$BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY" ]; then
+            echo "Skipping narration until publication credentials are configured."
+            exit 0
+          fi
+          bun --no-env-file --no-install apps/www/tools/publish-preview-blog-narration.ts
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.approve.outputs.pr-number }}
           APPROVED_SHA: ${{ needs.approve.outputs.head-sha }}
           PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
-          BLOG_NARRATION_PREVIEW_ORIGIN: ${{ vars.BLOG_NARRATION_PREVIEW_ORIGIN }}
+          BLOG_NARRATION_PREVIEW_ORIGIN: ${{ needs.narration-storage.outputs.origin }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
           ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
           BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
-          BLOG_NARRATION_R2_BUCKET: ${{ vars.BLOG_NARRATION_R2_BUCKET }}
+          BLOG_NARRATION_R2_BUCKET: ${{ needs.narration-storage.outputs.cache-bucket }}
           BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
           BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
           BLOG_NARRATION_PREVIEW_R2_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
-          BLOG_NARRATION_PREVIEW_R2_BUCKET: ${{ vars.BLOG_NARRATION_PREVIEW_R2_BUCKET }}
+          BLOG_NARRATION_PREVIEW_R2_BUCKET: ${{ needs.narration-storage.outputs.delivery-bucket }}
           BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID }}
           BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY }}
 

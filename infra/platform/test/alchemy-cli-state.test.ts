@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { encodeFqn } from 'alchemy/FQN';
+
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(project, 'node_modules/alchemy/bin/cli.js');
 const directories: string[] = [];
@@ -31,6 +33,7 @@ function fixtureFor(runtime: 'bun' | 'node', nodeExecutable: string) {
       fail?: 'acquisition' | 'lazy' | 'read';
       rejectAcquisition?: boolean;
       latestVersion?: string;
+      recordList?: boolean;
     } = {},
   ) {
     const versionCache = () =>
@@ -98,7 +101,10 @@ const state = Layer.effect(State, Effect.gen(function* () {
     getVersion: () => Effect.succeed(5),
     listStacks: () => diagnostic('listStacks').pipe(Effect.andThen(Effect.sync(() => { record('listStacks'); return ${empty ? '[]' : "['Zulu', 'MaelstromDemoPreview', 'Alpha']"}; }))),
     listStages: () => Effect.succeed(['prod']),
-    list: () => Effect.succeed(${resourceOutput ? "['Website', 'nested/Website', 'output']" : "['Website', 'nested/Website']"}),
+    list: (request: { stack: string; stage: string }) => diagnostic('list').pipe(Effect.andThen(Effect.sync(() => {
+      if (${options.recordList ?? false}) record('list', request);
+      return ${empty ? '[]' : resourceOutput ? "['Website', 'nested/Website', 'output']" : "['Website', 'nested/Website']"};
+    }))),
     get: (request: { stack: string; stage: string; fqn: string }) => diagnostic('get').pipe(Effect.andThen(Effect.sync(() => {
       record('get', request);
       return request.fqn === 'Missing' ? undefined : { ...value, fqn: request.fqn };
@@ -210,6 +216,31 @@ function expectDiagnostics(stderr: string, phases: string[]) {
 
 for (const runtime of ['bun', 'node'] as const) {
   const fixture = fixtureFor(runtime, node);
+  test(`inventory lists one exact stage and uses stdout only for machine-readable rows (${runtime})`, async () => {
+    for (const empty of [true, false]) {
+      const { run } = await fixture(empty, false, {
+        diagnostics: true,
+        recordList: true,
+      });
+      const target = { stack: 'MaelstromNarrationCache', stage: 'prod' };
+      const { stdout, stderr, calls } = await run([
+        'state',
+        'inventory',
+        'state.run.ts',
+        '--stack',
+        target.stack,
+        '--stage',
+        target.stage,
+        '--profile',
+        'narration-ci',
+      ]);
+      expect(JSON.parse(stdout)).toEqual(
+        empty ? [] : ['Website', 'nested/Website'],
+      );
+      expectDiagnostics(stderr, ['acquisition', 'lazy', 'list']);
+      expect(calls).toEqual([{ operation: 'list', request: target }]);
+    }
+  });
   describe(`published Alchemy CLI legacy state reads (${runtime})`, () => {
     test('routes noisy acquisition, lazy initialization and reads away from exact preview JSON stdout', async () => {
       const { run, cwd } = await fixture(false, true, { diagnostics: true });
@@ -478,6 +509,41 @@ for (const runtime of ['bun', 'node'] as const) {
       });
       expect(await readFile(stateFile, 'utf8')).toBe(contents);
       expect(calls).toEqual([]);
+    });
+
+    test('scoped inventory reads fresh and occupied real local state', async () => {
+      const { run, cwd } = await fixture(false, true, {
+        rejectAcquisition: true,
+      });
+      const args = [
+        'state',
+        'inventory',
+        'state.run.ts',
+        '--stack',
+        'MaelstromNarrationCache',
+        '--stage',
+        'prod',
+        '--profile',
+        'narration-ci',
+        '--local',
+      ];
+      const initial = await run(args);
+      expect(JSON.parse(initial.stdout)).toEqual([]);
+      expect(initial.calls).toEqual([]);
+      const dir = join(cwd, '.alchemy/state/MaelstromNarrationCache/prod');
+      const extra = join(dir, `${encodeFqn('Other/Unexpected')}.json`);
+      await mkdir(dirname(extra), { recursive: true });
+      await writeFile(
+        join(dir, 'NarrationCache.json'),
+        JSON.stringify({ removalPolicy: 'retain' }),
+      );
+      await writeFile(extra, JSON.stringify({ removalPolicy: 'destroy' }));
+      const later = await run(args);
+      expect(JSON.parse(later.stdout)).toEqual([
+        'NarrationCache',
+        'Other/Unexpected',
+      ]);
+      expect(later.calls).toEqual([]);
     });
 
     test('keeps native cat and its reserved output semantics', async () => {

@@ -113,6 +113,50 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
           EXPECTED_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
 
+  narration-storage:
+    name: Reconcile narration storage (${{ matrix.kind }})
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.repository.private == false
+      && vars.PUBLIC_LAUNCH_READY == 'true'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 12
+    environment:
+      name: production
+      deployment: false
+    concurrency:
+      group: production-narration-storage-${{ matrix.kind }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [cache, delivery]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.DEPLOY_SHA }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Install trusted narration infrastructure dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Require the coordinated Alchemy version
+        if: vars.ALCHEMY_REQUIRED_VERSION != ''
+        run: bun --no-env-file scripts/alchemy-version.ts
+        env:
+          ALCHEMY_REQUIRED_VERSION: ${{ vars.ALCHEMY_REQUIRED_VERSION }}
+      - name: Verify and reconcile retained narration storage
+        run: bun --no-env-file --no-install infra/platform/narration-storage.ts reconcile "$NARRATION_STORAGE_KIND"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARRATION_STORAGE_KIND: ${{ matrix.kind }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+
   deploy:
     name: Deploy ${{ matrix.app }}
     needs: platform
@@ -213,16 +257,31 @@ jobs:
           PUBLIC_TURNSTILE_SITE_KEY: ${{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}
           PUBLIC_GITHUB_STAR_COUNT: ${{ steps.github-stars.outputs.count }}
 
-      - name: Publish blog narration into the production artifact
+      - name: Inspect trusted production narration cache
+        id: narration-cache
         if: steps.revision.outputs.current == 'true' && matrix.app == 'www'
         continue-on-error: true
-        run: bun --no-env-file apps/www/tools/publish-blog-narration.ts
+        run: bun --no-env-file --no-install infra/platform/narration-storage.ts discover cache
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN }}
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+
+      - name: Publish blog narration into the production artifact
+        if: steps.revision.outputs.current == 'true' && matrix.app == 'www' && steps.narration-cache.outputs.cache-bucket != ''
+        continue-on-error: true
+        run: |
+          if [ -z "$ELEVENLABS_API_KEY" ] || [ -z "$BLOG_NARRATION_R2_ACCESS_KEY_ID" ] || [ -z "$BLOG_NARRATION_R2_SECRET_ACCESS_KEY" ]; then
+            echo "Skipping narration until publication credentials are configured."
+            exit 0
+          fi
+          bun --no-env-file apps/www/tools/publish-blog-narration.ts
         env:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_MYVOICE_ID: ${{ vars.ELEVENLABS_MYVOICE_ID }}
           ELEVENLABS_MYVOICE_REVISION: ${{ vars.ELEVENLABS_MYVOICE_REVISION }}
           BLOG_NARRATION_R2_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
-          BLOG_NARRATION_R2_BUCKET: ${{ vars.BLOG_NARRATION_R2_BUCKET }}
+          BLOG_NARRATION_R2_BUCKET: ${{ steps.narration-cache.outputs.cache-bucket }}
           BLOG_NARRATION_R2_ACCESS_KEY_ID: ${{ secrets.BLOG_NARRATION_R2_ACCESS_KEY_ID }}
           BLOG_NARRATION_R2_SECRET_ACCESS_KEY: ${{ secrets.BLOG_NARRATION_R2_SECRET_ACCESS_KEY }}
 

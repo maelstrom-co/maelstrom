@@ -4,6 +4,7 @@ import {
 } from '../../../scripts/preview-lifecycle.ts';
 import { previewNarrationBase } from '../src/lib/blog-narration-preview';
 import { publishPreviewNarration } from './blog-narration-preview-publication';
+import { putPreviewNarrationAsset } from './preview-narration-delivery';
 import {
   narrationR2Client,
   readNarrationConfig,
@@ -47,13 +48,8 @@ const outcome = await publishPreviewNarration({
   readPriorityPaths: () =>
     readPreviewBlogChanges(context.repository, prNumber, github()),
   publication: readNarrationConfig(),
-  async deliver(path, value, type) {
-    try {
-      await delivery.write(path, value, { type });
-    } catch {
-      throw new Error(`Could not write preview narration ${type} asset`);
-    }
-  },
+  deliver: (path, value, type) =>
+    putPreviewNarrationAsset(delivery, path, value, type),
 });
 if (outcome.status === 'published') {
   const { published, skipped } = outcome;
