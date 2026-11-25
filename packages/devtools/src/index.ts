@@ -4,6 +4,7 @@ export { createDevtools } from './controller.js';
 export { mountDevtools } from './panel.js';
 export type {
   Devtools,
+  DevtoolsDisposeOptions,
   DevtoolsOptions,
   DevtoolsSession,
   DevtoolsSnapshot,

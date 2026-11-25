@@ -17,6 +17,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
@@ -201,6 +202,191 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+
+it('shows only the active runtime DevTools through preparation, Start, Reset and disposal without recording', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { diagnosticCapture } = await import('../lib/diagnostic-capture');
+  const captureBefore = diagnosticCapture.getSnapshot();
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  const mounted = render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+
+  const panel = () => {
+    const hosts = document.querySelectorAll('[data-maelstrom-devtools]');
+    expect(hosts).toHaveLength(1);
+    return hosts[0]!.shadowRoot!;
+  };
+  const click = (root: ShadowRoot, name: string) => {
+    const button = Array.from(root.querySelectorAll('button')).find(
+      (button) =>
+        (button.getAttribute('aria-label') ?? button.textContent) === name,
+    );
+    expect(button).toBeDefined();
+    fireEvent.click(button!);
+  };
+  const inspect = (root: ShadowRoot) => {
+    click(root, 'Open Maelstrom Devtools');
+    click(root, 'Inspector');
+  };
+  const preparation = panel();
+  inspect(preparation);
+  expect(preparation.textContent).toContain('Registered Vessels · 2');
+  expect(preparation.textContent).toContain('Outline preparation');
+  expect(preparation.textContent).not.toContain('Live Topic');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  const live = panel();
+  expect(live).not.toBe(preparation);
+  expect(preparation.host.isConnected).toBe(false);
+  inspect(live);
+  expect(live.textContent).toContain('Registered Vessels · 1');
+  expect(live.textContent).toContain('Live Topic');
+  expect(live.textContent).not.toContain('Outline preparation');
+  await act(async () => liveCapture.ready!());
+  const oldCapture = liveCapture.callbacks!;
+  const oldEngine = engine.connections[1]!;
+  act(() =>
+    oldCapture.onDelta({
+      itemId: 'private',
+      contentIndex: 0,
+      delta: 'Private live transcription',
+    }),
+  );
+  expect(
+    screen.getByRole('region', { name: 'Live transcript' }).textContent,
+  ).toContain('Private live transcription');
+  expect(live.textContent).not.toContain('Private live transcription');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  const replacement = panel();
+  expect(replacement).not.toBe(live);
+  expect(live.host.isConnected).toBe(false);
+  inspect(replacement);
+  expect(replacement.textContent).toContain('Registered Vessels · 2');
+  expect(replacement.textContent).toContain('Outline preparation');
+  expect(replacement.textContent).not.toContain('Live Topic');
+  act(() => {
+    oldEngine.emit({ type: 'error', error: new Error('stale Engine failure') });
+    oldCapture.onCompleted({
+      itemId: 'private',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Stale private transcription',
+    });
+  });
+  click(replacement, 'Connections');
+  expect(replacement.querySelectorAll('.connection')).toHaveLength(1);
+  expect(replacement.textContent).toContain('Active');
+  expect(replacement.textContent).toContain('connected');
+  expect(replacement.textContent).not.toContain('stale Engine failure');
+  expect(replacement.textContent).not.toContain('Stale private transcription');
+  expect(diagnosticCapture.getSnapshot()).toEqual(captureBefore);
+  expect(diagnosticCapture.getSnapshot().active).toBe(false);
+  expect(engine.requests).toHaveLength(0);
+  expect(liveCapture.dispose).toHaveBeenCalledOnce();
+
+  mounted.unmount();
+  expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+});
+
+it.each([false, true])(
+  'releases runtime capture subscriptions across repeated Start/Reset and unmount without interrupting a shared recording (StrictMode=%s)',
+  async (strict) => {
+    localStorage.setItem(
+      OUTLINE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        topics: [
+          { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+        ],
+      }),
+    );
+    const { diagnosticCapture } = await import('../lib/diagnostic-capture');
+    const subscribe = diagnosticCapture.subscribe;
+    const subscribers = new Set<() => void>();
+    const subscription = vi
+      .spyOn(diagnosticCapture, 'subscribe')
+      .mockImplementation((listener) => {
+        subscribers.add(listener);
+        const release = subscribe(listener);
+        return () => {
+          subscribers.delete(listener);
+          return release();
+        };
+      });
+    const releaseExternal = diagnosticCapture.subscribe(() => {});
+    const baseline = subscribers.size;
+    diagnosticCapture.start('fixture', 'fixture', 'fixture');
+    diagnosticCapture.record('fixture.kept', {
+      note: 'Recording survives runtime disposal',
+    });
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    const tree = strict ? (
+      <StrictMode>
+        <TalkingPointsPage />
+      </StrictMode>
+    ) : (
+      <TalkingPointsPage />
+    );
+    let mounted = render(tree);
+    const assertCurrent = async () => {
+      await waitFor(() => expect(subscribers.size).toBe(baseline + 2));
+      expect(
+        document.querySelectorAll('[data-maelstrom-devtools]'),
+      ).toHaveLength(1);
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(diagnosticCapture.export()).toContain(
+        'Recording survives runtime disposal',
+      );
+    };
+    try {
+      await screen.findByRole('button', { name: 'Start take' });
+      await assertCurrent();
+      for (let cycle = 0; cycle < 3; cycle++) {
+        liveCapture.ready = undefined;
+        fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+        await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+        await assertCurrent();
+        fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+        await screen.findByRole('button', { name: 'Start take' });
+        await assertCurrent();
+      }
+      mounted.unmount();
+      await waitFor(() => expect(subscribers.size).toBe(baseline));
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+      mounted = render(tree);
+      await screen.findByRole('button', { name: 'Start take' });
+      liveCapture.ready = undefined;
+      fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+      await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+      await assertCurrent();
+      mounted.unmount();
+      await waitFor(() => expect(subscribers.size).toBe(baseline));
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(diagnosticCapture.export()).toContain(
+        'Recording survives runtime disposal',
+      );
+      expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+    } finally {
+      mounted.unmount();
+      await act(async () => {});
+      diagnosticCapture.clear();
+      releaseExternal();
+      subscription.mockRestore();
+    }
+  },
+);
 
 it('queues text and actual voice-bridge preparation, projects stable Topic Vessels, and restores only the ordered outline', async () => {
   const { TalkingPointsPage } = await import('./talking-points-page');

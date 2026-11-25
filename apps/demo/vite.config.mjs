@@ -105,6 +105,14 @@ export default defineConfig(({ command, mode }) => {
         ],
       },
     },
+    test: {
+      server: {
+        deps: {
+          // Keep the panel and its renderer on the same browser Solid owner.
+          inline: ['solid-js'],
+        },
+      },
+    },
     plugins: [
       localLiveDevPlugin({
         enabled: process.env.DEMO_LOCAL_SERVER_KEY === '1',

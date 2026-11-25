@@ -71,6 +71,71 @@ afterEach(async () => {
   for (const release of releases.splice(0).reverse()) await release();
 });
 
+test('disposing a collector can preserve an active shared capture and release only its own subscriptions', async () => {
+  const capture = new DiagnosticCapture();
+  const subscribe = capture.subscribe;
+  let subscriptions = 0;
+  capture.subscribe = (listener) => {
+    subscriptions++;
+    const release = subscribe(listener);
+    return () => {
+      subscriptions--;
+      return release();
+    };
+  };
+  const tools = createDevtools({ capture });
+  const sibling = createDevtools({ capture });
+  const client = new Orchestrator(connector());
+  const siblingClient = new Orchestrator(connector());
+  const detach = tools.attach(client);
+  const detachSibling = sibling.attach(siblingClient);
+  releases.push(
+    () => client.dispose(),
+    () => siblingClient.dispose(),
+  );
+  try {
+    tools.startCapture(tools.getSnapshot().sessions[0]!.id);
+    capture.setOutcome('Keep this recording');
+    const recorded = capture.export();
+    expect(subscriptions).toBe(2);
+    tools.dispose({ preserveCapture: true });
+    expect(subscriptions).toBe(1);
+    expect(capture.export()).toBe(recorded);
+    expect(capture.getSnapshot().active).toBe(true);
+    expect(tools.getSnapshot().sessions).toEqual([]);
+    expect(tools.getSnapshot().activity).toEqual([]);
+    client.diagnostics.emit('fixture.retired', {});
+    expect(tools.getSnapshot().activity).toEqual([]);
+    siblingClient.diagnostics.emit('fixture.continued', {}, () => ({
+      kept: true,
+    }));
+    expect(capture.export()).toContain('fixture.continued');
+    tools.dispose({ preserveCapture: true });
+    detach();
+    expect(subscriptions).toBe(1);
+    expect(capture.getSnapshot().active).toBe(true);
+    sibling.dispose({ preserveCapture: true });
+    expect(subscriptions).toBe(0);
+    expect(capture.getSnapshot().active).toBe(true);
+  } finally {
+    detachSibling();
+    tools.dispose({ preserveCapture: true });
+    sibling.dispose({ preserveCapture: true });
+    capture.clear();
+  }
+});
+
+test('disposing without options still stops and clears capture', () => {
+  const capture = new DiagnosticCapture();
+  const tools = createDevtools({ capture });
+  capture.start('fixture', 'fixture', 'fixture');
+  capture.record('fixture.recorded', { kept: true });
+  expect(capture.getSnapshot().count).toBeGreaterThan(0);
+  tools.dispose();
+  expect(capture.getSnapshot().active).toBe(false);
+  expect(capture.getSnapshot().count).toBe(0);
+});
+
 test('request layout baselines record actual client state and reopen without reapplying commands', async () => {
   let calls = 0;
   const { tools, client } = setup(

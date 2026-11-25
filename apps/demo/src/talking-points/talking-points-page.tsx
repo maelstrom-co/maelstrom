@@ -75,12 +75,28 @@ export function TalkingPointsPage() {
   const [sealing, setSealing] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const currentTake = useRef<LiveTake | null>(null);
+  const activeLiveRuntime = useRef<LiveRuntime | null>(null);
+  const isLive = live !== null;
   useLayoutEffect(() => () => currentTake.current?.dispose(), []);
+  useLayoutEffect(() => {
+    activeLiveRuntime.current = live;
+    return () => {
+      activeLiveRuntime.current = null;
+      // Effect replay can reuse this runtime before permanent retirement.
+      if (live)
+        queueMicrotask(() => {
+          if (activeLiveRuntime.current !== live) live.m.disposeDevtools();
+        });
+    };
+  }, [live]);
   useEffect(() => {
     setStore(createOutlineStore());
   }, []);
   useLayoutEffect(() => {
-    if (!store) return;
+    if (!store || isLive) {
+      setBoundary(null);
+      return;
+    }
     const runtime = createPreparationRuntime(
       store,
       preparationVoiceProvider(voiceProviderStore.state.provider),
@@ -98,8 +114,9 @@ export function TalkingPointsPage() {
     return () => {
       runtime.owner.retire();
       runtime.admission.retire();
+      runtime.m.disposeDevtools();
     };
-  }, [store, apiKey, browserKeyMode, generation]);
+  }, [store, apiKey, browserKeyMode, generation, isLive]);
   const showKeyError = useCallback((message: string) => {
     setKeyError(message);
     setDrawerOpen(true);
@@ -141,111 +158,116 @@ export function TalkingPointsPage() {
     });
     void take.start(runtime.engineReady);
   };
-  if (live)
-    return (
-      <LiveWorkspace
-        runtime={live}
-        onReset={() => {
-          live.take.reset();
-          currentTake.current = null;
-          setLive(null);
-          setSealing(false);
-          setGeneration((value) => value + 1);
-        }}
-      />
-    );
-
+  const Devtools = (live?.m ?? m)?.Devtools;
   return (
-    <div className="talking-points-app">
-      {boundary?.connector && m && store ? (
-        <m.Provider
-          key={boundary.sessionId}
-          sessionId={boundary.sessionId}
-          connector={boundary.connector}
-          initialLayout={PREPARATION_LAYOUT}
-        >
-          <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
-            {!sealing && (
-              <VoiceProviderSelect
-                useVoice={m.useVoice}
-                options={PREPARATION_VOICE_PROVIDERS}
-              />
-            )}
-          </TalkingPointsHeader>
-          {startError && <p role="alert">{startError}</p>}
-          <PreparationWorkspace
-            runtime={boundary}
-            store={store}
-            draft={draft}
-            onDraftChange={setDraft}
-            onKeyError={showKeyError}
-            sealing={sealing}
-            onSeal={() => {
-              setStartError(null);
-              setSealing(true);
-            }}
-            onStart={enterLive}
-            onCancelStart={() => {
-              boundary.owner.retire();
-              boundary.admission.retire();
-              setSealing(false);
-              setGeneration((value) => value + 1);
-            }}
-            onStartFailed={() => {
-              boundary.owner.retire();
-              boundary.admission.retire();
-              setStartError(
-                'Preparation did not settle successfully. Start was stopped; check your outline before trying again.',
-              );
-              setSealing(false);
-              setGeneration((value) => value + 1);
-            }}
-          />
-        </m.Provider>
-      ) : (
-        <>
-          <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
-            <KeylessVoiceProviderSelect options={PREPARATION_VOICE_PROVIDERS} />
-          </TalkingPointsHeader>
-          <main className="talking-points-preview">
-            <h2>Prepare your next talk</h2>
-            <p>
-              Create and revise an ordered outline by voice or text. Refresh to
-              reuse it.
-            </p>
-            {store && <SavedOutline store={store} />}
-            {browserKeyMode && (
-              <button type="button" onClick={() => setDrawerOpen(true)}>
-                Add an API key to prepare
-              </button>
-            )}
-          </main>
-        </>
-      )}
-      {browserKeyMode && (
-        <KeyDrawer
-          isOpen={drawerOpen}
-          onClose={() => {
-            setDrawerOpen(false);
-            setKeyError(null);
+    <>
+      {live ? (
+        <LiveWorkspace
+          runtime={live}
+          onReset={() => {
+            live.take.reset();
+            currentTake.current = null;
+            setLive(null);
+            setSealing(false);
+            setGeneration((value) => value + 1);
           }}
-          onSave={(key) => {
-            if (key !== playgroundKeyStore.state.apiKey)
-              boundary?.owner.retire();
-            setPlaygroundKey(key);
-            setDrawerOpen(false);
-            setKeyError(null);
-          }}
-          onRemove={() => {
-            boundary?.owner.retire();
-            clearPlaygroundKey();
-            setDrawerOpen(false);
-            setKeyError(null);
-          }}
-          errorMessage={keyError}
         />
+      ) : (
+        <div className="talking-points-app">
+          {boundary?.connector && m && store ? (
+            <m.Provider
+              key={boundary.sessionId}
+              sessionId={boundary.sessionId}
+              connector={boundary.connector}
+              initialLayout={PREPARATION_LAYOUT}
+            >
+              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
+                {!sealing && (
+                  <VoiceProviderSelect
+                    useVoice={m.useVoice}
+                    options={PREPARATION_VOICE_PROVIDERS}
+                  />
+                )}
+              </TalkingPointsHeader>
+              {startError && <p role="alert">{startError}</p>}
+              <PreparationWorkspace
+                runtime={boundary}
+                store={store}
+                draft={draft}
+                onDraftChange={setDraft}
+                onKeyError={showKeyError}
+                sealing={sealing}
+                onSeal={() => {
+                  setStartError(null);
+                  setSealing(true);
+                }}
+                onStart={enterLive}
+                onCancelStart={() => {
+                  boundary.owner.retire();
+                  boundary.admission.retire();
+                  setSealing(false);
+                  setGeneration((value) => value + 1);
+                }}
+                onStartFailed={() => {
+                  boundary.owner.retire();
+                  boundary.admission.retire();
+                  setStartError(
+                    'Preparation did not settle successfully. Start was stopped; check your outline before trying again.',
+                  );
+                  setSealing(false);
+                  setGeneration((value) => value + 1);
+                }}
+              />
+            </m.Provider>
+          ) : (
+            <>
+              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
+                <KeylessVoiceProviderSelect
+                  options={PREPARATION_VOICE_PROVIDERS}
+                />
+              </TalkingPointsHeader>
+              <main className="talking-points-preview">
+                <h2>Prepare your next talk</h2>
+                <p>
+                  Create and revise an ordered outline by voice or text. Refresh
+                  to reuse it.
+                </p>
+                {store && <SavedOutline store={store} />}
+                {browserKeyMode && (
+                  <button type="button" onClick={() => setDrawerOpen(true)}>
+                    Add an API key to prepare
+                  </button>
+                )}
+              </main>
+            </>
+          )}
+          {browserKeyMode && (
+            <KeyDrawer
+              isOpen={drawerOpen}
+              onClose={() => {
+                setDrawerOpen(false);
+                setKeyError(null);
+              }}
+              onSave={(key) => {
+                if (key !== playgroundKeyStore.state.apiKey)
+                  boundary?.owner.retire();
+                setPlaygroundKey(key);
+                setDrawerOpen(false);
+                setKeyError(null);
+              }}
+              onRemove={() => {
+                boundary?.owner.retire();
+                clearPlaygroundKey();
+                setDrawerOpen(false);
+                setKeyError(null);
+              }}
+              errorMessage={keyError}
+            />
+          )}
+        </div>
       )}
-    </div>
+      {Devtools && <Devtools />}
+    </>
   );
 }
 

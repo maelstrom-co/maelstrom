@@ -9,5 +9,5 @@ export type { DevtoolsExtension } from './index.js';
 export function devtools(
   _options: DevtoolsOptions = {},
 ): MaelstromExtension<DevtoolsExtension> {
-  return () => ({ Devtools: () => null });
+  return () => ({ Devtools: () => null, disposeDevtools: () => {} });
 }

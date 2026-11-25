@@ -14,10 +14,12 @@ import {
   type TypedVesselProps,
   vessel,
 } from '@maelstrom-co/react';
+import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { registerDemoVoice } from '../lib/demo-voice';
+import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import type { DemoVoiceProvider } from '../lib/voice-provider';
 import { liveLayout, liveTopicDefinition } from './live-plan';
@@ -81,7 +83,8 @@ export function createPreparationRuntime(
         const { orchestrator } = ctx.useMaelstromContext();
         useEffect(() => synchronize(orchestrator), [orchestrator]);
       },
-    }));
+    }))
+    .with(devtools({ capture: diagnosticCapture }));
 
   function OutlineController({
     instanceId,
@@ -310,45 +313,47 @@ export function createLiveRuntime(take: LiveTake) {
   const m = createMaelstrom({
     vessels: entries,
     motion: { disabled: true },
-  }).with((ctx) => {
-    ctx.onOrchestrator?.((orchestrator) => {
-      coverage = createSemanticCoverage(take, orchestrator);
-      const original = coverage;
-      retirePending = () => original.retire();
-      let observing = true;
-      let attempted = false;
-      let failed = false;
-      const fail = () => {
-        if (!observing || failed) return;
-        failed = true;
-        take.engineFailed();
-        settleEngine();
-        // Cancel transport retries without replacing the original active ticket.
-        void orchestrator.disconnect().catch(() => {});
-      };
-      failEngine = fail;
-      const unsubscribeStatus = orchestrator.connectionManager.events.on(
-        'connection_status_changed',
-        ({ status }) => {
+  })
+    .with((ctx) => {
+      ctx.onOrchestrator?.((orchestrator) => {
+        coverage = createSemanticCoverage(take, orchestrator);
+        const original = coverage;
+        retirePending = () => original.retire();
+        let observing = true;
+        let attempted = false;
+        let failed = false;
+        const fail = () => {
           if (!observing || failed) return;
-          if (status === 'connecting') attempted = true;
-          else if (status === 'connected') settleEngine();
-          else if (status === 'error' || attempted) fail();
-        },
-      );
-      const unsubscribeError = orchestrator.connectionManager.events.on(
-        'connection_error',
-        fail,
-      );
-      return () => {
-        observing = false;
-        unsubscribeStatus();
-        unsubscribeError();
-        original.retire();
-      };
-    });
-    return {};
-  });
+          failed = true;
+          take.engineFailed();
+          settleEngine();
+          // Cancel transport retries without replacing the original active ticket.
+          void orchestrator.disconnect().catch(() => {});
+        };
+        failEngine = fail;
+        const unsubscribeStatus = orchestrator.connectionManager.events.on(
+          'connection_status_changed',
+          ({ status }) => {
+            if (!observing || failed) return;
+            if (status === 'connecting') attempted = true;
+            else if (status === 'connected') settleEngine();
+            else if (status === 'error' || attempted) fail();
+          },
+        );
+        const unsubscribeError = orchestrator.connectionManager.events.on(
+          'connection_error',
+          fail,
+        );
+        return () => {
+          observing = false;
+          unsubscribeStatus();
+          unsubscribeError();
+          original.retire();
+        };
+      });
+      return {};
+    })
+    .with(devtools({ capture: diagnosticCapture }));
   return {
     m,
     engineReady,
