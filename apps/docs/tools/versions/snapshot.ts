@@ -12,42 +12,20 @@ import {
 import { join, posix, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { snapshotTarget } from '../../src/lib/docs-snapshot-target';
 import {
   DEV_VERSION,
   isVersionFolder,
   sortVersions,
 } from '../../src/lib/docs-versions';
+export {
+  snapshotTarget,
+  type SnapshotTarget,
+} from '../../src/lib/docs-snapshot-target';
 
 const docsRoot = join(import.meta.dir, '../../src/content/docs');
 
-const RELEASE =
-  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-
 const REFERENCE_FOLDER = 'reference';
-
-/** Where a release's docs go: a version folder, or nowhere for a prerelease. */
-export type SnapshotTarget =
-  | { kind: 'folder'; release: string; folder: string }
-  | { kind: 'prerelease'; release: string };
-
-/**
- * Map a release version to its docs folder: one folder per minor before 1.0
- * (`0.3.1` goes to `0.3`), one per major from 1.0 (`1.4.2` goes to `1`).
- * Prereleases get no folder, so they never become the default version.
- */
-export function snapshotTarget(release: string): SnapshotTarget {
-  const match = RELEASE.exec(release);
-  if (!match) {
-    throw new Error(
-      `Expected a semver release like 0.3.0 or v1.2.0, got "${release}".`,
-    );
-  }
-  const [, major, minor, , prerelease] = match;
-  const version = release.replace(/^v/, '');
-  if (prerelease) return { kind: 'prerelease', release: version };
-  const folder = major === '0' ? `0.${minor}` : `${major}`;
-  return { kind: 'folder', release: version, folder };
-}
 
 /**
  * The newest released folder that freezes `folder`, if any. A folder older

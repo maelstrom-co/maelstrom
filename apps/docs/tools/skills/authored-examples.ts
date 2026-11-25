@@ -24,15 +24,20 @@ function required(blocks: CodeBlock[], title: string): string {
 /** Assemble the documented stages and explicit application-owned seams. */
 export async function collectAuthoredExamples(
   root: string,
+  releaseFolder: string,
 ): Promise<Map<string, string>> {
-  const read = async (path: string) =>
+  const read = async (path: string, version = 'dev') =>
     titledExamples(
       await readFile(
-        join(root, 'apps/docs/src/content/docs/dev', path),
+        join(root, 'apps/docs/src/content/docs', version, path),
         'utf8',
       ),
     );
   const quickStart = await read('getting-started/quick-start.mdx');
+  const releasedQuickStart = await read(
+    'getting-started/quick-start.mdx',
+    releaseFolder,
+  );
   const vessels = await read('guides/react/creating-vessels.mdx');
   const actions = await read('guides/react/variants-and-actions.mdx');
   const engine = await read('understanding/engine.mdx');
@@ -45,6 +50,10 @@ export async function collectAuthoredExamples(
     'src/IntentBar.tsx',
   ]) {
     files.set(`quick-start/${title}`, required(quickStart, title));
+    files.set(
+      `released-quick-start/${title}`,
+      required(releasedQuickStart, title),
+    );
   }
   for (const title of [
     'src/vessels/greeting/greeting.vessel.ts',

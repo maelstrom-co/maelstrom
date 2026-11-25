@@ -610,3 +610,30 @@ Update the consumer manifest and lockfile together when changing the verified
 release baseline. If a page requires an unreleased API, label that requirement
 and keep its checks against the matching source revision. Do not claim that
 a current source manifest proves compatibility with an already published release.
+
+### Released docs in Context7
+
+The [Context7 library](https://context7.com/maelstrom-co/maelstrom) indexes the
+released folder selected in `context7.json` on `main`. For SDK 0.2.1 the folder
+is `apps/docs/src/content/docs/0.2`. The website and Context7 share these
+guides and the TypeDoc reference. Keep unreleased examples under `dev/`.
+
+After npm publication and package verification, the release workflow checks
+the actual `latest` tag for every public SDK package. If the selected folder
+matches the published release line, it requests a refresh. A prerelease, dry
+run, older recovery, or inconsistent set of npm tags cannot advance the selector.
+
+For a new release line, download the **context7-selector** artifact from the
+release run. Open a PR with its `context7.json` at the repository root. Include
+the frozen snapshot and the TypeDoc reference built from the released SDK if
+they are missing. Update the published-example fixture and lockfile to the new
+SDK line in that PR. Its Quick Start must compile against those packages.
+Use the docs workspace's `versions:snapshot` command with the
+verified release tag. Review the snapshot before merging. Keep changes for a
+new patch of the current release line in the frozen folder only after npm serves
+that patch. Backport compatible docs corrections there between releases.
+
+Merging the selector or an edit to released documentation requests a refresh.
+To retry it, dispatch **Refresh released Context7 documentation** on `main`.
+A successful request starts indexing. The Context7 library page reports completion.
+The dedicated `CONTEXT7_API_KEY` repository secret has no teamspace write access.
