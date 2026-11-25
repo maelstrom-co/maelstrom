@@ -30,6 +30,9 @@
     "turndown-plugin-gfm": "1.0.2"
   },
   "devDependencies": {
+    "@maelstrom-co/agui": "workspace:*",
+    "@maelstrom-co/agui-server": "workspace:*",
+    "@maelstrom-co/agui-protocol": "workspace:*",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@maelstrom-co/platform-infra": "workspace:*",
@@ -84,6 +87,9 @@
   },
   "nx": {
     "implicitDependencies": [
+      "@maelstrom-co/agui",
+      "@maelstrom-co/agui-server",
+      "@maelstrom-co/agui-protocol",
       "@maelstrom-co/protocol",
       "@maelstrom-co/engine",
       "@maelstrom-co/planner-llm",
