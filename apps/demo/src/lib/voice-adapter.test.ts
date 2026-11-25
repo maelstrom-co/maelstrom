@@ -1,7 +1,7 @@
 import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { selectVoiceProvider } from './voice-provider';
+import { selectVoiceProvider, voiceProviderStore } from './voice-provider';
 
 interface ConstructedOpenAIAdapter {
   activateAudioCalls: number;
@@ -158,6 +158,21 @@ describe('prepareBrowserOpenAIVoice', () => {
     expect(prepareBrowserOpenAIVoice()).toBe(false);
     expect(constructed.openAI).toHaveLength(0);
   });
+
+  it.each(['live', 'livekit', 'realtime'] as const)(
+    'prepares an explicit realtime provider synchronously despite global %s',
+    (provider) => {
+      vi.stubEnv('VITE_HOSTED', '1');
+      voiceProviderStore.setState(() => ({ provider }));
+      expect(prepareBrowserOpenAIVoice('realtime')).toBe(true);
+      const prepared = constructed.openAI[0];
+      expect(prepared?.activateAudioCalls).toBe(1);
+      expect(createAdapter('realtime', sessionId)).toBe(prepared);
+      expect(voiceProviderStore.state.provider).toBe(provider);
+      expect(constructed.live).toHaveLength(0);
+      expect(constructed.liveKit).toHaveLength(0);
+    },
+  );
 
   it('hands the prepared adapter to the next realtime session exactly once', () => {
     vi.stubEnv('VITE_HOSTED', '1');

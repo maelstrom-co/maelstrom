@@ -3,7 +3,6 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
 import {
   type Dispatch,
-  type ReactNode,
   type RefObject,
   type SetStateAction,
   useCallback,
@@ -17,10 +16,6 @@ import {
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { HoldToTalkControl } from '../components/hold-to-talk-control';
 import { KeyDrawer } from '../components/key-drawer';
-import {
-  KeylessVoiceProviderSelect,
-  VoiceProviderSelect,
-} from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
 import { usesBrowserKey } from '../lib/hosted-mode';
 import {
@@ -38,14 +33,12 @@ import {
 } from '../lib/playground-key-store';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
-import { voiceProviderStore } from '../lib/voice-provider';
 import { createLiveTake, type LiveTake } from './live-take';
 import {
   createPreparationRuntime,
   PREPARATION_LAYOUT,
-  PREPARATION_VOICE_PROVIDERS,
-  preparationVoiceProvider,
   type PreparationRuntime,
+  talkingPointsDiagnosticCapture,
 } from './maelstrom';
 import { createLiveRuntime, type LiveRuntime } from './maelstrom';
 import { createOutlineStore, type OutlineStore } from './outline.store';
@@ -104,15 +97,13 @@ export function TalkingPointsPage() {
       setBoundary(null);
       return;
     }
-    const runtime = createPreparationRuntime(
-      store,
-      preparationVoiceProvider(voiceProviderStore.state.provider),
-    );
+    const runtime = createPreparationRuntime(store);
     const sessionId = SessionId(runtime.owner.generation);
     const connector =
       browserKeyMode && !apiKey
         ? null
         : createDemoConnector({
+            capture: talkingPointsDiagnosticCapture,
             sessionId,
             getApiKey: () => playgroundKeyStore.state.apiKey,
           });
@@ -159,6 +150,7 @@ export function TalkingPointsPage() {
       take,
       sessionId,
       connector: createDemoConnector({
+        capture: talkingPointsDiagnosticCapture,
         sessionId,
         getApiKey: () => playgroundKeyStore.state.apiKey,
       }),
@@ -188,14 +180,7 @@ export function TalkingPointsPage() {
               connector={boundary.connector}
               initialLayout={PREPARATION_LAYOUT}
             >
-              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
-                {!sealing && (
-                  <VoiceProviderSelect
-                    useVoice={m.useVoice}
-                    options={PREPARATION_VOICE_PROVIDERS}
-                  />
-                )}
-              </TalkingPointsHeader>
+              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)} />
               {startError && <p role="alert">{startError}</p>}
               <PreparationWorkspace
                 runtime={boundary}
@@ -231,11 +216,7 @@ export function TalkingPointsPage() {
             </m.Provider>
           ) : (
             <>
-              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)}>
-                <KeylessVoiceProviderSelect
-                  options={PREPARATION_VOICE_PROVIDERS}
-                />
-              </TalkingPointsHeader>
+              <TalkingPointsHeader onRequireKey={() => setDrawerOpen(true)} />
               <main className="talking-points-preview">
                 <h2>Prepare your next talk</h2>
                 <PreparationInstructions />
@@ -283,10 +264,8 @@ export function TalkingPointsPage() {
 }
 
 function TalkingPointsHeader({
-  children,
   onRequireKey,
 }: {
-  readonly children: ReactNode;
   readonly onRequireKey: () => void;
 }) {
   return (
@@ -304,7 +283,6 @@ function TalkingPointsHeader({
         </a>
       </div>
       <div className="talking-points-controls">
-        {children}
         {usesBrowserKey() && (
           <button
             className="btn btn-ghost"
@@ -519,7 +497,7 @@ function PreparationWorkspace({
             <div
               onClickCapture={() => {
                 if (voice.state === 'idle' || voice.state === 'error')
-                  prepareBrowserOpenAIVoice();
+                  prepareBrowserOpenAIVoice(voice.provider);
               }}
             >
               <m.VoiceOrb size={44} />

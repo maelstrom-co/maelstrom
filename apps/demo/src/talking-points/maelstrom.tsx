@@ -11,9 +11,9 @@ import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { registerDemoVoice } from '../lib/demo-voice';
-import { diagnosticCapture } from '../lib/diagnostic-capture';
+import { DiagnosticCapture } from '../lib/diagnostic-capture';
+import { playgroundKeyStore } from '../lib/playground-key-store';
 import { createAdapter } from '../lib/voice-adapter';
-import type { DemoVoiceProvider } from '../lib/voice-provider';
 import { liveLayout, liveTopicDefinition } from './live-plan';
 import type { LiveTake } from './live-take';
 import {
@@ -30,22 +30,15 @@ import {
 import { createSemanticCoverage } from './semantic-coverage';
 import { outlineDefinition, topicDefinition } from './vessels';
 
-export const PREPARATION_VOICE_PROVIDERS = ['live', 'realtime'] as const;
-export type PreparationVoiceProvider =
-  (typeof PREPARATION_VOICE_PROVIDERS)[number];
-
-export function preparationVoiceProvider(
-  provider: DemoVoiceProvider,
-): PreparationVoiceProvider {
-  return provider === 'livekit' ? 'live' : provider;
-}
+const PREPARATION_VOICE_PROVIDERS = ['realtime'] as const;
+export const talkingPointsDiagnosticCapture = new DiagnosticCapture(
+  () => playgroundKeyStore.state.apiKey,
+  () => 'realtime',
+);
 
 export const PREPARATION_LAYOUT = preparationLayout([]);
 
-export function createPreparationRuntime(
-  store: OutlineStore,
-  provider: PreparationVoiceProvider,
-) {
+export function createPreparationRuntime(store: OutlineStore) {
   const owner = createPreparationOwner();
   const admission = createPreparationAdmission();
   const writer = store.forOwner(owner);
@@ -58,7 +51,7 @@ export function createPreparationRuntime(
     .with(
       maelstromRealtime({
         providers: PREPARATION_VOICE_PROVIDERS,
-        initialProvider: provider,
+        initialProvider: 'realtime',
         createAdapter: ({ provider: selected, sessionId }) =>
           createAdapter(selected, sessionId),
         conversationInstructions:
@@ -81,7 +74,7 @@ export function createPreparationRuntime(
         useEffect(() => synchronize(orchestrator), [orchestrator]);
       },
     }))
-    .with(devtools({ capture: diagnosticCapture }));
+    .with(devtools({ capture: talkingPointsDiagnosticCapture }));
 
   function OutlineController({
     instanceId,
@@ -361,7 +354,7 @@ export function createLiveRuntime(take: LiveTake) {
       });
       return {};
     })
-    .with(devtools({ capture: diagnosticCapture }));
+    .with(devtools({ capture: talkingPointsDiagnosticCapture }));
   return {
     m,
     engineReady,

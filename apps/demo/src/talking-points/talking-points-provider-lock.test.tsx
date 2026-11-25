@@ -4,6 +4,7 @@ import {
   ActionName,
   type ChartRequestMessage,
   InstanceId,
+  SessionId,
   type MaelstromResponse,
   ToolCallId,
 } from '@maelstrom-co/protocol';
@@ -23,12 +24,18 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+import { KeylessVoiceProviderSelect } from '../components/voice-provider-select';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
-import { selectVoiceProvider } from '../lib/voice-provider';
+import {
+  type DemoVoiceProvider,
+  selectVoiceProvider,
+  voiceProviderStore,
+} from '../lib/voice-provider';
+import { createOutlineStore } from './outline.store';
 
 const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
@@ -38,6 +45,8 @@ const engine = vi.hoisted(() => ({
 const voice = vi.hoisted(() => ({
   sessions: [] as RealtimeSession[],
   adapters: [] as TestAdapter[],
+  providers: [] as DemoVoiceProvider[],
+  prepare: vi.fn(() => false),
 }));
 
 vi.mock('../lib/connector', () => ({
@@ -77,14 +86,24 @@ vi.mock('../lib/connector', () => ({
     };
   },
 }));
-vi.mock('../lib/voice-adapter', () => ({
-  prepareBrowserOpenAIVoice: () => false,
-  createAdapter: () => {
-    const adapter = new TestAdapter();
-    voice.adapters.push(adapter);
-    return adapter;
-  },
+vi.mock('@maelstrom-co/realtime-openai', async (original) => ({
+  ...(await original<typeof import('@maelstrom-co/realtime-openai')>()),
+  OpenAIAdapter: class extends TestAdapter {},
 }));
+vi.mock('../lib/voice-adapter', async (original) => {
+  const actual = await original<typeof import('../lib/voice-adapter')>();
+  voice.prepare.mockImplementation(actual.prepareBrowserOpenAIVoice);
+  return {
+    ...actual,
+    prepareBrowserOpenAIVoice: voice.prepare,
+    createAdapter: (...args: Parameters<typeof actual.createAdapter>) => {
+      voice.providers.push(args[0]);
+      const adapter = actual.createAdapter(...args) as TestAdapter;
+      voice.adapters.push(adapter);
+      return adapter;
+    },
+  };
+});
 vi.mock('../lib/demo-voice', async (original) => {
   const actual = await original<typeof import('../lib/demo-voice')>();
   return {
@@ -103,6 +122,11 @@ class TestAdapter implements RealtimeProviderAdapter {
   readonly observations = { subscribe: () => () => {} };
   readonly results: { callId: ToolCallId; result: ToolResult }[] = [];
   private readonly handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+  activateAudioCalls = 0;
+  activateAudio() {
+    this.activateAudioCalls += 1;
+    return Promise.resolve();
+  }
   async connect() {}
   async disconnect() {}
   getAudioStreams() {
@@ -139,6 +163,8 @@ beforeEach(() => {
   engine.release = undefined;
   voice.sessions = [];
   voice.adapters = [];
+  voice.providers = [];
+  voice.prepare.mockClear();
   // Geometry is not under test; real sessions and scheduler admission are.
   vi.stubGlobal(
     'ResizeObserver',
@@ -157,7 +183,7 @@ afterEach(() => {
 });
 
 it.each(['text', 'voice'] as const)(
-  'preserves active %s and pending typed preparation while retiring only pending old-provider voice',
+  'preserves active %s and pending typed preparation while retiring only pending disconnected voice',
   async (source) => {
     const { TalkingPointsPage } = await import('./talking-points-page');
     render(<TalkingPointsPage />);
@@ -184,11 +210,9 @@ it.each(['text', 'voice'] as const)(
     expect(engine.requests).toHaveLength(1);
 
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Voice provider'), {
-        target: { value: 'live' },
-      });
+      fireEvent.click(screen.getByRole('button', { name: 'Stop voice' }));
     });
-    await waitFor(() => expect(voice.sessions).toHaveLength(2));
+    await waitFor(() => expect(oldSession.state).toBe('idle'));
     expect(engine.sessions).toHaveLength(1);
     expect(oldSession.memory.find(ToolCallId('pending-voice'))?.status).toBe(
       'not_submitted',
@@ -197,9 +221,7 @@ it.each(['text', 'voice'] as const)(
       expect(oldSession.memory.find(ToolCallId('active-voice'))?.status).toBe(
         'submitted',
       );
-    expect(voice.sessions[1]!.memory.sessionId).toBe(
-      oldSession.memory.sessionId,
-    );
+    expect(voice.sessions).toHaveLength(1);
     expect(
       screen.getByRole('status', { name: 'Preparation result' }).textContent,
     ).toBe('Queued…');
@@ -231,15 +253,17 @@ it.each(['text', 'voice'] as const)(
       fireEvent.click(screen.getByRole('button', { name: 'Start voice' }));
     });
     await act(async () => {
-      voice.adapters[1]!.submit('new-voice', 'New voice topic');
+      oldAdapter.submit('new-voice', 'New voice topic');
     });
     await screen.findByRole('article', { name: 'New voice topic' });
     await waitFor(() =>
-      expect(voice.adapters[1]!.results.map((result) => result.callId)).toEqual(
-        [ToolCallId('new-voice')],
-      ),
+      expect(oldAdapter.results.map((result) => result.callId)).toEqual([
+        ToolCallId('new-voice'),
+      ]),
     );
-    expect(oldAdapter.results).toEqual([]);
+    expect(oldAdapter.results.map((result) => result.callId)).toEqual([
+      ToolCallId('new-voice'),
+    ]);
     expect(engine.sessions).toHaveLength(1);
     expect(
       engine.requests.every(
@@ -248,6 +272,91 @@ it.each(['text', 'voice'] as const)(
     ).toBe(true);
   },
 );
+
+it.each(['live', 'livekit', 'realtime'] as const)(
+  'locks preparation across key save and remount without changing inherited %s',
+  async (inherited) => {
+    clearPlaygroundKey();
+    voiceProviderStore.setState(() => ({ provider: inherited }));
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    const page = render(<TalkingPointsPage />);
+    await screen.findByRole('button', { name: 'Add an API key to prepare' });
+    expect(screen.queryByLabelText('Voice provider')).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Add an API key to prepare' }),
+    );
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-lock-test-12345678901234567890' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('status', { name: 'Connection status: connected' });
+    expect(screen.queryByLabelText('Voice provider')).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start voice' }));
+    });
+    expect(voice.providers).toEqual(['realtime']);
+    expect(voice.adapters[0]?.activateAudioCalls).toBeGreaterThanOrEqual(1);
+    expect(voice.prepare).toHaveBeenCalledExactlyOnceWith('realtime');
+    expect(voiceProviderStore.state.provider).toBe(inherited);
+    page.unmount();
+    render(<TalkingPointsPage />);
+    await screen.findByRole('status', { name: 'Connection status: connected' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start voice' }));
+    });
+    expect(voice.providers).toEqual(['realtime', 'realtime']);
+    expect(screen.queryByLabelText('Voice provider')).toBeNull();
+    expect(voiceProviderStore.state.provider).toBe(inherited);
+    cleanup();
+    vi.stubEnv('VITE_HOSTED', '0');
+    render(
+      <KeylessVoiceProviderSelect options={['live', 'realtime', 'livekit']} />,
+    );
+    expect(screen.getByLabelText('Voice provider')).toHaveProperty(
+      'value',
+      inherited,
+    );
+    fireEvent.change(screen.getByLabelText('Voice provider'), {
+      target: { value: inherited === 'live' ? 'livekit' : 'live' },
+    });
+    expect(voiceProviderStore.state.provider).toBe(
+      inherited === 'live' ? 'livekit' : 'live',
+    );
+  },
+);
+
+it('rejects an unsupported provider at the runtime boundary', async () => {
+  const { createPreparationRuntime, PREPARATION_LAYOUT } =
+    await import('./maelstrom');
+  const runtime = createPreparationRuntime(createOutlineStore());
+  const m = runtime.m;
+  let changeProvider!: ReturnType<typeof m.useVoice>['switchProvider'];
+  function Probe() {
+    changeProvider = m.useVoice().switchProvider;
+    return null;
+  }
+  const view = render(
+    <m.Provider
+      sessionId={SessionId('locked-runtime')}
+      connector={createMockConnector()}
+      initialLayout={PREPARATION_LAYOUT}
+    >
+      <Probe />
+    </m.Provider>,
+  );
+  try {
+    // Exercise untyped callers as well as the singleton TypeScript contract.
+    await expect(changeProvider('live' as 'realtime')).rejects.toThrow(
+      'Unknown voice provider: live',
+    );
+    expect(voice.providers).toEqual(['realtime']);
+  } finally {
+    view.unmount();
+    runtime.owner.retire();
+    runtime.admission.retire();
+    runtime.m.disposeDevtools();
+  }
+});
 
 async function ask(intent: string) {
   fireEvent.change(screen.getByLabelText('Prepare your outline'), {

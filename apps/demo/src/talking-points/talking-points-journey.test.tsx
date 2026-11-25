@@ -22,6 +22,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import type { CreateDemoConnectorOptions } from '../lib/connector';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -82,6 +83,7 @@ vi.mock('./live-capture', () => ({
 const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   sessions: [] as string[],
+  captures: [] as CreateDemoConnectorOptions['capture'][],
   release: undefined as (() => void) | undefined,
   delayConnection: false,
   connections: [] as {
@@ -92,8 +94,12 @@ const engine = vi.hoisted(() => ({
   }[],
 }));
 vi.mock('../lib/connector', () => ({
-  createDemoConnector: ({ sessionId }: { sessionId: string }) => {
+  createDemoConnector: ({
+    sessionId,
+    capture,
+  }: CreateDemoConnectorOptions & { sessionId: string }) => {
     engine.sessions.push(sessionId);
+    engine.captures.push(capture);
     const subscribers = new Set<(event: ConnectorEvent) => void>();
     const base = createMockConnector();
     const connection = {
@@ -223,6 +229,7 @@ beforeEach(() => {
   localStorage.clear();
   engine.requests = [];
   engine.sessions = [];
+  engine.captures = [];
   engine.release = undefined;
   engine.delayConnection = false;
   engine.connections = [];
@@ -260,7 +267,8 @@ it('shows only the active runtime DevTools through preparation, Start, Reset and
       ],
     }),
   );
-  const { diagnosticCapture } = await import('../lib/diagnostic-capture');
+  const { talkingPointsDiagnosticCapture: diagnosticCapture } =
+    await import('./maelstrom');
   const captureBefore = diagnosticCapture.getSnapshot();
   const { TalkingPointsPage } = await import('./talking-points-page');
   const mounted = render(<TalkingPointsPage />);
@@ -419,7 +427,8 @@ it.each([false, true])(
         ],
       }),
     );
-    const { diagnosticCapture } = await import('../lib/diagnostic-capture');
+    const { talkingPointsDiagnosticCapture: diagnosticCapture } =
+      await import('./maelstrom');
     const emissions = vi.spyOn(DiagnosticChannel.prototype, 'emitDiagnostic');
     const diagnosticsModule = await import('./live-capture-diagnostics');
     const createDiagnostics = diagnosticsModule.createLiveCaptureDiagnostics;
@@ -473,6 +482,10 @@ it.each([false, true])(
         document.querySelectorAll('[data-maelstrom-devtools]'),
       ).toHaveLength(1);
       expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(engine.captures.length).toBeGreaterThan(0);
+      expect(
+        engine.captures.every((capture) => capture === diagnosticCapture),
+      ).toBe(true);
       expect(diagnosticCapture.export()).toContain(
         'Recording survives runtime disposal',
       );

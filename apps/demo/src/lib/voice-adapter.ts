@@ -45,8 +45,9 @@ let preparedProvider: DemoVoiceProvider | undefined;
  * Returns false and does nothing when the server owns the key or the selected
  * provider is not realtime.
  */
-export function prepareBrowserOpenAIVoice(): boolean {
-  const provider = voiceProviderStore.state.provider;
+export function prepareBrowserOpenAIVoice(
+  provider: DemoVoiceProvider = voiceProviderStore.state.provider,
+): boolean {
   if (!usesBrowserKey() || provider !== 'realtime') return false;
   if (preparedProvider !== provider) preparedBrowserOpenAIAdapter = undefined;
   preparedProvider = provider;
