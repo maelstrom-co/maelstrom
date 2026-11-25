@@ -325,7 +325,9 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
-    environment: preview-narration
+    environment:
+      name: production
+      deployment: false
     concurrency:
       group: production-www
       cancel-in-progress: false

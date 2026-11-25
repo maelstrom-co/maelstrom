@@ -650,24 +650,22 @@ versioned WAV files for up to one day. Set an R2 lifecycle policy to expire
 preview delivery objects after 30 days. This policy applies only to the delivery
 bucket. A publisher retry can restore expired objects from the private cache.
 
-Create the GitHub environment `preview-narration` and restrict deployment
-branches to the default branch. Keep the existing deployment approval on
-`preview` and `preview-auto`. Put the new credentials only in
-`preview-narration`, where the checkout and dependencies come from the workflow
-revision. Set `BLOG_NARRATION_PREVIEW_R2_BUCKET` in that environment and provide
-bucket-scoped write credentials in the `BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID`
-and `BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY` secrets. The workflow uses
-the repository's existing `PREVIEW_ACCOUNT_ID` and
-`CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` settings.
+Keep the existing deployment approval on `preview` and `preview-auto`.
+The trusted narrator job uses the `production` environment without creating a
+GitHub production deployment record. It uses the ElevenLabs key, voice settings,
+and private production cache configured above. The shared cache uses
+`BLOG_NARRATION_R2_BUCKET`, `BLOG_NARRATION_R2_ACCESS_KEY_ID`, and
+`BLOG_NARRATION_R2_SECRET_ACCESS_KEY`.
 
-In `preview-narration`, set the same `ELEVENLABS_MYVOICE_ID`,
-`ELEVENLABS_MYVOICE_REVISION`, and `BLOG_NARRATION_R2_BUCKET` values as
-production. Configure `ELEVENLABS_API_KEY` with text-to-speech access. Use separate
-bucket-scoped credentials for the same private production narration bucket
-under `BLOG_NARRATION_R2_ACCESS_KEY_ID` and
-`BLOG_NARRATION_R2_SECRET_ACCESS_KEY`. The preview publisher holds the same
-queue as the production www job. Production reuses a recording only when the
-rendered text and voice fingerprint match.
+Make `CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` available to the job in
+`production` so it can verify the approved website URL. It uses the repository's
+existing `PREVIEW_ACCOUNT_ID`. Set `BLOG_NARRATION_PREVIEW_R2_BUCKET` in
+`production` to the public delivery bucket in the preview account. Give the
+trusted job bucket-scoped write access using the
+`BLOG_NARRATION_PREVIEW_R2_ACCESS_KEY_ID` and
+`BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY` secrets in `production`.
+These credentials belong to the preview delivery bucket. Production reuses a
+recording when the rendered text and voice fingerprint match.
 
 Each run considers up to 40 archive entries, starting with posts changed by the
 PR and then the newest remaining posts. It applies download, transcript,

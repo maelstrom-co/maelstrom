@@ -1313,7 +1313,13 @@ test('preview narration joins the production www queue from a trusted post-deplo
   expect(job).toContain(
     "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
   );
-  expect(job).toContain('environment: preview-narration');
+  const workflow = Bun.YAML.parse(preview) as {
+    jobs: Record<string, { environment?: unknown }>;
+  };
+  expect(workflow.jobs['publish-blog-narration'].environment).toEqual({
+    name: 'production',
+    deployment: false,
+  });
   expect(job).toContain('group: production-www');
   expect(job).toContain('cancel-in-progress: false');
   expect(job).toContain('queue: max');
