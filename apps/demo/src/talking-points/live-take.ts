@@ -121,9 +121,9 @@ export function createLiveTake(options: {
       snapshot.phase === 'listening' ? now() - origin : snapshot.elapsedMs;
     automatic = false;
     capture?.stopCapture();
-    if (!active) return;
+    if (!active || phase() === 'stopped') return;
     close();
-    if (!active) return;
+    if (!active || phase() === 'stopped') return;
     publish({
       phase: 'stopped',
       elapsedMs,
@@ -224,6 +224,7 @@ export function createLiveTake(options: {
         () => {
           if (!active || snapshot.phase !== 'finalizing') return;
           close();
+          if (!active || phase() !== 'finalizing') return;
           publish({
             phase: 'stopped',
             warning:

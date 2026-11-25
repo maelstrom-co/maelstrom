@@ -470,3 +470,104 @@ it('does not resurrect failed drafts from late deltas, even when failure arrived
     'Neighbor',
   ]);
 });
+
+it.each([
+  ['reset', 'retirePending'],
+  ['reset', 'dispose'],
+  ['engine', 'retirePending'],
+  ['engine', 'dispose'],
+] as const)(
+  'cutoff %s during %s cannot overwrite the settled take state',
+  async (transition, boundary) => {
+    vi.useFakeTimers();
+    const { take, capture, ready, retire } = setup();
+    const starting = take.start();
+    ready();
+    await starting;
+    vi.advanceTimersByTime(500);
+    take.manualSet('one', true);
+    take.stop();
+    const changeState = () => {
+      if (transition === 'reset') take.reset();
+      else take.engineFailed();
+    };
+    let unsubscribe = () => {};
+    if (boundary === 'dispose') {
+      vi.mocked(capture.dispose).mockImplementationOnce(() => {
+        take.diagnostics.captureState('disposed');
+      });
+      unsubscribe = take.diagnostics.subscribe(() => {
+        if (take.diagnostics.getSnapshot().captureState !== 'disposed') return;
+        unsubscribe();
+        changeState();
+      });
+    } else retire.mockImplementationOnce(changeState);
+    vi.advanceTimersByTime(3000);
+    expect(take.getSnapshot()).toMatchObject(
+      transition === 'reset'
+        ? { phase: 'preparing', elapsedMs: 0, error: null, warning: null }
+        : {
+            phase: 'stopped',
+            elapsedMs: 500,
+            error:
+              'Engine connection failed. Your marks and elapsed time were retained. Reset before trying again.',
+            warning: null,
+          },
+    );
+    expect([...take.getSnapshot().spoken]).toEqual(
+      transition === 'reset' ? [] : ['one'],
+    );
+    expect([...take.getSnapshot().manualLocks]).toEqual(
+      transition === 'reset' ? [] : ['one'],
+    );
+    expect(vi.getTimerCount()).toBe(0);
+    expect(capture.commitFinalAudio).toHaveBeenCalledOnce();
+    expect(capture.dispose).toHaveBeenCalledTimes(2);
+    expect(retire).toHaveBeenCalledTimes(2);
+    take.automaticMark('two');
+    expect(take.getSnapshot().spoken.has('two')).toBe(false);
+    unsubscribe();
+  },
+);
+
+it.each(['stopCapture', 'dispose'] as const)(
+  'Engine failure during fatal failure %s cannot overwrite the settled failure',
+  async (boundary) => {
+    vi.useFakeTimers();
+    const { take, capture, callbacks, ready, retire } = setup();
+    const starting = take.start();
+    ready();
+    await starting;
+    vi.advanceTimersByTime(500);
+    take.manualSet('one', true);
+    vi.mocked(capture[boundary]).mockImplementationOnce(() => {
+      take.diagnostics.captureState(
+        boundary === 'stopCapture' ? 'stopped' : 'disposed',
+      );
+    });
+    const unsubscribe = take.diagnostics.subscribe((_kind, metadata) => {
+      if (
+        metadata.captureState ===
+        (boundary === 'stopCapture' ? 'stopped' : 'disposed')
+      ) {
+        unsubscribe();
+        take.engineFailed();
+      }
+    });
+    callbacks().onFatalError(new Error('redacted') as never);
+    expect(take.getSnapshot()).toMatchObject({
+      phase: 'stopped',
+      elapsedMs: 500,
+      error:
+        'Engine connection failed. Your marks and elapsed time were retained. Reset before trying again.',
+      warning: null,
+    });
+    expect([...take.getSnapshot().spoken]).toEqual(['one']);
+    expect([...take.getSnapshot().manualLocks]).toEqual(['one']);
+    expect(vi.getTimerCount()).toBe(0);
+    const cleanups = boundary === 'stopCapture' ? 1 : 2;
+    expect(capture.dispose).toHaveBeenCalledTimes(cleanups);
+    expect(retire).toHaveBeenCalledTimes(cleanups);
+    unsubscribe();
+  },
+);
