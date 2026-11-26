@@ -26,6 +26,7 @@ import { Store } from '@tanstack/store';
 
 import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import { DEFAULT_CONVERSATION_INSTRUCTIONS } from './default-conversation-instructions.js';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
@@ -469,6 +470,23 @@ describe('additive continuous capabilities', () => {
     expect(legacy).toEqual([
       { role: 'assistant', text: 'legacy', final: true },
     ]);
+    await session.disconnect();
+  });
+
+  it('sends the default language rule as conversation instructions when the application sets none', async () => {
+    const adapter = makeMockAdapter();
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+    });
+    await session.connect();
+    expect(adapter.connectOptions[0].conversationInstructions).toBe(
+      DEFAULT_CONVERSATION_INSTRUCTIONS,
+    );
+    expect(DEFAULT_CONVERSATION_INSTRUCTIONS).toContain(
+      "language of the user's most recent",
+    );
     await session.disconnect();
   });
 

@@ -742,7 +742,9 @@ export class OpenAIAdapter
           session: {
             type: 'realtime',
             tools: opts.tools.map(toOpenAITool),
-            instructions: opts.instructions,
+            instructions: [opts.instructions, opts.conversationInstructions]
+              .filter(Boolean)
+              .join('\n\n'),
             ...this.#audioConfig(),
           },
         };

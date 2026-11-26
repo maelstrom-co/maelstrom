@@ -1322,6 +1322,23 @@ describe('OpenAIAdapter — successful connect then disconnect', () => {
     expect(pc?.closed).toBe(true);
     expect(dc?.closed).toBe(true);
   });
+
+  it('adds conversationInstructions to the session instructions after the tool instructions', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const connecting = adapter.connect({
+      ...connectOpts,
+      conversationInstructions: 'Reply in Polish.',
+    });
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    await connecting;
+
+    const sessionUpdate = JSON.parse(channel.sent[0] ?? '{}');
+    expect(sessionUpdate.session.instructions).toBe(
+      'be helpful\n\nReply in Polish.',
+    );
+    await adapter.disconnect();
+  });
 });
 
 // ============================================================================

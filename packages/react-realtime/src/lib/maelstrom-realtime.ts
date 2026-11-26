@@ -123,7 +123,12 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
    * value throws `RangeError` before the first adapter is built.
    */
   readonly initialProvider?: Provider | (() => Provider);
-  /** Conversation-only instructions for providers with a separate managed tool backend. */
+  /**
+   * Conversation instructions for the voice model, kept apart from tool routing.
+   * Defaults to `DEFAULT_CONVERSATION_INSTRUCTIONS` from `@maelstrom-co/realtime`,
+   * which makes the agent follow the user's language. A value replaces that
+   * default entirely.
+   */
   readonly conversationInstructions?: string;
   /** Bounds and grouping policy for the opt-in continuous transcript channel. */
   readonly transcript?: ContinuousTranscriptOptions;

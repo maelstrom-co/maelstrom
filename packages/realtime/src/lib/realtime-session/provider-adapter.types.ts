@@ -34,10 +34,12 @@ export interface AdapterConnectOptions {
   /** Tool-routing instructions for a separate managed backend. Adapters without one ignore this field; managed adapters fall back to `instructions` when omitted. */
   readonly backendInstructions?: string;
   /**
-   * Conversation-only instructions for providers with a separate conversational
-   * frontend. `backendInstructions` (or `instructions` when absent) and `tools`
-   * configure their managed tool backend.
-   * Legacy adapters may ignore this field and keep their existing instruction path.
+   * Conversation instructions, such as the reply language rule. Providers with a
+   * separate conversational frontend send them to that frontend, while
+   * `backendInstructions` (or `instructions` when absent) and `tools` configure
+   * their managed tool backend. Single-model providers add them to `instructions`.
+   * `RealtimeSession` always sets this field: the application's value, or
+   * `DEFAULT_CONVERSATION_INSTRUCTIONS`. Legacy adapters may ignore it.
    */
   readonly conversationInstructions?: string;
   /** Concise observed UI data for adapters that seed grounding when ready; never behavioral instructions. */

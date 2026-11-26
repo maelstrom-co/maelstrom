@@ -853,7 +853,7 @@ function captured(kind: string) {
 
 it('asks Live to introduce Dayline as a planner powered by Maelstrom', () => {
   expect(LIVE_OPENING_INSTRUCTIONS).toBe(
-    'In English, briefly introduce yourself as Dayline, a daily planner powered by Maelstrom, and ask what the user would like to get done today.',
+    "Greet in English, briefly introducing yourself as Dayline, a daily planner powered by Maelstrom, and ask what the user would like to get done today. After that, follow the user's language.",
   );
   expect(demoVoiceOpening('unused')({ provider: 'live' } as never)).toEqual({
     generatedOpening: { instructions: LIVE_OPENING_INSTRUCTIONS },
