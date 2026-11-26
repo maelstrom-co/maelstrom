@@ -1,7 +1,6 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { nanoid } from 'nanoid';
 import { useSyncExternalStore } from 'react';
-
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 export interface CalendarEvent {
   id: string;
@@ -82,6 +81,18 @@ function normalizeTime(time: string): string {
   return `${hour}:${minute}`;
 }
 
+const eventResolver = createReferenceResolver({
+  items: () => state.events,
+  id: (event) => event.id,
+  title: (event) => event.title,
+  label: (event) => event.title,
+});
+
+export function findCalendarEvent(title: string): CalendarEvent | undefined {
+  const match = eventResolver.resolve(title);
+  return match.kind === 'found' ? match.item : undefined;
+}
+
 export const calendarActions = {
   addEvent(title: string, time: string): void {
     setState({
@@ -92,7 +103,7 @@ export const calendarActions = {
     });
   },
   removeEvent(title: string): boolean {
-    const match = findByFuzzyTitle(state.events, title);
+    const match = findCalendarEvent(title);
     if (!match) return false;
     setState({
       events: state.events.filter((e) => e.id !== match.id),
@@ -100,7 +111,7 @@ export const calendarActions = {
     return true;
   },
   moveEvent(title: string, time: string): boolean {
-    const match = findByFuzzyTitle(state.events, title);
+    const match = findCalendarEvent(title);
     if (!match) return false;
     setState({
       events: state.events.map((e) =>

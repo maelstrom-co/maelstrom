@@ -31,6 +31,13 @@ describe('cartActions', () => {
     });
   });
 
+  it('resolves a product by spoken non-contiguous fuzzy name', () => {
+    expect(cartActions.addToCart('healthy weight barley')).toMatchObject({
+      ok: true,
+      line: { sku: 'DOG-DRY-SUMMIT-HW-30' },
+    });
+  });
+
   it('increments the quantity when the same product is added again', () => {
     cartActions.addToCart('CAT-WET-WHISKER-PATE-24', 2);
     cartActions.addToCart('cat-wet-whisker-pate-24');

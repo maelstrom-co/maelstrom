@@ -13,11 +13,11 @@ import { m } from '../lib/maelstrom';
 import {
   type CalendarEvent,
   calendarActions,
+  findCalendarEvent,
   getCalendarSnapshot,
   useCalendarStore,
 } from './calendar.store';
 import type { calendarVessel } from './calendar.vessel';
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -126,7 +126,7 @@ export default function CalendarComponent({
       return ok(undefined);
     },
     removeEvent: async ({ title }) => {
-      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
+      const match = findCalendarEvent(title);
       if (!match || !calendarActions.removeEvent(title)) {
         return eventNotFound('removeEvent', title);
       }
@@ -137,7 +137,7 @@ export default function CalendarComponent({
       return ok(undefined);
     },
     moveEvent: async ({ title, time }) => {
-      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
+      const match = findCalendarEvent(title);
       if (!match || !calendarActions.moveEvent(title, time)) {
         return eventNotFound('moveEvent', title);
       }

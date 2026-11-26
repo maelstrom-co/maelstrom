@@ -1,6 +1,5 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { useSyncExternalStore } from 'react';
-
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 export interface JournalEntry {
   id: string;
@@ -112,17 +111,13 @@ export function resolveEntryReference(
   entries: readonly JournalEntry[],
   reference: string,
 ): JournalEntry | undefined {
-  const trimmed = reference.trim();
-  const id = ENTRY_ID_PATTERN.exec(trimmed)?.[1];
-  if (id) {
-    const byId = entries.find((entry) => entry.id === id);
-    const rest = trimmed.slice(id.length).trim();
-    if (!rest) return byId;
-    // A title may itself start like an id, so the prefix counts only when
-    // the rest names that same entry.
-    if (byId && byId.title.toLowerCase() === rest.toLowerCase()) return byId;
-  }
-  return findByFuzzyTitle([...entries], trimmed);
+  const match = createReferenceResolver({
+    items: entries,
+    id: (entry) => entry.id,
+    title: (entry) => entry.title,
+    label: entryReferenceLabel,
+  }).resolve(reference);
+  return match.kind === 'found' ? match.item : undefined;
 }
 
 export const journalActions = {
@@ -173,8 +168,6 @@ export const journalActions = {
     setState({ ...state, activeEntryId: null });
   },
 };
-
-const ENTRY_ID_PATTERN = /^(J-\d+)(?:\s|$)/;
 
 function replaceEntry(entry: JournalEntry): void {
   setState({
