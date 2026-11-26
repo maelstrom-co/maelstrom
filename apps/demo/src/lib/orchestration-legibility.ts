@@ -1,7 +1,9 @@
+import type { RequestOutcome } from '@maelstrom-co/client';
 import type {
   MaelstromExtension,
   MaelstromExtensionContext,
 } from '@maelstrom-co/react';
+import { useStore } from '@tanstack/react-store';
 import { useCallback, useSyncExternalStore } from 'react';
 
 import {
@@ -23,6 +25,8 @@ export interface OrchestrationLegibility {
   useTouchedInstances: () => ReadonlySet<string>;
   /** Live count of instances currently on the chart. */
   useInstanceCount: () => number;
+  /** Retained request outcomes keyed by ticket id, for per-submission feedback. */
+  useRequestOutcomes: () => Readonly<Record<string, RequestOutcome>>;
 }
 
 export const orchestrationLegibility: MaelstromExtension<
@@ -50,5 +54,12 @@ export const orchestrationLegibility: MaelstromExtension<
       [orchestrator],
     );
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  },
+  useRequestOutcomes: () => {
+    const { orchestrator } = ctx.useMaelstromContext();
+    return useStore(
+      orchestrator.requestOutcomes.store,
+      (state) => state.outcomes,
+    );
   },
 });

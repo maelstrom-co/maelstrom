@@ -1,14 +1,13 @@
-import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { VesselCard } from '../components/vessel-card';
-import { recordChange, recordFailure } from '../lib/action-activity';
 import {
   ACCENT_HEX,
   type AccentToken,
   CALENDAR_EVENT_ACCENTS,
   VESSEL_ACCENTS,
 } from '../lib/design-tokens';
+import { failureResult, noteResult } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
 import {
   type CalendarEvent,
@@ -53,27 +52,27 @@ const DAY_HOURS = [
   '17:00',
 ];
 
-function noMatchError(title: string): Error {
+function noMatchMessage(title: string): string {
   const available = getCalendarSnapshot()
     .events.map((e) => `"${e.title}"`)
     .join(', ');
-  return new Error(`No event matches "${title}". Available: ${available}`);
+  return `No event matches "${title}". Available: ${available}`;
 }
 
 function eventNotFound(action: string, title: string) {
-  recordFailure(`Couldn't find event "${title}"`, {
-    vesselId: 'calendar',
-    action,
-  });
-  return err(noMatchError(title));
+  return failureResult(
+    `Couldn't find event "${title}"`,
+    { vesselId: 'calendar', action },
+    noMatchMessage(title),
+  );
 }
 
 function eventAmbiguous(action: string, title: string, message: string) {
-  recordFailure(`"${title}" matches more than one event`, {
-    vesselId: 'calendar',
-    action,
-  });
-  return err(new Error(message));
+  return failureResult(
+    `"${title}" matches more than one event`,
+    { vesselId: 'calendar', action },
+    message,
+  );
 }
 
 function eventLabel(event: CalendarEvent): string {
@@ -127,11 +126,10 @@ export default function CalendarComponent({
     addEvent: async ({ title, time }) => {
       calendarActions.addEvent(title, time);
       const added = getCalendarSnapshot().events.at(-1);
-      recordChange(
+      return noteResult(
         `Added event "${added?.title ?? title}" at ${added?.time ?? time}`,
         { vesselId: 'calendar', action: 'addEvent' },
       );
-      return ok(undefined);
     },
     removeEvent: async ({ title }) => {
       const match = resolveCalendarEvent(title);
@@ -144,11 +142,10 @@ export default function CalendarComponent({
       ) {
         return eventNotFound('removeEvent', title);
       }
-      recordChange(`Removed event "${match.item.title}"`, {
+      return noteResult(`Removed event "${match.item.title}"`, {
         vesselId: 'calendar',
         action: 'removeEvent',
       });
-      return ok(undefined);
     },
     moveEvent: async ({ title, time }) => {
       const match = resolveCalendarEvent(title);
@@ -163,11 +160,10 @@ export default function CalendarComponent({
       }
       const { item } = match;
       const moved = getCalendarSnapshot().events.find((e) => e.id === item.id);
-      recordChange(`Moved "${item.title}" to ${moved?.time ?? time}`, {
+      return noteResult(`Moved "${item.title}" to ${moved?.time ?? time}`, {
         vesselId: 'calendar',
         action: 'moveEvent',
       });
-      return ok(undefined);
     },
   });
 

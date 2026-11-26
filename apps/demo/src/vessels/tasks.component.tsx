@@ -1,17 +1,14 @@
-import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Check } from 'lucide-react';
 
 import { VesselCard } from '../components/vessel-card';
-import {
-  describeAddedTask,
-  markDirectAction,
-  recordChange,
-  recordFailure,
-  recordUnchanged,
-} from '../lib/action-activity';
 import { cn } from '../lib/cn';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
+import {
+  failureResult,
+  markDirectAction,
+  noteResult,
+} from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
 import {
   getTasksSnapshot,
@@ -32,11 +29,10 @@ export default function TasksComponent({
   m.useActions('tasks', instanceId, {
     addTask: async ({ title, subtasks }) => {
       const result = tasksActions.addTask(title, splitSubtaskTitles(subtasks));
-      recordChange(
+      return noteResult(
         describeAddedTask(result.task.title, result.task.subtasks.length),
         source('addTask'),
       );
-      return ok(undefined);
     },
     removeTask: async ({ task }) =>
       taskOutcome(
@@ -227,12 +223,10 @@ function taskOutcome(
   describe: (task: { title: string }) => string,
 ) {
   if (!result.ok) return notFound(action, 'task', result.query);
-  if (result.changed) {
-    recordChange(describe(result.task), source(action));
-  } else {
-    recordUnchanged(alreadyText(result.task), source(action));
-  }
-  return ok(undefined);
+  return noteResult(
+    result.changed ? describe(result.task) : alreadyText(result.task),
+    source(action),
+  );
 }
 
 function subtaskOutcome(
@@ -242,16 +236,17 @@ function subtaskOutcome(
   describe: (result: Extract<SubtaskChange, { ok: true }>) => string,
 ) {
   if (!result.ok && result.reason === 'blank_title') {
-    recordFailure("Couldn't add a subtask without a title", source(action));
-    return err(new Error('subtaskTitle must not be blank'));
+    return failureResult(
+      "Couldn't add a subtask without a title",
+      source(action),
+      'subtaskTitle must not be blank',
+    );
   }
   if (!result.ok) return notFound(action, kind, result.query);
-  if (result.changed) {
-    recordChange(describe(result), source(action));
-  } else {
-    recordUnchanged(alreadyText(result.subtask), source(action));
-  }
-  return ok(undefined);
+  return noteResult(
+    result.changed ? describe(result) : alreadyText(result.subtask),
+    source(action),
+  );
 }
 
 function alreadyText(item: { title: string; done: boolean }): string {
@@ -259,7 +254,6 @@ function alreadyText(item: { title: string; done: boolean }): string {
 }
 
 function notFound(action: string, kind: 'task' | 'subtask', query: string) {
-  recordFailure(`Couldn't find ${kind} "${query}"`, source(action));
   const { tasks } = getTasksSnapshot();
   const references =
     kind === 'task'
@@ -267,7 +261,14 @@ function notFound(action: string, kind: 'task' | 'subtask', query: string) {
       : tasks.flatMap((task) => task.subtasks.map(taskReferenceLabel));
   const available =
     references.length > 0 ? references.map((r) => `"${r}"`).join(', ') : 'none';
-  return err(
-    new Error(`No ${kind} matches "${query}". Available: ${available}`),
+  return failureResult(
+    `Couldn't find ${kind} "${query}"`,
+    source(action),
+    `No ${kind} matches "${query}". Available: ${available}`,
   );
+}
+
+function describeAddedTask(title: string, subtaskCount: number): string {
+  if (subtaskCount === 0) return `Added "${title}"`;
+  return `Added "${title}" with ${subtaskCount} ${subtaskCount === 1 ? 'subtask' : 'subtasks'}`;
 }
