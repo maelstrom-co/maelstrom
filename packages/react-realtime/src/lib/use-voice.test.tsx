@@ -1,7 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  mock,
+} from 'bun:test';
 
 import type {
   TranscriptEntry,
+  VoiceCaption,
   VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
@@ -31,6 +40,7 @@ import type {
   UseVoiceObservationsResult,
   UseVoiceResult,
 } from './maelstrom-realtime.js';
+import type { UseVoiceCaptionsResult } from './voice-captions.js';
 
 let sessionConnectGate: Promise<void> | undefined;
 let sessionDisconnectGate: Promise<void> | undefined;
@@ -1622,5 +1632,170 @@ describe('maelstromRealtime() provider switching', () => {
       must(voice).switchProvider('livekit' as Provider),
     ).rejects.toBeInstanceOf(RangeError);
     expect(FakeRealtimeSession.instances).toHaveLength(1);
+  });
+});
+
+describe('maelstromRealtime() useVoiceCaptions', () => {
+  const FADE_DELAY_MS = 3000;
+
+  function caption(overrides: Partial<VoiceCaption> = {}): VoiceCaption {
+    return {
+      id: 'user-1',
+      role: 'user',
+      speakerId: 'user',
+      fragmentIds: ['f1'],
+      text: 'Show my tasks',
+      startMs: 0,
+      endMs: 100,
+      final: false,
+      ...overrides,
+    };
+  }
+
+  async function renderCaptions() {
+    const { m, connector } = setup();
+    let latest: UseVoiceCaptionsResult | undefined;
+    function Captions() {
+      latest = m.useVoiceCaptions({ fadeDelayMs: FADE_DELAY_MS });
+      return null;
+    }
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Captions />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    return { session, captions: () => must(latest) };
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('fades a non-final caption after the delay with no new fragment', async () => {
+    jest.useFakeTimers();
+    const { session, captions } = await renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    expect(captions().user).toEqual({ text: 'Show my tasks', faded: false });
+
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS - 1);
+    });
+    expect(captions().user?.faded).toBe(false);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(captions().user).toEqual({ text: 'Show my tasks', faded: true });
+  });
+
+  it('un-fades on a new fragment and restarts the delay', async () => {
+    jest.useFakeTimers();
+    const { session, captions } = await renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS);
+    });
+    expect(captions().user?.faded).toBe(true);
+
+    await act(async () => {
+      session.emitObservation({
+        generation: 1,
+        captions: [
+          caption({
+            text: 'Show my tasks for today',
+            fragmentIds: ['f1', 'f2'],
+          }),
+        ],
+      });
+    });
+    expect(captions().user).toEqual({
+      text: 'Show my tasks for today',
+      faded: false,
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS);
+    });
+    expect(captions().user?.faded).toBe(true);
+  });
+
+  it('keeps a faded caption faded when only the other role changes', async () => {
+    jest.useFakeTimers();
+    const { session, captions } = await renderCaptions();
+    const assistant = caption({
+      id: 'assistant-1',
+      role: 'assistant',
+      speakerId: 'assistant',
+      text: 'Here they are',
+    });
+    await act(async () => {
+      session.emitState('listening');
+      session.emitObservation({
+        generation: 1,
+        captions: [caption(), assistant],
+      });
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS);
+    });
+    await act(async () => {
+      session.emitObservation({
+        generation: 1,
+        captions: [caption(), { ...assistant, text: 'Here they are, sorted' }],
+      });
+    });
+    expect(captions().user?.faded).toBe(true);
+    expect(captions().assistant).toEqual({
+      text: 'Here they are, sorted',
+      faded: false,
+    });
+  });
+
+  it('clears the caption on a new connection', async () => {
+    jest.useFakeTimers();
+    const { session, captions } = await renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS);
+    });
+    expect(captions().user?.faded).toBe(true);
+
+    await act(async () => {
+      session.emitObservation({ generation: 2, captions: [] });
+    });
+    expect(captions().user).toBeUndefined();
+
+    await act(async () => {
+      session.emitObservation({ generation: 2, captions: [caption()] });
+    });
+    expect(captions().user).toEqual({ text: 'Show my tasks', faded: false });
+  });
+
+  it('returns no captions while voice is idle or in error', async () => {
+    const { session, captions } = await renderCaptions();
+    await act(async () => {
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    expect(captions()).toEqual({ user: undefined, assistant: undefined });
+
+    await act(async () => {
+      session.emitState('listening');
+    });
+    expect(captions().user?.text).toBe('Show my tasks');
+
+    await act(async () => {
+      session.emitFatalError(new Error('provider failed'));
+    });
+    expect(captions()).toEqual({ user: undefined, assistant: undefined });
   });
 });

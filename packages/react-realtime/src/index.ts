@@ -13,4 +13,9 @@ export type {
   UseVoiceResult,
 } from './lib/maelstrom-realtime.js';
 export { maelstromRealtime } from './lib/maelstrom-realtime.js';
+export type {
+  FadingVoiceCaption,
+  UseVoiceCaptionsOptions,
+  UseVoiceCaptionsResult,
+} from './lib/voice-captions.js';
 export type { VoiceOrbProps } from './lib/voice-orb.js';

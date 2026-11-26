@@ -345,6 +345,30 @@ describe('Captions', () => {
     expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
   });
 
+  it('fades a caption the provider never finalizes after ~3.5s with no new fragment', async () => {
+    vi.useFakeTimers();
+    const { container, session } = renderCaptions();
+
+    await act(async () => {
+      session.emitState('listening');
+      session.emitCaption({ role: 'user', text: 'show labs', final: false });
+    });
+    const faded = () =>
+      must(container.querySelector('[data-role="user"]')).getAttribute(
+        'data-faded',
+      );
+    expect(faded()).toBe('false');
+
+    await act(async () => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(faded()).toBe('false');
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(faded()).toBe('true');
+  });
+
   it('resets fade state when a fresh fragment starts streaming again', async () => {
     vi.useFakeTimers();
     const { container, session } = renderCaptions();
