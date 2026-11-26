@@ -75,6 +75,7 @@ vi.mock('../lib/connector', () => ({
 }));
 
 const TASKLANE_VESSEL_IDS = [
+  'flexible-table',
   'my-priorities',
   'project-pulse',
   'project-tasks',

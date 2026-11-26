@@ -75,6 +75,7 @@ describe('Tasklane instance', () => {
       'team-load',
       'triage-inbox',
       'project-pulse',
+      'flexible-table',
     ]);
   });
 

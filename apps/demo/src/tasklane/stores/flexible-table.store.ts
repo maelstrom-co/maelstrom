@@ -1,0 +1,990 @@
+import { useSyncExternalStore } from 'react';
+
+import { evaluateFormulaNode, parseFormula } from './flexible-table-formula';
+import {
+  assigneeLabel,
+  getProjectTasksSnapshot,
+  isOpenTask,
+  type ProjectTask,
+  resolveTaskReference,
+  TASK_STATUS_NAMES,
+  type TaskStatus,
+  type TaskUrgency,
+} from './project-tasks.store';
+import { resolveAssignee, type TeamMemberId } from './team';
+
+export const TABLE_COLUMN_KINDS = ['field', 'computed', 'free'] as const;
+export type TableColumnKind = (typeof TABLE_COLUMN_KINDS)[number];
+
+export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
+export type SortDirection = (typeof SORT_DIRECTIONS)[number];
+
+export const FILTER_OPS = ['eq', 'neq', 'contains', 'gt', 'lt'] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
+export const TABLE_PRESETS = ['default', 'triage'] as const;
+export type TablePreset = (typeof TABLE_PRESETS)[number];
+
+export interface TableColumn {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: TableColumnKind;
+  readonly field?: string;
+  readonly formula?: string;
+}
+
+export interface SortRule {
+  readonly column: string;
+  readonly direction: SortDirection;
+}
+
+export interface FilterRule {
+  readonly column: string;
+  readonly op: FilterOp;
+  readonly value: string;
+}
+
+export interface FlexibleTableState {
+  readonly columns: readonly TableColumn[];
+  readonly sort: readonly SortRule[];
+  readonly filters: readonly FilterRule[];
+  readonly groupBy: string | null;
+  readonly cells: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly activePreset: TablePreset;
+}
+
+export type FlexibleTableFailure =
+  | { readonly ok: false; readonly reason: 'empty_label' }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_kind';
+      readonly query: string;
+    }
+  | { readonly ok: false; readonly reason: 'missing_field' }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_field';
+      readonly query: string;
+    }
+  | { readonly ok: false; readonly reason: 'missing_formula' }
+  | {
+      readonly ok: false;
+      readonly reason: 'invalid_formula';
+      readonly formula: string;
+      readonly message: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_column';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'not_free_column';
+      readonly column: TableColumn;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'bad_position';
+      readonly position: number;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_direction';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_op';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'unknown_preset';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'task_not_found';
+      readonly query: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'ambiguous_task';
+      readonly query: string;
+      readonly candidates: readonly string[];
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'stale_reference';
+      readonly query: string;
+      readonly task: ProjectTask;
+    };
+
+export type FlexibleTableResult<T = undefined> =
+  | { readonly ok: true; readonly changed: boolean; readonly value?: T }
+  | FlexibleTableFailure;
+
+export interface AddColumnInput {
+  readonly label: string;
+  readonly kind: string;
+  readonly source?: string;
+  readonly formula?: string;
+}
+
+export interface ProjectedCell {
+  readonly raw: string | number | null;
+  readonly display: string;
+  readonly error?: string;
+}
+
+export interface ProjectedTableRow {
+  readonly task: ProjectTask;
+  readonly cells: Readonly<Record<string, ProjectedCell>>;
+}
+
+export interface ProjectedTableGroup {
+  readonly key: string;
+  readonly label: string;
+  readonly rows: readonly ProjectedTableRow[];
+}
+
+export const DEFAULT_TABLE_COLUMNS: readonly TableColumn[] = [
+  { id: 'id', label: 'ID', kind: 'field', field: 'id' },
+  { id: 'title', label: 'Title', kind: 'field', field: 'title' },
+  { id: 'assignee', label: 'Assignee', kind: 'field', field: 'assigneeId' },
+  { id: 'status', label: 'Status', kind: 'field', field: 'status' },
+  { id: 'urgency', label: 'Urgency', kind: 'field', field: 'urgency' },
+  { id: 'estimate', label: 'Estimate', kind: 'field', field: 'estimate' },
+  { id: 'spent', label: 'Spent', kind: 'field', field: 'spent' },
+];
+
+export const TRIAGE_TABLE_COLUMNS: readonly TableColumn[] = [
+  { id: 'id', label: 'ID', kind: 'field', field: 'id' },
+  { id: 'title', label: 'Title', kind: 'field', field: 'title' },
+  { id: 'reason', label: 'Reason', kind: 'field', field: 'triageReason' },
+  { id: 'assignee', label: 'Assignee', kind: 'field', field: 'assigneeId' },
+  { id: 'status', label: 'Status', kind: 'field', field: 'status' },
+  { id: 'urgency', label: 'Urgency', kind: 'field', field: 'urgency' },
+];
+
+const INITIAL_STATE: FlexibleTableState = {
+  columns: DEFAULT_TABLE_COLUMNS,
+  sort: [],
+  filters: [],
+  groupBy: null,
+  cells: {},
+  activePreset: 'default',
+};
+
+const KNOWN_TASK_FIELDS = new Set<string>([
+  'id',
+  'title',
+  'description',
+  'parentId',
+  'assigneeId',
+  'urgency',
+  'status',
+  'sourceFeedback',
+  'estimate',
+  'spent',
+  'triageReason',
+]);
+
+const FIELD_ALIASES: Readonly<Record<string, string>> = {
+  id: 'id',
+  title: 'title',
+  description: 'description',
+  parent: 'parentId',
+  parentid: 'parentId',
+  parent_id: 'parentId',
+  assignee: 'assigneeId',
+  owner: 'assigneeId',
+  assigneeid: 'assigneeId',
+  assignee_id: 'assigneeId',
+  urgency: 'urgency',
+  status: 'status',
+  source: 'sourceFeedback',
+  feedback: 'sourceFeedback',
+  sourcefeedback: 'sourceFeedback',
+  source_feedback: 'sourceFeedback',
+  estimate: 'estimate',
+  spent: 'spent',
+  reason: 'triageReason',
+  triagereason: 'triageReason',
+  triage_reason: 'triageReason',
+};
+
+const URGENCY_RANK: Readonly<Record<TaskUrgency, number>> = {
+  low: 0,
+  normal: 1,
+  high: 2,
+};
+
+const STATUS_RANK: Readonly<Record<TaskStatus, number>> = {
+  todo: 0,
+  doing: 1,
+  done: 2,
+};
+
+const CLEAR_GROUP_WORDS = new Set(['', 'none', 'clear', 'ungroup']);
+
+let state: FlexibleTableState = INITIAL_STATE;
+const listeners = new Set<() => void>();
+
+export function useFlexibleTableStore(): FlexibleTableState {
+  return useSyncExternalStore(
+    subscribe,
+    getFlexibleTableSnapshot,
+    getFlexibleTableSnapshot,
+  );
+}
+
+export function getFlexibleTableSnapshot(): FlexibleTableState {
+  return state;
+}
+
+export function __resetFlexibleTableStoreForTests(): void {
+  setState(INITIAL_STATE);
+}
+
+export const flexibleTableActions = {
+  addColumn(input: AddColumnInput): FlexibleTableResult<TableColumn> {
+    const label = input.label.trim();
+    if (!label) return { ok: false, reason: 'empty_label' };
+
+    const kind = resolveColumnKind(input.kind);
+    if (!kind) return { ok: false, reason: 'unknown_kind', query: input.kind };
+
+    const tasks = getProjectTasksSnapshot().tasks;
+
+    if (kind === 'field') {
+      const requested = (input.source ?? label).trim();
+      if (!requested) return { ok: false, reason: 'missing_field' };
+      const field = resolveTaskField(requested, tasks);
+      if (!field) {
+        return { ok: false, reason: 'unknown_field', query: requested };
+      }
+      const id = uniqueColumnId(slugify(label), state.columns);
+      const column: TableColumn = { id, label, kind: 'field', field };
+      setState({ ...state, columns: [...state.columns, column] });
+      return { ok: true, changed: true, value: column };
+    }
+
+    if (kind === 'computed') {
+      const formula = input.formula?.trim() ?? '';
+      if (!formula) return { ok: false, reason: 'missing_formula' };
+      const parsed = parseFormula(formula);
+      if (!parsed.ok) {
+        return {
+          ok: false,
+          reason: 'invalid_formula',
+          formula,
+          message: parsed.message,
+        };
+      }
+      for (const ref of parsed.references) {
+        if (
+          !resolveColumn(ref, state.columns) &&
+          !resolveTaskField(ref, tasks)
+        ) {
+          return { ok: false, reason: 'unknown_column', query: ref };
+        }
+      }
+      const id = uniqueColumnId(slugify(label), state.columns);
+      const column: TableColumn = { id, label, kind: 'computed', formula };
+      setState({ ...state, columns: [...state.columns, column] });
+      return { ok: true, changed: true, value: column };
+    }
+
+    const id = uniqueColumnId(slugify(label), state.columns);
+    const column: TableColumn = { id, label, kind: 'free' };
+    setState({ ...state, columns: [...state.columns, column] });
+    return { ok: true, changed: true, value: column };
+  },
+
+  removeColumn(columnRef: string): FlexibleTableResult<TableColumn> {
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    const { [found.id]: _removed, ...restCells } = state.cells;
+    setState({
+      ...state,
+      columns: state.columns.filter((col) => col.id !== found.id),
+      sort: state.sort.filter((rule) => rule.column !== found.id),
+      filters: state.filters.filter((rule) => rule.column !== found.id),
+      groupBy: state.groupBy === found.id ? null : state.groupBy,
+      cells: restCells,
+    });
+    return { ok: true, changed: true, value: found };
+  },
+
+  renameColumn(
+    columnRef: string,
+    newLabel: string,
+  ): FlexibleTableResult<TableColumn> {
+    const label = newLabel.trim();
+    if (!label) return { ok: false, reason: 'empty_label' };
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    if (found.label === label) {
+      return { ok: true, changed: false, value: found };
+    }
+    const updated: TableColumn = { ...found, label };
+    setState({
+      ...state,
+      columns: state.columns.map((col) =>
+        col.id === found.id ? updated : col,
+      ),
+    });
+    return { ok: true, changed: true, value: updated };
+  },
+
+  moveColumn(
+    columnRef: string,
+    position: number,
+  ): FlexibleTableResult<TableColumn> {
+    if (!Number.isInteger(position) || position < 1) {
+      return { ok: false, reason: 'bad_position', position };
+    }
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    const currentIndex = state.columns.findIndex((col) => col.id === found.id);
+    const targetIndex = Math.min(position - 1, state.columns.length - 1);
+    if (currentIndex === targetIndex) {
+      return { ok: true, changed: false, value: found };
+    }
+    const others = state.columns.filter((col) => col.id !== found.id);
+    const columns = [
+      ...others.slice(0, targetIndex),
+      found,
+      ...others.slice(targetIndex),
+    ];
+    setState({ ...state, columns });
+    return { ok: true, changed: true, value: found };
+  },
+
+  setCell(
+    taskRef: string,
+    columnRef: string,
+    value: string,
+  ): FlexibleTableResult {
+    const foundColumn = resolveColumn(columnRef, state.columns);
+    if (!foundColumn) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    if (foundColumn.kind !== 'free') {
+      return { ok: false, reason: 'not_free_column', column: foundColumn };
+    }
+    const match = resolveTaskReference(taskRef);
+    if (match.kind === 'not_found') {
+      return { ok: false, reason: 'task_not_found', query: taskRef };
+    }
+    if (match.kind === 'ambiguous') {
+      return {
+        ok: false,
+        reason: 'ambiguous_task',
+        query: taskRef,
+        candidates: match.candidates,
+      };
+    }
+    if (match.kind === 'stale') {
+      return {
+        ok: false,
+        reason: 'stale_reference',
+        query: taskRef,
+        task: match.task,
+      };
+    }
+
+    const columnCells = state.cells[foundColumn.id] ?? {};
+    const previous = columnCells[match.task.id] ?? '';
+    if (previous === value) return { ok: true, changed: false };
+    setState({
+      ...state,
+      cells: {
+        ...state.cells,
+        [foundColumn.id]: {
+          ...columnCells,
+          [match.task.id]: value,
+        },
+      },
+    });
+    return { ok: true, changed: true };
+  },
+
+  sortBy(
+    columnRef: string,
+    directionInput = 'asc',
+    add = false,
+  ): FlexibleTableResult<SortRule> {
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    const direction = resolveSortDirection(directionInput);
+    if (!direction) {
+      return { ok: false, reason: 'unknown_direction', query: directionInput };
+    }
+    const rule: SortRule = { column: found.id, direction };
+    const nextSort = add
+      ? [...state.sort.filter((existing) => existing.column !== found.id), rule]
+      : [rule];
+    const changed =
+      nextSort.length !== state.sort.length ||
+      nextSort.some(
+        (item, index) =>
+          item.column !== state.sort[index]?.column ||
+          item.direction !== state.sort[index]?.direction,
+      );
+    if (changed) setState({ ...state, sort: nextSort });
+    return { ok: true, changed, value: rule };
+  },
+
+  clearSort(): FlexibleTableResult {
+    if (state.sort.length === 0) return { ok: true, changed: false };
+    setState({ ...state, sort: [] });
+    return { ok: true, changed: true };
+  },
+
+  filterRows(
+    columnRef: string,
+    opInput: string,
+    value: string,
+  ): FlexibleTableResult<FilterRule> {
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    const op = resolveFilterOp(opInput);
+    if (!op) {
+      return { ok: false, reason: 'unknown_op', query: opInput };
+    }
+    const rule: FilterRule = { column: found.id, op, value };
+    const existingIndex = state.filters.findIndex(
+      (item) => item.column === found.id && item.op === op,
+    );
+    if (existingIndex !== -1 && state.filters[existingIndex]?.value === value) {
+      return { ok: true, changed: false, value: rule };
+    }
+    const filters =
+      existingIndex === -1
+        ? [...state.filters, rule]
+        : state.filters.map((item, idx) =>
+            idx === existingIndex ? rule : item,
+          );
+    setState({ ...state, filters });
+    return { ok: true, changed: true, value: rule };
+  },
+
+  clearFilters(): FlexibleTableResult {
+    if (state.filters.length === 0) return { ok: true, changed: false };
+    setState({ ...state, filters: [] });
+    return { ok: true, changed: true };
+  },
+
+  groupBy(columnRef: string): FlexibleTableResult<string | null> {
+    const normalized = columnRef.trim().toLowerCase();
+    if (CLEAR_GROUP_WORDS.has(normalized)) {
+      if (state.groupBy === null) {
+        return { ok: true, changed: false, value: null };
+      }
+      setState({ ...state, groupBy: null });
+      return { ok: true, changed: true, value: null };
+    }
+    const found = resolveColumn(columnRef, state.columns);
+    if (!found) {
+      return { ok: false, reason: 'unknown_column', query: columnRef };
+    }
+    if (state.groupBy === found.id) {
+      return { ok: true, changed: false, value: found.id };
+    }
+    setState({ ...state, groupBy: found.id });
+    return { ok: true, changed: true, value: found.id };
+  },
+
+  showPreset(presetInput: string): FlexibleTableResult<TablePreset> {
+    const preset = resolvePreset(presetInput);
+    if (!preset) {
+      return { ok: false, reason: 'unknown_preset', query: presetInput };
+    }
+    if (preset === 'triage') {
+      setState({
+        ...state,
+        columns: TRIAGE_TABLE_COLUMNS,
+        sort: [],
+        filters: [{ column: 'reason', op: 'neq', value: '' }],
+        groupBy: null,
+        activePreset: 'triage',
+      });
+      return { ok: true, changed: true, value: 'triage' };
+    }
+    setState({
+      ...state,
+      columns: DEFAULT_TABLE_COLUMNS,
+      sort: [],
+      filters: [],
+      groupBy: null,
+      activePreset: 'default',
+    });
+    return { ok: true, changed: true, value: 'default' };
+  },
+};
+
+export function describeTableFailure(failure: FlexibleTableFailure): string {
+  switch (failure.reason) {
+    case 'empty_label':
+      return 'Column label cannot be empty.';
+    case 'unknown_kind':
+      return `Column kind must be one of ${TABLE_COLUMN_KINDS.join(', ')}, got "${failure.query}".`;
+    case 'missing_field':
+      return 'Field columns require a source field name.';
+    case 'unknown_field':
+      return `Unknown task field "${failure.query}".`;
+    case 'missing_formula':
+      return 'Computed columns require a formula.';
+    case 'invalid_formula':
+      return `Invalid formula "${failure.formula}": ${failure.message}`;
+    case 'unknown_column':
+      return `Unknown column "${failure.query}". Current columns: ${state.columns.map((c) => `${c.id} (${c.label})`).join(', ')}.`;
+    case 'not_free_column':
+      return `Column "${failure.column.label}" is a ${failure.column.kind} column and cannot be edited directly.`;
+    case 'bad_position':
+      return `Column position must be a whole number of at least 1, got ${failure.position}.`;
+    case 'unknown_direction':
+      return `Sort direction must be asc or desc, got "${failure.query}".`;
+    case 'unknown_op':
+      return `Filter op must be one of ${FILTER_OPS.join(', ')}, got "${failure.query}".`;
+    case 'unknown_preset':
+      return `Preset must be one of ${TABLE_PRESETS.join(', ')}, got "${failure.query}".`;
+    case 'task_not_found':
+      return `No task matches "${failure.query}".`;
+    case 'ambiguous_task':
+      return `"${failure.query}" matches more than one task: ${failure.candidates.join(', ')}.`;
+    case 'stale_reference':
+      return `"${failure.query}" is out of date for ${failure.task.id}.`;
+  }
+}
+
+export function projectTableRows(
+  tasks: readonly ProjectTask[],
+  tableState: FlexibleTableState = state,
+): readonly ProjectedTableRow[] {
+  const parentIds = new Set(tasks.map((task) => task.parentId));
+  const projected = tasks.map((task): ProjectedTableRow => {
+    const cells: Record<string, ProjectedCell> = {};
+    for (const column of tableState.columns) {
+      cells[column.id] = evaluateCell(
+        task,
+        column,
+        tableState,
+        parentIds,
+        new Set<string>(),
+      );
+    }
+    return { task, cells };
+  });
+
+  const filtered =
+    tableState.filters.length === 0
+      ? projected
+      : projected.filter((row) =>
+          tableState.filters.every((rule) =>
+            matchesFilter(row, rule, tableState.columns),
+          ),
+        );
+
+  if (tableState.sort.length === 0) return filtered;
+
+  const columnById = new Map(tableState.columns.map((col) => [col.id, col]));
+  return [...filtered].sort((a, b) => {
+    for (const rule of tableState.sort) {
+      const column = columnById.get(rule.column);
+      if (!column) continue;
+      const cmp = compareCells(a.cells[column.id], b.cells[column.id], column);
+      if (cmp !== 0) return rule.direction === 'desc' ? -cmp : cmp;
+    }
+    return 0;
+  });
+}
+
+export function groupProjectedRows(
+  rows: readonly ProjectedTableRow[],
+  tableState: FlexibleTableState = state,
+): readonly ProjectedTableGroup[] {
+  if (!tableState.groupBy) {
+    return [{ key: '__all__', label: '', rows }];
+  }
+  const column = tableState.columns.find(
+    (col) => col.id === tableState.groupBy,
+  );
+  if (!column) {
+    return [{ key: '__all__', label: '', rows }];
+  }
+
+  const groups = new Map<
+    string,
+    { label: string; rows: ProjectedTableRow[] }
+  >();
+  for (const row of rows) {
+    const cell = row.cells[column.id];
+    const display = cell?.display?.trim() ? cell.display : '(empty)';
+    const key = display.toLowerCase();
+    const existing = groups.get(key);
+    if (existing) {
+      existing.rows.push(row);
+    } else {
+      groups.set(key, { label: display, rows: [row] });
+    }
+  }
+  return [...groups.entries()].map(([key, group]) => ({
+    key,
+    label: group.label,
+    rows: group.rows,
+  }));
+}
+
+export function triageReasonsForTask(
+  task: ProjectTask,
+  parentIds: ReadonlySet<string | null>,
+): readonly ('no owner' | 'no parent')[] {
+  if (!isOpenTask(task)) return [];
+  const reasons: ('no owner' | 'no parent')[] = [];
+  if (task.assigneeId === null) reasons.push('no owner');
+  if (task.parentId === null && !parentIds.has(task.id)) {
+    reasons.push('no parent');
+  }
+  return reasons;
+}
+
+function evaluateCell(
+  task: ProjectTask,
+  column: TableColumn,
+  tableState: FlexibleTableState,
+  parentIds: ReadonlySet<string | null>,
+  visiting: Set<string>,
+): ProjectedCell {
+  if (column.kind === 'free') {
+    const value = tableState.cells[column.id]?.[task.id] ?? '';
+    return { raw: value, display: value };
+  }
+
+  if (column.kind === 'field') {
+    return readTaskFieldCell(task, column.field ?? column.id, parentIds);
+  }
+
+  if (visiting.has(column.id)) {
+    return {
+      raw: null,
+      display: '#CYCLE',
+      error: 'Circular formula reference.',
+    };
+  }
+  visiting.add(column.id);
+
+  const parsed = parseFormula(column.formula ?? '');
+  if (!parsed.ok) {
+    visiting.delete(column.id);
+    return { raw: null, display: '#ERR', error: parsed.message };
+  }
+
+  const evaluated = evaluateFormulaNode(parsed.ast, (ref) => {
+    const targetColumn = resolveColumn(ref, tableState.columns);
+    if (targetColumn) {
+      const cell = evaluateCell(
+        task,
+        targetColumn,
+        tableState,
+        parentIds,
+        visiting,
+      );
+      if (cell.error) return { found: true, value: undefined };
+      return { found: true, value: cell.raw };
+    }
+    const field = resolveTaskField(ref, [task]);
+    if (field) {
+      const fieldCell = readTaskFieldCell(task, field, parentIds);
+      return { found: true, value: fieldCell.raw };
+    }
+    return { found: false };
+  });
+
+  visiting.delete(column.id);
+
+  if (!evaluated.ok) {
+    return { raw: null, display: '#ERR', error: evaluated.message };
+  }
+  return { raw: evaluated.value, display: formatNumber(evaluated.value) };
+}
+
+function readTaskFieldCell(
+  task: ProjectTask,
+  field: string,
+  parentIds: ReadonlySet<string | null>,
+): ProjectedCell {
+  if (field === 'triageReason') {
+    const text = triageReasonsForTask(task, parentIds).join(', ');
+    return { raw: text, display: text };
+  }
+  if (field === 'assigneeId') {
+    const display = assigneeLabel(task.assigneeId);
+    return { raw: task.assigneeId, display };
+  }
+  if (field === 'status') {
+    return { raw: task.status, display: TASK_STATUS_NAMES[task.status] };
+  }
+
+  const record = task as unknown as Record<string, unknown>;
+  const value = Object.hasOwn(record, field) ? record[field] : null;
+  if (value === null || value === undefined) {
+    return { raw: null, display: '' };
+  }
+  if (typeof value === 'number') {
+    return { raw: value, display: formatNumber(value) };
+  }
+  return { raw: String(value), display: String(value) };
+}
+
+function matchesFilter(
+  row: ProjectedTableRow,
+  rule: FilterRule,
+  columns: readonly TableColumn[],
+): boolean {
+  const column = columns.find((col) => col.id === rule.column);
+  const cell = row.cells[rule.column];
+  if (!column || !cell || cell.error) return false;
+
+  if (column.kind === 'field' && column.field === 'assigneeId') {
+    return matchesAssigneeFilter(row.task.assigneeId, rule.op, rule.value);
+  }
+
+  if (column.kind === 'field' && column.field === 'status') {
+    return matchesStatusFilter(row.task.status, rule.op, rule.value);
+  }
+
+  const cellRaw = cell.raw;
+  const query = rule.value.trim();
+
+  if (rule.op === 'contains') {
+    const haystack = cell.display.toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  }
+
+  const leftNum = toComparableNumber(cellRaw);
+  const rightNum = toComparableNumber(query);
+
+  if (rule.op === 'gt' || rule.op === 'lt') {
+    if (leftNum !== undefined && rightNum !== undefined) {
+      return rule.op === 'gt' ? leftNum > rightNum : leftNum < rightNum;
+    }
+    if (cellRaw === null || cellRaw === '') return false;
+    const cmp = String(cellRaw).localeCompare(query, undefined, {
+      sensitivity: 'base',
+    });
+    return rule.op === 'gt' ? cmp > 0 : cmp < 0;
+  }
+
+  let equals: boolean;
+  if (leftNum !== undefined && rightNum !== undefined) {
+    equals = leftNum === rightNum;
+  } else {
+    const rawStr = cellRaw === null ? '' : String(cellRaw).trim().toLowerCase();
+    const displayStr = cell.display.trim().toLowerCase();
+    const wanted = query.toLowerCase();
+    equals = rawStr === wanted || displayStr === wanted;
+  }
+
+  return rule.op === 'eq' ? equals : !equals;
+}
+
+function matchesAssigneeFilter(
+  assigneeId: TeamMemberId | null,
+  op: FilterOp,
+  value: string,
+): boolean {
+  const display = assigneeLabel(assigneeId).toLowerCase();
+  const query = value.trim().toLowerCase();
+  if (op === 'contains') {
+    return (
+      display.includes(query) ||
+      (assigneeId !== null && assigneeId.includes(query))
+    );
+  }
+  const resolved = resolveAssignee(value);
+  const equals =
+    resolved !== undefined ? assigneeId === resolved : display === query;
+  if (op === 'eq') return equals;
+  if (op === 'neq') return !equals;
+  const cmp = display.localeCompare(query);
+  return op === 'gt' ? cmp > 0 : cmp < 0;
+}
+
+function matchesStatusFilter(
+  status: TaskStatus,
+  op: FilterOp,
+  value: string,
+): boolean {
+  const query = value.trim().toLowerCase();
+  const display = TASK_STATUS_NAMES[status].toLowerCase();
+  if (op === 'contains') {
+    return status.includes(query) || display.includes(query);
+  }
+  const equals = status === query || display === query;
+  if (op === 'eq') return equals;
+  if (op === 'neq') return !equals;
+  const cmp = status.localeCompare(query);
+  return op === 'gt' ? cmp > 0 : cmp < 0;
+}
+
+function compareCells(
+  a: ProjectedCell | undefined,
+  b: ProjectedCell | undefined,
+  column: TableColumn,
+): number {
+  const aEmpty = !a || a.error !== undefined || a.raw === null || a.raw === '';
+  const bEmpty = !b || b.error !== undefined || b.raw === null || b.raw === '';
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+
+  if (column.kind === 'field' && column.field === 'urgency') {
+    const aRank = URGENCY_RANK[a.raw as TaskUrgency] ?? -1;
+    const bRank = URGENCY_RANK[b.raw as TaskUrgency] ?? -1;
+    return aRank - bRank;
+  }
+
+  if (column.kind === 'field' && column.field === 'status') {
+    const aRank = STATUS_RANK[a.raw as TaskStatus] ?? -1;
+    const bRank = STATUS_RANK[b.raw as TaskStatus] ?? -1;
+    return aRank - bRank;
+  }
+
+  const aNum = toComparableNumber(a.raw);
+  const bNum = toComparableNumber(b.raw);
+  if (aNum !== undefined && bNum !== undefined) {
+    return aNum - bNum;
+  }
+
+  return a.display.localeCompare(b.display, undefined, {
+    sensitivity: 'base',
+    numeric: true,
+  });
+}
+
+function resolveColumn(
+  query: string,
+  columns: readonly TableColumn[],
+): TableColumn | undefined {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  const slug = slugify(trimmed);
+  const aliasedField = FIELD_ALIASES[trimmed] ?? FIELD_ALIASES[slug];
+
+  return (
+    columns.find((col) => col.id.toLowerCase() === trimmed) ??
+    columns.find((col) => col.label.trim().toLowerCase() === trimmed) ??
+    columns.find((col) => slugify(col.label) === slug) ??
+    columns.find(
+      (col) =>
+        col.kind === 'field' &&
+        col.field !== undefined &&
+        (col.field.toLowerCase() === trimmed ||
+          (aliasedField !== undefined && col.field === aliasedField)),
+    )
+  );
+}
+
+function resolveTaskField(
+  query: string,
+  tasks: readonly ProjectTask[],
+): string | undefined {
+  const trimmed = query.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  const slug = slugify(trimmed);
+
+  const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[slug];
+  if (alias) return alias;
+
+  for (const field of KNOWN_TASK_FIELDS) {
+    if (field.toLowerCase() === lower) return field;
+  }
+
+  for (const task of tasks) {
+    for (const key of Object.keys(task)) {
+      if (key.toLowerCase() === lower || slugify(key) === slug) return key;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveColumnKind(query: string): TableColumnKind | undefined {
+  const lower = query.trim().toLowerCase();
+  return TABLE_COLUMN_KINDS.find((kind) => kind === lower);
+}
+
+function resolveSortDirection(query: string): SortDirection | undefined {
+  const lower = query.trim().toLowerCase();
+  return SORT_DIRECTIONS.find((dir) => dir === lower);
+}
+
+function resolveFilterOp(query: string): FilterOp | undefined {
+  const lower = query.trim().toLowerCase();
+  return FILTER_OPS.find((op) => op === lower);
+}
+
+function resolvePreset(query: string): TablePreset | undefined {
+  const lower = query.trim().toLowerCase();
+  return TABLE_PRESETS.find((preset) => preset === lower);
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || 'col';
+}
+
+function uniqueColumnId(base: string, columns: readonly TableColumn[]): string {
+  const taken = new Set(columns.map((col) => col.id.toLowerCase()));
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base}_${suffix}`)) suffix++;
+  return `${base}_${suffix}`;
+}
+
+function toComparableNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function formatNumber(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return String(Math.round(value * 100) / 100);
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function setState(next: FlexibleTableState): void {
+  state = next;
+  for (const listener of listeners) listener();
+}

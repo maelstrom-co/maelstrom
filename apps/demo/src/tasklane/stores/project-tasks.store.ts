@@ -49,6 +49,8 @@ export interface ProjectTask {
   readonly createdAt: string;
   /** ISO calendar date (YYYY-MM-DD) when the task is due, or null. */
   readonly dueDate: string | null;
+  readonly estimate: number;
+  readonly spent: number;
   /** The feedback quote the task was created from, or null. */
   readonly sourceFeedback: string | null;
 }
@@ -167,6 +169,8 @@ export interface CreateTaskInput {
   readonly parent?: string;
   readonly assignee?: string;
   readonly urgency?: string;
+  readonly estimate?: number;
+  readonly spent?: number;
   /** The feedback quote the task comes from. */
   readonly source?: string;
 }
@@ -189,6 +193,8 @@ const INITIAL_STATE: ProjectTasksState = {
       status: 'todo',
       createdAt: '2026-04-06',
       dueDate: '2026-04-17',
+      estimate: 2,
+      spent: 1,
       sourceFeedback: null,
     },
     {
@@ -201,6 +207,8 @@ const INITIAL_STATE: ProjectTasksState = {
       status: 'todo',
       createdAt: '2026-04-08',
       dueDate: null,
+      estimate: 4,
+      spent: 3,
       sourceFeedback: null,
     },
   ],
@@ -460,6 +468,8 @@ export const projectTaskActions = {
       status: 'todo',
       createdAt: browserCalendarContext().localDate,
       dueDate: null,
+      estimate: input.estimate ?? 0,
+      spent: input.spent ?? 0,
       sourceFeedback: cleanSourceFeedback(input.source),
     };
     setState({

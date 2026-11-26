@@ -318,6 +318,8 @@ function task(id: string, sourceFeedback: string | null): ProjectTask {
     status: 'todo',
     createdAt: '2026-04-06',
     dueDate: null,
+    estimate: 0,
+    spent: 0,
     sourceFeedback,
   };
 }

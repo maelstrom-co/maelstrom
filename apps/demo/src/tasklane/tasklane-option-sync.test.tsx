@@ -335,6 +335,7 @@ describe('TasklaneOptionSync', () => {
   it('republishes both definitions on mount and after a store change', () => {
     render(<TasklaneOptionSync />);
     expect(publishedIds()).toEqual([
+      'flexible-table',
       'my-priorities',
       'project-tasks',
       'source-feedback',
@@ -347,6 +348,7 @@ describe('TasklaneOptionSync', () => {
       projectTaskActions.assignTask('TL-1', 'sam');
     });
     expect(publishedIds()).toEqual([
+      'flexible-table',
       'my-priorities',
       'project-tasks',
       'task-detail',
