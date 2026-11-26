@@ -5,6 +5,7 @@ import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import {
   type LiveMicrophoneOptions,
   OpenAILiveAdapter,
+  type OpenAILiveAdapterOptions,
 } from '@maelstrom-co/realtime-openai-live';
 
 import { isDebugRequested } from './debug-mode';
@@ -69,6 +70,29 @@ export function liveMicrophoneFromSearch(
   return deviceId ? { deviceId } : undefined;
 }
 
+/**
+ * Reads the `liveVadThreshold` (0 to 1) and `liveIdleTimeout` (integer seconds, 5 to 60)
+ * search parameters as Live wake settings. Absent or invalid values are omitted so provider defaults apply.
+ */
+export function liveWakeFromSearch(
+  search: string,
+): Pick<OpenAILiveAdapterOptions, 'wakePolicy' | 'idleTimeoutS'> {
+  const params = new URLSearchParams(search);
+  const threshold = numberParam(params.get('liveVadThreshold'));
+  const idleTimeout = numberParam(params.get('liveIdleTimeout'));
+  return {
+    ...(threshold !== undefined && threshold >= 0 && threshold <= 1
+      ? { wakePolicy: { vadThreshold: threshold } }
+      : {}),
+    ...(idleTimeout !== undefined &&
+    Number.isInteger(idleTimeout) &&
+    idleTimeout >= 5 &&
+    idleTimeout <= 60
+      ? { idleTimeoutS: idleTimeout }
+      : {}),
+  };
+}
+
 /** Hands a browser-key realtime session the adapter prepared by `prepareBrowserOpenAIVoice` exactly once, otherwise constructs a new adapter. */
 export function createAdapter(
   provider: DemoVoiceProvider,
@@ -109,13 +133,12 @@ export function createAdapter(
 }
 
 function createLiveAdapter(): OpenAILiveAdapter {
-  const microphone =
-    typeof window === 'undefined'
-      ? undefined
-      : liveMicrophoneFromSearch(window.location.search);
+  const search = typeof window === 'undefined' ? '' : window.location.search;
+  const microphone = liveMicrophoneFromSearch(search);
   return new OpenAILiveAdapter({
     model: LIVE_MODEL,
     ...(microphone ? { microphone } : {}),
+    ...liveWakeFromSearch(search),
     playbackBargeIn: { providerOptions: { model: HOSTED_VAD_MODEL } },
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(
@@ -150,4 +173,10 @@ function createOpenAIAdapter(
       : true,
     debug: isDebugRequested(),
   });
+}
+
+function numberParam(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
