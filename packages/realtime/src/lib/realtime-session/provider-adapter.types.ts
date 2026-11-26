@@ -119,10 +119,10 @@ export interface AdapterAudioStreams {
 
 /**
  * Manual turn-boundary control for adapters that establish manual mode.
- * `startTurn` opens the mic / STT stream, while `endTurn` flushes it and
- * triggers the provider's turn-final transcript. An adapter may expose or
- * replace this control dynamically when automatic detection degrades; speech-
- * native providers detect turns themselves and omit it.
+ * `startTurn` opens the mic / STT stream, while `endTurn` flushes or mutes it.
+ * An adapter may expose or replace this control dynamically when automatic
+ * detection degrades or when configured for manual turns; adapters running
+ * automatic provider turn detection omit it.
  *
  * An implementation decides what starting and ending a turn means; for example,
  * it may unmute a microphone, open an STT stream, or flush buffered audio.
@@ -132,7 +132,9 @@ export interface AdapterAudioStreams {
  * resolve. For a fatal {@link RealtimeVoiceError}, `RealtimeSession` exposes
  * `state === 'error'` and preserves the cause in `lastError`, so consumers must
  * observe both values.
- * {@link OpenAIAdapter} omits `turnControl` because OpenAI owns turn detection.
+ * {@link OpenAIAdapter} omits `turnControl` because OpenAI Realtime owns turn
+ * detection; `OpenAILiveAdapter` exposes `turnControl` only when configured
+ * with `manualTurns: true`, gating microphone capture without forcing a reply.
  *
  * Invariant: `RealtimeSession` NEVER calls these methods — they exist purely
  * for the binding/UI layer to drive. The session stays agnostic to whether a
@@ -254,7 +256,7 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   /**
    * Manual control for the current connection generation. It may appear,
    * change, or disappear as the adapter establishes or leaves manual mode;
-   * speech-native adapters omit it.
+   * adapters using automatic turn detection omit it.
    *
    * Invariant: `RealtimeSession` never invokes this. It delegates the current
    * value to binding/UI code only while retained `turnMode` is `manual`.

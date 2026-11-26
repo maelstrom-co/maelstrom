@@ -100,6 +100,7 @@ export function createAdapter(
 function createLiveAdapter(): OpenAILiveAdapter {
   return new OpenAILiveAdapter({
     model: LIVE_MODEL,
+    manualTurns: true,
     playbackBargeIn: { providerOptions: { model: HOSTED_VAD_MODEL } },
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(

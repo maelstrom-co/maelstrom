@@ -4,7 +4,6 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
 import { EnablePlaybackButton } from './enable-playback-button';
-import { HoldToTalkControl } from './hold-to-talk-control';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
@@ -47,9 +46,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     greetingState,
     state,
     error,
-    turnControl,
-    turnMode,
-    turnModeError,
     skipGreeting,
     session,
     provider,
@@ -144,11 +140,9 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
           Skip greeting
         </button>
       )}
-      <HoldToTalkControl
-        state={state}
-        turnControl={turnControl}
-        turnMode={turnMode}
-        turnModeError={turnModeError}
+      <m.HoldToTalkControl
+        className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
+        guidanceClassName="min-w-0 text-xs text-amber-300"
       />
     </div>
   );

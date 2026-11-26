@@ -28,6 +28,15 @@ vi.doMock('./maelstrom', () => ({
         onClick={orbClick}
       />
     ),
+    HoldToTalkControl: (props: { className?: string }) => (
+      <button
+        type="button"
+        data-testid="hold-to-talk"
+        className={props.className}
+      >
+        Hold to talk
+      </button>
+    ),
   },
 }));
 
@@ -280,18 +289,35 @@ describe('ShopVoiceCorner playback recovery', () => {
 });
 
 describe('ShopVoiceCorner turn controls', () => {
-  it('never shows hold-to-talk, even in manual turn mode', () => {
+  it('renders the SDK hold-to-talk control when turnMode is manual and turnControl is present', () => {
     voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
       turnMode: 'manual',
       turnControl: makeTurnControl(),
-      turnModeError: new Error('vad failed'),
     });
-    const { queryByRole, queryByText } = render(
+    const { getByRole } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(getByRole('button', { name: 'Hold to talk' })).toBeTruthy();
+  });
+
+  it('hides hold-to-talk in automatic mode or when turnControl is absent', () => {
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'realtime',
+      turnMode: 'automatic',
+      turnControl: makeTurnControl(),
+    });
+    const { queryByRole, rerender } = render(
       <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
     );
     expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-    expect(
-      queryByText('Automatic voice detection unavailable; hold to talk.'),
-    ).toBeNull();
+
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      turnMode: 'manual',
+      turnControl: undefined,
+    });
+    rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
+    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
   });
 });

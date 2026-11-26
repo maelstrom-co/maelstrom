@@ -129,6 +129,13 @@ fixed-greeting playback. OpenAI server VAD still owns ordinary turns afterward.
 This option does not add general browser endpointing or manual `turnControl`.
 Real-device acoustic effectiveness requires a live check.
 
+OpenAI Live defaults to automatic provider turn detection and omits
+`turnControl`. Opting into `manualTurns` mutes the microphone tracks on connect,
+emits `turn_mode: 'manual'`, and exposes `turnControl` to unmute and mute the
+microphone per press while restoring prior track `enabled` values on close.
+Release ends the local turn and arms a `thinking` fallback timer without forcing
+a provider reply.
+
 ## Two channels, deliberately unequal
 
 The Engine and the model both need to know what is on screen, and they are given

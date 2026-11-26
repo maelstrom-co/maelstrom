@@ -32,6 +32,10 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import {
+  createHoldToTalkControl,
+  type HoldToTalkControlProps,
+} from './hold-to-talk-control.js';
 import { createRealtimeInstance } from './realtime-instance.js';
 import {
   type SharedRealtimeSessionBuild,
@@ -364,11 +368,13 @@ type RealtimeExtension<Provider> = MaelstromExtension<{
     options: UseVoiceCaptionsOptions,
   ) => UseVoiceCaptionsResult;
   VoiceOrb: (props: VoiceOrbProps) => ReactElement;
+  /** Manual hold-to-talk button bound to the shared session's `turnMode` and `turnControl`. */
+  HoldToTalkControl: (props: HoldToTalkControlProps) => ReactElement | null;
 }>;
 
 /**
  * Creates one React extension that adds a shared realtime session, `useVoice`,
- * `useVoiceObservations`, `useVoiceCaptions`, and `VoiceOrb`. Both hooks retain the same session
+ * `useVoiceObservations`, `useVoiceCaptions`, `VoiceOrb`, and `HoldToTalkControl`. Both hooks retain the same session
  * per Orchestrator until the last consumer unmounts. Reading or subscribing
  * through `useVoiceObservations` does not connect the provider.
  * Provider adapters own turn detection and publish their mode
@@ -577,6 +583,7 @@ export function maelstromRealtime<
       useVoiceObservations,
       useVoiceCaptions: createUseVoiceCaptions(useVoice, useVoiceObservations),
       VoiceOrb: createVoiceOrb(useVoice),
+      HoldToTalkControl: createHoldToTalkControl(useVoice),
     };
   };
 }

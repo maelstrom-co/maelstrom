@@ -35,7 +35,8 @@ export function ShopVoiceCorner({
   readonly onRequireKey: () => void;
   readonly reply?: ReactNode;
 }) {
-  const { state, provider, session, switching } = shopM.useVoice();
+  const { state, provider, session, switching, turnMode, turnControl } =
+    shopM.useVoice();
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -79,6 +80,12 @@ export function ShopVoiceCorner({
           >
             {voicePillLabel(state)}
           </span>
+        )}
+        {turnMode === 'manual' && turnControl && (
+          <shopM.HoldToTalkControl
+            className="shop-voice-pill status-pill select-none touch-none"
+            guidanceClassName="min-w-0 text-xs text-amber-300"
+          />
         )}
         <span
           className="shop-voice-disclosure"

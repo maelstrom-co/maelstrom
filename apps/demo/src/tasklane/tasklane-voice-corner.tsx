@@ -15,7 +15,8 @@ export function TasklaneVoiceCorner({
   readonly needsKey: boolean;
   readonly onRequireKey: () => void;
 }) {
-  const { state, provider, session, switching } = tasklaneM.useVoice();
+  const { state, provider, session, switching, turnMode, turnControl } =
+    tasklaneM.useVoice();
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -56,6 +57,12 @@ export function TasklaneVoiceCorner({
           >
             {voicePillLabel(state)}
           </span>
+        )}
+        {turnMode === 'manual' && turnControl && (
+          <tasklaneM.HoldToTalkControl
+            className="tasklane-voice-pill status-pill select-none touch-none"
+            guidanceClassName="min-w-0 text-xs text-amber-300"
+          />
         )}
         <span
           className="tasklane-voice-disclosure"
