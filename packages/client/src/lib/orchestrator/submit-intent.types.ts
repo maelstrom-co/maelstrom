@@ -68,7 +68,12 @@ export type SubmittedIntent =
       readonly source: IntentSubmitSource;
       /** Underlying agent message submission. */
       readonly submission: AgentMessageSubmission;
-      /** False when the submission was immediately refused (`not_submitted`). */
+      /**
+       * False only when the submission was refused before being handed to the
+       * connector (Orchestrator disposed or not connected). Accepted work may
+       * still settle `not_submitted`, for example when the connector cannot
+       * carry agent inputs.
+       */
       readonly accepted: boolean;
       /** Settles once with the settled Agent Run state; never rejects. */
       readonly result: Promise<SettledAgentRun>;
