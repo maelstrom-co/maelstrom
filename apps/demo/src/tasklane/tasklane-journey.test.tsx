@@ -835,7 +835,10 @@ describe('Tasklane unified typed and voice routing', () => {
   });
 
   it('moves both typed and spoken intents together when intentRoute is flipped to agent', async () => {
-    const agent = createMockAgentConnector();
+    const chartRequests = vi.fn((_message: ChartRequestMessage) =>
+      Promise.reject<MaelstromResponse>(new Error('unexpected chart request')),
+    );
+    const agent = createMockAgentConnector({ process: chartRequests });
     function AgentTasklaneHarness() {
       const { draft, setDraft, submit } = tasklaneM.useIntentSubmit();
       tasklaneM.useVoice();
@@ -882,6 +885,6 @@ describe('Tasklane unified typed and voice routing', () => {
     agent.emit(agentAcceptedEvent(spokenInput.inputId, runId, 'ui_only'));
     agent.emit(agentFinishedEvent(runId, { reply: 'Done' }));
     expect(await voiceRun).toMatchObject({ status: 'finished', reply: 'Done' });
-    expect(engine.requests).toHaveLength(0);
+    expect(chartRequests).not.toHaveBeenCalled();
   });
 });
