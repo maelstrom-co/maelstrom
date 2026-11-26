@@ -3909,6 +3909,49 @@ describe('playback control', () => {
     unsubscribe();
   });
 
+  it('stops delivering a superseded playback_blocked value when a handler disconnects', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = false;
+    const listeners = new Set<() => void>();
+    const setBlocked = (next: boolean) => {
+      blocked = next;
+      for (const listener of [...listeners]) listener();
+    };
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: (handler: () => void) => {
+          listeners.add(handler);
+          return () => {
+            listeners.delete(handler);
+          };
+        },
+        resume: async () => {
+          setBlocked(false);
+        },
+      },
+    });
+
+    let ending: Promise<void> | undefined;
+    const unsubscribeDisconnecting = session.on('playback_blocked', (next) => {
+      if (next) ending = session.disconnect();
+    });
+    const observed: boolean[] = [];
+    const unsubscribeObserver = session.on('playback_blocked', (next) => {
+      observed.push(next);
+    });
+
+    await session.connect();
+    setBlocked(true);
+
+    expect(session.playbackBlocked).toBe(false);
+    expect(observed).toEqual([false]);
+
+    await ending;
+    unsubscribeDisconnecting();
+    unsubscribeObserver();
+  });
+
   it('fences stale adapter playback notifications that ignore unsubscribe after disconnect', async () => {
     const { session, adapter } = makeHarness();
     let blocked = false;

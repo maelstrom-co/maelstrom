@@ -1176,7 +1176,10 @@ export class RealtimeSession implements VoiceSession {
   #setPlaybackBlocked(next: boolean): void {
     if (next === this.#playbackBlocked) return;
     this.#playbackBlocked = next;
-    for (const handler of this.#playbackBlockedHandlers) handler(next);
+    for (const handler of this.#playbackBlockedHandlers) {
+      if (this.#playbackBlocked !== next) return;
+      handler(next);
+    }
   }
 
   /**
