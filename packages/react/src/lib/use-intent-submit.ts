@@ -199,6 +199,9 @@ export function createUseIntentSubmit(contextPair: MaelstromContextPair) {
       onFailure: options.onFailure,
     });
     useLayoutEffect(() => {
+      if (isControlled && draft !== current.current.draft) {
+        draftRevision.current++;
+      }
       current.current = {
         draft,
         isControlled,
@@ -211,7 +214,9 @@ export function createUseIntentSubmit(contextPair: MaelstromContextPair) {
     });
 
     useEffect(() => {
-      const owner = { active: true };
+      const owner = lifetime.current.active
+        ? lifetime.current
+        : { active: true };
       lifetime.current = owner;
       latestSubmission.current = null;
       setLastOutcome(null);

@@ -25,7 +25,7 @@ import {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render } from '@testing-library/react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -263,6 +263,122 @@ describe('useIntentSubmit', () => {
       type: 'user_intent',
       intent: 'example chip',
     });
+  });
+
+  it('does not restore an older classified failure after the parent edits and clears a controlled draft', async () => {
+    const { connector, sent, pending } = slowConnector();
+    const m = createMaelstrom({ vessels: [] });
+    let api!: UseIntentSubmitResult;
+    let setParentDraft!: (value: string) => void;
+
+    const shouldRestoreDraft = (failure: IntentSubmitFailure): boolean =>
+      defaultShouldRestoreDraft(failure) ||
+      (failure.route === 'single-request' &&
+        failure.result.status !== 'not_submitted' &&
+        failure.result.error instanceof WireEngineError &&
+        failure.result.error.code === 'ProviderError');
+
+    function Probe() {
+      const [draft, setDraft] = useState('');
+      setParentDraft = setDraft;
+      api = m.useIntentSubmit({
+        draft,
+        onDraftChange: setDraft,
+        shouldRestoreDraft,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Probe />
+        </m.Provider>,
+      );
+    });
+
+    act(() => {
+      setParentDraft('older');
+    });
+    await act(async () => {
+      api.submit();
+    });
+    expect(api.draft).toBe('');
+    act(() => {
+      setParentDraft('newer');
+    });
+    act(() => {
+      setParentDraft('');
+    });
+    await act(async () => {
+      pending[0].reject(
+        new WireEngineError('401 invalid key', 'ProviderError'),
+      );
+    });
+    expect(api.draft).toBe('');
+    expect(sent).toHaveLength(1);
+
+    act(() => {
+      setParentDraft('untouched');
+    });
+    await act(async () => {
+      api.submit();
+    });
+    expect(api.draft).toBe('');
+    await act(async () => {
+      pending[1].reject(
+        new WireEngineError('401 invalid key', 'ProviderError'),
+      );
+    });
+    expect(api.draft).toBe('untouched');
+    expect(sent).toHaveLength(2);
+  });
+
+  it('does not call onFailure after unmount for a submission made before the passive effect ran', async () => {
+    const { connector, sent, pending } = slowConnector();
+    const m = createMaelstrom({ vessels: [] });
+    const failures: IntentSubmitFailure[] = [];
+    let setShowProbe!: (value: boolean) => void;
+
+    function Probe() {
+      const api = m.useIntentSubmit({
+        onFailure: (failure) => failures.push(failure),
+      });
+      const submitted = useRef(false);
+      useLayoutEffect(() => {
+        if (submitted.current) return;
+        submitted.current = true;
+        api.submit('submitted during layout');
+      });
+      return null;
+    }
+
+    function Host() {
+      const [showProbe, setShow] = useState(false);
+      setShowProbe = setShow;
+      return showProbe ? <Probe /> : null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Host />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => {
+      setShowProbe(true);
+    });
+    expect(sent).toHaveLength(1);
+
+    await act(async () => {
+      setShowProbe(false);
+    });
+    await act(async () => {
+      pending[0].reject(new Error('network blip'));
+    });
+    expect(failures).toEqual([]);
   });
 
   it('reports busy across planning, applying, open agent runs, and voice', async () => {
