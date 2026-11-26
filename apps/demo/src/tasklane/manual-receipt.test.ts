@@ -1,4 +1,5 @@
 import { err, ok } from '@maelstrom-co/protocol';
+import type { ActionResult } from '@maelstrom-co/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -63,6 +64,31 @@ describe('manual receipts', () => {
     execute('setStatus');
     await vi.waitFor(() => expect(getManualReceipt()?.sequence).toBe(2));
     expect(getManualReceipt()?.line).toBeNull();
+  });
+
+  it('publishes a clicked receipt when its handler outlasts the mark lifetime', async () => {
+    vi.useFakeTimers();
+    try {
+      let finish: (result: ActionResult) => void = () => {};
+      const handlers = withManualReceipts({
+        assignTask: () =>
+          new Promise<ActionResult>((resolve) => {
+            finish = resolve;
+          }),
+      });
+      withManualReceipt((name: string) => {
+        void handlers[name as 'assignTask']();
+      })('assignTask');
+      await vi.advanceTimersByTimeAsync(6_000);
+      finish(ok('Reassigned "A" to Alex'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getManualReceipt()?.line).toEqual({
+        text: '✓ Reassigned "A" to Alex',
+        tone: 'success',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('publishes nothing for a handler run nobody clicked', async () => {

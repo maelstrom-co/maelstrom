@@ -8,7 +8,7 @@ import { summariseReceipt } from './tasklane-activity';
 // report, so a receipt never resizes the dock or the Chart.
 export function TasklaneReceiptLine() {
   tasklaneM.useRequestReferences();
-  const outcome = tasklaneM.useLatestRequestOutcome();
+  const outcome = tasklaneM.useRequestOutcome(tasklaneM.useReceiptRequestId());
   const requestReceipt = useMemo(() => summariseReceipt(outcome), [outcome]);
   const manual = useManualReceipt();
   const [showManual, setShowManual] = useState(false);

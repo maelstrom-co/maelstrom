@@ -51,12 +51,13 @@ export function withManualReceipts<Handlers extends object>(
     Object.entries(handlers).map(([action, handler]) => [
       action,
       async (...args: unknown[]) => {
+        const clicked = consumeMark(action);
         const result = (await (
           handler as (
             ...args: unknown[]
           ) => ActionResult | Promise<ActionResult>
         )(...args)) as ActionResult;
-        if (consumeMark(action)) publish(action, result);
+        if (clicked) publish(action, result);
         return result;
       },
     ]),

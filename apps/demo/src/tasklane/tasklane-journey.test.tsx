@@ -423,7 +423,7 @@ describe('Tasklane request outcomes', () => {
   ] as const)(
     'reports one setStatus Action with its note after a %s request',
     async (_path, submit) => {
-      const latestOutcome = vi.spyOn(tasklaneM, 'useLatestRequestOutcome');
+      const latestOutcome = vi.spyOn(tasklaneM, 'useRequestOutcome');
       setPlaygroundKey('sk-tasklane-outcome-1234567890');
       const { TasklanePage } = await import('./tasklane-page');
       render(<TasklanePage />);
@@ -467,7 +467,7 @@ describe('Tasklane request outcomes', () => {
   );
 
   it('keeps a manual click out of the request outcome and shows its own receipt', async () => {
-    const latestOutcome = vi.spyOn(tasklaneM, 'useLatestRequestOutcome');
+    const latestOutcome = vi.spyOn(tasklaneM, 'useRequestOutcome');
     setPlaygroundKey('sk-tasklane-manual-1234567890');
     const { TasklanePage } = await import('./tasklane-page');
     render(<TasklanePage />);

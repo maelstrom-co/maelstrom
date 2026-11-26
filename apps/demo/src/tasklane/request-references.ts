@@ -2,6 +2,7 @@ import type {
   MaelstromExtension,
   MaelstromExtensionContext,
 } from '@maelstrom-co/react';
+import { useStore } from '@tanstack/react-store';
 import { useEffect } from 'react';
 
 import { rememberRequestReferences } from './stores/project-tasks.store';
@@ -9,6 +10,8 @@ import { rememberRequestReferences } from './stores/project-tasks.store';
 export interface TasklaneRequestReferences {
   /** Remembers the task labels a request's plan was built from, before its Actions run. */
   useRequestReferences: () => void;
+  /** Ticket id of the request the receipt line describes, or null before one started. */
+  useReceiptRequestId: () => string | null;
 }
 
 /**
@@ -35,5 +38,20 @@ export const tasklaneRequestReferences: MaelstromExtension<
       });
       return () => subscription.unsubscribe();
     }, [orchestrator]);
+  },
+  // Outcomes are keyed in admission order and run one at a time, so the last
+  // one that started is the running request or the most recently settled one,
+  // even while a later request waits in the queue.
+  useReceiptRequestId: () => {
+    const { orchestrator } = ctx.useMaelstromContext();
+    return useStore(orchestrator.requestOutcomes.store, (state) => {
+      const ordered = Object.values(state.outcomes);
+      for (let index = ordered.length - 1; index >= 0; index -= 1) {
+        const status = ordered[index]?.status;
+        if (status !== 'queued' && status !== 'not_submitted')
+          return ordered[index]?.id ?? null;
+      }
+      return null;
+    });
   },
 });

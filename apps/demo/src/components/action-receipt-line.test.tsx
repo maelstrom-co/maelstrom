@@ -6,19 +6,19 @@ import { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const latest = vi.hoisted(() => ({
-  outcome: undefined as RequestOutcome | undefined,
+  outcomes: {} as Readonly<Record<string, RequestOutcome>>,
   listeners: new Set<() => void>(),
 }));
 
 vi.mock('../lib/maelstrom', () => ({
   m: {
-    useLatestRequestOutcome: () =>
+    useRequestOutcomes: () =>
       useSyncExternalStore(
         (listener) => {
           latest.listeners.add(listener);
           return () => latest.listeners.delete(listener);
         },
-        () => latest.outcome,
+        () => latest.outcomes,
       ),
   },
 }));
@@ -93,6 +93,28 @@ describe('ActionReceiptLine', () => {
     );
   });
 
+  it("shows an earlier request's receipt when it settles while a later request is still queued", () => {
+    render(<ActionReceiptLine />);
+    const band = screen.getByTestId('action-receipt-line');
+    act(() => {
+      setLatest(outcome('ticket-1', 'processing', []));
+      setLatest(outcome('ticket-2', 'queued', []));
+    });
+    expect(band.textContent).toBe('');
+    act(() => {
+      setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
+    });
+    expect(band.textContent).toBe('✓ Added "A"');
+    act(() => {
+      setLatest(outcome('ticket-3', 'not_submitted', []));
+    });
+    expect(band.textContent).toBe('✓ Added "A"');
+    act(() => {
+      setLatest(outcome('ticket-2', 'applied', [ran('addTask', 'Added "B"')]));
+    });
+    expect(band.textContent).toBe('✓ Added "B"');
+  });
+
   it('marks failures with the problem tone', () => {
     render(<ActionReceiptLine />);
     act(() => {
@@ -160,7 +182,7 @@ describe('ActionReceiptLine', () => {
 });
 
 function setLatest(next: RequestOutcome | undefined): void {
-  latest.outcome = next;
+  latest.outcomes = next ? { ...latest.outcomes, [next.id]: next } : {};
   for (const listener of latest.listeners) listener();
 }
 

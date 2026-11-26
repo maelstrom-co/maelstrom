@@ -46,9 +46,11 @@ interface SettledReceipt {
 }
 
 // A request still in flight keeps the previous receipt, so the line changes
-// once per request rather than Action by Action.
+// once per request rather than Action by Action. Outcomes are keyed in
+// admission order and run one at a time, so the last settled one is the most
+// recently settled request even while a later request waits in the queue.
 function useLatestReceiptParts(): readonly ReceiptPart[] {
-  const outcome = m.useLatestRequestOutcome();
+  const outcome = latestSettledOutcome(m.useRequestOutcomes());
   const direct = useDirectReceipt();
   const settled = useRef<SettledReceipt | null>(null);
   if (
@@ -66,4 +68,20 @@ function useLatestReceiptParts(): readonly ReceiptPart[] {
   if (direct && (!request || direct.order > request.order))
     return [direct.part];
   return request?.parts ?? [];
+}
+
+function latestSettledOutcome(
+  outcomes: Readonly<Record<string, RequestOutcome>>,
+): RequestOutcome | undefined {
+  const ordered = Object.values(outcomes);
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const candidate = ordered[index];
+    if (
+      candidate &&
+      isSettledOutcome(candidate) &&
+      candidate.status !== 'not_submitted'
+    )
+      return candidate;
+  }
+  return undefined;
 }
