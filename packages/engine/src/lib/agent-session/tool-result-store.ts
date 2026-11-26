@@ -4,6 +4,7 @@ import type {
   AgentRunToolPhaseEndedEvent,
   AgentRunToolPhaseResult,
 } from './agent-run.js';
+import { serializedLength } from './fetch-tool-result-tool.js';
 import { toolCallRef, type ToolCallRef } from './transcript.js';
 
 /** Most full tool results a {@link ToolResultStore} keeps before evicting the oldest. */
@@ -87,12 +88,4 @@ export function createToolResultStore({
 interface RetainedToolResult {
   readonly result: StoredToolResult;
   readonly chars: number;
-}
-
-function serializedLength(value: unknown): number | undefined {
-  try {
-    return (JSON.stringify(value) ?? 'null').length;
-  } catch {
-    return undefined;
-  }
 }
