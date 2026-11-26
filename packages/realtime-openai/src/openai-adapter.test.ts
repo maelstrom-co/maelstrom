@@ -3867,6 +3867,97 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(disabled.enabledMutations).toEqual([false, false]);
   });
 
+  async function startPendingGreeting(adapter: OpenAIAdapter): Promise<{
+    readonly speak: Promise<unknown>;
+    readonly caller: AbortController;
+  }> {
+    adapter.activateAudio();
+    const caller = new AbortController();
+    const previousCalls = pendingSynthesisCalls;
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: caller.signal,
+    });
+    await waitForGreetingCondition(
+      () => pendingSynthesisCalls > previousCalls,
+      'greeting synthesis did not start',
+    );
+    return { speak, caller };
+  }
+
+  let pendingSynthesisCalls = 0;
+  function pendingSynthesizer(): () => Promise<ArrayBuffer> {
+    return () => {
+      pendingSynthesisCalls += 1;
+      return new Promise<ArrayBuffer>(() => {});
+    };
+  }
+
+  it('applies a mute requested before the microphone stream exists once it is assigned', async () => {
+    const enabled = new FakeTrack('audio', true);
+    const disabled = new FakeTrack('audio', false);
+    useMicTracks([enabled, disabled]);
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const previousChannel = FakeRTCPeerConnection.instances.at(-1)?.dataChannel;
+    const connecting = adapter.connect(connectOpts);
+    adapter.inputControl.setInputEnabled(false);
+    const channel = await latestDataChannel(previousChannel);
+    channel.triggerOpen();
+    await connecting;
+
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+    adapter.inputControl.setInputEnabled(false);
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+
+    adapter.inputControl.setInputEnabled(true);
+    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+    await adapter.disconnect();
+  });
+
+  it('restores an enabled microphone when input is muted before a greeting and unmuted during it', async () => {
+    const enabled = new FakeTrack('audio', true);
+    const disabled = new FakeTrack('audio', false);
+    useMicTracks([enabled, disabled]);
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: pendingSynthesizer(),
+    });
+    await connectAndOpen(adapter);
+
+    adapter.inputControl.setInputEnabled(false);
+    const { speak, caller } = await startPendingGreeting(adapter);
+    adapter.inputControl.setInputEnabled(true);
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+
+    caller.abort();
+    await speak;
+    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+    await adapter.disconnect();
+  });
+
+  it('keeps the microphone disabled when input is muted during a greeting that then ends', async () => {
+    const enabled = new FakeTrack('audio', true);
+    const disabled = new FakeTrack('audio', false);
+    useMicTracks([enabled, disabled]);
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: pendingSynthesizer(),
+    });
+    await connectAndOpen(adapter);
+
+    const { speak, caller } = await startPendingGreeting(adapter);
+    adapter.inputControl.setInputEnabled(false);
+    caller.abort();
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+    await speak;
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+
+    adapter.inputControl.setInputEnabled(true);
+    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+    await adapter.disconnect();
+  });
+
   it('gates every unique audio track across decode and playback, then restores exact prior values without replacing capture', async () => {
     const enabled = new FakeTrack('audio', true);
     const disabled = new FakeTrack('audio', false);

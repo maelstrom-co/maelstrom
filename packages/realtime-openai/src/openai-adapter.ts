@@ -38,6 +38,7 @@ import { GreetingPresentation } from './greeting-presentation.js';
 import {
   MicrophonePublicationGate,
   type MicrophonePublicationLease,
+  MicrophoneTrackHolds,
 } from './microphone-publication-gate.js';
 import type {
   OpenAIAdapterOptions,
@@ -294,11 +295,14 @@ export class OpenAIAdapter
           this.#logger.debug('audio playout', diagnostic),
         )
       : undefined;
+    const microphoneHolds = new MicrophoneTrackHolds();
     this.#greetingGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
+      microphoneHolds,
     );
     this.#inputMuteGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
+      microphoneHolds,
     );
     this.#greetingPresentation = new GreetingPresentation({
       synthesize: this.#synthesizeGreeting,
@@ -421,6 +425,7 @@ export class OpenAIAdapter
       }
       this.#pc = connection;
       this.#micStream = micStream;
+      this.#applyInputMute();
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
       if (this.#playbackBargeInConfig.enabled) {
@@ -625,28 +630,14 @@ export class OpenAIAdapter
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     const generation = this.#connectionGeneration;
-    return this.#greetingPresentation
-      .speak({
-        ...args,
-        onPlaybackStart: () => {
-          if (generation === this.#connectionGeneration && !args.signal.aborted)
-            this.#transcripts.complete(args.id, 'assistant', args.text);
-          args.onPlaybackStart?.();
-        },
-      })
-      .finally(() => {
-        if (
-          generation === this.#connectionGeneration &&
-          this.#inputMuted &&
-          !this.#inputMuteLease &&
-          this.#micStream
-        ) {
-          this.#inputMuteLease = this.#inputMuteGate.acquire(
-            this.#micStream,
-            generation,
-          );
-        }
-      });
+    return this.#greetingPresentation.speak({
+      ...args,
+      onPlaybackStart: () => {
+        if (generation === this.#connectionGeneration && !args.signal.aborted)
+          this.#transcripts.complete(args.id, 'assistant', args.text);
+        args.onPlaybackStart?.();
+      },
+    });
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
@@ -1023,21 +1014,25 @@ export class OpenAIAdapter
     const muted = !enabled;
     if (this.#inputMuted === muted) return;
     this.#inputMuted = muted;
-    if (muted) {
-      if (
-        !this.#greetingGate.active &&
-        !this.#inputMuteLease &&
-        this.#micStream
-      ) {
-        this.#inputMuteLease = this.#inputMuteGate.acquire(
-          this.#micStream,
-          this.#connectionGeneration,
-        );
-      }
+    this.#applyInputMute();
+  }
+
+  /**
+   * Holds the input-mute lease exactly while mute is requested and a
+   * microphone stream exists, so a mute requested before capture takes effect
+   * when the stream is assigned.
+   */
+  #applyInputMute(): void {
+    if (!this.#inputMuted) {
+      this.#inputMuteLease?.release();
+      this.#inputMuteLease = undefined;
       return;
     }
-    this.#inputMuteLease?.release();
-    this.#inputMuteLease = undefined;
+    if (this.#inputMuteLease || !this.#micStream) return;
+    this.#inputMuteLease = this.#inputMuteGate.acquire(
+      this.#micStream,
+      this.#connectionGeneration,
+    );
   }
 
   #handleDataChannelMessage(raw: unknown, generation: number): void {
