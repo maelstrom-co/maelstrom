@@ -92,6 +92,11 @@ export type FlexibleTableFailure =
     }
   | {
       readonly ok: false;
+      readonly reason: 'formula_cycle';
+      readonly cycle: readonly string[];
+    }
+  | {
+      readonly ok: false;
       readonly reason: 'not_free_column';
       readonly column: TableColumn;
     }
@@ -316,7 +321,10 @@ export const flexibleTableActions = {
       }
       const id = uniqueColumnId(slugify(label), state.columns);
       const column: TableColumn = { id, label, kind: 'computed', formula };
-      setState({ ...state, columns: [...state.columns, column] });
+      const columns = [...state.columns, column];
+      const cycle = findFormulaCycle(columns);
+      if (cycle) return { ok: false, reason: 'formula_cycle', cycle };
+      setState({ ...state, columns });
       return { ok: true, changed: true, value: column };
     }
 
@@ -338,10 +346,13 @@ export const flexibleTableActions = {
     if (dependents.length > 0) {
       return { ok: false, reason: 'column_in_use', column: found, dependents };
     }
+    const columns = state.columns.filter((col) => col.id !== found.id);
+    const cycle = findFormulaCycle(columns);
+    if (cycle) return { ok: false, reason: 'formula_cycle', cycle };
     const { [found.id]: _removed, ...restCells } = state.cells;
     setState({
       ...state,
-      columns: state.columns.filter((col) => col.id !== found.id),
+      columns,
       sort: state.sort.filter((rule) => rule.column !== found.id),
       filters: state.filters.filter((rule) => rule.column !== found.id),
       groupBy: state.groupBy === found.id ? null : state.groupBy,
@@ -363,12 +374,12 @@ export const flexibleTableActions = {
       return { ok: true, changed: false, value: found };
     }
     const updated: TableColumn = { ...found, label };
-    setState({
-      ...state,
-      columns: state.columns.map((col) =>
-        col.id === found.id ? updated : col,
-      ),
-    });
+    const columns = state.columns.map((col) =>
+      col.id === found.id ? updated : col,
+    );
+    const cycle = findFormulaCycle(columns);
+    if (cycle) return { ok: false, reason: 'formula_cycle', cycle };
+    setState({ ...state, columns });
     return { ok: true, changed: true, value: updated };
   },
 
@@ -582,6 +593,8 @@ export function describeTableFailure(failure: FlexibleTableFailure): string {
       return `"${failure.query}" matches more than one column: ${failure.candidates.join(', ')}. Use the column id.`;
     case 'column_in_use':
       return `Column "${failure.column.label}" is used by computed column(s) ${failure.dependents.join(', ')}. Remove those first.`;
+    case 'formula_cycle':
+      return `That change would make computed columns reference each other in a circle: ${failure.cycle.join(' -> ')}. Use a different label, or remove one of those columns first.`;
     case 'not_free_column':
       return `Column "${failure.column.label}" is a ${failure.column.kind} column and cannot be edited directly.`;
     case 'bad_position':
@@ -1039,6 +1052,50 @@ function columnsReferencing(
     if (blocks) dependents.push(col.label);
   }
   return dependents;
+}
+
+function findFormulaCycle(
+  columns: readonly TableColumn[],
+): readonly string[] | undefined {
+  const edges = new Map<string, readonly TableColumn[]>();
+  for (const col of columns) {
+    if (col.kind !== 'computed') continue;
+    const parsed = parseFormula(col.formula ?? '');
+    if (!parsed.ok) continue;
+    const others = columns.filter((other) => other.id !== col.id);
+    edges.set(
+      col.id,
+      parsed.references.flatMap((ref) => {
+        const lookup = lookupColumn(ref, others);
+        return lookup.kind === 'found' && lookup.column.kind === 'computed'
+          ? [lookup.column]
+          : [];
+      }),
+    );
+  }
+
+  const settled = new Set<string>();
+  const path: TableColumn[] = [];
+  const visit = (col: TableColumn): readonly string[] | undefined => {
+    const start = path.findIndex((onPath) => onPath.id === col.id);
+    if (start !== -1) {
+      return [...path.slice(start), col].map((onPath) => onPath.label);
+    }
+    if (settled.has(col.id)) return undefined;
+    path.push(col);
+    for (const next of edges.get(col.id) ?? []) {
+      const cycle = visit(next);
+      if (cycle) return cycle;
+    }
+    path.pop();
+    settled.add(col.id);
+    return undefined;
+  };
+  for (const col of columns) {
+    const cycle = visit(col);
+    if (cycle) return cycle;
+  }
+  return undefined;
 }
 
 function resolveTaskField(

@@ -438,7 +438,41 @@ describe('flexible-table review regressions', () => {
     expect(cell?.error).toBeUndefined();
   });
 
-  it('still reports a genuine two-column formula cycle as an error', () => {
+  it('rejects a computed column whose label would close a formula cycle', () => {
+    flexibleTableActions.showPreset('triage');
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.addColumn({
+      label: 'Alpha',
+      kind: 'computed',
+      formula: 'spent + 1',
+    });
+
+    const refused = flexibleTableActions.addColumn({
+      label: 'Spent',
+      kind: 'computed',
+      formula: 'alpha + 1',
+    });
+    expect(refused).toMatchObject({
+      ok: false,
+      reason: 'formula_cycle',
+      cycle: ['Alpha', 'Spent', 'Alpha'],
+    });
+    if (refused.ok) throw new Error('expected a formula_cycle failure');
+    expect(describeTableFailure(refused)).toContain('Alpha -> Spent -> Alpha');
+    expect(
+      getFlexibleTableSnapshot().columns.map((col) => col.id),
+    ).not.toContain('spent');
+
+    const tl1 = projectTableRows(getProjectTasksSnapshot().tasks).find(
+      (r) => r.task.id === 'TL-1',
+    );
+    expect(tl1?.cells.alpha).toMatchObject({ raw: 2, display: '2' });
+    expect(flexibleTableActions.removeColumn('alpha')).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('rejects a rename that would close a formula cycle', () => {
     flexibleTableActions.showPreset('triage');
     flexibleTableActions.clearFilters();
     flexibleTableActions.addColumn({
@@ -447,12 +481,83 @@ describe('flexible-table review regressions', () => {
       formula: 'spent + 1',
     });
     flexibleTableActions.addColumn({
-      label: 'Spent',
+      label: 'Beta',
       kind: 'computed',
       formula: 'alpha + 1',
     });
 
-    const rows = projectTableRows(getProjectTasksSnapshot().tasks);
+    expect(flexibleTableActions.renameColumn('beta', 'Spent')).toMatchObject({
+      ok: false,
+      reason: 'formula_cycle',
+    });
+    expect(
+      getFlexibleTableSnapshot().columns.find((col) => col.id === 'beta')
+        ?.label,
+    ).toBe('Beta');
+    const tl1 = projectTableRows(getProjectTasksSnapshot().tasks).find(
+      (r) => r.task.id === 'TL-1',
+    );
+    expect(tl1?.cells.beta).toMatchObject({ raw: 3, display: '3' });
+    expect(flexibleTableActions.removeColumn('beta')).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('rejects a removal that would re-bind a reference into a formula cycle', () => {
+    flexibleTableActions.addColumn({ label: 'Foo', kind: 'free' });
+    flexibleTableActions.renameColumn('foo', 'X');
+    flexibleTableActions.addColumn({
+      label: 'Sum',
+      kind: 'computed',
+      formula: 'x + 1',
+    });
+    flexibleTableActions.addColumn({
+      label: 'Bar',
+      kind: 'computed',
+      formula: 'sum + 1',
+    });
+    expect(flexibleTableActions.renameColumn('bar', 'X')).toMatchObject({
+      ok: true,
+    });
+
+    expect(flexibleTableActions.removeColumn('foo')).toMatchObject({
+      ok: false,
+      reason: 'formula_cycle',
+    });
+    expect(getFlexibleTableSnapshot().columns.map((col) => col.id)).toContain(
+      'foo',
+    );
+    expect(flexibleTableActions.removeColumn('bar')).toMatchObject({
+      ok: true,
+    });
+    expect(flexibleTableActions.removeColumn('sum')).toMatchObject({
+      ok: true,
+    });
+    expect(flexibleTableActions.removeColumn('foo')).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('projects a cyclic table state as cell errors without crashing', () => {
+    const cyclic = {
+      ...getFlexibleTableSnapshot(),
+      columns: [
+        {
+          id: 'alpha',
+          label: 'Alpha',
+          kind: 'computed' as const,
+          formula: 'spent + 1',
+        },
+        {
+          id: 'spent',
+          label: 'Spent',
+          kind: 'computed' as const,
+          formula: 'alpha + 1',
+        },
+      ],
+    };
+
+    const rows = projectTableRows(getProjectTasksSnapshot().tasks, cyclic);
     const tl1 = rows.find((r) => r.task.id === 'TL-1');
     expect(tl1?.cells.alpha?.error).toBeDefined();
     expect(tl1?.cells.spent?.error).toBeDefined();
