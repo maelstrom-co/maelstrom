@@ -118,4 +118,16 @@ describe('flexible-table formula parser and evaluator', () => {
     if (!parsed.ok) return;
     expect(parsed.references).toEqual(['estimate', 'spent']);
   });
+
+  it('rejects oversized formulas with a typed syntax error instead of overflowing the stack', () => {
+    expect(() => parseFormula('1' + '+1'.repeat(20000))).not.toThrow();
+    expect(parseFormula('1' + '+1'.repeat(20000))).toMatchObject({
+      ok: false,
+      reason: 'syntax_error',
+    });
+    expect(
+      parseFormula('('.repeat(20000) + '1' + ')'.repeat(20000)),
+    ).toMatchObject({ ok: false, reason: 'syntax_error' });
+    expect(parseFormula('(estimate + spent) * 2').ok).toBe(true);
+  });
 });

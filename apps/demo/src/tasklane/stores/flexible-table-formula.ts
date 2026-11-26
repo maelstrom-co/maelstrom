@@ -55,6 +55,13 @@ export function parseFormula(source: string): FormulaParseResult {
       message: 'Formula cannot be empty.',
     };
   }
+  if (trimmed.length > MAX_FORMULA_LENGTH) {
+    return {
+      ok: false,
+      reason: 'syntax_error',
+      message: `Formula is too long (max ${MAX_FORMULA_LENGTH} characters).`,
+    };
+  }
 
   const tokenized = tokenize(trimmed);
   if (!tokenized.ok) return tokenized;
@@ -157,6 +164,8 @@ export function evaluateFormula(
   if (!parsed.ok) return parsed;
   return evaluateFormulaNode(parsed.ast, lookup);
 }
+
+const MAX_FORMULA_LENGTH = 500;
 
 type Token =
   | { readonly type: 'number'; readonly value: number }
