@@ -162,6 +162,84 @@ describe('flexible-table store columns', () => {
     const rows = projectTableRows([taskWithDate], state);
     expect(rows[0]?.cells.due_date?.display).toBe('2026-12-01');
   });
+
+  it('reads the real task due and created dates through field columns', () => {
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Due',
+        kind: 'field',
+        source: 'due',
+      }),
+    ).toMatchObject({ ok: true, value: { id: 'due', field: 'dueDate' } });
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Created',
+        kind: 'field',
+        source: 'created at',
+      }),
+    ).toMatchObject({ ok: true, value: { id: 'created', field: 'createdAt' } });
+
+    const cells = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((row) => [
+        row.task.id,
+        row.cells.due?.display,
+        row.cells.created?.display,
+      ]);
+    expect(cells()).toEqual([
+      ['TL-1', '2026-04-17', '2026-04-06'],
+      ['TL-2', '', '2026-04-08'],
+    ]);
+
+    projectTaskActions.setDueDate('TL-2', '2026-04-10');
+    expect(cells()).toEqual([
+      ['TL-1', '2026-04-17', '2026-04-06'],
+      ['TL-2', '2026-04-10', '2026-04-08'],
+    ]);
+  });
+
+  it('resolves date fields by name before any task exists', () => {
+    projectTaskActions.removeTask('TL-1');
+    projectTaskActions.removeTask('TL-2');
+    expect(getProjectTasksSnapshot().tasks).toEqual([]);
+
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Due',
+        kind: 'field',
+        source: 'dueDate',
+      }),
+    ).toMatchObject({ ok: true, value: { field: 'dueDate' } });
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Created',
+        kind: 'field',
+        source: 'createdAt',
+      }),
+    ).toMatchObject({ ok: true, value: { field: 'createdAt' } });
+  });
+
+  it('sorts and filters rows by the task due date, keeping undated tasks last', () => {
+    projectTaskActions.createTask({ title: 'Undated' }); // TL-3
+    projectTaskActions.setDueDate('TL-2', '2026-04-10');
+    flexibleTableActions.addColumn({
+      label: 'Due',
+      kind: 'field',
+      source: 'due date',
+    });
+
+    const ids = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map(
+        (row) => row.task.id,
+      );
+
+    flexibleTableActions.sortBy('due', 'asc', false);
+    expect(ids()).toEqual(['TL-2', 'TL-1', 'TL-3']);
+    flexibleTableActions.sortBy('due', 'desc', false);
+    expect(ids()).toEqual(['TL-1', 'TL-2', 'TL-3']);
+
+    flexibleTableActions.filterRows('due', 'lt', '2026-04-15');
+    expect(ids()).toEqual(['TL-2']);
+  });
 });
 
 describe('flexible-table sorting and stability', () => {
