@@ -1891,3 +1891,39 @@ test('manualTurns resolves thinking on output transcript and clears turnControl 
   expect(h.adapter.turnControl).toBeUndefined();
   expect(h.session.turnControl).toBeUndefined();
 });
+
+test('muting via inputControl mid-delegation disables mic tracks while keeping the pending batch and continuation alive', async () => {
+  const pending = deferred<{ userMessage?: string }>();
+  const h = await harness({
+    submitIntent: () => pending.promise,
+  });
+
+  h.channel.begin();
+  h.channel.call('mid-mute');
+  h.channel.done();
+  await tick();
+
+  h.session.setInputMuted(true);
+  expect(h.session.inputMuted).toBe(true);
+  expect(h.session.observations.getSnapshot().media.microphone).toBe(
+    'inactive',
+  );
+  const micTracks = h.adapter.getAudioStreams().mic?.getAudioTracks() ?? [];
+  expect(micTracks.length).toBeGreaterThan(0);
+  expect(micTracks.every((track) => track.enabled === false)).toBe(true);
+
+  pending.resolve({ userMessage: 'Updated while muted.' });
+  await tick();
+
+  expect(h.channel.outputs()).toHaveLength(1);
+  expect(JSON.parse(h.channel.outputs()[0]!.item.output)).toMatchObject({
+    ok: true,
+    userMessage: 'Updated while muted.',
+  });
+  expect(h.channel.continues()).toHaveLength(1);
+
+  h.session.setInputMuted(false);
+  expect(h.session.inputMuted).toBe(false);
+  expect(micTracks.every((track) => track.enabled === true)).toBe(true);
+  expect(h.session.observations.getSnapshot().media.microphone).toBe('active');
+});

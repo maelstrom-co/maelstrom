@@ -34,6 +34,19 @@ vi.doMock('./maelstrom', () => ({
         Hold to talk
       </button>
     ),
+    VoiceMuteToggle: (props: { className?: string }) =>
+      voiceResult.state !== 'idle' && voiceResult.state !== 'error' ? (
+        <button
+          type="button"
+          data-testid="voice-mute-toggle"
+          aria-label={
+            voiceResult.inputMuted ? 'Unmute microphone' : 'Mute microphone'
+          }
+          aria-pressed={voiceResult.inputMuted}
+          className={props.className}
+          onClick={() => voiceResult.setInputMuted(!voiceResult.inputMuted)}
+        />
+      ) : null,
   },
 }));
 
@@ -56,6 +69,8 @@ function makeVoiceResult(
     provider: 'live',
     switching: false,
     turnMode: 'automatic',
+    inputMuted: false,
+    setInputMuted: vi.fn(),
     ...overrides,
   } as TasklaneVoiceResult;
 }

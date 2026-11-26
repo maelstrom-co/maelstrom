@@ -1396,3 +1396,40 @@ test('session.paused and session.resumed emit processing observations without dr
     { type: 'processing', processing: 'active' },
   ]);
 });
+
+test('setInputEnabled disables mic tracks and marks microphone observation inactive without disconnecting', async () => {
+  const h = harness();
+  const mediaEvents: AdapterVoiceObservation[] = [];
+  h.transport.observations.subscribe((event) => {
+    if (event.type === 'media') mediaEvents.push(event);
+  });
+
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+
+  expect(h.mic.enabled).toBe(true);
+  expect(mediaEvents.at(-1)).toEqual({
+    type: 'media',
+    media: { microphone: 'active' },
+  });
+
+  h.transport.setInputEnabled(false);
+  expect(h.mic.enabled).toBe(false);
+  expect(mediaEvents.at(-1)).toEqual({
+    type: 'media',
+    media: { microphone: 'inactive' },
+  });
+  expect(h.transport.getSnapshot().state).toBe('connected');
+  expect(h.peer.closed).toBe(false);
+  expect(h.peer.channel.closed).toBe(false);
+
+  h.transport.setInputEnabled(true);
+  expect(h.mic.enabled).toBe(true);
+  expect(mediaEvents.at(-1)).toEqual({
+    type: 'media',
+    media: { microphone: 'active' },
+  });
+  expect(h.transport.getSnapshot().state).toBe('connected');
+});

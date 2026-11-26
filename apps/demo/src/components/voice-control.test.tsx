@@ -33,6 +33,19 @@ vi.doMock('../lib/maelstrom', () => ({
         data-guidance-class={props.guidanceClassName}
       />
     ),
+    VoiceMuteToggle: (props: { className?: string }) =>
+      voiceResult.state !== 'idle' && voiceResult.state !== 'error' ? (
+        <button
+          type="button"
+          data-testid="voice-mute-toggle"
+          aria-label={
+            voiceResult.inputMuted ? 'Unmute microphone' : 'Mute microphone'
+          }
+          aria-pressed={voiceResult.inputMuted}
+          className={props.className}
+          onClick={() => voiceResult.setInputMuted(!voiceResult.inputMuted)}
+        />
+      ) : null,
   },
 }));
 
@@ -62,6 +75,8 @@ function makeVoiceResult(
     connect: async () => {},
     disconnect: async () => {},
     skipGreeting,
+    inputMuted: false,
+    setInputMuted: () => {},
   } as UseVoiceResult;
 }
 

@@ -5,6 +5,7 @@ import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterInputControl,
   AdapterTurnControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
@@ -228,6 +229,7 @@ export class LiveKitAdapter
   #localAudioPreRoll: LocalAudioPreRoll | undefined;
   #browserVad: BrowserVad | undefined;
   #manualTurnControlAvailable = false;
+  #inputMuted = false;
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -346,6 +348,15 @@ export class LiveKitAdapter
       ? this.#manualTurnControl
       : undefined;
   }
+
+  /**
+   * Microphone input gate that mutes the local published track without
+   * disconnecting the room or cancelling in-flight tool work.
+   */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): Promise<void> =>
+      this.#setInputEnabled(enabled),
+  };
 
   /**
    * Joins the LiveKit room and wires the transcript/TTS relay.
@@ -1085,7 +1096,7 @@ export class LiveKitAdapter
     preRollMs = 0,
   ): Promise<void> {
     const room = this.#roomForGeneration(generation);
-    if (!room) return;
+    if (!room || this.#inputMuted) return;
     const bridge = this.#localAudioPreRoll;
     if (mode === 'automatic' && !bridge) {
       throw new Error('Automatic turn pre-roll is unavailable');
@@ -1876,6 +1887,7 @@ export class LiveKitAdapter
     const bridge = this.#localAudioPreRoll;
     const browserVad = this.#browserVad;
     this.#manualTurnControlAvailable = false;
+    this.#inputMuted = false;
     this.#localAudioPreRoll = undefined;
     this.#browserVad = undefined;
     this.#micClone = undefined;
@@ -1913,6 +1925,25 @@ export class LiveKitAdapter
       browserVad?.destroy().catch(() => {}),
       bridge?.destroy().catch(() => {}),
     ]).then(() => {});
+  }
+
+  async #setInputEnabled(enabled: boolean): Promise<void> {
+    const muted = !enabled;
+    if (this.#inputMuted === muted) return;
+    this.#inputMuted = muted;
+    const generation = this.#connectionGeneration;
+    const room = this.#room;
+    if (this.#micClone) this.#micClone.enabled = enabled;
+    if (!room) return;
+    const publishedMicTrack = this.#getPublishedMicTrack(room);
+    if (!publishedMicTrack) return;
+    if (muted) {
+      await publishedMicTrack.mute();
+      if (!this.#isCurrentRoom(generation, room)) return;
+      await publishedMicTrack.pauseUpstream();
+    } else if (this.#localAudioPreRoll) {
+      await publishedMicTrack.unmute();
+    }
   }
 }
 

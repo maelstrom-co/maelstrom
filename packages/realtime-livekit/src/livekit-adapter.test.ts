@@ -197,7 +197,7 @@ const {
   TTS_TOPIC,
   TTS_READY_TOPIC,
 } = await import('@maelstrom-co/realtime-protocol/livekit');
-const { MessageId } = await import('@maelstrom-co/protocol');
+const { MessageId, ToolCallId } = await import('@maelstrom-co/protocol');
 
 // The utterance id the client stamped on the most recent speak text stream — the
 // worker echoes this on its TTS status packets, so tests read it back to forge a
@@ -4890,5 +4890,50 @@ describe('LiveKitAdapter greeting capability', () => {
     expect(error).toBeInstanceOf(RealtimeVoiceError);
     expect((error as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
     expect(roomConstructCount).toBe(1);
+  });
+});
+
+describe('LiveKitAdapter inputControl mute', () => {
+  test('mutes the local published track, blocks startTurn while muted, keeps tool results alive, and resets on disconnect', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    mockMuteLocalMic.mockClear();
+    mockPauseUpstream.mockClear();
+    mockResumeUpstream.mockClear();
+    mockSetMicrophoneEnabled.mockClear();
+    mockSendText.mockClear();
+
+    await adapter.inputControl.setInputEnabled(false);
+    expect(mockMuteLocalMic).toHaveBeenCalledTimes(1);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.enabled).toBe(false);
+
+    // Manual startTurn is a no-op while muted.
+    await adapter.turnControl?.startTurn();
+    expect(mockResumeUpstream).not.toHaveBeenCalled();
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
+
+    // In-flight tool result still speaks over the same room.
+    await adapter.sendToolResult(ToolCallId('lk-muted-call'), {
+      ok: true,
+      userMessage: 'Spoken while muted.',
+    });
+    expect(mockSendText).toHaveBeenCalledTimes(1);
+
+    // Unmuting re-enables capture and allows manual startTurn again.
+    await adapter.inputControl.setInputEnabled(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    await adapter.turnControl?.startTurn();
+    expect(mockResumeUpstream).toHaveBeenCalledTimes(1);
+
+    // Mute resets on disconnect.
+    await adapter.inputControl.setInputEnabled(false);
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    mockResumeUpstream.mockClear();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.turnControl?.startTurn();
+    expect(mockResumeUpstream).toHaveBeenCalledTimes(1);
   });
 });

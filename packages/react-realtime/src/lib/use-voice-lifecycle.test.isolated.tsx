@@ -27,6 +27,7 @@ import {
   vessel,
 } from '@maelstrom-co/react';
 import type {
+  AdapterInputControl,
   AdapterVoiceObservation,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
@@ -35,7 +36,13 @@ import type {
   ToolResult,
 } from '@maelstrom-co/realtime';
 import FakeTimers from '@sinonjs/fake-timers';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from '@testing-library/react';
 import { useState } from 'react';
 
 import { createMockConnector } from './__tests__/mock-connector.js';
@@ -1018,6 +1025,100 @@ test('sendAgentMessage routes provider submit_intent intents to the agent instea
     expect(sent[0]?.text).toBe('show the board');
     expect(processed).toEqual([]);
     expect(scopeCalls).toBe(0);
+  } finally {
+    cleanup();
+    await client.dispose();
+  }
+});
+
+test('VoiceMuteToggle and VoiceOrb reflect inputMuted without disconnecting', async () => {
+  const client = new Orchestrator(createMockConnector());
+  const inputEnabledCalls: boolean[] = [];
+  let disconnects = 0;
+  const inputControl: AdapterInputControl = {
+    setInputEnabled(enabled: boolean) {
+      inputEnabledCalls.push(enabled);
+    },
+  };
+  const baseAdapter = makeAdapter();
+  const adapter: RealtimeProviderAdapter = {
+    ...baseAdapter,
+    inputControl,
+    disconnect: async () => {
+      disconnects += 1;
+      await baseAdapter.disconnect();
+    },
+  };
+  const extension = maelstromRealtime({
+    createAdapter: () => adapter,
+  })(diagnosticContext(client));
+
+  let voice!: UseVoiceResult<undefined>;
+  function Controls() {
+    voice = extension.useVoice();
+    return (
+      <div>
+        <extension.VoiceOrb />
+        <extension.VoiceMuteToggle />
+      </div>
+    );
+  }
+
+  function findButtons(container: HTMLElement): HTMLButtonElement[] {
+    const result: HTMLButtonElement[] = [];
+    const walk = (node: Element) => {
+      if (node.tagName === 'BUTTON') result.push(node as HTMLButtonElement);
+      for (let i = 0; i < node.children.length; i += 1) {
+        walk(node.children[i]!);
+      }
+    };
+    walk(container);
+    return result;
+  }
+
+  try {
+    const { container } = render(<Controls />);
+    expect(findButtons(container)).toHaveLength(1);
+    expect(voice.inputMuted).toBe(false);
+
+    await act(async () => voice.connect());
+    let buttons = findButtons(container);
+    expect(buttons).toHaveLength(2);
+    const [orb, toggle] = buttons as [HTMLButtonElement, HTMLButtonElement];
+    expect(orb.getAttribute('data-muted')).toBeNull();
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle.getAttribute('aria-label')).toBe('Mute microphone');
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(voice.state).toBe('connected');
+    expect(voice.inputMuted).toBe(true);
+    expect(inputEnabledCalls).toEqual([false]);
+    expect(disconnects).toBe(0);
+    expect(orb.getAttribute('data-muted')).toBe('true');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('Unmute microphone');
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(voice.state).toBe('connected');
+    expect(voice.inputMuted).toBe(false);
+    expect(inputEnabledCalls).toEqual([false, true]);
+    expect(orb.getAttribute('data-muted')).toBeNull();
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    expect(voice.inputMuted).toBe(true);
+
+    await act(async () => voice.disconnect());
+    expect(voice.state).toBe('idle');
+    expect(voice.inputMuted).toBe(false);
+    buttons = findButtons(container);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.getAttribute('data-muted')).toBeNull();
   } finally {
     cleanup();
     await client.dispose();

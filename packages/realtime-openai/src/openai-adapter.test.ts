@@ -6075,4 +6075,55 @@ describe('OpenAIAdapter — local playback barge-in', () => {
     await callbacks.onSpeechStart();
     expect(output.enabled).toBe(true);
   });
+
+  it('mutes and restores mic tracks via inputControl without closing the connection or blocking tool results', async () => {
+    const enabledTrack = new FakeTrack('audio', true);
+    const disabledTrack = new FakeTrack('audio', false);
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia = mock(
+      async () => new FakeMediaStream([enabledTrack, disabledTrack]) as never,
+    );
+    try {
+      const adapter = new OpenAIAdapter({
+        mintToken: async () => ({
+          provider: 'openai',
+          model: 'gpt-realtime',
+          value: 'ek_mute_test',
+          expiresAt: 9_999_999_999 as UnixSeconds,
+        }),
+      });
+      const connecting = adapter.connect(connectOpts);
+      await flushMicrotasks();
+      const peer = FakeRTCPeerConnection.instances.at(-1)!;
+      const channel = peer.dataChannel!;
+      channel.triggerOpen();
+      await connecting;
+
+      adapter.inputControl.setInputEnabled(false);
+      expect(enabledTrack.enabled).toBe(false);
+      expect(disabledTrack.enabled).toBe(false);
+      expect(peer.closed).toBe(false);
+      expect(channel.closed).toBe(false);
+
+      await adapter.sendToolResult(ToolCallId('call-muted'), {
+        ok: true,
+        userMessage: 'Applied while muted.',
+      });
+      expect(
+        sentFrames(channel).some(
+          (frame) =>
+            frame.type === 'conversation.item.create' &&
+            (frame.item as { call_id?: string } | undefined)?.call_id ===
+              'call-muted',
+        ),
+      ).toBe(true);
+
+      adapter.inputControl.setInputEnabled(true);
+      expect(enabledTrack.enabled).toBe(true);
+      expect(disabledTrack.enabled).toBe(false);
+      await adapter.disconnect();
+    } finally {
+      navigator.mediaDevices.getUserMedia = originalGetUserMedia;
+    }
+  });
 });

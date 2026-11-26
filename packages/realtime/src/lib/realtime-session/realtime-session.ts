@@ -301,10 +301,18 @@ export class RealtimeSession implements VoiceSession {
   #state: VoiceSessionState = 'idle';
   #turnMode: TurnMode = 'automatic';
   #turnModeError: unknown;
+  #inputMuted = false;
+  #wrappedTurnControl:
+    | {
+        readonly source: AdapterTurnControl;
+        readonly wrapped: AdapterTurnControl;
+      }
+    | undefined;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
   readonly #greetingStateHandlers = new Set<(state: GreetingState) => void>();
+  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
   #intentScope: IntentScope | undefined;
   #groundingClampWarned = false;
   #lastError: unknown;
@@ -469,13 +477,54 @@ export class RealtimeSession implements VoiceSession {
    * establishes manual mode, or in either mode when the control offers
    * `setTurnMode`, and is read dynamically so adapter degradation or teardown
    * can replace or remove the control safely. Use `turnMode` to tell which
-   * mode is active.
+   * mode is active. While {@link RealtimeSession.inputMuted} is `true`,
+   * `startTurn()` is a no-op.
    */
   get turnControl(): AdapterTurnControl | undefined {
     const control = this.#adapter.turnControl;
-    return this.#turnMode === 'manual' || control?.setTurnMode !== undefined
-      ? control
-      : undefined;
+    if (!control) return undefined;
+    if (this.#turnMode !== 'manual' && control.setTurnMode === undefined)
+      return undefined;
+    if (!this.#inputMuted) return control;
+    if (this.#wrappedTurnControl?.source !== control) {
+      this.#wrappedTurnControl = {
+        source: control,
+        wrapped: {
+          startTurn: () => Promise.resolve(),
+          endTurn: () => control.endTurn(),
+          ...(control.setTurnMode
+            ? {
+                setTurnMode: (mode: TurnMode) =>
+                  control.setTurnMode?.(mode) ?? Promise.resolve(),
+              }
+            : {}),
+        },
+      };
+    }
+    return this.#wrappedTurnControl.wrapped;
+  }
+
+  /**
+   * Whether microphone input is currently muted on the active connection.
+   * Survives turn-mode switches and resets to `false` on disconnect or fatal
+   * connection end.
+   */
+  get inputMuted(): boolean {
+    return this.#inputMuted;
+  }
+
+  /**
+   * Mutes or unmutes microphone input without disconnecting the voice session
+   * or cancelling in-flight intent work. Calls while disconnected (`idle` or
+   * `error`) or matching the current state are no-ops. While muted, manual
+   * `turnControl.startTurn()` is a no-op; mute survives turn-mode switches and
+   * resets on disconnect.
+   */
+  setInputMuted(muted: boolean): void {
+    if (this.#state === 'idle' || this.#state === 'error') return;
+    if (this.#inputMuted === muted) return;
+    this.#setInputMutedState(muted);
+    this.#applyAdapterInputMute(muted);
   }
 
   /**
@@ -638,6 +687,9 @@ export class RealtimeSession implements VoiceSession {
       this.#setTurnMode({ type: 'turn_mode', mode: 'automatic' });
     }
     if (epoch !== this.#connectEpoch) return;
+    if (this.#inputMuted) {
+      this.#applyAdapterInputMute(true);
+    }
     // Grounding only makes sense once the data channel is actually up — a UI
     // settle mid-handshake would otherwise schedule a debounced push that
     // fires against a still-closed channel.
@@ -786,6 +838,11 @@ export class RealtimeSession implements VoiceSession {
     this.#pushGrounding.cancel();
     this.#greetingController?.abort();
     this.#greetingController = undefined;
+    try {
+      this.#setInputMutedState(false);
+    } catch (error) {
+      errors.push(error);
+    }
     return errors;
   }
 
@@ -901,13 +958,25 @@ export class RealtimeSession implements VoiceSession {
     event: 'greeting_state',
     handler: (state: GreetingState) => void,
   ): Unsubscribe;
+  /**
+   * Subscribes to microphone mute changes. The handler runs after each change,
+   * not immediately on subscription; read {@link RealtimeSession.inputMuted}
+   * first for the current value.
+   */
+  on(event: 'input_muted', handler: (muted: boolean) => void): Unsubscribe;
   on(
-    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
+    event:
+      | 'state'
+      | 'transcript'
+      | 'turn_mode'
+      | 'greeting_state'
+      | 'input_muted',
     handler:
       | ((s: VoiceSessionState) => void)
       | ((t: TranscriptEntry) => void)
       | ((event: TurnModeEvent) => void)
-      | ((state: GreetingState) => void),
+      | ((state: GreetingState) => void)
+      | ((muted: boolean) => void),
   ): Unsubscribe {
     if (event === 'transcript') {
       const h = handler as (t: TranscriptEntry) => void;
@@ -928,6 +997,13 @@ export class RealtimeSession implements VoiceSession {
       this.#greetingStateHandlers.add(h);
       return () => {
         this.#greetingStateHandlers.delete(h);
+      };
+    }
+    if (event === 'input_muted') {
+      const h = handler as (muted: boolean) => void;
+      this.#inputMutedHandlers.add(h);
+      return () => {
+        this.#inputMutedHandlers.delete(h);
       };
     }
     const h = handler as (s: VoiceSessionState) => void;
@@ -977,6 +1053,24 @@ export class RealtimeSession implements VoiceSession {
     if (next === this.#greetingState) return;
     this.#greetingState = next;
     for (const handler of this.#greetingStateHandlers) handler(next);
+  }
+
+  #setInputMutedState(next: boolean): void {
+    if (next === this.#inputMuted) return;
+    this.#inputMuted = next;
+    for (const handler of this.#inputMutedHandlers) handler(next);
+  }
+
+  #applyAdapterInputMute(muted: boolean): void {
+    const control = this.#adapter.inputControl;
+    if (!control) return;
+    try {
+      void Promise.resolve(control.setInputEnabled(!muted)).catch((error) => {
+        this.#logger.warn('adapter inputControl.setInputEnabled failed', error);
+      });
+    } catch (error) {
+      this.#logger.warn('adapter inputControl.setInputEnabled failed', error);
+    }
   }
 
   /**

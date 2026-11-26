@@ -17,10 +17,13 @@ class FakeRealtimeSession {
 
   state: VoiceSessionState = 'idle';
   lastError: unknown = undefined;
+  inputMuted = false;
   connectCalls = 0;
   disconnectCalls = 0;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
+  readonly #otherHandlers = new Set<unknown>();
   #resolveConnect: (() => void) | undefined;
   #resolveDisconnect: (() => void) | undefined;
   #holdDisconnect = false;
@@ -54,7 +57,18 @@ class FakeRealtimeSession {
         this.#resolveDisconnect = resolve;
       });
     }
+    if (this.inputMuted) {
+      this.inputMuted = false;
+      for (const handler of this.#inputMutedHandlers) handler(false);
+    }
     this.emitState('idle');
+  }
+
+  setInputMuted(muted: boolean): void {
+    if (this.state === 'idle' || this.state === 'error') return;
+    if (this.inputMuted === muted) return;
+    this.inputMuted = muted;
+    for (const handler of this.#inputMutedHandlers) handler(muted);
   }
 
   holdDisconnect(): void {
@@ -67,9 +81,23 @@ class FakeRealtimeSession {
     this.#resolveDisconnect = undefined;
   }
 
-  on(event: 'state' | 'transcript', handler: never): () => void {
+  on(
+    event:
+      | 'state'
+      | 'transcript'
+      | 'greeting_state'
+      | 'turn_mode'
+      | 'input_muted',
+    handler: never,
+  ): () => void {
     const set =
-      event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
+      event === 'state'
+        ? this.#stateHandlers
+        : event === 'transcript'
+          ? this.#transcriptHandlers
+          : event === 'input_muted'
+            ? this.#inputMutedHandlers
+            : this.#otherHandlers;
     set.add(handler);
     return () => set.delete(handler);
   }

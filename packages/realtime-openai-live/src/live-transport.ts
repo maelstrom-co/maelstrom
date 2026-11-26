@@ -137,6 +137,7 @@ type Run = {
   closing: boolean;
   manualTurns: boolean;
   turnActive: boolean;
+  inputMuted: boolean;
   peer?: RTCPeerConnection;
   channel?: RTCDataChannel;
   mic?: MediaStream;
@@ -259,6 +260,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       manualTurns: this.manualTurns,
       turnActive: false,
       micEnabledPrior: new Map(),
+      inputMuted: false,
       releases: [],
     };
     this.run = run;
@@ -327,6 +329,14 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     this.applyMicrophoneGate(run);
     if (this.current(run) && !run.closing && run.manualTurns === manualTurns)
       this.emit({ type: 'turn_mode', mode });
+  }
+
+  /** Enables or disables local microphone tracks without affecting connection, delegation, or playback. */
+  setInputEnabled(enabled: boolean): void {
+    const run = this.run;
+    if (!run || run.closing) return;
+    run.inputMuted = !enabled;
+    this.applyInputMute(run);
   }
 
   /** Submits one command only to the supplied generation. There is no queue, retry, or success acknowledgment. */
@@ -553,6 +563,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     }
     if (run.manualTurns) this.applyMicrophoneGate(run);
     for (const track of run.mic.getAudioTracks()) {
+      if (run.inputMuted) track.enabled = false;
       peer.addTrack(track, run.mic);
       this.listen(run, track, 'ended', () => {
         if (this.current(run) && !run.closing)
@@ -874,6 +885,17 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     media: Extract<AdapterVoiceObservation, { type: 'media' }>['media'],
   ): void {
     this.mediaEvent({ type: 'media', media });
+  }
+  private applyInputMute(run: Run): void {
+    const tracks = run.mic?.getAudioTracks() ?? [];
+    for (const track of tracks) track.enabled = !run.inputMuted;
+    if (tracks.length > 0 && this.current(run) && !run.closing) {
+      this.media({
+        microphone: tracks.some((track) => track.enabled && !track.muted)
+          ? 'active'
+          : 'inactive',
+      });
+    }
   }
   private mediaEvent(event: AdapterVoiceObservation): void {
     const generation = this.generation;

@@ -103,6 +103,7 @@ class FakeRealtimeSession {
   turnModeError: unknown;
   turnControl: AdapterTurnControl | undefined;
   greetingState: GreetingState;
+  inputMuted = false;
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
@@ -115,6 +116,7 @@ class FakeRealtimeSession {
   readonly #greetingStateHandlers = new Set<
     (state: FakeRealtimeSession['greetingState']) => void
   >();
+  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
 
   constructor(options: {
     instance: RealtimeInstance;
@@ -148,18 +150,35 @@ class FakeRealtimeSession {
     if (coordinator?.skip()) this.emitGreetingState('skipped');
   }
 
+  setInputMuted(muted: boolean): void {
+    if (this.state === 'idle' || this.state === 'error') return;
+    if (this.inputMuted === muted) return;
+    this.inputMuted = muted;
+    for (const handler of this.#inputMutedHandlers) handler(muted);
+  }
+
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
     if (sessionDisconnectGate) await sessionDisconnectGate;
     this.turnControl = undefined;
+    if (this.inputMuted) {
+      this.inputMuted = false;
+      for (const handler of this.#inputMutedHandlers) handler(false);
+    }
     this.emitState('idle');
   }
 
   on(
-    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
+    event:
+      | 'state'
+      | 'transcript'
+      | 'turn_mode'
+      | 'greeting_state'
+      | 'input_muted',
     handler: ((state: VoiceSessionState) => void) &
       ((entry: TranscriptEntry) => void) &
-      ((event: TurnModeEvent) => void),
+      ((event: TurnModeEvent) => void) &
+      ((muted: boolean) => void),
   ): () => void {
     const handlers =
       event === 'state'
@@ -168,7 +187,9 @@ class FakeRealtimeSession {
           ? this.#transcriptHandlers
           : event === 'turn_mode'
             ? this.#turnModeHandlers
-            : this.#greetingStateHandlers;
+            : event === 'input_muted'
+              ? this.#inputMutedHandlers
+              : this.#greetingStateHandlers;
     handlers.add(handler as never);
     return () => handlers.delete(handler as never);
   }

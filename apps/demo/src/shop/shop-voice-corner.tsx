@@ -87,6 +87,7 @@ export function ShopVoiceCorner({
             {voicePillLabel(state, holdToTalk)}
           </span>
         )}
+        <shopM.VoiceMuteToggle className="shop-voice-pill status-pill" />
         {holdToTalk && (
           <shopM.HoldToTalkControl
             className="shop-voice-pill shop-voice-control status-pill select-none touch-none"

@@ -1,6 +1,7 @@
 import type {
   AdapterConnectOptions,
   AdapterDiagnosticSource,
+  AdapterInputControl,
   AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
@@ -182,6 +183,11 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
   readonly recovery = {
     update: (snapshot: VoiceRecoverySnapshot): void =>
       this.updateRecovery(snapshot),
+  };
+  /** Microphone input gate that mutes local capture without affecting connection, delegation, batches, or continuation. */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): void =>
+      this.transport.setInputEnabled(enabled),
   };
   private readonly transport: OpenAILiveTransport;
   /** Projected native diagnostics, separate from provider commands and continuous voice observations. */

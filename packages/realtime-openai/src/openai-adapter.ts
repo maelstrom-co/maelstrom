@@ -4,6 +4,7 @@ import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterInputControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -34,7 +35,10 @@ import {
   type ReplacePublicationArgs,
 } from './greeting-interruption.js';
 import { GreetingPresentation } from './greeting-presentation.js';
-import { MicrophonePublicationGate } from './microphone-publication-gate.js';
+import {
+  MicrophonePublicationGate,
+  type MicrophonePublicationLease,
+} from './microphone-publication-gate.js';
 import type {
   OpenAIAdapterOptions,
   SynthesizeGreeting,
@@ -202,6 +206,9 @@ export class OpenAIAdapter
   readonly #playbackBargeInConfig: ResolvedBrowserVadConfig;
   #playbackBargeIn: PlaybackBargeIn | undefined;
   readonly #greetingGate: MicrophonePublicationGate;
+  readonly #inputMuteGate: MicrophonePublicationGate;
+  #inputMuteLease: MicrophonePublicationLease | undefined;
+  #inputMuted = false;
   readonly #greetingPresentation: GreetingPresentation;
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -215,6 +222,16 @@ export class OpenAIAdapter
    * its playback starts. Media evidence is not reported.
    */
   readonly observations = this.#transcripts;
+
+  /**
+   * Microphone input gate that mutes user capture on the active connection
+   * without disconnecting or cancelling in-flight tool work.
+   */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): void => {
+      this.#setInputEnabled(enabled);
+    },
+  };
 
   #pc: RTCPeerConnection | undefined;
   #dc: RTCDataChannel | undefined;
@@ -278,6 +295,9 @@ export class OpenAIAdapter
         )
       : undefined;
     this.#greetingGate = new MicrophonePublicationGate(
+      () => this.#connectionGeneration,
+    );
+    this.#inputMuteGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
     );
     this.#greetingPresentation = new GreetingPresentation({
@@ -605,14 +625,28 @@ export class OpenAIAdapter
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     const generation = this.#connectionGeneration;
-    return this.#greetingPresentation.speak({
-      ...args,
-      onPlaybackStart: () => {
-        if (generation === this.#connectionGeneration && !args.signal.aborted)
-          this.#transcripts.complete(args.id, 'assistant', args.text);
-        args.onPlaybackStart?.();
-      },
-    });
+    return this.#greetingPresentation
+      .speak({
+        ...args,
+        onPlaybackStart: () => {
+          if (generation === this.#connectionGeneration && !args.signal.aborted)
+            this.#transcripts.complete(args.id, 'assistant', args.text);
+          args.onPlaybackStart?.();
+        },
+      })
+      .finally(() => {
+        if (
+          generation === this.#connectionGeneration &&
+          this.#inputMuted &&
+          !this.#inputMuteLease &&
+          this.#micStream
+        ) {
+          this.#inputMuteLease = this.#inputMuteGate.acquire(
+            this.#micStream,
+            generation,
+          );
+        }
+      });
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
@@ -979,8 +1013,31 @@ export class OpenAIAdapter
     this.#voiceActivity = 'connected';
     this.#unexpectedEvents = createUnexpectedEventTracker();
     this.#playoutDiagnostics?.clear();
+    this.#inputMuted = false;
+    this.#inputMuteLease = undefined;
     this.#startConnectionGeneration();
     this.#remotePlayback.clear();
+  }
+
+  #setInputEnabled(enabled: boolean): void {
+    const muted = !enabled;
+    if (this.#inputMuted === muted) return;
+    this.#inputMuted = muted;
+    if (muted) {
+      if (
+        !this.#greetingGate.active &&
+        !this.#inputMuteLease &&
+        this.#micStream
+      ) {
+        this.#inputMuteLease = this.#inputMuteGate.acquire(
+          this.#micStream,
+          this.#connectionGeneration,
+        );
+      }
+      return;
+    }
+    this.#inputMuteLease?.release();
+    this.#inputMuteLease = undefined;
   }
 
   #handleDataChannelMessage(raw: unknown, generation: number): void {

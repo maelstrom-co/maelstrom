@@ -47,6 +47,10 @@ import {
   type UseVoiceCaptionsOptions,
   type UseVoiceCaptionsResult,
 } from './voice-captions.js';
+import {
+  createVoiceMuteToggle,
+  type VoiceMuteToggleProps,
+} from './voice-mute-toggle.js';
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
 
 /**
@@ -349,6 +353,14 @@ export interface UseVoiceResult<Provider = undefined> {
    * shared by every hook consumer, and never disconnects voice.
    */
   readonly skipGreeting: () => void;
+  /** Whether microphone input is currently muted on the active session. */
+  readonly inputMuted: boolean;
+  /**
+   * Mutes or unmutes microphone input on the shared session without
+   * disconnecting voice or cancelling in-flight intent work. Resets on
+   * disconnect.
+   */
+  readonly setInputMuted: (muted: boolean) => void;
 }
 
 type RealtimeExtension<Provider> = MaelstromExtension<{
@@ -372,6 +384,7 @@ type RealtimeExtension<Provider> = MaelstromExtension<{
   VoiceOrb: (props: VoiceOrbProps) => ReactElement;
   /** Manual hold-to-talk button bound to the shared session's `turnMode` and `turnControl`. */
   HoldToTalkControl: (props: HoldToTalkControlProps) => ReactElement | null;
+  VoiceMuteToggle: (props: VoiceMuteToggleProps) => ReactElement | null;
 }>;
 
 /**
@@ -495,6 +508,9 @@ export function maelstromRealtime<
       const [turnPolicy, setTurnPolicy] = useState(() =>
         readTurnPolicy(session),
       );
+      const [inputMuted, setInputMutedState] = useState<boolean>(
+        session.inputMuted,
+      );
 
       useEffect(() => {
         const unsubscribe = session.on('state', (next) => {
@@ -510,6 +526,15 @@ export function maelstromRealtime<
       useEffect(() => {
         const unsubscribe = session.on('greeting_state', setGreetingState);
         setGreetingState(session.greetingState);
+        return unsubscribe;
+      }, [session]);
+
+      useEffect(() => {
+        const unsubscribe = session.on('input_muted', (muted) => {
+          setInputMutedState(muted);
+          setTurnPolicy(readTurnPolicy(session));
+        });
+        setInputMutedState(session.inputMuted);
         return unsubscribe;
       }, [session]);
 
@@ -550,6 +575,10 @@ export function maelstromRealtime<
         () => sessions.skipGreeting(orchestrator),
         [orchestrator],
       );
+      const setInputMuted = useCallback(
+        (muted: boolean) => sessions.setInputMuted(orchestrator, muted),
+        [orchestrator],
+      );
       const switchProvider = useCallback(
         (next: Provider): Promise<void> => {
           if (providers && !providers.includes(next))
@@ -577,6 +606,8 @@ export function maelstromRealtime<
         connect,
         disconnect,
         skipGreeting,
+        inputMuted,
+        setInputMuted,
       };
     };
 
@@ -586,6 +617,7 @@ export function maelstromRealtime<
       useVoiceCaptions: createUseVoiceCaptions(useVoice, useVoiceObservations),
       VoiceOrb: createVoiceOrb(useVoice),
       HoldToTalkControl: createHoldToTalkControl(useVoice),
+      VoiceMuteToggle: createVoiceMuteToggle(useVoice),
     };
   };
 }
