@@ -9,12 +9,12 @@ import {
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import { createMockConnector } from '../../../test-utils/connector-mocks.js';
 import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
-import { AgentWireUnsupportedError } from '../connection-manager/connector.types.js';
 import {
   agentAcceptedEvent,
   agentFinishedEvent,
   createMockAgentConnector,
 } from '../__test-helpers__/agent-connector-mock.js';
+import { AgentWireUnsupportedError } from '../connection-manager/connector.types.js';
 import { Orchestrator } from './orchestrator.js';
 import type { IntentRoute } from './submit-intent.types.js';
 
@@ -223,9 +223,7 @@ describe('Orchestrator.submit', () => {
   it('reports accepted=true and later settles not_submitted when a connected connector cannot carry agent inputs', async () => {
     const agent = createMockAgentConnector({
       sendInput: () =>
-        Promise.reject(
-          new AgentWireUnsupportedError('agent wire unsupported'),
-        ),
+        Promise.reject(new AgentWireUnsupportedError('agent wire unsupported')),
     });
     const client = new Orchestrator(agent.connector, {
       intentRoute: 'agent',

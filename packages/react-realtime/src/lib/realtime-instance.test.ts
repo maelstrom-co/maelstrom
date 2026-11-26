@@ -371,7 +371,8 @@ describe('createRealtimeInstance sendAgentMessage', () => {
   test('throws from a scoped enqueue on an agent-routed orchestrator without starting any agent submission', async () => {
     await withAgentOrchestrator(
       async ({ orchestrator, agent }) => {
-        const scope = createRealtimeInstance(orchestrator).createIntentScope?.();
+        const scope =
+          createRealtimeInstance(orchestrator).createIntentScope?.();
         if (!scope) throw new Error('expected createIntentScope');
 
         expect(() => scope.enqueueIntent('show the board')).toThrow(
