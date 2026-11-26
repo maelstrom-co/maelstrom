@@ -3736,6 +3736,33 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockMicCloneTrack.enabled).toBe(true);
   });
 
+  test('a mute requested while the first publication is pending keeps the local microphone clone disabled', async () => {
+    const publish = deferred<void>();
+    let publishStarted = false;
+    mockPublishTrack.mockImplementationOnce(async () => {
+      publishStarted = true;
+      await publish.promise;
+      return mockMicPublication;
+    });
+    const { adapter } = makeAdapter();
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 20; attempts += 1) {
+      if (publishStarted) break;
+      await Promise.resolve();
+    }
+    expect(publishStarted).toBe(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+
+    await adapter.inputControl.setInputEnabled(false);
+    publish.resolve();
+    await connecting;
+
+    expect(mockMicCloneTrack.enabled).toBe(false);
+
+    await adapter.inputControl.setInputEnabled(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+  });
+
   test('repeated end calls share one native mute, pause, and turn_end operation', async () => {
     const pause = deferred<void>();
     const { adapter } = makeAdapter(undefined, { vad: false });

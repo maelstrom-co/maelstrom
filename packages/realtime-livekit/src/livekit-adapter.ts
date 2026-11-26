@@ -454,6 +454,7 @@ export class LiveKitAdapter
         attempt.assertCurrent();
         unpublishedMicTrack = undefined;
         this.#rawMicTrack = rawMicTrack;
+        clone.enabled = !this.#inputMuted;
         this.#micClone = clone;
         this.#micStream = stream;
         unpublishedClone = undefined;
