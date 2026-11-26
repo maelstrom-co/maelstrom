@@ -260,4 +260,39 @@ describe('RealtimeSession input mute', () => {
     expect(h.session.state).toBe('error');
     expect(h.session.inputMuted).toBe(false);
   });
+
+  it('gates adapter input before notifying subscribers and isolates a throwing subscriber', async () => {
+    const h = makeHarness();
+    await h.session.connect();
+    const gateCallsAtNotify: boolean[][] = [];
+    const later: boolean[] = [];
+    h.session.on('input_muted', () => {
+      gateCallsAtNotify.push([...h.inputEnabledCalls]);
+      throw new Error('subscriber failed');
+    });
+    h.session.on('input_muted', (muted) => later.push(muted));
+
+    expect(() => h.session.setInputMuted(true)).not.toThrow();
+
+    expect(gateCallsAtNotify).toEqual([[false]]);
+    expect(h.inputEnabledCalls).toEqual([false]);
+    expect(h.session.inputMuted).toBe(true);
+    expect(later).toEqual([true]);
+  });
+
+  it('keeps a re-entrant subscriber request as the final adapter gate state', async () => {
+    const h = makeHarness();
+    await h.session.connect();
+    const later: boolean[] = [];
+    h.session.on('input_muted', (muted) => {
+      if (muted) h.session.setInputMuted(false);
+    });
+    h.session.on('input_muted', (muted) => later.push(muted));
+
+    h.session.setInputMuted(true);
+
+    expect(h.session.inputMuted).toBe(false);
+    expect(h.inputEnabledCalls).toEqual([false, true]);
+    expect(later).toEqual([false]);
+  });
 });

@@ -523,8 +523,9 @@ export class RealtimeSession implements VoiceSession {
   setInputMuted(muted: boolean): void {
     if (this.#state === 'idle' || this.#state === 'error') return;
     if (this.#inputMuted === muted) return;
-    this.#setInputMutedState(muted);
+    this.#inputMuted = muted;
     this.#applyAdapterInputMute(muted);
+    this.#notifyInputMuted(muted);
   }
 
   /**
@@ -1058,7 +1059,23 @@ export class RealtimeSession implements VoiceSession {
   #setInputMutedState(next: boolean): void {
     if (next === this.#inputMuted) return;
     this.#inputMuted = next;
-    for (const handler of this.#inputMutedHandlers) handler(next);
+    this.#notifyInputMuted(next);
+  }
+
+  /**
+   * Subscriber failures stay isolated so they cannot unwind a mute change.
+   * Notification stops once a re-entrant subscriber has replaced the value,
+   * because that newer change already notified every subscriber.
+   */
+  #notifyInputMuted(next: boolean): void {
+    for (const handler of this.#inputMutedHandlers) {
+      if (this.#inputMuted !== next) return;
+      try {
+        handler(next);
+      } catch (error) {
+        this.#logger.warn('input_muted subscriber failed', error);
+      }
+    }
   }
 
   #applyAdapterInputMute(muted: boolean): void {
