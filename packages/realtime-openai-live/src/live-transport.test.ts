@@ -1570,3 +1570,87 @@ test('playbackControl maps blocked playback, notifies only on blocked transition
     Object.assign(globalThis, { MediaStream: originalStream });
   }
 });
+
+test('local Live barge-in reports browser VAD user speech as media observations', async () => {
+  const originalContext = globalThis.AudioContext;
+  const originalStream = globalThis.MediaStream;
+  let callbacks!: {
+    onSpeechStart(): Promise<void>;
+    onSpeechEnd(): Promise<void>;
+    onVADMisfire(): Promise<void>;
+  };
+  mock.module('@ricky0123/vad-web', () => ({
+    MicVAD: {
+      new: async (options: typeof callbacks) => {
+        callbacks = options;
+        return {
+          start: async () => {},
+          pause: async () => {},
+          destroy: async () => {},
+        };
+      },
+    },
+  }));
+  Object.assign(globalThis, {
+    MediaStream: Stream,
+    AudioContext: class {
+      state = 'running';
+      currentTime = 0;
+      async resume() {}
+      async close() {}
+    },
+  });
+  const h = harness({ playbackBargeIn: true });
+  const speech: unknown[] = [];
+  h.transport.observations.subscribe((event) => {
+    if (event.type === 'media' && 'userSpeech' in event.media)
+      speech.push(event.media.userSpeech);
+  });
+  try {
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    await callbacks.onSpeechStart();
+    await callbacks.onSpeechEnd();
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    expect(speech).toEqual(['active', 'inactive', 'active', 'inactive']);
+    await h.transport.disconnect();
+    await callbacks.onSpeechStart();
+    expect(speech.filter((value) => value !== 'unknown')).toEqual([
+      'active',
+      'inactive',
+      'active',
+      'inactive',
+    ]);
+  } finally {
+    await h.transport.disconnect();
+    Object.assign(globalThis, {
+      AudioContext: originalContext,
+      MediaStream: originalStream,
+    });
+  }
+});
+
+test('without barge-in the transport reports no browser user speech', async () => {
+  const h = harness();
+  const speech: unknown[] = [];
+  h.transport.observations.subscribe((event) => {
+    if (event.type === 'media' && 'userSpeech' in event.media)
+      speech.push(event.media.userSpeech);
+  });
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  h.peer.channel.event('session.input_transcript.delta', {
+    delta: 'hello',
+    start_ms: 0,
+    end_ms: 100,
+  });
+  await tick();
+  expect(speech).toEqual([]);
+  await h.transport.disconnect();
+  expect(speech.filter((value) => value !== 'unknown')).toEqual([]);
+});

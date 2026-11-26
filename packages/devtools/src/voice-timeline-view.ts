@@ -21,7 +21,7 @@ import {
   voiceGenerationLabel,
   voiceLifetimeLabel,
 } from './voice-timeline-controls.js';
-import type { VoiceLaneContext } from './voice-timeline.js';
+import { isUserSpeechSpan, type VoiceLaneContext } from './voice-timeline.js';
 
 const unavailableRequestCopy = {
   ambiguous: {
@@ -46,6 +46,7 @@ function label(event: PanelEvent): string {
     if (processing === 'active') return 'Processing active';
     return 'Processing changed';
   }
+  if (isUserSpeechSpan(event)) return 'Speech span';
   const labels: Record<string, string> = {
     'voice.tool.called': 'Tool called',
     'voice.tool.result': 'Tool result',

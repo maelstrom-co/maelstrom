@@ -19,6 +19,12 @@ export interface PlaybackBargeInOptions {
   readonly config: Extract<ResolvedBrowserVadConfig, { enabled: true }>;
   /** Reports fallback to provider-only interruption, without media or exception payloads. */
   readonly onUnavailable: () => void;
+  /**
+   * Reports local speech boundaries from the microphone detector: `'speaking'`
+   * on onset, `'silent'` on speech end or a short-speech misfire. Never called
+   * after the gate is destroyed or becomes unavailable.
+   */
+  readonly onUserSpeech?: (speech: 'speaking' | 'silent') => void;
 }
 
 const QUIET_MS = 200;
@@ -187,6 +193,7 @@ export function createPlaybackBargeIn(
           speaking = true;
           previouslyGated = gated;
           quietSince = undefined;
+          options.onUserSpeech?.('speaking');
           if (gated) return;
           gated = true;
           for (const [track, state] of tracks) {
@@ -198,12 +205,14 @@ export function createPlaybackBargeIn(
           if (retired) return;
           speaking = false;
           quietSince = undefined;
+          options.onUserSpeech?.('silent');
         },
         cancelTurn: async () => {
           if (retired) return;
           speaking = false;
           quietSince = undefined;
           if (!previouslyGated) restore();
+          options.onUserSpeech?.('silent');
         },
         onFailure: async () => unavailable(),
       });

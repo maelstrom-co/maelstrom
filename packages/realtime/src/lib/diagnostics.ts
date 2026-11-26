@@ -214,6 +214,22 @@ function attachDiagnosticSources(
     const releases: Unsubscribe[] = [];
     const initial = session.observations.getSnapshot();
     const fragments = new WeakSet(initial?.fragments ?? []);
+    let speechStartedAt: number | undefined;
+    const userSpeechSpan = (
+      userSpeech: string | undefined,
+    ): DiagnosticMetadata => {
+      if (userSpeech === 'active') {
+        speechStartedAt ??= Date.now();
+        return {};
+      }
+      if (userSpeech === undefined || speechStartedAt === undefined) return {};
+      const startedAt = speechStartedAt;
+      speechStartedAt = undefined;
+      return {
+        userSpeechStartedAt: startedAt,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    };
     const reportTransport = (final = false) => {
       if (!observed()) return;
       if ((!active || isRetired()) && !final) return;
@@ -269,6 +285,7 @@ function attachDiagnosticSources(
                     microphone: event.media.microphone,
                     userSpeech: event.media.userSpeech,
                     incomingAudio: event.media.incomingAudio,
+                    ...userSpeechSpan(event.media.userSpeech),
                   }
                 : {}),
               ...(event.type === 'processing'

@@ -173,6 +173,38 @@ test('live voice diagnostics expose media and fragment facts without reading tra
   detach();
 });
 
+test('user speech ending after it was active reports the speech span duration', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(1_750);
+    h.observe({ type: 'media', media: { incomingAudio: 'active' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const media = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata);
+  expect(media[0]?.durationMs).toBeUndefined();
+  expect(media[1]?.durationMs).toBeUndefined();
+  expect(media[2]).toMatchObject({
+    userSpeech: 'inactive',
+    userSpeechStartedAt: 1_000,
+    durationMs: 750,
+  });
+  expect(media[3]?.durationMs).toBeUndefined();
+  detach();
+});
+
 test('diagnostic attachment projects normalized responses and does not trust native lifecycle metadata', () => {
   const h = harness();
   const events: DiagnosticEvent[] = [];
