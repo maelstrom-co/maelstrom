@@ -36,9 +36,11 @@ let connector: EngineConnector;
 let orchestrator: Orchestrator | undefined;
 let chartHostWidth = 1024;
 const seededLayouts: Array<TilingLayout | undefined> = [];
-const m = createMaelstrom({ vessels: [] }).with((context) => ({
-  useContext: context.useMaelstromContext,
-}));
+const m = createMaelstrom({ vessels: [], intentRoute: 'agent' }).with(
+  (context) => ({
+    useContext: context.useMaelstromContext,
+  }),
+);
 type ProviderProps = ComponentProps<typeof m.Provider>;
 
 vi.doMock('./maelstrom', () => ({

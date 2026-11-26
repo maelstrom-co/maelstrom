@@ -1,5 +1,8 @@
 import { SessionId } from '@maelstrom-co/protocol';
-import type { AgentRunState } from '@maelstrom-co/react';
+import {
+  defaultShouldRestoreDraft,
+  type IntentSubmitFailure,
+} from '@maelstrom-co/react';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -16,7 +19,10 @@ import {
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
 import { preloadHostedVadAssets } from '../lib/hosted-vad';
-import { isLiveInvalidKeyError } from '../lib/invalid-key-error';
+import {
+  isLiveInvalidKeyError,
+  isProviderFailure,
+} from '../lib/invalid-key-error';
 import { liveErrorMessage } from '../lib/live-exchange';
 import {
   clearPlaygroundKey,
@@ -33,7 +39,6 @@ import { ShopIntentForm } from './shop-intent-form';
 import { ShopKeylessPreview } from './shop-keyless-preview';
 import { ShopOptionSync } from './shop-option-sync';
 import { ShopVoiceCorner } from './shop-voice-corner';
-import { useShopAgentSubmit } from './use-shop-agent-submit';
 import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
 
 import './shop.css';
@@ -202,15 +207,12 @@ function ShopWorkspace({
   autoStartVoice,
   onAutoStartVoiceHandled,
 }: ShopWorkspaceProps) {
-  const { connectionStatus, isProcessing } = shopM.useMaelstrom();
-  const { run: agentRun } = shopM.useAgentRun();
+  const { connectionStatus } = shopM.useMaelstrom();
   const {
     state: voiceState,
     error: voiceError,
     connect: connectVoice,
   } = shopM.useVoice();
-  const thinking =
-    isProcessing || voiceState === 'thinking' || isAgentRunOpen(agentRun);
   const browserKeyMode = usesBrowserKey();
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -245,13 +247,27 @@ function ShopWorkspace({
     );
   }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
-  const { submit, changeDraft } = useShopAgentSubmit({
-    intent,
-    onIntentChange,
-    needsKey,
-    browserKeyMode,
-    onBlockedSubmit,
-    onMintError,
+  const {
+    setDraft: changeDraft,
+    submit,
+    busy: thinking,
+  } = shopM.useIntentSubmit({
+    draft: intent,
+    onDraftChange: onIntentChange,
+    voiceState,
+    beforeSubmit: () => {
+      if (!needsKey) return true;
+      onBlockedSubmit();
+      return false;
+    },
+    shouldRestoreDraft: (failure) =>
+      defaultShouldRestoreDraft(failure) ||
+      isShopProviderFailure(browserKeyMode, failure),
+    onFailure: (failure) => {
+      if (isShopProviderFailure(browserKeyMode, failure)) {
+        onMintError(MODEL_FAILURE_MESSAGE);
+      }
+    },
   });
 
   // The resume waits for a connected session. A refusal while a key is still
@@ -261,7 +277,7 @@ function ShopWorkspace({
     let live = true;
     queueMicrotask(() => {
       if (!live) return;
-      if (!intent.trim() || submit()) onResumeIntentHandled();
+      if (!intent.trim() || submit()?.accepted) onResumeIntentHandled();
     });
     return () => {
       live = false;
@@ -338,10 +354,17 @@ function ConnectionStatus() {
   );
 }
 
-function isAgentRunOpen(run: AgentRunState | null): boolean {
+const MODEL_FAILURE_MESSAGE =
+  'The model request failed. Check your API key and try again.';
+
+function isShopProviderFailure(
+  browserKeyMode: boolean,
+  failure: IntentSubmitFailure,
+): boolean {
   return (
-    run?.status === 'pending' ||
-    run?.status === 'working' ||
-    run?.status === 'streaming'
+    browserKeyMode &&
+    failure.route === 'agent' &&
+    failure.result.status === 'failed' &&
+    isProviderFailure(failure.result.error)
   );
 }

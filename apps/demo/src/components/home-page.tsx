@@ -236,13 +236,12 @@ function DemoApp({
   autoStartVoice,
   onAutoStartVoiceHandled,
 }: DemoAppProps) {
-  const { isProcessing } = m.useMaelstrom();
   const {
     state: voiceState,
     error: voiceError,
     connect: connectVoice,
   } = m.useVoice();
-  const thinking = isProcessing || voiceState === 'thinking';
+  const { busy: thinking } = m.useIntentSubmit({ voiceState });
   const browserKeyMode = usesBrowserKey();
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
 

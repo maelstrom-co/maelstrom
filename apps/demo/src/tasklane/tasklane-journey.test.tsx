@@ -1,16 +1,23 @@
 // @vitest-environment happy-dom
 
 import {
+  agentAcceptedEvent,
+  agentFinishedEvent,
+  createMockAgentConnector,
+} from '@maelstrom-co/client/_testing';
+import {
   ActionName,
   type ChartRequestMessage,
   InstanceId,
   type MaelstromResponse,
+  RunId,
   type TilingLayout,
   tilingLeafToken,
   VariantName,
   type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
+import type { RealtimeInstance } from '@maelstrom-co/realtime';
 import {
   act,
   cleanup,
@@ -76,16 +83,18 @@ const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   plans: new Map<string, () => ExecutionPlan>(),
   layouts: new Map<string, TilingLayout>(),
+  connectorOverride: null as ReturnType<typeof createMockConnector> | null,
 }));
 
 vi.mock('../lib/connector', () => ({
-  createDemoConnector: () => ({
-    ...createMockConnector(),
-    process: async (message: ChartRequestMessage) => {
-      engine.requests.push(message);
-      return cannedResponse(message);
+  createDemoConnector: () =>
+    engine.connectorOverride ?? {
+      ...createMockConnector(),
+      process: async (message: ChartRequestMessage) => {
+        engine.requests.push(message);
+        return cannedResponse(message);
+      },
     },
-  }),
 }));
 
 type ExecutionPlan = MaelstromResponse['executionPlan'];
@@ -130,6 +139,7 @@ beforeEach(() => {
   engine.requests = [];
   engine.plans = new Map();
   engine.layouts = new Map();
+  engine.connectorOverride = null;
   clearPlaygroundKey();
   resetTasklane();
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
@@ -788,3 +798,90 @@ function resetTasklane(): void {
   __resetTaskDetailStoreForTests();
   __resetClickReceiptsForTests();
 }
+
+function realtimeInstance(session: FakeRealtimeSession): RealtimeInstance {
+  const instance = (session.options as { instance?: RealtimeInstance })
+    .instance;
+  if (!instance) throw new Error('expected realtime instance');
+  return instance;
+}
+
+describe('Tasklane unified typed and voice routing', () => {
+  it('routes both typed and spoken intents to the configured single-request route', async () => {
+    setPlaygroundKey('sk-tasklane-routes-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    const voice = realtimeInstance(FakeRealtimeSession.instances.at(-1)!);
+    expect('sendAgentMessage' in voice).toBe(false);
+
+    await ask('typed tasklane intent');
+    const scope = voice.createIntentScope?.();
+    if (!scope) throw new Error('expected createIntentScope');
+    await act(async () => {
+      await scope.enqueueIntent('spoken tasklane intent').result;
+    });
+
+    const intents = engine.requests.flatMap((req) =>
+      req.request.context.updateReasons
+        .filter((r) => r.type === 'user_intent')
+        .map((r) => r.intent),
+    );
+    expect(intents).toContain('typed tasklane intent');
+    expect(intents).toContain('spoken tasklane intent');
+  });
+
+  it('moves both typed and spoken intents together when intentRoute is flipped to agent', async () => {
+    const agent = createMockAgentConnector();
+    function AgentTasklaneHarness() {
+      const { draft, setDraft, submit } = tasklaneM.useIntentSubmit();
+      tasklaneM.useVoice();
+      return (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <input
+            aria-label="Ask Tasklane"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <button type="submit">Send</button>
+        </form>
+      );
+    }
+
+    render(
+      <tasklaneM.Provider connector={agent.connector} intentRoute="agent">
+        <AgentTasklaneHarness />
+      </tasklaneM.Provider>,
+    );
+    await waitFor(() => expect(FakeRealtimeSession.instances).toHaveLength(1));
+
+    const voice = realtimeInstance(FakeRealtimeSession.instances.at(-1)!);
+    expect(typeof voice.sendAgentMessage).toBe('function');
+
+    await ask('typed agent intent');
+    const voiceRun = voice.sendAgentMessage!('spoken agent intent');
+    await waitFor(() => expect(agent.inputs).toHaveLength(2));
+
+    expect(agent.inputs).toMatchObject([
+      { type: 'utterance', text: 'typed agent intent', source: 'text' },
+      { type: 'utterance', text: 'spoken agent intent', source: 'voice' },
+    ]);
+    const spokenInput = agent.inputs[1];
+    if (!spokenInput || spokenInput.type !== 'utterance') {
+      throw new Error('expected spoken utterance');
+    }
+    const runId = RunId('tasklane-voice-run');
+    agent.emit(agentAcceptedEvent(spokenInput.inputId, runId, 'ui_only'));
+    agent.emit(agentFinishedEvent(runId, { reply: 'Done' }));
+    expect(await voiceRun).toMatchObject({ status: 'finished', reply: 'Done' });
+    expect(engine.requests).toHaveLength(0);
+  });
+});

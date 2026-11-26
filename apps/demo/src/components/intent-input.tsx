@@ -3,8 +3,12 @@ import type {
   IntentSubmission,
   RequestOutcome,
 } from '@maelstrom-co/client';
+import {
+  defaultShouldRestoreDraft,
+  type IntentSubmitFailure,
+} from '@maelstrom-co/react';
 import { useStore } from '@tanstack/react-store';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   hasReportedFailure,
@@ -46,12 +50,6 @@ export function IntentInput({
   const needsKey = browserKeyMode && !apiKey;
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const outcomes = m.useRequestOutcomes();
-  const draftRevision = useRef(0);
-  const latestSubmission = useRef<IntentSubmission | null>(null);
-  const current = useRef({ intent, onIntentChange, onMintError });
-  useLayoutEffect(() => {
-    current.current = { intent, onIntentChange, onMintError };
-  });
   const lifetime = useRef({
     active: true,
     subscriptions: new Set<() => void>(),
@@ -68,60 +66,50 @@ export function IntentInput({
     };
   }, [enqueueIntent]);
 
-  const changeDraft = (value: string) => {
-    draftRevision.current++;
-    onIntentChange(value);
-  };
-
-  const submit = (): boolean => {
-    if (!intent.trim()) return false;
-    if (needsKey) {
+  const { setDraft: changeDraft, submit } = m.useIntentSubmit({
+    draft: intent,
+    onDraftChange: onIntentChange,
+    voiceState,
+    beforeSubmit: () => {
+      if (!needsKey) return true;
       onBlockedSubmit();
       return false;
-    }
-    const text = intent;
-    const ticket = enqueueIntent(text);
-    const owner = lifetime.current;
-    latestSubmission.current = ticket;
-    if (ticket.accepted) changeDraft('');
-    const revision = draftRevision.current;
-    const update = () => {
-      if (!owner.active) return;
-      setEntries((previous) =>
-        trimFeedback([
-          ...previous.filter((entry) => entry.ticket !== ticket),
-          {
-            ticket,
-            text,
-            snapshot: ticket.store.state,
-          },
-        ]),
-      );
-    };
-    const subscription = ticket.store.subscribe(update);
-    const unsubscribe = () => subscription.unsubscribe();
-    owner.subscriptions.add(unsubscribe);
-    update();
-    void ticket.result.then((result) => {
-      unsubscribe();
-      owner.subscriptions.delete(unsubscribe);
-      if (!owner.active) return;
-      if (
-        browserKeyMode &&
-        (result.status === 'failed' || result.status === 'unknown') &&
-        isInvalidKeyError(result.error)
-      ) {
-        if (
-          latestSubmission.current === ticket &&
-          draftRevision.current === revision &&
-          !current.current.intent
-        )
-          current.current.onIntentChange(text);
-        current.current.onMintError('Invalid API key.');
+    },
+    shouldRestoreDraft: (failure) =>
+      defaultShouldRestoreDraft(failure) ||
+      isHomeKeyFailure(browserKeyMode, failure),
+    onFailure: (failure) => {
+      if (isHomeKeyFailure(browserKeyMode, failure)) {
+        onMintError('Invalid API key.');
       }
-    });
-    return ticket.accepted;
-  };
+    },
+    onSubmitted: (submitted, text) => {
+      if (submitted.route !== 'single-request') return;
+      const ticket = submitted.submission;
+      const owner = lifetime.current;
+      const update = () => {
+        if (!owner.active) return;
+        setEntries((previous) =>
+          trimFeedback([
+            ...previous.filter((entry) => entry.ticket !== ticket),
+            {
+              ticket,
+              text,
+              snapshot: ticket.store.state,
+            },
+          ]),
+        );
+      };
+      const subscription = ticket.store.subscribe(update);
+      const unsubscribe = () => subscription.unsubscribe();
+      owner.subscriptions.add(unsubscribe);
+      update();
+      void ticket.result.then(() => {
+        unsubscribe();
+        owner.subscriptions.delete(unsubscribe);
+      });
+    },
+  });
 
   // A refused resume stays pending and retries only when processing changes,
   // so a full queue is retried as it drains rather than in a tight loop.
@@ -130,7 +118,7 @@ export function IntentInput({
     let live = true;
     queueMicrotask(() => {
       if (!live) return;
-      if (!intent.trim() || submit()) onResumeIntentHandled();
+      if (!intent.trim() || submit()?.accepted) onResumeIntentHandled();
     });
     return () => {
       live = false;
@@ -217,6 +205,19 @@ export function IntentInput({
         </datalist>
       </form>
     </div>
+  );
+}
+
+function isHomeKeyFailure(
+  browserKeyMode: boolean,
+  failure: IntentSubmitFailure,
+): boolean {
+  return (
+    browserKeyMode &&
+    failure.route === 'single-request' &&
+    (failure.result.status === 'failed' ||
+      failure.result.status === 'unknown') &&
+    isInvalidKeyError(failure.result.error)
   );
 }
 
