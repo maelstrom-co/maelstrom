@@ -71,6 +71,11 @@ function useFadingCaption(
       ? undefined
       : JSON.stringify([generation, caption.id, caption.text]);
   const [fadedKey, setFadedKey] = useState<string>();
+  const [previousKey, setPreviousKey] = useState(key);
+  if (previousKey !== key) {
+    setPreviousKey(key);
+    setFadedKey(undefined);
+  }
 
   useEffect(() => {
     if (key === undefined) return;

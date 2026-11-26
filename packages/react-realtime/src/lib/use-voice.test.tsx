@@ -1726,6 +1726,43 @@ describe('maelstromRealtime() useVoiceCaptions', () => {
     expect(captions().user?.faded).toBe(true);
   });
 
+  it('restarts the delay when a revised caption returns to earlier text', async () => {
+    jest.useFakeTimers();
+    const { session, captions } = await renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS);
+    });
+    expect(captions().user?.faded).toBe(true);
+
+    await act(async () => {
+      session.emitObservation({
+        generation: 1,
+        captions: [caption({ text: 'Show my tasks for' })],
+      });
+    });
+    expect(captions().user?.faded).toBe(false);
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS - 1);
+    });
+
+    await act(async () => {
+      session.emitObservation({ generation: 1, captions: [caption()] });
+    });
+    expect(captions().user).toEqual({ text: 'Show my tasks', faded: false });
+    await act(async () => {
+      jest.advanceTimersByTime(FADE_DELAY_MS - 1);
+    });
+    expect(captions().user?.faded).toBe(false);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(captions().user).toEqual({ text: 'Show my tasks', faded: true });
+  });
+
   it('keeps a faded caption faded when only the other role changes', async () => {
     jest.useFakeTimers();
     const { session, captions } = await renderCaptions();
