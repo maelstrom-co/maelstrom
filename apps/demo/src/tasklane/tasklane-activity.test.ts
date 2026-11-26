@@ -25,6 +25,8 @@ describe('change notes', () => {
       { kind: 'urgency', subject: 'J', detail: 'high' },
       { kind: 'status', subject: 'K', detail: 'doing' },
       { kind: 'status', subject: 'L', detail: 'blocked' },
+      { kind: 'dueDate', subject: 'M', detail: '2026-05-01' },
+      { kind: 'dueDate', subject: 'M', detail: null },
       { kind: 'feedback', subject: 'feedback', detail: 'truncated' },
       { kind: 'feedback', subject: 'feedback', detail: null },
     ];
@@ -43,6 +45,8 @@ describe('change notes', () => {
       'Set "J" to high urgency',
       'Marked "K" as in progress',
       'Marked "L" as blocked',
+      'Set "M" due 2026-05-01',
+      'Cleared the due date on "M"',
       'Replaced the feedback (truncated to 2000 characters)',
       'Replaced the feedback',
     ]);
@@ -130,6 +134,56 @@ describe('request receipts', () => {
       text: '✓ Marked 3 tasks as done · ✓ Marked "Write demo copy" as in progress',
       tone: 'success',
     });
+  });
+
+  it('groups due date changes by the date they set, and cleared dates together', () => {
+    expect(
+      summariseReceipt(
+        outcome([
+          ran(
+            'setDueDate',
+            { task: 'TL-1 A', dueDate: '2026-05-01' },
+            'Set "A" due 2026-05-01',
+          ),
+          ran(
+            'setDueDate',
+            { task: 'TL-2 B', dueDate: '2026-05-01' },
+            'Set "B" due 2026-05-01',
+          ),
+          ran(
+            'setDueDate',
+            { task: 'TL-3 C', dueDate: '2026-06-01' },
+            'Set "C" due 2026-06-01',
+          ),
+          ran(
+            'setDueDate',
+            { task: 'TL-4 D', dueDate: 'none' },
+            'Cleared the due date on "D"',
+          ),
+          ran(
+            'setDueDate',
+            { task: 'TL-5 E', dueDate: 'none' },
+            'Cleared the due date on "E"',
+          ),
+        ]),
+      )?.text,
+    ).toBe(
+      '✓ Set 2 tasks due 2026-05-01 · ✓ Set "C" due 2026-06-01 · ✓ Cleared due dates on 2 tasks',
+    );
+  });
+
+  it('shows a skipped or unknown due date change as not confirmed', () => {
+    expect(
+      summariseReceipt(
+        outcome([
+          {
+            instanceId: TASKS,
+            action: ActionName('setDueDate'),
+            status: 'unknown',
+          },
+        ]),
+      ),
+    ).toEqual({ text: '? Not confirmed: set a due date', tone: 'problem' });
   });
 
   it('pluralises descriptions', () => {

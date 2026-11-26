@@ -369,6 +369,11 @@ describe('Tasks Vessel by hand', () => {
     expect(taskRow('Record launch video').textContent).toContain(
       'Due 2026-05-01',
     );
+    await waitFor(() =>
+      expect(getManualReceipt()?.line?.text).toBe(
+        '✓ Set "Record launch video" due 2026-05-01',
+      ),
+    );
   });
 
   it('nests a task under a parent and offers no parent that would make a cycle', async () => {
