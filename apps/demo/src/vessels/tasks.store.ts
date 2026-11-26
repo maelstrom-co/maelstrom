@@ -75,9 +75,9 @@ export function taskReferenceLabel(item: Subtask | Task): string {
 
 /**
  * Resolves an id (`T-2`, `T-4.1`), a published label
- * (`T-2 Prep design review notes (open)`) or a title. A bare id that names
- * nothing never falls back to a title match, and a reference led by such an id
- * resolves only to a task whose title is the whole reference.
+ * (`T-2 Prep design review notes (open)`) or a title. A reference led by an id
+ * that names no task resolves only to a task whose title is the whole
+ * reference.
  */
 export function resolveTaskReference(
   tasks: readonly Task[],

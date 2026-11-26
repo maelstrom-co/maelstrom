@@ -105,9 +105,8 @@ export function entryReferenceLabel(entry: JournalEntry): string {
 
 /**
  * Resolves an id (`J-2`), a published label (`J-2 Architecture review`) or a
- * title. A bare id that names nothing never falls back to a title match, and
- * a reference led by such an id resolves only to an entry whose title is the
- * whole reference.
+ * title. A reference led by an id that names no entry resolves only to an
+ * entry whose title is the whole reference.
  */
 export function resolveEntryReference(
   entries: readonly JournalEntry[],
