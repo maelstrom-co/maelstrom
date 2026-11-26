@@ -80,6 +80,12 @@ export type FlexibleTableFailure =
     }
   | {
       readonly ok: false;
+      readonly reason: 'ambiguous_column';
+      readonly query: string;
+      readonly candidates: readonly string[];
+    }
+  | {
+      readonly ok: false;
       readonly reason: 'not_free_column';
       readonly column: TableColumn;
     }
@@ -294,10 +300,11 @@ export const flexibleTableActions = {
         };
       }
       for (const ref of parsed.references) {
-        if (
-          !resolveColumn(ref, state.columns) &&
-          !resolveTaskField(ref, tasks)
-        ) {
+        const lookup = lookupColumn(ref, state.columns);
+        if (lookup.kind === 'ambiguous') {
+          return ambiguousColumnFailure(ref, lookup.candidates);
+        }
+        if (lookup.kind === 'not_found' && !resolveTaskField(ref, tasks)) {
           return { ok: false, reason: 'unknown_column', query: ref };
         }
       }
@@ -314,10 +321,9 @@ export const flexibleTableActions = {
   },
 
   removeColumn(columnRef: string): FlexibleTableResult<TableColumn> {
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     const { [found.id]: _removed, ...restCells } = state.cells;
     setState({
       ...state,
@@ -336,10 +342,9 @@ export const flexibleTableActions = {
   ): FlexibleTableResult<TableColumn> {
     const label = newLabel.trim();
     if (!label) return { ok: false, reason: 'empty_label' };
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     if (found.label === label) {
       return { ok: true, changed: false, value: found };
     }
@@ -360,10 +365,9 @@ export const flexibleTableActions = {
     if (!Number.isInteger(position) || position < 1) {
       return { ok: false, reason: 'bad_position', position };
     }
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     const currentIndex = state.columns.findIndex((col) => col.id === found.id);
     const targetIndex = Math.min(position - 1, state.columns.length - 1);
     if (currentIndex === targetIndex) {
@@ -384,10 +388,9 @@ export const flexibleTableActions = {
     columnRef: string,
     value: string,
   ): FlexibleTableResult {
-    const foundColumn = resolveColumn(columnRef, state.columns);
-    if (!foundColumn) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const foundColumn = resolved.column;
     if (foundColumn.kind !== 'free') {
       return { ok: false, reason: 'not_free_column', column: foundColumn };
     }
@@ -433,10 +436,9 @@ export const flexibleTableActions = {
     directionInput = 'asc',
     add = false,
   ): FlexibleTableResult<SortRule> {
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     const direction = resolveSortDirection(directionInput);
     if (!direction) {
       return { ok: false, reason: 'unknown_direction', query: directionInput };
@@ -467,10 +469,9 @@ export const flexibleTableActions = {
     opInput: string,
     value: string,
   ): FlexibleTableResult<FilterRule> {
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     const op = resolveFilterOp(opInput);
     if (!op) {
       return { ok: false, reason: 'unknown_op', query: opInput };
@@ -507,10 +508,9 @@ export const flexibleTableActions = {
       setState({ ...state, groupBy: null });
       return { ok: true, changed: true, value: null };
     }
-    const found = resolveColumn(columnRef, state.columns);
-    if (!found) {
-      return { ok: false, reason: 'unknown_column', query: columnRef };
-    }
+    const resolved = findColumn(columnRef);
+    if (!resolved.ok) return resolved;
+    const found = resolved.column;
     if (state.groupBy === found.id) {
       return { ok: true, changed: false, value: found.id };
     }
@@ -564,6 +564,8 @@ export function describeTableFailure(failure: FlexibleTableFailure): string {
       return `Invalid formula "${failure.formula}": ${failure.message}`;
     case 'unknown_column':
       return `Unknown column "${failure.query}". Current columns: ${state.columns.map((c) => `${c.id} (${c.label})`).join(', ')}.`;
+    case 'ambiguous_column':
+      return `"${failure.query}" matches more than one column: ${failure.candidates.join(', ')}. Use the column id.`;
     case 'not_free_column':
       return `Column "${failure.column.label}" is a ${failure.column.kind} column and cannot be edited directly.`;
     case 'bad_position':
@@ -720,11 +722,12 @@ function evaluateCell(
 
   const otherColumns = tableState.columns.filter((col) => col.id !== column.id);
   const evaluated = evaluateFormulaNode(parsed.ast, (ref) => {
-    const targetColumn = resolveColumn(ref, otherColumns);
-    if (targetColumn) {
+    const lookup = lookupColumn(ref, otherColumns);
+    if (lookup.kind === 'ambiguous') return { found: true, value: undefined };
+    if (lookup.kind === 'found') {
       const cell = evaluateCell(
         task,
-        targetColumn,
+        lookup.column,
         tableState,
         parentIds,
         visiting,
@@ -921,27 +924,64 @@ function compareCells(
   });
 }
 
-function resolveColumn(
+function findColumn(
+  columnRef: string,
+): { readonly ok: true; readonly column: TableColumn } | FlexibleTableFailure {
+  const lookup = lookupColumn(columnRef, state.columns);
+  if (lookup.kind === 'found') return { ok: true, column: lookup.column };
+  if (lookup.kind === 'ambiguous') {
+    return ambiguousColumnFailure(columnRef, lookup.candidates);
+  }
+  return { ok: false, reason: 'unknown_column', query: columnRef };
+}
+
+function ambiguousColumnFailure(
+  query: string,
+  candidates: readonly TableColumn[],
+): FlexibleTableFailure {
+  return {
+    ok: false,
+    reason: 'ambiguous_column',
+    query,
+    candidates: candidates.map((col) => `${col.id} (${col.label})`),
+  };
+}
+
+type ColumnLookup =
+  | { readonly kind: 'found'; readonly column: TableColumn }
+  | {
+      readonly kind: 'ambiguous';
+      readonly candidates: readonly TableColumn[];
+    }
+  | { readonly kind: 'not_found' };
+
+function lookupColumn(
   query: string,
   columns: readonly TableColumn[],
-): TableColumn | undefined {
-  const trimmed = query.trim().toLowerCase();
-  if (!trimmed) return undefined;
-  const slug = slugify(trimmed);
-  const aliasedField = lookupFieldAlias(trimmed) ?? lookupFieldAlias(slug);
+): ColumnLookup {
+  const exact = query.trim();
+  if (!exact) return { kind: 'not_found' };
+  const lower = exact.toLowerCase();
+  const slug = slugify(lower);
+  const aliasedField = lookupFieldAlias(lower) ?? lookupFieldAlias(slug);
 
-  return (
-    columns.find((col) => col.id.toLowerCase() === trimmed) ??
-    columns.find((col) => col.label.trim().toLowerCase() === trimmed) ??
-    columns.find((col) => slugify(col.label) === slug) ??
-    columns.find(
-      (col) =>
-        col.kind === 'field' &&
-        col.field !== undefined &&
-        (col.field.toLowerCase() === trimmed ||
-          (aliasedField !== undefined && col.field === aliasedField)),
-    )
-  );
+  const tiers: readonly ((col: TableColumn) => boolean)[] = [
+    (col) => col.id === exact,
+    (col) => col.label.trim().toLowerCase() === lower,
+    (col) => slugify(col.label) === slug,
+    (col) => col.id.toLowerCase() === lower,
+    (col) =>
+      col.kind === 'field' &&
+      col.field !== undefined &&
+      (col.field.toLowerCase() === lower ||
+        (aliasedField !== undefined && col.field === aliasedField)),
+  ];
+  for (const matches of tiers) {
+    const hits = columns.filter(matches);
+    if (hits.length === 1) return { kind: 'found', column: hits[0] };
+    if (hits.length > 1) return { kind: 'ambiguous', candidates: hits };
+  }
+  return { kind: 'not_found' };
 }
 
 function resolveTaskField(

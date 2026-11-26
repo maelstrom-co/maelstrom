@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { flexibleTableVessel } from '../vessels/flexible-table.vessel.def';
 import {
   __resetFlexibleTableStoreForTests,
+  describeTableFailure,
   flexibleTableActions,
   getFlexibleTableSnapshot,
   groupProjectedRows,
@@ -556,5 +557,87 @@ describe('flexible-table review regressions', () => {
         source: 'estimate',
       }),
     ).toMatchObject({ ok: true, value: { field: 'estimate' } });
+  });
+
+  it('rejects a label that matches more than one column', () => {
+    flexibleTableActions.addColumn({ label: 'Status Notes', kind: 'free' });
+    flexibleTableActions.addColumn({ label: 'Status Notes', kind: 'free' });
+    flexibleTableActions.setCell('TL-1', 'status_notes', 'keep');
+
+    const ambiguous = {
+      ok: false,
+      reason: 'ambiguous_column',
+      query: 'Status Notes',
+      candidates: [
+        'status_notes (Status Notes)',
+        'status_notes_2 (Status Notes)',
+      ],
+    };
+    const removed = flexibleTableActions.removeColumn('Status Notes');
+    expect(removed).toMatchObject(ambiguous);
+    expect(getFlexibleTableSnapshot().columns.map((col) => col.id)).toEqual(
+      expect.arrayContaining(['status_notes', 'status_notes_2']),
+    );
+    expect(getFlexibleTableSnapshot().cells.status_notes).toEqual({
+      'TL-1': 'keep',
+    });
+    if (removed.ok) throw new Error('expected an ambiguous failure');
+    const message = describeTableFailure(removed);
+    expect(message).toContain('status_notes (Status Notes)');
+    expect(message).toContain('status_notes_2 (Status Notes)');
+
+    expect(flexibleTableActions.sortBy('Status Notes')).toMatchObject(
+      ambiguous,
+    );
+    expect(
+      flexibleTableActions.setCell('TL-1', 'Status Notes', 'x'),
+    ).toMatchObject(ambiguous);
+    expect(
+      flexibleTableActions.renameColumn('Status Notes', 'Other'),
+    ).toMatchObject(ambiguous);
+    expect(getFlexibleTableSnapshot().cells.status_notes).toEqual({
+      'TL-1': 'keep',
+    });
+
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Sum',
+        kind: 'computed',
+        formula: 'status_notes + 1',
+      }),
+    ).toMatchObject({ ok: true });
+
+    expect(flexibleTableActions.removeColumn('status_notes_2')).toMatchObject({
+      ok: true,
+      value: { id: 'status_notes_2' },
+    });
+  });
+
+  it('rejects a single-word label shared by two columns but keeps the exact id', () => {
+    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
+    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
+
+    expect(flexibleTableActions.removeColumn('Notes')).toMatchObject({
+      ok: false,
+      reason: 'ambiguous_column',
+      candidates: ['notes (Notes)', 'notes_2 (Notes)'],
+    });
+    expect(flexibleTableActions.removeColumn('notes')).toMatchObject({
+      ok: true,
+      value: { id: 'notes' },
+    });
+  });
+
+  it('rejects an ambiguous formula reference', () => {
+    flexibleTableActions.addColumn({ label: 'Score', kind: 'free' });
+    flexibleTableActions.addColumn({ label: 'Score', kind: 'free' });
+
+    expect(
+      flexibleTableActions.addColumn({
+        label: 'Double',
+        kind: 'computed',
+        formula: 'Score * 2',
+      }),
+    ).toMatchObject({ ok: false, reason: 'ambiguous_column', query: 'Score' });
   });
 });

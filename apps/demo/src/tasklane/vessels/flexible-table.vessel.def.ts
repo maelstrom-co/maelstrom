@@ -48,7 +48,8 @@ const FLEXIBLE_TABLE_ACTIONS = [
   },
   {
     name: 'removeColumn',
-    description: 'Remove a column from the table by its id or label.',
+    description:
+      'Remove a column from the table by its id or label. If a label matches several columns the action fails and lists their ids, then pass the id.',
     parameters: [
       {
         name: 'column',
