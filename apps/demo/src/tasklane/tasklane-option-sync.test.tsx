@@ -74,6 +74,7 @@ const TASK_PARAMETER_ACTIONS = [
   'assignTask',
   'setUrgency',
   'setStatus',
+  'setDueDate',
   'addToMyPriorities',
   'removeFromMyPriorities',
   'removeTask',
@@ -170,17 +171,20 @@ describe('projectTasksDefinition', () => {
       source: 'Make the panels editable by hand.',
     });
     projectTaskActions.setStatus('TL-3', 'doing');
+    projectTaskActions.setDueDate('TL-3', '2026-04-24');
     projectTaskActions.addToMyPriorities('TL-3');
+    const createdTask = getProjectTasksSnapshot().tasks[2];
+    if (!createdTask) throw new Error('expected TL-3');
     const { description } = projectTasksDefinition(getProjectTasksSnapshot());
 
     expect(description.startsWith(projectTasksVessel.description)).toBe(true);
     const summary = description.slice(projectTasksVessel.description.length);
     expect(summary).toContain(TASK_SUMMARY_HEADING);
     expect(summary).toContain(
-      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, status todo, not in priorities, description "Refresh the setup steps for the demo app."',
+      'TL-1 "Update demo README": top level, assignee Alex, urgency normal, status todo, not in priorities, created 2026-04-06, due 2026-04-17, description "Refresh the setup steps for the demo app."',
     );
     expect(summary).toContain(
-      'TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, status doing, priority #1, description "Explain the host app", from feedback "Make the panels editable by hand."',
+      `TL-3 "Write demo copy": parent TL-1, assignee Chris, urgency high, status doing, priority #1, created ${createdTask.createdAt}, due 2026-04-24, description "Explain the host app", from feedback "Make the panels editable by hand."`,
     );
   });
 

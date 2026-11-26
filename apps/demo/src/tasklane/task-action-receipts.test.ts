@@ -146,3 +146,37 @@ describe('status receipts', () => {
     );
   });
 });
+
+describe('due date receipts', () => {
+  it('reports setting and clearing a task due date', () => {
+    reportTaskChange(
+      'setDueDate',
+      projectTaskActions.setDueDate('TL-2', '2026-05-01'),
+    );
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Set "Record launch video" due 2026-05-01',
+    );
+    reportTaskChange(
+      'setDueDate',
+      projectTaskActions.setDueDate('TL-2', 'none'),
+    );
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Cleared the due date on "Record launch video"',
+    );
+  });
+
+  it('names an invalid due date in the failure receipt and returns a readable error', () => {
+    const result = reportTaskChange(
+      'setDueDate',
+      projectTaskActions.setDueDate('TL-1', 'next Friday'),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.error.message).toBe(
+      'Due date must be an ISO date (YYYY-MM-DD) or "none", got "next Friday".',
+    );
+    expect(getLatestReceipt()?.text).toBe(
+      '✗ Couldn\'t set the due date to "next Friday"',
+    );
+  });
+});

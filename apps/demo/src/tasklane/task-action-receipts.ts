@@ -28,7 +28,8 @@ type TaskChangeAction =
   | 'setParent'
   | 'assignTask'
   | 'setUrgency'
-  | 'setStatus';
+  | 'setStatus'
+  | 'setDueDate';
 type PriorityAction = 'addToMyPriorities' | 'removeFromMyPriorities';
 
 const VERBS: Readonly<Record<string, string>> = {
@@ -38,6 +39,7 @@ const VERBS: Readonly<Record<string, string>> = {
   assignTask: 'assign',
   setUrgency: 'change the urgency of',
   setStatus: 'change the status of',
+  setDueDate: 'set the due date of',
   addToMyPriorities: 'add to your priorities',
   removeFromMyPriorities: 'remove from your priorities',
   removeTask: 'delete',
@@ -186,6 +188,8 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
       return `Couldn't set the urgency to "${failure.query}"`;
     case 'unknown_status':
       return `Couldn't set the status to "${failure.query}"`;
+    case 'invalid_due_date':
+      return `Couldn't set the due date to "${failure.query}"`;
     case 'bad_position':
       return `Couldn't use priority position ${failure.position}`;
     case 'not_in_priorities':
@@ -240,5 +244,7 @@ function describeTaskChange(
       return { kind: 'urgency', subject, subjectId, detail: task.urgency };
     case 'setStatus':
       return { kind: 'status', subject, subjectId, detail: task.status };
+    case 'setDueDate':
+      return { kind: 'dueDate', subject, subjectId, detail: task.dueDate };
   }
 }

@@ -1,6 +1,7 @@
 import type { VesselActionDefinition } from '@maelstrom-co/protocol';
 
 import { EVERYONE } from '../stores/board-filter.store';
+import { NO_DUE_DATE } from '../stores/project-tasks.store';
 import { ASSIGNEE_CHOICES, TEAM_MEMBER_IDS, UNASSIGNED } from '../stores/team';
 
 export const TASK_REFERENCE =
@@ -44,6 +45,20 @@ export const ASSIGN_TASK_ACTION = {
       type: 'string',
       enum: [...ASSIGNEE_CHOICES],
       description: `Team id of the new assignee, or ${UNASSIGNED} to clear the owner. chris is me.`,
+    },
+  ],
+} as const satisfies VesselActionDefinition;
+
+export const SET_DUE_DATE_ACTION = {
+  name: 'setDueDate',
+  effect: 'idempotent',
+  description: `Set or clear a task's due date. Pass an ISO calendar date (YYYY-MM-DD), resolving relative dates such as "next Friday" against the current browser calendar context, or pass ${NO_DUE_DATE} to clear it.`,
+  parameters: [
+    { name: 'task', type: 'string', description: TASK_REFERENCE },
+    {
+      name: 'dueDate',
+      type: 'string',
+      description: `Due date as an ISO date (YYYY-MM-DD), or ${NO_DUE_DATE} to clear it.`,
     },
   ],
 } as const satisfies VesselActionDefinition;

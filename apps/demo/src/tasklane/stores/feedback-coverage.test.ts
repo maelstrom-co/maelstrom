@@ -143,6 +143,8 @@ function task(id: string, sourceFeedback: string | null): ProjectTask {
     assigneeId: null,
     urgency: 'normal',
     status: 'todo',
+    createdAt: '2026-04-06',
+    dueDate: null,
     sourceFeedback,
   };
 }
