@@ -214,13 +214,14 @@ export function createUseIntentSubmit(contextPair: MaelstromContextPair) {
     });
 
     useEffect(() => {
-      const owner = lifetime.current.active
-        ? lifetime.current
-        : { active: true };
-      lifetime.current = owner;
-      latestSubmission.current = null;
-      setLastOutcome(null);
-      setStaleWatched([]);
+      let owner = lifetime.current;
+      if (!owner.active) {
+        owner = { active: true };
+        lifetime.current = owner;
+        latestSubmission.current = null;
+        setLastOutcome(null);
+        setStaleWatched([]);
+      }
       return () => {
         owner.active = false;
       };

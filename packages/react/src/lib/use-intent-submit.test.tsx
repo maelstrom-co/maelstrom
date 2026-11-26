@@ -381,6 +381,58 @@ describe('useIntentSubmit', () => {
     expect(failures).toEqual([]);
   });
 
+  it('restores the draft of a submission made before the passive effect ran', async () => {
+    const { connector, sent, pending } = slowConnector();
+    const m = createMaelstrom({ vessels: [] });
+    const failures: IntentSubmitFailure[] = [];
+    let api!: ReturnType<typeof m.useIntentSubmit>;
+    let setShowProbe!: (value: boolean) => void;
+
+    function Probe() {
+      api = m.useIntentSubmit({
+        initialDraft: 'layout draft',
+        shouldRestoreDraft: () => true,
+        onFailure: (failure) => failures.push(failure),
+      });
+      const submitted = useRef(false);
+      useLayoutEffect(() => {
+        if (submitted.current) return;
+        submitted.current = true;
+        api.submit();
+      });
+      return null;
+    }
+
+    function Host() {
+      const [showProbe, setShow] = useState(false);
+      setShowProbe = setShow;
+      return showProbe ? <Probe /> : null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Host />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => {
+      setShowProbe(true);
+    });
+    expect(sent).toHaveLength(1);
+    expect(api.draft).toBe('');
+
+    await act(async () => {
+      pending[0].reject(
+        new WireEngineError('401 invalid key', 'ProviderError'),
+      );
+    });
+    expect(api.draft).toBe('layout draft');
+    expect(failures).toHaveLength(1);
+    expect(sent).toHaveLength(1);
+  });
+
   it('reports busy across planning, applying, open agent runs, and voice', async () => {
     const cardVessel = defineVessel({
       id: 'card',
