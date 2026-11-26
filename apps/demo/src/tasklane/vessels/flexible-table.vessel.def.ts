@@ -12,7 +12,7 @@ import {
 import { TASK_REFERENCE } from './task-action.defs';
 
 const FLEXIBLE_TABLE_DESCRIPTION: string =
-  'Flexible task table: a customisable table of tasks with field, computed (arithmetic formula with + - * / and parentheses), and free-text editable columns, multi-column sorting, row filtering, grouping, and a triage view preset. Columns arrive one action at a time via addColumn. Use showPreset("triage") to show only open tasks with no owner or no parent along with a reason column. Actions on this Instance run in plan order, so addColumn followed by sortBy on the new column works in one response.';
+  'Flexible task table: a customisable table of tasks with field, computed (arithmetic formula with + - * / and parentheses), and free-text editable columns, multi-column sorting, row filtering, grouping, and a triage view preset. Columns arrive one action at a time via addColumn. Use showPreset("triage") to show only open tasks that have no owner, or that are top-level with no subtasks, along with a reason column ("no owner", or "no parent" for a top-level task with no subtasks). Actions on this Instance run in plan order, so addColumn followed by sortBy on the new column works in one response.';
 
 const FLEXIBLE_TABLE_ACTIONS = [
   {
@@ -48,7 +48,6 @@ const FLEXIBLE_TABLE_ACTIONS = [
   },
   {
     name: 'removeColumn',
-    effect: 'idempotent',
     description: 'Remove a column from the table by its id or label.',
     parameters: [
       {
@@ -148,7 +147,7 @@ const FLEXIBLE_TABLE_ACTIONS = [
     name: 'filterRows',
     effect: 'idempotent',
     description:
-      'Filter table rows by matching a column against a value using eq, neq, contains, gt, or lt. Multiple filters combine with AND.',
+      'Filter table rows by matching a column against a value using eq, neq, contains, gt, or lt. Multiple filters combine with AND, including several on the same column. Call clearFilters first to replace a filter.',
     parameters: [
       {
         name: 'column',
@@ -191,7 +190,7 @@ const FLEXIBLE_TABLE_ACTIONS = [
     name: 'showPreset',
     effect: 'idempotent',
     description:
-      'Switch the table to a preset view. Use "triage" for open tasks with no owner or no parent plus a reason column, or "default" to reset.',
+      'Switch the table to a preset view. Use "triage" for open tasks with no owner, or top-level open tasks with no subtasks, plus a reason column, or "default" to reset.',
     parameters: [
       {
         name: 'preset',

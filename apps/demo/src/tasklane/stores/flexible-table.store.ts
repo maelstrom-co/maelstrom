@@ -100,6 +100,12 @@ export type FlexibleTableFailure =
     }
   | {
       readonly ok: false;
+      readonly reason: 'invalid_filter_value';
+      readonly op: FilterOp;
+      readonly value: string;
+    }
+  | {
+      readonly ok: false;
       readonly reason: 'unknown_preset';
       readonly query: string;
     }
@@ -227,7 +233,11 @@ const STATUS_RANK: Readonly<Record<TaskStatus, number>> = {
   done: 2,
 };
 
-const CLEAR_GROUP_WORDS = new Set(['', 'none', 'clear', 'ungroup']);
+const RESERVED_COLUMN_IDS = ['none', 'clear', 'ungroup'];
+
+const CLEAR_GROUP_WORDS = new Set(['', ...RESERVED_COLUMN_IDS]);
+
+const NUMERIC_TASK_FIELDS = new Set(['estimate', 'spent']);
 
 let state: FlexibleTableState = INITIAL_STATE;
 const listeners = new Set<() => void>();
@@ -465,20 +475,20 @@ export const flexibleTableActions = {
     if (!op) {
       return { ok: false, reason: 'unknown_op', query: opInput };
     }
-    const rule: FilterRule = { column: found.id, op, value };
-    const existingIndex = state.filters.findIndex(
-      (item) => item.column === found.id && item.op === op,
-    );
-    if (existingIndex !== -1 && state.filters[existingIndex]?.value === value) {
-      return { ok: true, changed: false, value: rule };
+    if (
+      (op === 'gt' || op === 'lt') &&
+      isNumericColumn(found) &&
+      toComparableNumber(value) === undefined
+    ) {
+      return { ok: false, reason: 'invalid_filter_value', op, value };
     }
-    const filters =
-      existingIndex === -1
-        ? [...state.filters, rule]
-        : state.filters.map((item, idx) =>
-            idx === existingIndex ? rule : item,
-          );
-    setState({ ...state, filters });
+    const rule: FilterRule = { column: found.id, op, value };
+    const exists = state.filters.some(
+      (item) =>
+        item.column === found.id && item.op === op && item.value === value,
+    );
+    if (exists) return { ok: true, changed: false, value: rule };
+    setState({ ...state, filters: [...state.filters, rule] });
     return { ok: true, changed: true, value: rule };
   },
 
@@ -520,6 +530,7 @@ export const flexibleTableActions = {
         sort: [],
         filters: [{ column: 'reason', op: 'neq', value: '' }],
         groupBy: null,
+        cells: {},
         activePreset: 'triage',
       });
       return { ok: true, changed: true, value: 'triage' };
@@ -530,6 +541,7 @@ export const flexibleTableActions = {
       sort: [],
       filters: [],
       groupBy: null,
+      cells: {},
       activePreset: 'default',
     });
     return { ok: true, changed: true, value: 'default' };
@@ -560,6 +572,8 @@ export function describeTableFailure(failure: FlexibleTableFailure): string {
       return `Sort direction must be asc or desc, got "${failure.query}".`;
     case 'unknown_op':
       return `Filter op must be one of ${FILTER_OPS.join(', ')}, got "${failure.query}".`;
+    case 'invalid_filter_value':
+      return `Filter "${failure.op}" needs a numeric value for this column, got "${failure.value}".`;
     case 'unknown_preset':
       return `Preset must be one of ${TABLE_PRESETS.join(', ')}, got "${failure.query}".`;
     case 'task_not_found':
@@ -578,13 +592,16 @@ export function projectTableRows(
   const parentIds = new Set(tasks.map((task) => task.parentId));
   const projected = tasks.map((task): ProjectedTableRow => {
     const cells: Record<string, ProjectedCell> = {};
+    const visiting = new Set<string>();
+    const computed = new Map<string, ProjectedCell>();
     for (const column of tableState.columns) {
       cells[column.id] = evaluateCell(
         task,
         column,
         tableState,
         parentIds,
-        new Set<string>(),
+        visiting,
+        computed,
       );
     }
     return { task, cells };
@@ -632,14 +649,15 @@ export function groupProjectedRows(
     { label: string; rows: ProjectedTableRow[] }
   >();
   for (const row of rows) {
-    const cell = row.cells[column.id];
-    const display = cell?.display?.trim() ? cell.display : '(empty)';
-    const key = display.toLowerCase();
+    const display = row.cells[column.id]?.display ?? '';
+    const isBlank = !display.trim();
+    const label = isBlank ? '(empty)' : display;
+    const key = isBlank ? '' : display.toLowerCase();
     const existing = groups.get(key);
     if (existing) {
       existing.rows.push(row);
     } else {
-      groups.set(key, { label: display, rows: [row] });
+      groups.set(key, { label, rows: [row] });
     }
   }
   return [...groups.entries()].map(([key, group]) => ({
@@ -668,6 +686,7 @@ function evaluateCell(
   tableState: FlexibleTableState,
   parentIds: ReadonlySet<string | null>,
   visiting: Set<string>,
+  computed: Map<string, ProjectedCell>,
 ): ProjectedCell {
   if (column.kind === 'free') {
     const value = tableState.cells[column.id]?.[task.id] ?? '';
@@ -685,16 +704,23 @@ function evaluateCell(
       error: 'Circular formula reference.',
     };
   }
+  const cached = computed.get(column.id);
+  if (cached) return cached;
   visiting.add(column.id);
 
   const parsed = parseFormula(column.formula ?? '');
   if (!parsed.ok) {
     visiting.delete(column.id);
-    return { raw: null, display: '#ERR', error: parsed.message };
+    return cacheCell(computed, column.id, {
+      raw: null,
+      display: '#ERR',
+      error: parsed.message,
+    });
   }
 
+  const otherColumns = tableState.columns.filter((col) => col.id !== column.id);
   const evaluated = evaluateFormulaNode(parsed.ast, (ref) => {
-    const targetColumn = resolveColumn(ref, tableState.columns);
+    const targetColumn = resolveColumn(ref, otherColumns);
     if (targetColumn) {
       const cell = evaluateCell(
         task,
@@ -702,6 +728,7 @@ function evaluateCell(
         tableState,
         parentIds,
         visiting,
+        computed,
       );
       if (cell.error) return { found: true, value: undefined };
       return { found: true, value: cell.raw };
@@ -717,9 +744,25 @@ function evaluateCell(
   visiting.delete(column.id);
 
   if (!evaluated.ok) {
-    return { raw: null, display: '#ERR', error: evaluated.message };
+    return cacheCell(computed, column.id, {
+      raw: null,
+      display: '#ERR',
+      error: evaluated.message,
+    });
   }
-  return { raw: evaluated.value, display: formatNumber(evaluated.value) };
+  return cacheCell(computed, column.id, {
+    raw: evaluated.value,
+    display: formatNumber(evaluated.value),
+  });
+}
+
+function cacheCell(
+  computed: Map<string, ProjectedCell>,
+  columnId: string,
+  cell: ProjectedCell,
+): ProjectedCell {
+  computed.set(columnId, cell);
+  return cell;
 }
 
 function readTaskFieldCell(
@@ -869,6 +912,8 @@ function compareCells(
   if (aNum !== undefined && bNum !== undefined) {
     return aNum - bNum;
   }
+  if (aNum !== undefined) return -1;
+  if (bNum !== undefined) return 1;
 
   return a.display.localeCompare(b.display, undefined, {
     sensitivity: 'base',
@@ -883,7 +928,7 @@ function resolveColumn(
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return undefined;
   const slug = slugify(trimmed);
-  const aliasedField = FIELD_ALIASES[trimmed] ?? FIELD_ALIASES[slug];
+  const aliasedField = lookupFieldAlias(trimmed) ?? lookupFieldAlias(slug);
 
   return (
     columns.find((col) => col.id.toLowerCase() === trimmed) ??
@@ -908,7 +953,7 @@ function resolveTaskField(
   const lower = trimmed.toLowerCase();
   const slug = slugify(trimmed);
 
-  const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[slug];
+  const alias = lookupFieldAlias(lower) ?? lookupFieldAlias(slug);
   if (alias) return alias;
 
   for (const field of KNOWN_TASK_FIELDS) {
@@ -922,6 +967,17 @@ function resolveTaskField(
   }
 
   return undefined;
+}
+
+function lookupFieldAlias(key: string): string | undefined {
+  return Object.hasOwn(FIELD_ALIASES, key) ? FIELD_ALIASES[key] : undefined;
+}
+
+function isNumericColumn(column: TableColumn): boolean {
+  return (
+    column.kind === 'computed' ||
+    (column.kind === 'field' && NUMERIC_TASK_FIELDS.has(column.field ?? ''))
+  );
 }
 
 function resolveColumnKind(query: string): TableColumnKind | undefined {
@@ -954,7 +1010,10 @@ function slugify(value: string): string {
 }
 
 function uniqueColumnId(base: string, columns: readonly TableColumn[]): string {
-  const taken = new Set(columns.map((col) => col.id.toLowerCase()));
+  const taken = new Set([
+    ...RESERVED_COLUMN_IDS,
+    ...columns.map((col) => col.id.toLowerCase()),
+  ]);
   if (!taken.has(base)) return base;
   let suffix = 2;
   while (taken.has(`${base}_${suffix}`)) suffix++;
