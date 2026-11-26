@@ -692,4 +692,40 @@ describe('flexible-table review regressions', () => {
     );
     expect(tl1?.cells.total?.raw).toBe(3);
   });
+
+  it('keeps empty cells last when sorting descending', () => {
+    projectTaskActions.createTask({ title: 'Third' }); // TL-3
+    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
+    flexibleTableActions.setCell('TL-1', 'notes', 'a');
+    flexibleTableActions.setCell('TL-3', 'notes', 'b');
+
+    const sorted = (column: string) =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => [
+        r.task.id,
+        r.cells[column]?.display,
+      ]);
+
+    flexibleTableActions.sortBy('notes', 'desc');
+    expect(sorted('notes')).toEqual([
+      ['TL-3', 'b'],
+      ['TL-1', 'a'],
+      ['TL-2', ''],
+    ]);
+    flexibleTableActions.sortBy('notes', 'asc');
+    expect(sorted('notes')).toEqual([
+      ['TL-1', 'a'],
+      ['TL-3', 'b'],
+      ['TL-2', ''],
+    ]);
+
+    flexibleTableActions.addColumn({
+      label: 'Ratio',
+      kind: 'computed',
+      formula: 'estimate / spent',
+    });
+    flexibleTableActions.sortBy('ratio', 'desc');
+    const rows = projectTableRows(getProjectTasksSnapshot().tasks);
+    expect(rows.map((r) => r.task.id)).toEqual(['TL-1', 'TL-2', 'TL-3']);
+    expect(rows.at(-1)?.cells.ratio?.error).toBeDefined();
+  });
 });

@@ -641,7 +641,15 @@ export function projectTableRows(
     for (const rule of tableState.sort) {
       const column = columnById.get(rule.column);
       if (!column) continue;
-      const cmp = compareCells(a.cells[column.id], b.cells[column.id], column);
+      const aCell = a.cells[column.id];
+      const bCell = b.cells[column.id];
+      const aHas = hasSortableValue(aCell);
+      const bHas = hasSortableValue(bCell);
+      if (!aHas || !bHas) {
+        if (aHas === bHas) continue;
+        return aHas ? -1 : 1;
+      }
+      const cmp = compareCells(aCell, bCell, column);
       if (cmp !== 0) return rule.direction === 'desc' ? -cmp : cmp;
     }
     return 0;
@@ -903,17 +911,22 @@ function matchesStatusFilter(
   return op === 'gt' ? cmp > 0 : cmp < 0;
 }
 
+function hasSortableValue(
+  cell: ProjectedCell | undefined,
+): cell is ProjectedCell {
+  return (
+    cell !== undefined &&
+    cell.error === undefined &&
+    cell.raw !== null &&
+    cell.raw !== ''
+  );
+}
+
 function compareCells(
-  a: ProjectedCell | undefined,
-  b: ProjectedCell | undefined,
+  a: ProjectedCell,
+  b: ProjectedCell,
   column: TableColumn,
 ): number {
-  const aEmpty = !a || a.error !== undefined || a.raw === null || a.raw === '';
-  const bEmpty = !b || b.error !== undefined || b.raw === null || b.raw === '';
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-
   if (column.kind === 'field' && column.field === 'urgency') {
     const aRank = URGENCY_RANK[a.raw as TaskUrgency] ?? -1;
     const bRank = URGENCY_RANK[b.raw as TaskUrgency] ?? -1;
