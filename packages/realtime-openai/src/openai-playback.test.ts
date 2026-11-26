@@ -413,3 +413,37 @@ test('inspecting a playback failure cannot restore status after that attempt ret
   expect(instance.getAudioPlaybackStatus()).toBe('unavailable');
   expect(peer.closed).toBe(true);
 });
+
+test('playbackControl exposes blocked state, notifies on transitions, and resumes playback', async () => {
+  const { instance } = adapter();
+  const notifications: boolean[] = [];
+  const unsubscribe = instance.playbackControl.subscribe(() => {
+    notifications.push(instance.playbackControl.isBlocked());
+  });
+  expect(instance.playbackControl.isBlocked()).toBe(false);
+
+  const { peer, audio } = await connect(instance);
+  audio.play.mockRejectedValueOnce(
+    new DOMException('Blocked', 'NotAllowedError'),
+  );
+  peer.ontrack?.({ streams: [remoteStream()] });
+  await flush();
+  expect(instance.playbackControl.isBlocked()).toBe(true);
+  expect(notifications).toEqual([true]);
+
+  await instance.playbackControl.resume();
+  expect(instance.playbackControl.isBlocked()).toBe(false);
+  expect(notifications).toEqual([true, false]);
+
+  audio.play.mockRejectedValueOnce(
+    new DOMException('Blocked again', 'NotAllowedError'),
+  );
+  await expect(instance.playbackControl.resume()).rejects.toThrow(
+    'Audio playback could not start',
+  );
+  expect(instance.playbackControl.isBlocked()).toBe(true);
+  await instance.disconnect();
+  expect(instance.playbackControl.isBlocked()).toBe(false);
+  expect(notifications).toEqual([true, false, true, false]);
+  unsubscribe();
+});

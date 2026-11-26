@@ -1517,3 +1517,56 @@ test('disconnect without a connection drops a mute requested before connect', as
   expect(trackEnabledAtAdd).toEqual([true]);
   expect(h.mic.enabled).toBe(true);
 });
+
+test('playbackControl maps blocked playback, notifies only on blocked transitions, and resumes via activateAudio', async () => {
+  const originalStream = globalThis.MediaStream;
+  Object.assign(globalThis, { MediaStream: Stream });
+  const h = harness();
+  try {
+    const notifications: boolean[] = [];
+    const unsubscribe = h.transport.playbackControl.subscribe(() => {
+      notifications.push(h.transport.playbackControl.isBlocked());
+    });
+    expect(h.transport.playbackControl.isBlocked()).toBe(false);
+
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    expect(h.transport.playbackControl.isBlocked()).toBe(false);
+    expect(notifications).toEqual([]);
+
+    h.rejectPlayback(true);
+    h.peer.dispatchEvent(
+      Object.assign(new Event('track'), { track: new Track() }),
+    );
+    await tick();
+    expect(h.transport.getSnapshot().playback).toBe('blocked');
+    expect(h.transport.playbackControl.isBlocked()).toBe(true);
+    expect(notifications).toEqual([true]);
+
+    // Unrelated metadata updates do not re-emit playbackControl notifications.
+    h.peer.channel.event('session.usage.updated', {
+      usage: { seconds: 5 },
+    });
+    expect(notifications).toEqual([true]);
+
+    h.rejectPlayback(false);
+    await h.transport.playbackControl.resume();
+    expect(h.transport.getSnapshot().playback).toBe('accepted');
+    expect(h.transport.playbackControl.isBlocked()).toBe(false);
+    expect(notifications).toEqual([true, false]);
+
+    // Disconnect clears blocked state and notifies subscribers.
+    h.rejectPlayback(true);
+    await expect(h.transport.playbackControl.resume()).rejects.toThrow();
+    expect(h.transport.playbackControl.isBlocked()).toBe(true);
+    await h.transport.disconnect();
+    expect(h.transport.playbackControl.isBlocked()).toBe(false);
+    expect(notifications).toEqual([true, false, true, false]);
+    unsubscribe();
+  } finally {
+    await h.transport.disconnect();
+    Object.assign(globalThis, { MediaStream: originalStream });
+  }
+});

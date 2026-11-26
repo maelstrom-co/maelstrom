@@ -3,7 +3,6 @@ import type { MouseEvent } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { TurnModeToggle } from '../components/turn-mode-toggle';
-import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { isVoiceConnected } from '../lib/voice-session-state';
 import { tasklaneM } from './maelstrom';
@@ -16,10 +15,15 @@ export function TasklaneVoiceCorner({
   readonly needsKey: boolean;
   readonly onRequireKey: () => void;
 }) {
-  const { state, provider, session, switching, turnMode, turnControl } =
-    tasklaneM.useVoice();
+  const {
+    state,
+    switching,
+    turnMode,
+    turnControl,
+    playbackBlocked,
+    resumePlayback,
+  } = tasklaneM.useVoice();
   const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
-  const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
   // blocks the click when no key is on hand, and otherwise unlocks browser
@@ -35,8 +39,7 @@ export function TasklaneVoiceCorner({
   };
 
   // Blocked playback takes the pill's slot so the dock never grows.
-  const showEnablePlayback =
-    provider === 'live' && playbackBlocked && isVoiceConnected(state);
+  const showEnablePlayback = playbackBlocked && isVoiceConnected(state);
 
   return (
     <div className="tasklane-voice-corner">
@@ -44,10 +47,9 @@ export function TasklaneVoiceCorner({
       <div className="tasklane-voice-status">
         {showEnablePlayback ? (
           <EnablePlaybackButton
-            provider={provider}
             state={state}
-            session={session}
             switching={switching}
+            onResume={resumePlayback}
             className="tasklane-voice-pill tasklane-voice-playback status-pill"
           />
         ) : (

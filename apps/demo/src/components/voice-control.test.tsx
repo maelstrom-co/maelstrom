@@ -66,6 +66,8 @@ function makeVoiceResult(
     skipGreeting,
     inputMuted: false,
     setInputMuted: () => {},
+    playbackBlocked: false,
+    resumePlayback: async () => {},
   } as UseVoiceResult;
 }
 
@@ -341,5 +343,36 @@ describe('VoiceControl status and SDK controls', () => {
     const { queryByTestId } = render(<VoiceControl showOrb={false} />);
 
     expect(queryByTestId('voice-orb')).toBeNull();
+  });
+});
+
+describe('VoiceControl playback recovery', () => {
+  it('shows Enable playback when connected and playbackBlocked is true, and calls resumePlayback on click', () => {
+    const resumePlayback = vi.fn(async () => {});
+    voiceResult = {
+      ...makeVoiceResult('connected', undefined, 'automatic'),
+      playbackBlocked: true,
+      resumePlayback,
+    };
+    const { getByRole } = render(<VoiceControl />);
+    const button = getByRole('button', { name: 'Enable playback' });
+    fireEvent.click(button);
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Enable playback when playbackBlocked is false or disconnected', () => {
+    voiceResult = {
+      ...makeVoiceResult('connected', undefined, 'automatic'),
+      playbackBlocked: false,
+    };
+    const { queryByRole, rerender } = render(<VoiceControl />);
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+
+    voiceResult = {
+      ...makeVoiceResult('idle', undefined, 'automatic'),
+      playbackBlocked: true,
+    };
+    rerender(<VoiceControl />);
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
   });
 });

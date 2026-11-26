@@ -3,7 +3,6 @@ import type { MouseEvent, ReactNode } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { TurnModeToggle } from '../components/turn-mode-toggle';
-import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { isVoiceConnected } from '../lib/voice-session-state';
 import { shopM } from './maelstrom';
@@ -40,10 +39,15 @@ export function ShopVoiceCorner({
   readonly onRequireKey: () => void;
   readonly reply?: ReactNode;
 }) {
-  const { state, provider, session, switching, turnMode, turnControl } =
-    shopM.useVoice();
+  const {
+    state,
+    switching,
+    turnMode,
+    turnControl,
+    playbackBlocked,
+    resumePlayback,
+  } = shopM.useVoice();
   const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
-  const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
   // blocks the click when no key is on hand, and otherwise unlocks browser
@@ -59,8 +63,7 @@ export function ShopVoiceCorner({
   };
 
   // Blocked playback takes the pill's slot so the dock never grows.
-  const showEnablePlayback =
-    provider === 'live' && playbackBlocked && isVoiceConnected(state);
+  const showEnablePlayback = playbackBlocked && isVoiceConnected(state);
 
   return (
     <div className="shop-voice-corner">
@@ -71,10 +74,9 @@ export function ShopVoiceCorner({
       <div className="shop-voice-status">
         {showEnablePlayback ? (
           <EnablePlaybackButton
-            provider={provider}
             state={state}
-            session={session}
             switching={switching}
+            onResume={resumePlayback}
             className="shop-voice-pill shop-voice-playback status-pill"
           />
         ) : (

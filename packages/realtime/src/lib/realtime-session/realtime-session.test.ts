@@ -3837,3 +3837,106 @@ describe('RealtimeSession one introduction per session memory', () => {
     await secondSession.disconnect();
   });
 });
+
+describe('playback control', () => {
+  it('defaults playbackBlocked to false and treats resumePlayback as a no-op when adapter omits playbackControl', async () => {
+    const { session } = makeHarness();
+    expect(session.playbackBlocked).toBe(false);
+    await session.resumePlayback();
+    await session.connect();
+    expect(session.playbackBlocked).toBe(false);
+    await session.resumePlayback();
+    await session.disconnect();
+  });
+
+  it('tracks blocked playback from the adapter, delegates resumePlayback, and resets on disconnect', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = false;
+    let resumeCalls = 0;
+    const listeners = new Set<() => void>();
+    const setBlocked = (next: boolean) => {
+      blocked = next;
+      for (const listener of [...listeners]) listener();
+    };
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: (handler: () => void) => {
+          listeners.add(handler);
+          return () => {
+            listeners.delete(handler);
+          };
+        },
+        resume: async () => {
+          resumeCalls += 1;
+          setBlocked(false);
+        },
+      },
+    });
+
+    const observed: boolean[] = [];
+    const unsubscribe = session.on('playback_blocked', (next) => {
+      observed.push(next);
+    });
+
+    // Disconnected resumePlayback does not reach the adapter.
+    await session.resumePlayback();
+    expect(resumeCalls).toBe(0);
+
+    await session.connect();
+    expect(session.playbackBlocked).toBe(false);
+
+    setBlocked(true);
+    expect(session.playbackBlocked).toBe(true);
+    expect(observed).toEqual([true]);
+
+    await session.resumePlayback();
+    expect(resumeCalls).toBe(1);
+    expect(session.playbackBlocked).toBe(false);
+    expect(observed).toEqual([true, false]);
+
+    setBlocked(true);
+    expect(session.playbackBlocked).toBe(true);
+    await session.disconnect();
+    expect(session.playbackBlocked).toBe(false);
+    expect(listeners.size).toBe(0);
+    expect(observed).toEqual([true, false, true, false]);
+
+    // A stale callback from a disconnected generation cannot flip playbackBlocked back.
+    setBlocked(true);
+    expect(session.playbackBlocked).toBe(false);
+    expect(observed).toEqual([true, false, true, false]);
+    unsubscribe();
+  });
+
+  it('fences stale adapter playback notifications that ignore unsubscribe after disconnect', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = false;
+    let leakedHandler: (() => void) | undefined;
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: (handler: () => void) => {
+          leakedHandler = handler;
+          return () => {
+            // Intentionally ignore unsubscribe to simulate a buggy/stale adapter.
+          };
+        },
+        resume: async () => {},
+      },
+    });
+
+    await session.connect();
+    blocked = true;
+    leakedHandler?.();
+    expect(session.playbackBlocked).toBe(true);
+
+    await session.disconnect();
+    expect(session.playbackBlocked).toBe(false);
+
+    // Late notification from the previous generation is ignored.
+    blocked = true;
+    leakedHandler?.();
+    expect(session.playbackBlocked).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@ import type {
   AdapterConnectOptions,
   AdapterDiagnosticSource,
   AdapterInputControl,
+  AdapterPlaybackControl,
   AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
@@ -165,6 +166,8 @@ const CONVERSATION_INSTRUCTIONS =
 export class OpenAILiveAdapter implements RealtimeProviderAdapter {
   /** Continuous media and captions from the transport, without fabricated final turns. */
   readonly observations;
+  /** Provider-neutral playback-recovery capability forwarded from the transport. */
+  readonly playbackControl: AdapterPlaybackControl;
   /** Native instruction append; acceptance is not speech completion. The complete instruction, including its fixed prefix, must fit 500 UTF-8 bytes. Rejection consumes the attempt. */
   readonly generatedOpening = {
     /** Playback acceptance gates the introduction claim without delaying microphone or transport startup. */
@@ -240,6 +243,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     this.transport = new OpenAILiveTransport(options);
     this.diagnostics = this.transport.diagnostics;
     this.observations = this.transport.observations;
+    this.playbackControl = this.transport.playbackControl;
     this.transport.on((event) => {
       if (event.type === 'turn_mode') this.establishedTurnMode = event.mode;
       if (

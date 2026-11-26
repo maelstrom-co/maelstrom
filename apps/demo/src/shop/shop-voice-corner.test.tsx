@@ -3,7 +3,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
@@ -15,6 +15,7 @@ type ShopVoiceResult = UseVoiceResult<DemoVoiceProvider>;
 let voiceResult: ShopVoiceResult;
 const orbClick = vi.fn();
 const prepareBrowserOpenAIVoice = vi.fn(() => true);
+const resumePlayback = vi.fn(async () => {});
 
 vi.doMock('./maelstrom', () => ({
   shopM: {
@@ -44,42 +45,6 @@ vi.doMock('./maelstrom', () => ({
 
 vi.doMock('../lib/voice-adapter', () => ({ prepareBrowserOpenAIVoice }));
 
-type LivePlayback = 'unavailable' | 'pending' | 'accepted' | 'blocked';
-
-const activateAudio = vi.fn(async () => {});
-let livePlayback: LivePlayback = 'accepted';
-const playbackListeners = new Set<() => void>();
-class FakeLiveAdapter {
-  activateAudio = activateAudio;
-  getTransportSnapshot() {
-    return { playback: livePlayback };
-  }
-  generatedOpening = {
-    readiness: {
-      subscribe: (handler: () => void) => {
-        playbackListeners.add(handler);
-        return () => {
-          playbackListeners.delete(handler);
-        };
-      },
-    },
-  };
-}
-const liveSession = {};
-const liveAdapter = new FakeLiveAdapter();
-vi.doMock('@maelstrom-co/realtime-openai-live', () => ({
-  OpenAILiveAdapter: FakeLiveAdapter,
-}));
-vi.doMock('../lib/demo-voice', () => ({
-  demoVoiceSession: (session: unknown) =>
-    session === liveSession ? { adapter: liveAdapter } : undefined,
-}));
-
-function setLivePlayback(playback: LivePlayback) {
-  livePlayback = playback;
-  for (const listener of [...playbackListeners]) listener();
-}
-
 const { ShopVoiceCorner, voicePillLabel } = await import('./shop-voice-corner');
 
 function makeVoiceResult(
@@ -93,6 +58,8 @@ function makeVoiceResult(
     turnMode: 'automatic',
     inputMuted: false,
     setInputMuted: vi.fn(),
+    playbackBlocked: false,
+    resumePlayback,
     ...overrides,
   } as ShopVoiceResult;
 }
@@ -116,9 +83,7 @@ function renderCorner(state: VoiceSessionState, needsKey = false) {
 beforeEach(() => {
   orbClick.mockClear();
   prepareBrowserOpenAIVoice.mockClear();
-  activateAudio.mockClear();
-  livePlayback = 'accepted';
-  playbackListeners.clear();
+  resumePlayback.mockClear();
 });
 
 afterEach(cleanup);
@@ -207,48 +172,53 @@ describe('ShopVoiceCorner', () => {
 });
 
 describe('ShopVoiceCorner playback recovery', () => {
-  function renderLive(state: VoiceSessionState, switching = false) {
+  function renderVoice(
+    state: VoiceSessionState,
+    overrides: Partial<ShopVoiceResult> = {},
+  ) {
     voiceResult = makeVoiceResult(state, {
       provider: 'live',
-      session: liveSession as ShopVoiceResult['session'],
-      switching,
+      ...overrides,
     });
     return render(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
   }
 
-  it.each(['accepted', 'pending', 'unavailable'] as const)(
-    'keeps the status pill while GPT-Live playback is %s',
-    (playback) => {
-      livePlayback = playback;
-      const { getByRole, queryByRole } = renderLive('listening');
-      expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
-        'Listening',
-      );
-    },
-  );
+  it('keeps the status pill while playback is not blocked', () => {
+    const { getByRole, queryByRole } = renderVoice('listening', {
+      playbackBlocked: false,
+    });
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      'Listening',
+    );
+  });
 
   it('shows Enable playback in place of the pill while playback is blocked', () => {
-    livePlayback = 'blocked';
-    const { container, getByRole, queryByRole } = renderLive('listening');
+    const { container, getByRole, queryByRole } = renderVoice('listening', {
+      playbackBlocked: true,
+    });
     const button = getByRole('button', { name: 'Enable playback' });
     expect(queryByRole('status', { name: 'Voice status' })).toBeNull();
     expect(button.parentElement?.className).toBe('shop-voice-status');
     expect(container.querySelector('.shop-voice-actions')).toBeNull();
   });
 
-  it('unlocks GPT-Live playback from a click on Enable playback', () => {
-    livePlayback = 'blocked';
-    const { getByRole } = renderLive('connected');
+  it('calls resumePlayback from a click on Enable playback', () => {
+    const { getByRole } = renderVoice('connected', { playbackBlocked: true });
     fireEvent.click(getByRole('button', { name: 'Enable playback' }));
-    expect(activateAudio).toHaveBeenCalledTimes(1);
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
   });
 
-  it('brings the pill back once blocked playback is accepted', () => {
-    livePlayback = 'blocked';
-    const { getByRole, queryByRole } = renderLive('speaking');
+  it('brings the pill back once blocked playback clears', () => {
+    const { getByRole, queryByRole, rerender } = renderVoice('speaking', {
+      playbackBlocked: true,
+    });
     expect(getByRole('button', { name: 'Enable playback' })).toBeTruthy();
-    act(() => setLivePlayback('accepted'));
+    voiceResult = makeVoiceResult('speaking', {
+      provider: 'live',
+      playbackBlocked: false,
+    });
+    rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
     expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
     expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
       'Speaking',
@@ -256,17 +226,24 @@ describe('ShopVoiceCorner playback recovery', () => {
   });
 
   it('shows Enable playback when playback becomes blocked after render', () => {
-    const { getByRole, queryByRole } = renderLive('listening');
+    const { getByRole, queryByRole, rerender } = renderVoice('listening', {
+      playbackBlocked: false,
+    });
     expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-    act(() => setLivePlayback('blocked'));
+    voiceResult = makeVoiceResult('listening', {
+      provider: 'live',
+      playbackBlocked: true,
+    });
+    rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
     expect(getByRole('button', { name: 'Enable playback' })).toBeTruthy();
   });
 
   it.each(['idle', 'connecting', 'error'] as const)(
-    'keeps the pill while %s on GPT-Live',
+    'keeps the pill while %s even if playbackBlocked is true',
     (state) => {
-      livePlayback = 'blocked';
-      const { getByRole, queryByRole } = renderLive(state);
+      const { getByRole, queryByRole } = renderVoice(state, {
+        playbackBlocked: true,
+      });
       expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
       expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
         voicePillLabel(state),
@@ -275,20 +252,21 @@ describe('ShopVoiceCorner playback recovery', () => {
   );
 
   it('disables Enable playback while the provider switches', () => {
-    livePlayback = 'blocked';
-    const { getByRole } = renderLive('connected', true);
+    const { getByRole } = renderVoice('connected', {
+      playbackBlocked: true,
+      switching: true,
+    });
     const button = getByRole('button', { name: 'Enable playback' });
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
-  it('omits Enable playback for OpenAI Realtime', () => {
-    livePlayback = 'blocked';
-    voiceResult = makeVoiceResult('connected', { provider: 'realtime' });
-    const { getByRole, queryByRole } = render(
-      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-    );
-    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-    expect(getByRole('status', { name: 'Voice status' })).toBeTruthy();
+  it('shows Enable playback for OpenAI Realtime when playback is blocked', () => {
+    const { getByRole } = renderVoice('connected', {
+      provider: 'realtime',
+      playbackBlocked: true,
+    });
+    fireEvent.click(getByRole('button', { name: 'Enable playback' }));
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
   });
 });
 

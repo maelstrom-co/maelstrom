@@ -105,6 +105,8 @@ class FakeRealtimeSession {
   turnControl: AdapterTurnControl | undefined;
   greetingState: GreetingState;
   readonly #inputMute = new FakeInputMute();
+  playbackBlocked = false;
+  resumePlaybackCalls = 0;
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
@@ -117,6 +119,7 @@ class FakeRealtimeSession {
   readonly #greetingStateHandlers = new Set<
     (state: FakeRealtimeSession['greetingState']) => void
   >();
+  readonly #playbackBlockedHandlers = new Set<(blocked: boolean) => void>();
 
   constructor(options: {
     instance: RealtimeInstance;
@@ -163,7 +166,12 @@ class FakeRealtimeSession {
     if (sessionDisconnectGate) await sessionDisconnectGate;
     this.turnControl = undefined;
     this.#inputMute.clear();
+    this.emitPlaybackBlocked(false);
     this.emitState('idle');
+  }
+
+  async resumePlayback(): Promise<void> {
+    this.resumePlaybackCalls += 1;
   }
 
   on(
@@ -172,11 +180,13 @@ class FakeRealtimeSession {
       | 'transcript'
       | 'turn_mode'
       | 'greeting_state'
-      | 'input_muted',
+      | 'input_muted'
+      | 'playback_blocked',
     handler: ((state: VoiceSessionState) => void) &
       ((entry: TranscriptEntry) => void) &
       ((event: TurnModeEvent) => void) &
-      ((muted: boolean) => void),
+      ((muted: boolean) => void) &
+      ((blocked: boolean) => void),
   ): () => void {
     const handlers =
       event === 'state'
@@ -187,7 +197,9 @@ class FakeRealtimeSession {
             ? this.#turnModeHandlers
             : event === 'input_muted'
               ? this.#inputMute.handlers
-              : this.#greetingStateHandlers;
+              : event === 'playback_blocked'
+                ? this.#playbackBlockedHandlers
+                : this.#greetingStateHandlers;
     handlers.add(handler as never);
     return () => handlers.delete(handler as never);
   }
@@ -235,6 +247,12 @@ class FakeRealtimeSession {
       )?.markTerminal();
     }
     for (const handler of this.#greetingStateHandlers) handler(state);
+  }
+
+  emitPlaybackBlocked(blocked: boolean): void {
+    if (this.playbackBlocked === blocked) return;
+    this.playbackBlocked = blocked;
+    for (const handler of this.#playbackBlockedHandlers) handler(blocked);
   }
 }
 
@@ -1651,6 +1669,56 @@ describe('maelstromRealtime() provider switching', () => {
       must(voice).switchProvider('livekit' as Provider),
     ).rejects.toBeInstanceOf(RangeError);
     expect(FakeRealtimeSession.instances).toHaveLength(1);
+  });
+
+  it('exposes playbackBlocked and resumePlayback and ignores stale sessions after provider switch', async () => {
+    const { m, connector } = switchingSetup();
+    let voice: UseVoiceResult<Provider> | undefined;
+    function Voice() {
+      voice = m.useVoice();
+      return null;
+    }
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Voice />
+        </m.Provider>,
+      );
+    });
+    const first = must(FakeRealtimeSession.instances[0]);
+    expect(must(voice).playbackBlocked).toBe(false);
+
+    await act(async () => {
+      first.emitPlaybackBlocked(true);
+    });
+    expect(must(voice).playbackBlocked).toBe(true);
+
+    await act(async () => {
+      await must(voice).resumePlayback();
+    });
+    expect(first.resumePlaybackCalls).toBe(1);
+
+    await act(async () => {
+      await must(voice).switchProvider('realtime');
+    });
+    const second = must(FakeRealtimeSession.instances[1]);
+    expect(must(voice).playbackBlocked).toBe(false);
+
+    // Late updates from the replaced session cannot affect the active hook state.
+    await act(async () => {
+      first.emitPlaybackBlocked(true);
+    });
+    expect(must(voice).playbackBlocked).toBe(false);
+
+    await act(async () => {
+      second.emitPlaybackBlocked(true);
+    });
+    expect(must(voice).playbackBlocked).toBe(true);
+    await act(async () => {
+      await must(voice).resumePlayback();
+    });
+    expect(second.resumePlaybackCalls).toBe(1);
+    expect(first.resumePlaybackCalls).toBe(1);
   });
 });
 

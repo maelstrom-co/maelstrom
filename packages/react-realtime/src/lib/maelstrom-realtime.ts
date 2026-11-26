@@ -362,6 +362,17 @@ export interface UseVoiceResult<Provider = undefined> {
    * when the provider adapter cannot gate its microphone.
    */
   readonly setInputMuted: (muted: boolean) => void;
+  /**
+   * Whether the active adapter reports that browser autoplay policy has blocked
+   * remote audio playback. Always `false` while disconnected or when the
+   * adapter does not support playback-blocked reporting.
+   */
+  readonly playbackBlocked: boolean;
+  /**
+   * Retries blocked audio playback on the shared session within a user gesture.
+   * Resolves as a no-op when disconnected or unsupported.
+   */
+  readonly resumePlayback: () => Promise<void>;
 }
 
 type RealtimeExtension<Provider> = MaelstromExtension<{
@@ -512,6 +523,9 @@ export function maelstromRealtime<
       const [inputMuted, setInputMutedState] = useState<boolean>(
         session.inputMuted,
       );
+      const [playbackBlocked, setPlaybackBlocked] = useState<boolean>(
+        session.playbackBlocked,
+      );
 
       useEffect(() => {
         const unsubscribe = session.on('state', (next) => {
@@ -543,6 +557,12 @@ export function maelstromRealtime<
           setTurnPolicy(readTurnPolicy(session));
         });
         setTurnPolicy(readTurnPolicy(session));
+        return unsubscribe;
+      }, [session]);
+
+      useEffect(() => {
+        const unsubscribe = session.on('playback_blocked', setPlaybackBlocked);
+        setPlaybackBlocked(session.playbackBlocked);
         return unsubscribe;
       }, [session]);
 
@@ -579,6 +599,10 @@ export function maelstromRealtime<
         (muted: boolean) => sessions.setInputMuted(orchestrator, muted),
         [orchestrator],
       );
+      const resumePlayback = useCallback(
+        () => sessions.resumePlayback(orchestrator),
+        [orchestrator],
+      );
       const switchProvider = useCallback(
         (next: Provider): Promise<void> => {
           if (providers && !providers.includes(next))
@@ -608,6 +632,8 @@ export function maelstromRealtime<
         skipGreeting,
         inputMuted,
         setInputMuted,
+        playbackBlocked,
+        resumePlayback,
       };
     };
 

@@ -27,12 +27,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { createMockConnector } from './__tests__/mock-connector';
-import {
-  demoVoiceOpening,
-  demoVoiceSession,
-  LIVE_OPENING_INSTRUCTIONS,
-  registerDemoVoice,
-} from './demo-voice';
+import { demoVoiceOpening, LIVE_OPENING_INSTRUCTIONS } from './demo-voice';
 import { diagnosticCapture } from './diagnostic-capture';
 import {
   DEMO_VOICE_PROVIDERS,
@@ -102,6 +97,14 @@ function mountDemoVoice(
   });
   diagnostics.attach(orchestrator);
   collectors.add(diagnostics);
+  const sessions = new WeakMap<
+    object,
+    {
+      readonly provider: DemoVoiceProvider;
+      readonly providerInstanceId: string;
+      readonly adapter: RealtimeProviderAdapter;
+    }
+  >();
   const hooks = maelstromRealtime({
     providers: DEMO_VOICE_PROVIDERS,
     initialProvider: () => voiceProviderStore.state.provider,
@@ -110,7 +113,14 @@ function mountDemoVoice(
     onSession: (session, context) => {
       if (failSessionAttach())
         throw new Error('fixture session construction failure');
-      return registerDemoVoice(session, context);
+      sessions.set(session, {
+        provider: context.provider,
+        providerInstanceId: context.instanceId,
+        adapter: context.adapter,
+      });
+      return () => {
+        sessions.delete(session);
+      };
     },
   })({ useMaelstromContext: () => ({ orchestrator }) } as never);
   let latest: UseVoiceResult<DemoVoiceProvider> | undefined;
@@ -129,7 +139,7 @@ function mountDemoVoice(
     await act(operation);
   };
   const details = () => {
-    const found = demoVoiceSession(voice().session);
+    const found = sessions.get(voice().session);
     if (!found) throw new Error('session was not built by the demo wiring');
     return found;
   };
