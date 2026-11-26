@@ -320,4 +320,38 @@ describe('ShopVoiceCorner turn controls', () => {
     rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
     expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
   });
+
+  it.each([
+    ['connected', 'Ready'],
+    ['listening', 'Listening'],
+  ] as const)(
+    'labels a manual %s session %s while hold-to-talk is shown',
+    (state, label) => {
+      voiceResult = makeVoiceResult(state, {
+        provider: 'live',
+        turnMode: 'manual',
+        turnControl: makeTurnControl(),
+      });
+      const { getByRole } = render(
+        <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+      );
+      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+        label,
+      );
+    },
+  );
+
+  it('keeps Listening for a connected manual session without turnControl', () => {
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      turnMode: 'manual',
+      turnControl: undefined,
+    });
+    const { getByRole } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      'Listening',
+    );
+  });
 });

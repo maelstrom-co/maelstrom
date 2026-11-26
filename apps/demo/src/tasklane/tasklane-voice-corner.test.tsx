@@ -81,25 +81,54 @@ describe('TasklaneVoiceCorner turn controls', () => {
     expect(getByRole('button', { name: 'Hold to talk' })).toBeTruthy();
   });
 
-  it('hides hold-to-talk in automatic mode or when turnControl is absent', () => {
-    voiceResult = makeVoiceResult('connected', {
-      provider: 'realtime',
-      turnMode: 'automatic',
-      turnControl: makeTurnControl(),
-    });
-    const { queryByRole, rerender } = render(
-      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-    );
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+  it.each(['live', 'realtime'] as const)(
+    'hides hold-to-talk for %s in automatic mode even with turnControl',
+    (provider) => {
+      voiceResult = makeVoiceResult('connected', {
+        provider,
+        turnMode: 'automatic',
+        turnControl: makeTurnControl(),
+      });
+      const { queryByRole } = render(
+        <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+      );
+      expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+    },
+  );
 
+  it('hides hold-to-talk in manual mode when turnControl is absent', () => {
     voiceResult = makeVoiceResult('connected', {
       provider: 'live',
       turnMode: 'manual',
       turnControl: undefined,
     });
-    rerender(<TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
+    const { queryByRole } = render(
+      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
     expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
   });
+
+  it.each([
+    ['connected', 'manual', true, 'Ready'],
+    ['listening', 'manual', true, 'Listening'],
+    ['connected', 'manual', false, 'Listening'],
+    ['connected', 'automatic', true, 'Listening'],
+  ] as const)(
+    'labels a %s %s session (turnControl: %s) %s',
+    (state, turnMode, hasTurnControl, label) => {
+      voiceResult = makeVoiceResult(state, {
+        provider: 'live',
+        turnMode,
+        turnControl: hasTurnControl ? makeTurnControl() : undefined,
+      });
+      const { getByRole } = render(
+        <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+      );
+      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+        label,
+      );
+    },
+  );
 
   it('clears the hold-to-talk control when disconnecting or switching to automatic mode', () => {
     voiceResult = makeVoiceResult('listening', {

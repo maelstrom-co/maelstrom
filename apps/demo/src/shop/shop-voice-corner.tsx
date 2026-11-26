@@ -8,13 +8,17 @@ import { isVoiceConnected } from '../lib/voice-session-state';
 import { shopM } from './maelstrom';
 import { ShopCaption } from './shop-caption';
 
-export function voicePillLabel(state: VoiceSessionState): string {
+export function voicePillLabel(
+  state: VoiceSessionState,
+  holdToTalk = false,
+): string {
   switch (state) {
     case 'idle':
       return 'Tap to talk';
     case 'connecting':
       return 'Connecting';
     case 'connected':
+      return holdToTalk ? 'Ready' : 'Listening';
     case 'listening':
       return 'Listening';
     case 'thinking':
@@ -37,6 +41,7 @@ export function ShopVoiceCorner({
 }) {
   const { state, provider, session, switching, turnMode, turnControl } =
     shopM.useVoice();
+  const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -78,10 +83,10 @@ export function ShopVoiceCorner({
             role="status"
             aria-label="Voice status"
           >
-            {voicePillLabel(state)}
+            {voicePillLabel(state, holdToTalk)}
           </span>
         )}
-        {turnMode === 'manual' && turnControl && (
+        {holdToTalk && (
           <shopM.HoldToTalkControl
             className="shop-voice-pill status-pill select-none touch-none"
             guidanceClassName="min-w-0 text-xs text-amber-300"

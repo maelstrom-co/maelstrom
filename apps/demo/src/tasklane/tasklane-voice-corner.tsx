@@ -17,6 +17,7 @@ export function TasklaneVoiceCorner({
 }) {
   const { state, provider, session, switching, turnMode, turnControl } =
     tasklaneM.useVoice();
+  const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -55,10 +56,10 @@ export function TasklaneVoiceCorner({
             role="status"
             aria-label="Voice status"
           >
-            {voicePillLabel(state)}
+            {voicePillLabel(state, holdToTalk)}
           </span>
         )}
-        {turnMode === 'manual' && turnControl && (
+        {holdToTalk && (
           <tasklaneM.HoldToTalkControl
             className="tasklane-voice-pill status-pill select-none touch-none"
             guidanceClassName="min-w-0 text-xs text-amber-300"
@@ -81,13 +82,14 @@ export function TasklaneVoiceCorner({
   );
 }
 
-function voicePillLabel(state: VoiceSessionState): string {
+function voicePillLabel(state: VoiceSessionState, holdToTalk = false): string {
   switch (state) {
     case 'idle':
       return 'Tap to talk';
     case 'connecting':
       return 'Connecting';
     case 'connected':
+      return holdToTalk ? 'Ready' : 'Listening';
     case 'listening':
       return 'Listening';
     case 'thinking':
