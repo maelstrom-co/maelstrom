@@ -206,6 +206,35 @@ test('user speech ending after it was active reports the speech span duration', 
   detach();
 });
 
+test('a speech span left open at disconnect does not carry into the next connection', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    await h.session.disconnect();
+    now.mockReturnValue(5_000);
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(5_400);
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const ended = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata)
+    .filter((metadata) => metadata.userSpeech === 'inactive')
+    .at(-1);
+  expect(ended).toMatchObject({ userSpeechStartedAt: 5_000, durationMs: 400 });
+  detach();
+});
+
 test('diagnostic attachment projects normalized responses and does not trust native lifecycle metadata', () => {
   const h = harness();
   const events: DiagnosticEvent[] = [];

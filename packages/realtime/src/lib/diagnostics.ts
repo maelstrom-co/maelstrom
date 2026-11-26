@@ -304,8 +304,10 @@ function attachDiagnosticSources(
             event.type === 'session.disconnecting' ||
             event.type === 'session.disconnected' ||
             event.type === 'session.error'
-          )
+          ) {
             stalls.clear();
+            if (event.type !== 'session.started') speechStartedAt = undefined;
+          }
           if (
             event.type === 'tool.called' ||
             event.type === 'tool.result' ||
