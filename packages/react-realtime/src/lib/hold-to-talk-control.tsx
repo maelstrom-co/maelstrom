@@ -32,6 +32,10 @@ const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'speaking',
 ]);
 
+type PressSource =
+  | { readonly kind: 'key'; readonly key: string }
+  | { readonly kind: 'pointer'; readonly pointerId: number };
+
 const DEFAULT_LABEL = 'Hold to talk';
 const DEFAULT_FALLBACK_GUIDANCE =
   'Automatic voice detection unavailable; hold to talk.';
@@ -59,10 +63,12 @@ export function createHoldToTalkControl(
     const isConnected = CONNECTED_STATES.has(state);
     // Keep input handlers independent from the latest rendered session state.
     const pressActiveRef = useRef(false);
+    const pressSourceRef = useRef<PressSource | undefined>(undefined);
     const [pressActive, setPressActive] = useState(false);
 
-    const startPress = () => {
+    const startPress = (source: PressSource) => {
       pressActiveRef.current = true;
+      pressSourceRef.current = source;
       setPressActive(true);
       void turnControl?.startTurn();
     };
@@ -70,9 +76,17 @@ export function createHoldToTalkControl(
     const endPress = useCallback(() => {
       if (!pressActiveRef.current) return;
       pressActiveRef.current = false;
+      pressSourceRef.current = undefined;
       setPressActive(false);
       void turnControl?.endTurn();
     }, [turnControl]);
+
+    // Releases from an input other than the one holding the turn must not
+    // mute the microphone mid-utterance.
+    const releasePress = (source: PressSource) => {
+      if (!isSamePressSource(pressSourceRef.current, source)) return;
+      endPress();
+    };
 
     // A fatal error can flip the button disabled mid-press, and browsers
     // suppress the pointerup/keyup that would normally reach endPress() on a
@@ -103,12 +117,16 @@ export function createHoldToTalkControl(
       if (e.key !== 'Enter' && e.key !== ' ') return;
       // Space's default action scrolls the page; Enter's would submit/click.
       e.preventDefault();
-      startPress();
+      startPress({ kind: 'key', key: e.key });
     };
 
     const handleKeyUp = (e: KeyboardEvent<HTMLButtonElement>) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
-      endPress();
+      releasePress({ kind: 'key', key: e.key });
+    };
+
+    const handlePointerRelease = (e: PointerEvent<HTMLButtonElement>) => {
+      releasePress({ kind: 'pointer', pointerId: e.pointerId });
     };
 
     return (
@@ -123,14 +141,17 @@ export function createHoldToTalkControl(
             aria-pressed={pressActive}
             data-active={pressActive ? 'true' : 'false'}
             onPointerDown={(e: PointerEvent<HTMLButtonElement>) => {
+              if (e.pointerType === 'mouse' && e.button !== 0) return;
+              if (pressActiveRef.current) return;
               e.currentTarget.setPointerCapture?.(e.pointerId);
-              startPress();
+              startPress({ kind: 'pointer', pointerId: e.pointerId });
             }}
-            onPointerUp={endPress}
-            onPointerLeave={endPress}
-            onPointerCancel={endPress}
+            onPointerUp={handlePointerRelease}
+            onPointerLeave={handlePointerRelease}
+            onPointerCancel={handlePointerRelease}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
+            onBlur={endPress}
             className={className}
           >
             {pressActive && activeLabel !== undefined ? activeLabel : label}
@@ -139,4 +160,14 @@ export function createHoldToTalkControl(
       </>
     );
   };
+}
+
+function isSamePressSource(
+  active: PressSource | undefined,
+  released: PressSource,
+): boolean {
+  if (active === undefined) return false;
+  if (active.kind === 'key')
+    return released.kind === 'key' && released.key === active.key;
+  return released.kind === 'pointer' && released.pointerId === active.pointerId;
 }

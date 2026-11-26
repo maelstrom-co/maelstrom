@@ -141,6 +141,24 @@ function setup() {
   return { m, connector };
 }
 
+async function renderManualControl() {
+  const { m, connector } = setup();
+  const turnControl = makeTurnControl();
+  const { container } = await act(async () =>
+    render(
+      <m.Provider connector={connector}>
+        <m.HoldToTalkControl />
+      </m.Provider>,
+    ),
+  );
+  const session = must(FakeRealtimeSession.instances[0]);
+  await act(async () => {
+    session.emitState('connected');
+    session.emitTurnMode('manual', turnControl);
+  });
+  return { button: must(findButton(container)), turnControl };
+}
+
 beforeEach(() => {
   FakeRealtimeSession.instances = [];
 });
@@ -273,6 +291,89 @@ describe('HoldToTalkControl', () => {
       fireEvent.keyUp(button, { key: ' ' });
     });
     expect(turnControl.endCalls).toBe(1);
+  });
+
+  it('ends a hold only when the input that started it is released', async () => {
+    const { button, turnControl } = await renderManualControl();
+
+    await act(async () => {
+      fireEvent.keyDown(button, { key: ' ' });
+      fireEvent.keyDown(button, { key: 'Enter' });
+      fireEvent.keyUp(button, { key: 'Enter' });
+      fireEvent.pointerLeave(button, { pointerId: 1 });
+      fireEvent.pointerUp(button, { pointerId: 1 });
+    });
+    expect(turnControl.startCalls).toBe(1);
+    expect(turnControl.endCalls).toBe(0);
+    expect(button.dataset.active).toBe('true');
+
+    await act(async () => {
+      fireEvent.keyUp(button, { key: ' ' });
+    });
+    expect(turnControl.endCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.pointerDown(button, { pointerId: 7 });
+      fireEvent.keyUp(button, { key: ' ' });
+      fireEvent.pointerUp(button, { pointerId: 8 });
+    });
+    expect(turnControl.startCalls).toBe(2);
+    expect(turnControl.endCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.pointerUp(button, { pointerId: 7 });
+    });
+    expect(turnControl.endCalls).toBe(2);
+    expect(button.dataset.active).toBe('false');
+  });
+
+  it('ignores non-primary mouse presses', async () => {
+    const { button, turnControl } = await renderManualControl();
+
+    await act(async () => {
+      fireEvent.pointerDown(button, {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: 2,
+      });
+    });
+    expect(turnControl.startCalls).toBe(0);
+    expect(button.dataset.active).toBe('false');
+
+    await act(async () => {
+      fireEvent.pointerDown(button, {
+        pointerId: 2,
+        pointerType: 'mouse',
+        button: 0,
+      });
+    });
+    expect(turnControl.startCalls).toBe(1);
+    expect(button.dataset.active).toBe('true');
+  });
+
+  it('ends an active hold when the button loses focus', async () => {
+    const { button, turnControl } = await renderManualControl();
+
+    await act(async () => {
+      fireEvent.keyDown(button, { key: ' ' });
+    });
+    expect(turnControl.startCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.blur(button);
+    });
+    expect(turnControl.endCalls).toBe(1);
+    expect(button.dataset.active).toBe('false');
+
+    await act(async () => {
+      fireEvent.keyUp(button, { key: ' ' });
+    });
+    expect(turnControl.endCalls).toBe(1);
+
+    await act(async () => {
+      fireEvent.keyDown(button, { key: ' ' });
+    });
+    expect(turnControl.startCalls).toBe(2);
   });
 
   it('ends an active press on disconnect, mode change, unmount, or provider switch', async () => {
