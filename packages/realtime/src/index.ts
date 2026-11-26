@@ -16,6 +16,7 @@ export type { ConnectAttempt } from './lib/connect-race-guard.js';
 export { ConnectRaceGuard } from './lib/connect-race-guard.js';
 export type {
   RealtimeDiagnosticAttachment,
+  RealtimeDiagnosticClock,
   RealtimeTelemetryAttachment,
 } from './lib/diagnostics.js';
 export {

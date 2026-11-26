@@ -18,6 +18,7 @@ export const operationalKinds = Object.freeze({
   voiceToolResult: 'voice.tool.result',
   voiceToolCancelled: 'voice.tool.cancelled',
   voiceTelemetryDropped: 'voice.telemetry.dropped',
+  voiceStallSuspected: 'voice.stall_suspected',
 } as const);
 
 /** One built-in operational observation name. @internal */

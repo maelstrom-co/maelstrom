@@ -46,6 +46,18 @@ export interface RealtimeDiagnosticAttachment {
     /** Unique identity of this built session, independent of application session identity. */
     readonly providerInstanceId: string;
   };
+  /** Time source for speech spans and stall detection. Defaults to the global timers and `Date.now`. */
+  readonly clock?: RealtimeDiagnosticClock;
+}
+
+/** Replaceable time source for realtime diagnostics, so time-based evidence can be tested deterministically. */
+export interface RealtimeDiagnosticClock {
+  /** Returns the current time in milliseconds. */
+  now(): number;
+  /** Schedules `callback` after `delayMs` milliseconds and returns a handle for {@link RealtimeDiagnosticClock.clearTimeout}. */
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  /** Cancels a callback scheduled by {@link RealtimeDiagnosticClock.setTimeout}. */
+  clearTimeout(handle: unknown): void;
 }
 
 /** Explicit operational observation of one existing voice session. */
@@ -135,12 +147,16 @@ function releaseAll(releases: readonly Unsubscribe[]): void {
 /**
  * Attaches lazy, framework-independent voice evidence to an existing client.
  * Retirement stops ordinary observation immediately; accepted tool results may drain.
+ * While observed, publishes `voice.stall_suspected` once when a user transcript
+ * fragment gets no assistant fragment or tool call within 8 seconds, or a tool
+ * call gets no result within 20 seconds.
  */
 export function attachRealtimeDiagnostics({
   session,
   adapter,
   sink,
   identity: input,
+  clock = systemClock,
 }: RealtimeDiagnosticAttachment): Unsubscribe {
   const identity = {
     provider: input.provider,
@@ -174,6 +190,7 @@ export function attachRealtimeDiagnostics({
       sink,
       identity,
       () => retired,
+      clock,
     );
   } catch {
     retired = true;
@@ -192,6 +209,7 @@ function attachDiagnosticSources(
   sink: RealtimeDiagnosticAttachment['sink'],
   identity: DiagnosticMetadata,
   isRetired: () => boolean,
+  clock: RealtimeDiagnosticClock,
 ): Unsubscribe {
   const observed = () => sink.diagnosticsObserved ?? sink.observed;
   const publish = (
@@ -219,7 +237,7 @@ function attachDiagnosticSources(
       userSpeech: string | undefined,
     ): DiagnosticMetadata => {
       if (userSpeech === 'active') {
-        speechStartedAt ??= Date.now();
+        speechStartedAt ??= clock.now();
         return {};
       }
       if (userSpeech === undefined || speechStartedAt === undefined) return {};
@@ -227,9 +245,17 @@ function attachDiagnosticSources(
       speechStartedAt = undefined;
       return {
         userSpeechStartedAt: startedAt,
-        durationMs: Math.max(0, Date.now() - startedAt),
+        durationMs: Math.max(0, clock.now() - startedAt),
       };
     };
+    const stalls = watchStalls(clock, (metadata) => {
+      if (!isActive()) return;
+      publish(operationalKinds.voiceStallSuspected, {
+        ...identity,
+        generationScope: 'session',
+        ...metadata,
+      });
+    });
     const reportTransport = (final = false) => {
       if (!observed()) return;
       if ((!active || isRetired()) && !final) return;
@@ -266,6 +292,20 @@ function attachDiagnosticSources(
       releases.push(
         session.events.subscribe((event) => {
           if (!isActive()) return;
+          if (event.type === 'tool.called')
+            stalls.toolCalled(event.callId, event.name, event.generation);
+          else if (
+            event.type === 'tool.result' ||
+            event.type === 'tool.cancelled'
+          )
+            stalls.toolSettled(event.callId);
+          else if (
+            event.type === 'session.started' ||
+            event.type === 'session.disconnecting' ||
+            event.type === 'session.disconnected' ||
+            event.type === 'session.error'
+          )
+            stalls.clear();
           if (
             event.type === 'tool.called' ||
             event.type === 'tool.result' ||
@@ -321,6 +361,9 @@ function attachDiagnosticSources(
             if (!isActive()) return;
             if (fragments.has(fragment)) continue;
             fragments.add(fragment);
+            if (fragment.role === 'user')
+              stalls.userFragment(fragment.id, snapshot.generation);
+            else stalls.assistantActivity();
             publish(
               'voice.transcript.fragment',
               {
@@ -384,13 +427,82 @@ function attachDiagnosticSources(
       reportTransport();
     } catch {
       active = false;
+      stalls.clear();
       releaseAll(releases);
       return () => {};
     }
     return () => {
       active = false;
+      stalls.clear();
       reportTransport(true);
       releaseAll(releases);
     };
   });
+}
+
+const RESPONSE_STALL_MS = 8_000;
+const TOOL_RESULT_STALL_MS = 20_000;
+
+const systemClock: RealtimeDiagnosticClock = {
+  now: () => Date.now(),
+  setTimeout: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
+  clearTimeout: (handle) =>
+    globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+function watchStalls(
+  clock: RealtimeDiagnosticClock,
+  report: (metadata: DiagnosticMetadata) => void,
+) {
+  let response: PendingStall | undefined;
+  // Reused call IDs can overlap, so each ID keeps its pending timers oldest first.
+  const tools = new Map<string, PendingStall[]>();
+  const stopResponse = () => {
+    if (response) clock.clearTimeout(response.handle);
+    response = undefined;
+  };
+  return {
+    userFragment(fragmentId: string, generation: number) {
+      stopResponse();
+      const pending: PendingStall = { handle: undefined };
+      response = pending;
+      pending.handle = clock.setTimeout(() => {
+        if (response !== pending) return;
+        response = undefined;
+        report({ reason: 'no_assistant_response', generation, fragmentId });
+      }, RESPONSE_STALL_MS);
+    },
+    assistantActivity: stopResponse,
+    toolCalled(callId: string, tool: string, generation: number | undefined) {
+      stopResponse();
+      const pending: PendingStall = { handle: undefined };
+      const queue = tools.get(callId) ?? [];
+      queue.push(pending);
+      tools.set(callId, queue);
+      pending.handle = clock.setTimeout(() => {
+        const current = tools.get(callId);
+        const index = current?.indexOf(pending) ?? -1;
+        if (!current || index < 0) return;
+        current.splice(index, 1);
+        if (current.length === 0) tools.delete(callId);
+        report({ reason: 'tool_result_timeout', generation, callId, tool });
+      }, TOOL_RESULT_STALL_MS);
+    },
+    toolSettled(callId: string) {
+      const queue = tools.get(callId);
+      const pending = queue?.shift();
+      if (pending) clock.clearTimeout(pending.handle);
+      if (queue?.length === 0) tools.delete(callId);
+    },
+    clear() {
+      stopResponse();
+      for (const queue of tools.values())
+        for (const pending of queue) clock.clearTimeout(pending.handle);
+      tools.clear();
+    },
+  };
+}
+
+interface PendingStall {
+  handle: unknown;
 }
