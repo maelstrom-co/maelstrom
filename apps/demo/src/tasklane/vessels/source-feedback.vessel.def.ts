@@ -4,7 +4,7 @@ import { FEEDBACK_CHARACTER_LIMIT } from '../stores/feedback.store';
 
 // Typed as string so a republish can append live records to it.
 const SOURCE_FEEDBACK_DESCRIPTION: string =
-  'The product feedback the project is working from, shown as quoted text and kept visible as context while tasks are created from it. Each quoted paragraph is its own item marked with its coverage: how many tasks came from it, no task yet, or dropped when every task from it was deleted. When you create a task from a quote, pass that quote as source in createTask so the quote shows as covered. The user can edit it by hand. Use replaceFeedback when the user pastes new feedback or asks to replace it.';
+  'The product feedback the project is working from, shown as quoted text and kept visible as context while tasks are created from it. Each quoted paragraph is its own item marked with its coverage: how many tasks came from it, no task yet, or dropped when every task from it was deleted. A quote may end with an optional attribution for its author and date (such as "quote" - Name, 2026-11-02), which is shown as a caption and answers who wrote a piece of feedback and when. When you create a task from a quote, pass that quote as source in createTask so the quote shows as covered. The user can edit it by hand. Use replaceFeedback when the user pastes new feedback or asks to replace it.';
 
 export const sourceFeedbackVessel = defineVessel({
   id: 'source-feedback',

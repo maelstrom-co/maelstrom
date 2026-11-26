@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { feedbackCoverage, isFeedbackQuote } from './feedback-coverage';
+import {
+  feedbackCoverage,
+  isFeedbackQuote,
+  parseFeedbackQuote,
+} from './feedback-coverage';
 import {
   __resetProjectTasksStoreForTests,
   getProjectTasksSnapshot,
@@ -25,6 +29,51 @@ describe('isFeedbackQuote', () => {
   it('rejects notes that do not open with a quote', () => {
     expect(isFeedbackQuote('Team note: “quoted” later.')).toBe(false);
     expect(isFeedbackQuote('')).toBe(false);
+  });
+});
+
+describe('parseFeedbackQuote', () => {
+  it('parses an attributed quote with author and date', () => {
+    expect(
+      parseFeedbackQuote(
+        '"I like that I can shape the screen around how I work." - Jonas Lind, 2026-11-03',
+      ),
+    ).toEqual({
+      quote: '"I like that I can shape the screen around how I work."',
+      attribution: { author: 'Jonas Lind', date: '2026-11-03' },
+    });
+  });
+
+  it('supports curly quotes, em dashes and author-only attributions', () => {
+    expect(
+      parseFeedbackQuote('“This should be editable.” — Maya Chen, 2026-11-02'),
+    ).toEqual({
+      quote: '“This should be editable.”',
+      attribution: { author: 'Maya Chen', date: '2026-11-02' },
+    });
+    expect(
+      parseFeedbackQuote('"Can I edit inside the panels?" - Priya Patel'),
+    ).toEqual({
+      quote: '"Can I edit inside the panels?"',
+      attribution: { author: 'Priya Patel', date: null },
+    });
+  });
+
+  it('returns null attribution for quotes without a trailing attribution', () => {
+    expect(parseFeedbackQuote(QUOTE)).toEqual({
+      quote: QUOTE,
+      attribution: null,
+    });
+    expect(
+      parseFeedbackQuote('"Call it "Tasklane" - the layout tool"'),
+    ).toEqual({
+      quote: '"Call it "Tasklane" - the layout tool"',
+      attribution: null,
+    });
+    expect(parseFeedbackQuote('"Quote" - , 2026-11-02')).toEqual({
+      quote: '"Quote" - , 2026-11-02',
+      attribution: null,
+    });
   });
 });
 
@@ -89,6 +138,36 @@ describe('feedbackCoverage', () => {
         [normalizeFeedbackQuote(QUOTE)],
       ),
     ).toEqual({ kind: 'covered', taskCount: 1 });
+  });
+
+  it('matches attributed quotes whether the task source carries the attribution or not', () => {
+    const attributed = `${QUOTE} - Jonas Lind, 2026-11-03`;
+    const tasks = [
+      task('TL-3', QUOTE),
+      task('TL-4', attributed),
+      task('TL-5', 'i like that i can shape the screen around how i work.'),
+    ];
+    expect(feedbackCoverage(attributed, tasks, [])).toEqual({
+      kind: 'covered',
+      taskCount: 3,
+    });
+    expect(
+      feedbackCoverage(attributed, [], [normalizeFeedbackQuote(QUOTE)]),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(attributed, [], [normalizeFeedbackQuote(attributed)]),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(
+        attributed,
+        [],
+        [
+          normalizeFeedbackQuote(
+            '“I like that I can shape the screen around how I work.” — Jonas Lind, 2026-11-03',
+          ),
+        ],
+      ),
+    ).toEqual({ kind: 'dropped' });
   });
 });
 

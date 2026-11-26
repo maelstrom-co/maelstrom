@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { isFeedbackQuote, parseFeedbackQuote } from './feedback-coverage';
 import {
   __resetFeedbackStoreForTests,
   FEEDBACK_CHARACTER_LIMIT,
@@ -28,6 +29,17 @@ describe('feedback snapshot', () => {
         .endsWith('Team note: maybe use the pet shop as the example app.'),
     ).toBe(true);
     expect(text.split('\n').length).toBeGreaterThan(5);
+
+    const quotes = text
+      .split(/\n\s*\n/)
+      .map((paragraph) => paragraph.trim())
+      .filter(isFeedbackQuote);
+    expect(quotes).toHaveLength(5);
+    for (const quote of quotes) {
+      const parsed = parseFeedbackQuote(quote);
+      expect(parsed.attribution?.author).toBeTruthy();
+      expect(parsed.attribution?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
   });
 
   it('replaces the snapshot and reports whether it changed', () => {
