@@ -169,4 +169,35 @@ describe('FlexibleTableComponent', () => {
       within(taskRows[0] as HTMLElement).getByText('no owner'),
     ).toBeTruthy();
   });
+
+  it('exposes sort direction and priority to assistive technology', async () => {
+    render(<FlexibleTableComponent {...tableProps()} />);
+    expect(
+      (await invoke('sortBy', { column: 'urgency', direction: 'desc' })).ok,
+    ).toBe(true);
+    expect(
+      (
+        await invoke('sortBy', {
+          column: 'assignee',
+          direction: 'asc',
+          add: true,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const table = screen.getByRole('table', { name: 'Flexible table' });
+    const header = (id: string) =>
+      table.querySelector(`th[data-column-id="${id}"]`)!;
+
+    expect(header('urgency').getAttribute('aria-sort')).toBe('descending');
+    expect(header('urgency').textContent).toContain(
+      'sorted descending, priority 1',
+    );
+    expect(header('assignee').hasAttribute('aria-sort')).toBe(false);
+    expect(header('assignee').textContent).toContain(
+      'sorted ascending, priority 2',
+    );
+    expect(header('title').hasAttribute('aria-sort')).toBe(false);
+    expect(header('title').textContent).not.toContain('sorted');
+  });
 });

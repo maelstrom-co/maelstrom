@@ -133,15 +133,20 @@ export default function FlexibleTableComponent({
             <thead>
               <tr className="border-b text-xs font-mono text-ink-3">
                 {table.columns.map((column) => {
-                  const sortRule = table.sort.find(
+                  const sortIndex = table.sort.findIndex(
                     (rule) => rule.column === column.id,
                   );
+                  const sortRule =
+                    sortIndex === -1 ? undefined : table.sort[sortIndex];
                   const nextDirection =
                     sortRule?.direction === 'asc' ? 'desc' : 'asc';
+                  const sortLabel =
+                    sortRule?.direction === 'asc' ? 'ascending' : 'descending';
                   return (
                     <th
                       key={column.id}
                       scope="col"
+                      aria-sort={sortIndex === 0 ? sortLabel : undefined}
                       data-column-id={column.id}
                       data-column-kind={column.kind}
                       className="px-2 py-1 font-medium whitespace-nowrap"
@@ -159,9 +164,17 @@ export default function FlexibleTableComponent({
                       >
                         <span>{column.label}</span>
                         {sortRule && (
-                          <span aria-hidden="true">
-                            {sortRule.direction === 'asc' ? '↑' : '↓'}
-                          </span>
+                          <>
+                            <span aria-hidden="true">
+                              {sortRule.direction === 'asc' ? '↑' : '↓'}
+                            </span>
+                            <span className="sr-only">
+                              sorted {sortLabel}
+                              {table.sort.length > 1
+                                ? `, priority ${sortIndex + 1}`
+                                : ''}
+                            </span>
+                          </>
                         )}
                       </button>
                     </th>
