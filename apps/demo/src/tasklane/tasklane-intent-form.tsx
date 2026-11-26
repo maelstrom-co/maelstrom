@@ -6,6 +6,10 @@ export const TASKLANE_INTENT_EXAMPLES = [
   "The pet shop isn't ready. Keep this focused on the existing demo.",
   'Assign them to me and add them to my priorities.',
   'Add a description to each of my tasks',
+  'Show the task columns',
+  'Show the triage inbox next to the tasks',
+  'Show team load',
+  'Make the feedback panel bigger',
 ] as const;
 
 export const TASKLANE_INTENT_PLACEHOLDER =
@@ -21,7 +25,8 @@ export function TasklaneIntentForm({
 }: {
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
-  readonly onSubmit: () => void;
+  /** Called with no argument for the typed draft, or with a clicked example. */
+  readonly onSubmit: (example?: string) => void;
   readonly submitLabel: string;
   readonly allowEmptySubmit?: boolean;
   /** Rendered in a fixed band directly under the input row. */
@@ -40,7 +45,6 @@ export function TasklaneIntentForm({
           name="intent"
           type="text"
           aria-label="Ask Tasklane"
-          list="tasklane-intent-examples"
           value={intent}
           onChange={(event) => onIntentChange(event.target.value)}
           placeholder={TASKLANE_INTENT_PLACEHOLDER}
@@ -53,13 +57,21 @@ export function TasklaneIntentForm({
         >
           {submitLabel}
         </button>
-        <datalist id="tasklane-intent-examples">
-          {TASKLANE_INTENT_EXAMPLES.map((example) => (
-            <option key={example} value={example} />
-          ))}
-        </datalist>
       </form>
       {receipt}
+      <ul className="tasklane-intent-examples" aria-label="Example requests">
+        {TASKLANE_INTENT_EXAMPLES.map((example) => (
+          <li key={example}>
+            <button
+              type="button"
+              className="tasklane-intent-example"
+              onClick={() => onSubmit(example)}
+            >
+              {example}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
