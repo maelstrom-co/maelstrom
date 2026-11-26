@@ -11,7 +11,11 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
+import {
+  getVisibleInstanceIds,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
+} from '@maelstrom-co/protocol';
 
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -186,7 +190,23 @@ function serializeParameter(
   }
 
   if (serialized.length === 0) return `${parameter.name}: ${parameter.type}`;
+
+  if (exceedsOptionBudget(serialized)) {
+    logger?.warn(
+      `Omitted all ${serialized.length} enum value(s) for parameter "${parameter.name}" on action "${actionName}" because the list exceeds ${MAX_CAPABILITY_OPTION_COUNT} values or ${MAX_CAPABILITY_OPTIONS_TOTAL_CHARS} characters`,
+    );
+    return `${parameter.name}: ${parameter.type} (${serialized.length} options omitted)`;
+  }
   return `${parameter.name}: ${serialized.join('|')}`;
+}
+
+// Same per-parameter bound as the voice capability catalog, which also omits
+// an over-budget list wholesale: a truncated list would read as the complete
+// set of valid values.
+function exceedsOptionBudget(serialized: readonly string[]): boolean {
+  if (serialized.length > MAX_CAPABILITY_OPTION_COUNT) return true;
+  const totalChars = serialized.reduce((sum, value) => sum + value.length, 0);
+  return totalChars > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS;
 }
 
 function formatActions(
