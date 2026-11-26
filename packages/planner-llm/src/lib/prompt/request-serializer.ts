@@ -181,9 +181,7 @@ function serializeParameter(
   const candidates = enumSnapshot.get(parameter);
   // Counted and listed once per distinct literal, as the voice capability
   // catalog does, so one declaration is bounded the same way on both paths.
-  const serialized = [
-    ...new Set(candidates.map((value) => value.serialized)),
-  ];
+  const serialized = [...new Set(candidates.map((value) => value.serialized))];
 
   const dropped = values.length - candidates.length;
   if (dropped > 0) {
