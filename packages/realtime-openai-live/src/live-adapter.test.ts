@@ -1892,6 +1892,38 @@ test('manualTurns resolves thinking on output transcript and clears turnControl 
   expect(h.session.turnControl).toBeUndefined();
 });
 
+test('session mute wins over manual turns: a muted press stays closed and unmuting after release does not open the microphone', async () => {
+  const h = await harness({}, { manualTurns: true, thinkingFallbackMs: 5_000 });
+  const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
+  expect(micTrack?.enabled).toBe(false);
+
+  await h.session.turnControl?.startTurn();
+  expect(micTrack?.enabled).toBe(true);
+
+  h.session.setInputMuted(true);
+  expect(micTrack?.enabled).toBe(false);
+  expect(h.session.observations.getSnapshot().media.microphone).toBe(
+    'inactive',
+  );
+
+  await h.session.turnControl?.endTurn();
+  h.session.setInputMuted(false);
+  expect(micTrack?.enabled).toBe(false);
+  expect(h.session.observations.getSnapshot().media.microphone).toBe(
+    'inactive',
+  );
+
+  h.session.setInputMuted(true);
+  await h.session.turnControl?.startTurn();
+  expect(micTrack?.enabled).toBe(false);
+  h.session.setInputMuted(false);
+  expect(micTrack?.enabled).toBe(false);
+
+  await h.session.turnControl?.startTurn();
+  expect(micTrack?.enabled).toBe(true);
+  expect(h.session.observations.getSnapshot().media.microphone).toBe('active');
+});
+
 test('muting via inputControl mid-delegation disables mic tracks while keeping the pending batch and continuation alive', async () => {
   const pending = deferred<{ userMessage?: string }>();
   const h = await harness({
