@@ -10,7 +10,11 @@ import type {
   VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import type { Result, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  Result,
+  SidechannelEvent,
+  TilingNode,
+} from '@maelstrom-co/protocol';
 import {
   ActionName,
   err,
@@ -18,6 +22,7 @@ import {
   MessageId,
   ok,
   SessionId,
+  tilingLeafToken,
   ToolCallId,
   VariantName,
   VesselId,
@@ -1487,6 +1492,158 @@ describe('RealtimeSession — grounding subscription timing', () => {
     instance.settle();
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(adapter.groundingCalls).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Behavior 3a2: grounding names screen regions
+// ============================================================================
+
+describe('RealtimeSession — grounding screen regions', () => {
+  const feedback = InstanceId('source-feedback-main');
+  const tasks = InstanceId('project-tasks-main');
+  const tasklaneInstances = [
+    {
+      instanceId: feedback,
+      vesselId: VesselId('source-feedback'),
+      variant: VariantName('snapshot'),
+    },
+    {
+      instanceId: tasks,
+      vesselId: VesselId('project-tasks'),
+      variant: VariantName('board'),
+    },
+  ];
+
+  function tasklaneSnapshot(tree: TilingNode[]): UIStructuralSnapshot {
+    return {
+      instances: tasklaneInstances,
+      layout: { type: 'tiling', tree, instances: tasklaneInstances },
+      layoutMode: 'tiling',
+      chartDimensions: { columns: 16, rows: 9 },
+    };
+  }
+
+  async function initialGrounding(
+    snapshot: UIStructuralSnapshot,
+  ): Promise<string> {
+    const adapter = makeMockAdapter();
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(snapshot),
+      sessionId: testSessionId,
+      groundingDebounceMs: 0,
+    });
+    await session.connect();
+    const text = adapter.connectOptions[0]!.getInitialGrounding!();
+    await session.disconnect();
+    return text;
+  }
+
+  it('tells the provider which panel is on the left and which on the right', async () => {
+    const text = await initialGrounding(
+      tasklaneSnapshot([
+        'V:2,3',
+        tilingLeafToken(feedback),
+        tilingLeafToken(tasks),
+      ]),
+    );
+    expect(text).toContain(
+      'source-feedback-main: source-feedback (snapshot) on the left',
+    );
+    expect(text).toContain(
+      'project-tasks-main: project-tasks (board) on the right',
+    );
+    expect(text.length).toBeLessThanOrEqual(400);
+  });
+
+  it('says top and bottom for the stacked narrow layout', async () => {
+    const text = await initialGrounding(
+      tasklaneSnapshot([
+        'H',
+        tilingLeafToken(feedback),
+        tilingLeafToken(tasks),
+      ]),
+    );
+    expect(text).toContain('source-feedback (snapshot) at the top');
+    expect(text).toContain('project-tasks (board) at the bottom');
+  });
+
+  it('still routes a typed left-panel intent through submit_intent and names regions in its summary', async () => {
+    const { session, adapter, instance } = makeHarness(
+      tasklaneSnapshot([
+        'V',
+        tilingLeafToken(feedback),
+        tilingLeafToken(tasks),
+      ]),
+    );
+    await session.connect();
+    adapter.emitToolCall({
+      name: 'submit_intent',
+      callId: 'regions-1',
+      argumentsJson: JSON.stringify({ intent: 'make the left panel bigger' }),
+    });
+    await flushMicrotasks();
+    expect(instance.submitted).toEqual(['make the left panel bigger']);
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const output = adapter.toolResults[0]!.output as { summary: string };
+    expect(output.summary).toContain('source-feedback (snapshot) on the left');
+    await session.disconnect();
+  });
+
+  function sixPanelSnapshot(
+    idPrefix: string,
+    vesselPrefix: string,
+  ): UIStructuralSnapshot {
+    const instances = Array.from({ length: 6 }, (_, index) => ({
+      instanceId: InstanceId(`${idPrefix}-${index}`),
+      vesselId: VesselId(`${vesselPrefix}-${index}`),
+      variant: VariantName('a-long-variant-name'),
+    }));
+    const leaves = instances.map(({ instanceId }) =>
+      tilingLeafToken(instanceId),
+    );
+    const tree: TilingNode[] = [
+      'V:1,1,1',
+      'H',
+      leaves[0]!,
+      leaves[1]!,
+      'H',
+      leaves[2]!,
+      leaves[3]!,
+      'H',
+      leaves[4]!,
+      leaves[5]!,
+    ];
+    return {
+      instances,
+      layout: { type: 'tiling', tree, instances },
+      layoutMode: 'tiling',
+      chartDimensions: { columns: 16, rows: 9 },
+    };
+  }
+
+  it('drops variants first when the grounding would exceed the 400-char budget', async () => {
+    const text = await initialGrounding(sixPanelSnapshot('panel', 'vessel'));
+    expect(text.length).toBeLessThanOrEqual(400);
+    expect(text).not.toContain('a-long-variant-name');
+    expect(text).not.toEndWith('…');
+    expect(text).toContain('panel-0: vessel-0 at the top left');
+    expect(text).toContain('panel-2: vessel-2 at the top middle');
+    expect(text).toContain('panel-5: vessel-5 at the bottom right');
+  });
+
+  it('then drops instance ids so every region still fits the budget', async () => {
+    const text = await initialGrounding(
+      sixPanelSnapshot('instance-number', 'vessel-number'),
+    );
+    expect(text.length).toBeLessThanOrEqual(400);
+    expect(text).not.toContain('a-long-variant-name');
+    expect(text).not.toContain('instance-number');
+    expect(text).not.toEndWith('…');
+    expect(text).toContain('vessel-number-0 at the top left');
+    expect(text).toContain('vessel-number-5 at the bottom right');
   });
 });
 

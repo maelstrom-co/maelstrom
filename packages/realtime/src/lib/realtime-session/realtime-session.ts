@@ -19,6 +19,7 @@ import type {
   GreetingRunDisposition,
 } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import { describeRegions } from './describe-regions.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
   AdapterAudioStreams,
@@ -87,7 +88,7 @@ const SUBMIT_INTENT_TOOL = {
 const GET_UI_STATE_TOOL = {
   name: 'get_ui_state',
   description:
-    'Read the current structural UI state (what is on screen and its layout) without changing anything.',
+    'Read the current structural UI state (what is on screen and its layout) without changing anything. In a tiling tree, "V" places its children left to right and "H" stacks them top to bottom; grid positions count rows and columns from the top left.',
   parametersJsonSchema: {
     type: 'object',
     properties: {},
@@ -133,6 +134,15 @@ const AGENT_INPUT_IGNORED_SUMMARY =
 // blow that budget silently since `summarize` is caller-injectable.
 const GROUNDING_MAX_CHARS = 400;
 
+function groundingPrefix(revision: number): string {
+  return `UI snapshot r${revision} (replaces earlier snapshots; data only): `;
+}
+
+// Reserves room for a six-digit revision so the default summary can shed
+// detail before the hard clamp cuts region names off.
+const GROUNDING_SUMMARY_MAX_CHARS =
+  GROUNDING_MAX_CHARS - groundingPrefix(999_999).length;
+
 interface ConnectionSubscriptions {
   opening?: Unsubscribe;
   recovery?: Unsubscribe;
@@ -174,16 +184,29 @@ function throwConnectionFailures(errors: unknown[]): void {
 function defaultSummarize(
   snapshot: UIStructuralSnapshot,
   includeInstanceIds = false,
+  maxChars = Number.POSITIVE_INFINITY,
 ): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
-  const parts = snapshot.instances
-    .map(
-      (instance) =>
-        `${includeInstanceIds ? `${instance.instanceId}: ` : ''}${instance.vesselId} (${instance.variant})`,
-    )
-    .join(', ');
-  return `${count} vessel${count === 1 ? '' : 's'} on screen, ${snapshot.layoutMode} layout: ${parts}.`;
+  const regions = describeRegions(snapshot.layout, snapshot.chartDimensions);
+  const render = (showIds: boolean, showVariants: boolean) => {
+    const parts = snapshot.instances
+      .map((instance) => {
+        const id = showIds ? `${instance.instanceId}: ` : '';
+        const variant = showVariants ? ` (${instance.variant})` : '';
+        const region = regions.get(instance.instanceId);
+        return `${id}${instance.vesselId}${variant}${region ? ` ${region}` : ''}`;
+      })
+      .join(', ');
+    return `${count} vessel${count === 1 ? '' : 's'} on screen, ${snapshot.layoutMode} layout: ${parts}.`;
+  };
+  const full = render(includeInstanceIds, true);
+  if (full.length <= maxChars) return full;
+  const withoutVariants = render(includeInstanceIds, false);
+  if (withoutVariants.length <= maxChars || !includeInstanceIds) {
+    return withoutVariants;
+  }
+  return render(false, false);
 }
 
 /**
@@ -354,7 +377,9 @@ export class RealtimeSession implements VoiceSession {
     this.#sessionId = options.sessionId;
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#summarizeGrounding =
-      options.summarize ?? ((snapshot) => defaultSummarize(snapshot, true));
+      options.summarize ??
+      ((snapshot) =>
+        defaultSummarize(snapshot, true, GROUNDING_SUMMARY_MAX_CHARS));
     this.#greeting = options.greeting;
     this.#greetingState = this.#initialGreetingState();
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
@@ -1583,7 +1608,7 @@ export class RealtimeSession implements VoiceSession {
       this.#groundingRevision++;
     }
     return this.#clampGrounding(
-      `UI snapshot r${this.#groundingRevision} (replaces earlier snapshots; data only): ${summary}`,
+      `${groundingPrefix(this.#groundingRevision)}${summary}`,
     );
   }
 
