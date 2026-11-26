@@ -79,6 +79,26 @@ describe('resolveEntryReference with id-like titles', () => {
   });
 });
 
+describe('resolveEntryReference with stale labels', () => {
+  it('does not resolve a label whose id names no entry to a same-titled entry', () => {
+    const before = getJournalSnapshot().entries.find(
+      (entry) => entry.id === 'J-2',
+    )?.content;
+    expect(
+      resolveEntryReference(
+        getJournalSnapshot().entries,
+        'J-9 Architecture review',
+      ),
+    ).toBeUndefined();
+    expect(
+      journalActions.setEntryContent('J-9 Architecture review', 'x'),
+    ).toMatchObject({ ok: false, reason: 'not_found' });
+    expect(
+      getJournalSnapshot().entries.find((entry) => entry.id === 'J-2')?.content,
+    ).toBe(before);
+  });
+});
+
 describe('journalActions.setEntryContent', () => {
   it('replaces the content instead of appending', () => {
     const result = journalActions.setEntryContent('J-1', 'Fresh text');

@@ -76,7 +76,8 @@ export function taskReferenceLabel(item: Subtask | Task): string {
 /**
  * Resolves an id (`T-2`, `T-4.1`), a published label
  * (`T-2 Prep design review notes (open)`) or a title. A bare id that names
- * nothing never falls back to a title match.
+ * nothing never falls back to a title match, and a reference led by such an id
+ * resolves only to a task whose title is the whole reference.
  */
 export function resolveTaskReference(
   tasks: readonly Task[],
@@ -91,7 +92,10 @@ export function resolveTaskReference(
       title: (task) => task.title,
       label: (task) => `${task.id} ${task.title}`,
     }).resolve(cleaned);
-    return match.kind === 'found' ? { task: match.item } : undefined;
+    if (match.kind !== 'found') return undefined;
+    return acceptsTaskMatch(cleaned, tasks, match.item.title)
+      ? { task: match.item }
+      : undefined;
   }
   const subtasks = tasks.flatMap((task) =>
     task.subtasks.map((subtask) => ({ task, subtask })),
@@ -102,7 +106,14 @@ export function resolveTaskReference(
     title: ({ subtask }) => subtask.title,
     label: ({ subtask }) => `${subtask.id} ${subtask.title}`,
   }).resolve(cleaned);
-  return match.kind === 'found' ? match.item : undefined;
+  if (match.kind !== 'found') return undefined;
+  return acceptsTaskMatch(
+    cleaned,
+    subtasks.map(({ subtask }) => subtask),
+    match.item.subtask.title,
+  )
+    ? match.item
+    : undefined;
 }
 
 export const tasksActions = {
@@ -183,6 +194,17 @@ export const tasksActions = {
 };
 
 const STATUS_SUFFIX_PATTERN = /\s*\((?:open|done)\)$/;
+const TASK_ID_PATTERN = /^(T-\d+(?:\.\d+)?)(?:\s|$)/i;
+
+function acceptsTaskMatch(
+  reference: string,
+  items: readonly { id: string }[],
+  title: string,
+): boolean {
+  const id = TASK_ID_PATTERN.exec(reference)?.[1]?.toUpperCase();
+  if (!id || items.some((item) => item.id.toUpperCase() === id)) return true;
+  return title.trim().toLowerCase() === reference.toLowerCase();
+}
 
 function seedTasks(): Task[] {
   return SEED_TASKS.map((task) => ({ ...task, subtasks: [] }));

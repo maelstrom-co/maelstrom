@@ -166,6 +166,50 @@ describe('resolveTaskReference with id-like titles', () => {
   });
 });
 
+describe('resolveTaskReference with stale labels', () => {
+  it('does not resolve the label of a removed task to a same-titled task', () => {
+    tasksActions.addTask('Buy milk');
+    tasksActions.addTask('Buy milk');
+    tasksActions.removeTask('T-4');
+    expect(
+      resolveTaskReference(
+        getTasksSnapshot().tasks,
+        'T-4 Buy milk (open)',
+        'task',
+      ),
+    ).toBeUndefined();
+    expect(tasksActions.removeTask('T-4 Buy milk (open)')).toMatchObject({
+      ok: false,
+      reason: 'not_found',
+    });
+    expect(getTasksSnapshot().tasks.map((task) => task.id)).toContain('T-5');
+  });
+
+  it('still resolves the current label of the remaining task', () => {
+    tasksActions.addTask('Buy milk');
+    tasksActions.addTask('Buy milk');
+    tasksActions.removeTask('T-4');
+    expect(
+      resolveTaskReference(
+        getTasksSnapshot().tasks,
+        'T-5 Buy milk (open)',
+        'task',
+      )?.task.id,
+    ).toBe('T-5');
+  });
+
+  it('does not resolve a stale subtask label to a same-titled subtask', () => {
+    tasksActions.addTask('Prototype', ['Check prototype']);
+    expect(
+      resolveTaskReference(
+        getTasksSnapshot().tasks,
+        'T-9.1 Check prototype (open)',
+        'subtask',
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe('taskReferenceLabel', () => {
   it('formats id, title and status', () => {
     expect(

@@ -105,7 +105,9 @@ export function entryReferenceLabel(entry: JournalEntry): string {
 
 /**
  * Resolves an id (`J-2`), a published label (`J-2 Architecture review`) or a
- * title. A bare id that names nothing never falls back to a title match.
+ * title. A bare id that names nothing never falls back to a title match, and
+ * a reference led by such an id resolves only to an entry whose title is the
+ * whole reference.
  */
 export function resolveEntryReference(
   entries: readonly JournalEntry[],
@@ -117,7 +119,10 @@ export function resolveEntryReference(
     title: (entry) => entry.title,
     label: entryReferenceLabel,
   }).resolve(reference);
-  return match.kind === 'found' ? match.item : undefined;
+  if (match.kind !== 'found') return undefined;
+  return acceptsEntryMatch(reference.trim(), entries, match.item)
+    ? match.item
+    : undefined;
 }
 
 export const journalActions = {
@@ -168,6 +173,20 @@ export const journalActions = {
     setState({ ...state, activeEntryId: null });
   },
 };
+
+const ENTRY_ID_PATTERN = /^(J-\d+)(?:\s|$)/i;
+
+function acceptsEntryMatch(
+  reference: string,
+  entries: readonly JournalEntry[],
+  match: JournalEntry,
+): boolean {
+  const id = ENTRY_ID_PATTERN.exec(reference)?.[1]?.toUpperCase();
+  if (!id || entries.some((entry) => entry.id.toUpperCase() === id)) {
+    return true;
+  }
+  return match.title.trim().toLowerCase() === reference.toLowerCase();
+}
 
 function replaceEntry(entry: JournalEntry): void {
   setState({
