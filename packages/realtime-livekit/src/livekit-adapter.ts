@@ -445,7 +445,7 @@ export class LiveKitAdapter
         }
         const clone = rawMicTrack.clone();
         unpublishedClone = clone;
-        clone.enabled = true;
+        clone.enabled = !this.#inputMuted;
         const stream = new MediaStream([clone]);
         microphone = { micTrack, rawMicTrack, clone, stream };
         await micTrack.mute();
@@ -1136,6 +1136,11 @@ export class LiveKitAdapter
         }
       }
       if (!this.#isCurrentRoom(generation, room)) return;
+      if (this.#inputMuted) {
+        if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
+        this.#bargeInInProgress = false;
+        return;
+      }
     }
 
     try {
@@ -1149,13 +1154,22 @@ export class LiveKitAdapter
         );
       }
       if (!this.#isCurrentRoom(generation, room)) return;
-      if (bridge) {
-        if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
-        else await bridge.startManualTurn();
-      } else {
-        await room.localParticipant.setMicrophoneEnabled(true);
+      if (!this.#inputMuted) {
+        if (bridge) {
+          if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
+          else await bridge.startManualTurn();
+        } else {
+          await room.localParticipant.setMicrophoneEnabled(true);
+        }
+        if (!this.#isCurrentRoom(generation, room)) return;
       }
-      if (!this.#isCurrentRoom(generation, room)) return;
+      if (this.#inputMuted) {
+        await this.#closePublicationOpenedDuringMute(generation, room);
+        if (!this.#isCurrentRoom(generation, room)) return;
+        if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
+        this.#bargeInInProgress = false;
+        return;
+      }
     } catch (error) {
       if (!this.#isCurrentRoom(generation, room)) return;
       let turnStartError = error;
@@ -1925,6 +1939,23 @@ export class LiveKitAdapter
       browserVad?.destroy().catch(() => {}),
       bridge?.destroy().catch(() => {}),
     ]).then(() => {});
+  }
+
+  /**
+   * Re-closes what a turn start opened when input mute landed during one of
+   * its awaits. The mute's own publication calls may have settled before the
+   * start reopened the publication, so they cannot be relied on here.
+   */
+  async #closePublicationOpenedDuringMute(
+    generation: number,
+    room: Room,
+  ): Promise<void> {
+    const publishedMicTrack = this.#getPublishedMicTrack(room);
+    await publishedMicTrack?.mute();
+    if (!this.#isCurrentRoom(generation, room)) return;
+    await publishedMicTrack?.pauseUpstream();
+    if (!this.#isCurrentRoom(generation, room)) return;
+    await this.#localAudioPreRoll?.clear().catch(() => {});
   }
 
   async #setInputEnabled(enabled: boolean): Promise<void> {
