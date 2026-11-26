@@ -10,19 +10,21 @@ import type { RealtimeInstance } from '@maelstrom-co/realtime';
 export interface RealtimeInstanceOptions {
   /**
    * Creates a fresh connection-owned scope backed by this Orchestrator's intent
-   * scheduler. Called lazily on connect, including reconnects. Defaults to
-   * `orchestrator.createIntentScope()`. Wrappers must preserve the original
-   * submission tickets and results, and forward retirement only to their own
-   * scope so pending work retires without interrupting active work. Unused when
-   * `sendAgentMessage` is set.
+   * scheduler. Called lazily on connect, including reconnects. Defaults to a
+   * scope whose intents enter `orchestrator.submit(text, { source: 'voice' })`.
+   * Wrappers must preserve the original submission tickets and results, and
+   * forward retirement only to their own scope so pending work retires without
+   * interrupting active work. Unused when voice takes the agent route
+   * (`sendAgentMessage` is set or `intentRoute` is `'agent'`).
    */
   readonly createIntentScope?: (orchestrator: Orchestrator) => IntentScope;
   /**
-   * Sends one voice intent to the agent, normally by calling
-   * `orchestrator.sendMessage(text, { source: 'voice' })` through the app's
-   * own submit path, and returns that submission. When set, the instance
-   * answers voice intents from the submission's `result` instead of the
-   * intent scheduler. A throw is reported as an unconfirmed outcome.
+   * Overrides the default voice route to send each voice intent through a
+   * custom agent submission function. When omitted, voice follows the
+   * Orchestrator's configured `intentRoute` via `orchestrator.submit(text, {
+   * source: 'voice' })` — using the agent route when `intentRoute` is
+   * `'agent'`, and the shared FIFO intent queue when `intentRoute` is
+   * `'single-request'`. A throw is reported as an unconfirmed outcome.
    *
    * @experimental The agent loop is experimental in 0.3 and may change in any minor release.
    */
@@ -41,12 +43,26 @@ export function createRealtimeInstance(
   options: RealtimeInstanceOptions = {},
 ): RealtimeInstance {
   const { createIntentScope, sendAgentMessage } = options;
+  const usesAgentRoute =
+    sendAgentMessage !== undefined ||
+    orchestrator.getConfig().intentRoute === 'agent';
   return {
-    ...(sendAgentMessage
+    ...(usesAgentRoute
       ? {
           sendAgentMessage: (text: string): Promise<SettledAgentRun> => {
             try {
-              return sendAgentMessage(orchestrator, text).result;
+              if (sendAgentMessage) {
+                return sendAgentMessage(orchestrator, text).result;
+              }
+              const submitted = orchestrator.submit(text, { source: 'voice' });
+              if (submitted.route !== 'agent') {
+                return Promise.reject(
+                  new Error(
+                    'Orchestrator is not configured for the agent route',
+                  ),
+                );
+              }
+              return submitted.result;
             } catch (error) {
               return Promise.reject(error);
             }
@@ -76,10 +92,25 @@ export function createRealtimeInstance(
         };
       },
     },
-    createIntentScope: () =>
-      createIntentScope
-        ? createIntentScope(orchestrator)
-        : orchestrator.createIntentScope(),
+    createIntentScope: () => {
+      if (createIntentScope) return createIntentScope(orchestrator);
+      const scope = orchestrator.createIntentScope();
+      return {
+        enqueueIntent: (intent: string) => {
+          const submitted = orchestrator.submit(intent, {
+            source: 'voice',
+            scope,
+          });
+          if (submitted.route !== 'single-request') {
+            throw new Error(
+              'Cannot enqueue single-request intent on an agent-routed orchestrator',
+            );
+          }
+          return submitted.submission;
+        },
+        retire: () => scope.retire(),
+      };
+    },
     submitIntent: (intent) =>
       orchestrator
         .processIntent(intent)

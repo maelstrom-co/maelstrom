@@ -16,6 +16,10 @@ import type { MaelstromState } from './maelstrom-state-types.js';
 import type { MaelstromProviderProps } from './provider.js';
 import type { UseAgentRunResult } from './use-agent-run.js';
 import type {
+  UseIntentSubmitOptions,
+  UseIntentSubmitResult,
+} from './use-intent-submit.js';
+import type {
   ActionRunnerLookup,
   AnyVesselEntry,
   ExtractVesselByIdFromEntries,
@@ -38,6 +42,7 @@ export type ReservedInstanceKeys =
   | 'useVessel'
   | 'useActions'
   | 'useInstance'
+  | 'useIntentSubmit'
   | 'useAgentRun'
   | 'useAgentEvent'
   | 'useRequestOutcome'
@@ -157,6 +162,15 @@ export interface MaelstromInstanceCore<
    * // props.vesselId tells you which vessel this is
    */
   useInstance: (instanceId: string) => UntypedVesselProps | null;
+
+  /**
+   * Submits typed intents through the Orchestrator's configured `intentRoute`,
+   * managing draft state with guarded restore on refusal, a unified `busy`
+   * flag covering planning, applying, open Agent Runs, and voice, and a
+   * pluggable failure classifier. Unknown outcomes stay unknown and are never
+   * replayed automatically.
+   */
+  useIntentSubmit: (options?: UseIntentSubmitOptions) => UseIntentSubmitResult;
 
   /**
    * Returns the Agent Run state of the Provider's Orchestrator and a stable

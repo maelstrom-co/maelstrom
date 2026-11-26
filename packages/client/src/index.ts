@@ -210,6 +210,13 @@ export type {
 export { RequestCoordinator } from './lib/orchestrator/request-coordinator.js';
 export type { RequestCoordinatorOptions } from './lib/orchestrator/request-coordinator.types.js';
 export { RequestInFlightError } from './lib/orchestrator/request-in-flight-error.js';
+export type {
+  IntentRoute,
+  IntentSubmitSource,
+  SubmitIntentOptions,
+  SubmittedIntent,
+} from './lib/orchestrator/submit-intent.types.js';
+export { DEFAULT_INTENT_ROUTE } from './lib/orchestrator/submit-intent.types.js';
 export {
   attachClientTelemetry,
   type ClientTelemetrySource,

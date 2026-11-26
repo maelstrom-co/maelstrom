@@ -1,6 +1,7 @@
 import type {
   EngineConnector,
   IntentQueueOptions,
+  IntentRoute,
   OrchestratorOptions,
 } from '@maelstrom-co/client';
 import {
@@ -66,6 +67,11 @@ interface MaelstromProviderBaseProps {
    * re-renders all Maelstrom consumers.
    */
   motion?: ChartMotionConfig;
+  /**
+   * Route for typed and spoken intents, replacing the factory default at mount.
+   * Later changes are ignored; remount with a new key to change the route.
+   */
+  intentRoute?: IntentRoute;
   /**
    * Mount-time shared FIFO policy, replacing the factory object. Defaults:
    * 8 pending, 30s wait, 10s disconnected grace, 60s active result deadline.
@@ -169,12 +175,14 @@ export function createProvider(
     tilingPaddingPx,
     debug,
     motion,
+    intentRoute,
     intentQueue,
     onError,
     initialLayout,
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
+    const [mountIntentRoute] = useState(() => intentRoute);
     const [mountIntentQueue] = useState(() => intentQueue);
     const config = useMemo(
       () =>
@@ -183,9 +191,17 @@ export function createProvider(
           tilingPaddingPx,
           debug,
           motion,
+          intentRoute: mountIntentRoute,
           intentQueue: mountIntentQueue,
         }),
-      [cellSizePx, tilingPaddingPx, debug, motion, mountIntentQueue],
+      [
+        cellSizePx,
+        tilingPaddingPx,
+        debug,
+        motion,
+        mountIntentRoute,
+        mountIntentQueue,
+      ],
     );
 
     // Build registries once from static entries
@@ -289,6 +305,7 @@ export function createProvider(
         // option), which registering afterward could not be.
         vessels: vesselEntries.map((entry) => entry.vessel),
         debug: config.debug,
+        intentRoute: config.intentRoute,
         intentQueue: config.intentQueue,
       } as OrchestratorOptions;
 

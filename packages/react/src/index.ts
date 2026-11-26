@@ -35,7 +35,9 @@ export type {
   AgentRunWorking,
   AgentUiChangeAppliedEvent,
   ConversationLostReason,
+  IntentRoute,
   IntentSubmission,
+  IntentSubmitSource,
   MessageId,
   RequestActionOutcome,
   RequestActionTarget,
@@ -43,8 +45,10 @@ export type {
   RequestOutcomeStatus,
   SendMessageOptions,
   SettledAgentRun,
+  SubmitIntentOptions,
+  SubmittedIntent,
 } from '@maelstrom-co/client';
-export { isSettled } from '@maelstrom-co/client';
+export { DEFAULT_INTENT_ROUTE, isSettled } from '@maelstrom-co/client';
 
 export type {
   AgentFinishReason,
@@ -72,6 +76,14 @@ export type { MaelstromInstance } from './lib/maelstrom-instance-types.js';
 export type { MaelstromState } from './lib/maelstrom-state-types.js';
 export type { MaelstromProviderProps } from './lib/provider.js';
 export type { UseAgentRunResult } from './lib/use-agent-run.js';
+export type {
+  IntentSubmitFailure,
+  IntentSubmitFailureClassifier,
+  IntentSubmitOutcome,
+  UseIntentSubmitOptions,
+  UseIntentSubmitResult,
+} from './lib/use-intent-submit.js';
+export { defaultShouldRestoreDraft } from './lib/use-intent-submit.js';
 export { useIntentSubmission } from './lib/use-intent-submission.js';
 export { vessel } from './lib/vessel.js';
 export type {

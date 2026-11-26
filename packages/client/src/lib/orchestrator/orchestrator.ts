@@ -84,6 +84,11 @@ import { RequestCoordinator } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
 import { RequestOutcomeRecorder } from './request-outcome-recorder.js';
 import type { RequestOutcomeView } from './request-outcome.types.js';
+import type {
+  IntentSubmitSource,
+  SubmitIntentOptions,
+  SubmittedIntent,
+} from './submit-intent.types.js';
 
 // Disposal and a connector swap both fence, but they are not the same event to
 // a caller: teardown is expected and its response is still the caller's own,
@@ -761,6 +766,52 @@ export class Orchestrator {
   /** Create a lifetime that retires only its pending intents, never active work. */
   createIntentScope(): IntentScope {
     return this.#intentScheduler.createScope();
+  }
+
+  /**
+   * Submit a typed or spoken user intent through the route configured in
+   * {@link OrchestratorOptionsBase.intentRoute} (`'single-request'` by default,
+   * or `'agent'`).
+   *
+   * Both `'text'` and `'voice'` sources share the same queue on each route:
+   * - On `'single-request'`, submissions enter the bounded FIFO via
+   *   {@link enqueueIntent}, preserving any `options.scope` owner lifetime.
+   * - On `'agent'`, submissions enter the Agent Session conversation via
+   *   {@link sendMessage} with `options.source`.
+   *
+   * Surrounding whitespace is trimmed before dispatch. `result` settles once
+   * and never rejects; unknown outcomes (`'unknown'` or `'lost'`) are never
+   * replayed automatically. Throws only when `options.scope` belongs to
+   * another Orchestrator on the `'single-request'` route.
+   */
+  submit(text: string, options?: SubmitIntentOptions): SubmittedIntent {
+    const source: IntentSubmitSource = options?.source ?? 'text';
+    const normalized = text.trim();
+    if (this.#config.intentRoute === 'agent') {
+      const submission = this.sendMessage(normalized, { source });
+      const current = this.#agentRuns.store.state.runs.find(
+        (run) => run.inputId === submission.inputId,
+      );
+      const accepted = current?.status !== 'not_submitted';
+      return {
+        route: 'agent',
+        source,
+        submission,
+        accepted,
+        result: submission.result,
+      };
+    }
+    const submission = this.enqueueIntent(
+      normalized,
+      options?.scope ? { scope: options.scope } : undefined,
+    );
+    return {
+      route: 'single-request',
+      source,
+      submission,
+      accepted: submission.accepted,
+      result: submission.result,
+    };
   }
 
   async #runQueuedIntent(
