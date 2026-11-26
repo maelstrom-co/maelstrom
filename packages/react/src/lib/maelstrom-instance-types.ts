@@ -1,4 +1,8 @@
-import type { AgentConversationEvents } from '@maelstrom-co/client';
+import type {
+  AgentConversationEvents,
+  IntentSubmission,
+  RequestOutcome,
+} from '@maelstrom-co/client';
 import type { VesselDefinition } from '@maelstrom-co/protocol';
 import type { ComponentType } from 'react';
 
@@ -36,6 +40,8 @@ export type ReservedInstanceKeys =
   | 'useInstance'
   | 'useAgentRun'
   | 'useAgentEvent'
+  | 'useRequestOutcome'
+  | 'useLatestRequestOutcome'
   | 'registerVessel'
   | 'updateVessel'
   | 'with';
@@ -194,6 +200,47 @@ export interface MaelstromInstanceCore<
     type: K,
     handler: (event: AgentConversationEvents[K]) => void,
   ) => void;
+
+  /**
+   * Returns the outcome of one submitted intent from the Provider's
+   * Orchestrator, or `undefined` before a ticket is given or once the outcome
+   * is no longer retained. Accepts the ticket from `enqueueIntent` or its id.
+   * Voice and typed requests are recorded the same way. The outcome lists
+   * the request's planned Actions in plan order with each Action's status and
+   * the note its handler returned. Only that request's own response batch
+   * contributes, so Actions clicked directly never appear. An `unknown` status
+   * may have had side effects: do not resubmit it automatically.
+   *
+   * @example
+   * ```tsx
+   * const { enqueueIntent } = m.useMaelstrom();
+   * const [ticket, setTicket] = useState<IntentSubmission | null>(null);
+   * const outcome = m.useRequestOutcome(ticket);
+   * const notes = outcome?.actions.flatMap((a) =>
+   *   a.status === 'ran' && a.note ? [a.note] : [],
+   * );
+   * ```
+   */
+  useRequestOutcome: (
+    ticket: IntentSubmission | string | null | undefined,
+  ) => RequestOutcome | undefined;
+
+  /**
+   * Returns the outcome of the most recently admitted request from the
+   * Provider's Orchestrator, whether it was spoken or typed, or `undefined`
+   * before any request is accepted. Immediate refusals are recorded but do not
+   * become the latest request. Outcomes follow the same rules as
+   * `useRequestOutcome`.
+   *
+   * @example
+   * ```tsx
+   * const outcome = m.useLatestRequestOutcome();
+   * if (outcome?.status === 'applied') {
+   *   const failed = outcome.actions.filter((a) => a.status === 'failed');
+   * }
+   * ```
+   */
+  useLatestRequestOutcome: () => RequestOutcome | undefined;
 
   /**
    * Dynamically register a vessel at runtime. Returns a typed handle with

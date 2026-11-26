@@ -35,7 +35,12 @@ export type {
   AgentRunWorking,
   AgentUiChangeAppliedEvent,
   ConversationLostReason,
+  IntentSubmission,
   MessageId,
+  RequestActionOutcome,
+  RequestActionTarget,
+  RequestOutcome,
+  RequestOutcomeStatus,
   SendMessageOptions,
   SettledAgentRun,
 } from '@maelstrom-co/client';
