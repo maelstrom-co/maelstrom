@@ -205,6 +205,12 @@
   overflow-x: auto;
   list-style: none;
   contain: inline-size;
+  scrollbar-width: none;
+}
+
+/* A layout scrollbar would take height from the fixed row and clip the chips. */
+.tasklane-app .tasklane-intent-examples::-webkit-scrollbar {
+  display: none;
 }
 
 .tasklane-app .tasklane-intent-example {
