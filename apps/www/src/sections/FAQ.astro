@@ -1,10 +1,27 @@
 ---
 import { MAELSTROM_PACKAGE_VERSION } from '../data/package-version';
 
-const FAQS = [
+type FaqItem = {
+  q: string;
+  a: string;
+  link?: {
+    label: string;
+    href: string;
+  };
+};
+
+const FAQS: FaqItem[] = [
   {
     q: 'Does Maelstrom replace my UI components?',
     a: 'You keep your components and application behavior. Maelstrom arranges the Vessels you define and invokes only their declared actions.',
+  },
+  {
+    q: 'Is this generative UI?',
+    a: 'No. Maelstrom never generates components or markup. Whether a user asks through voice or text, the Engine chooses only among the Vessels, variants, and actions you ship.',
+    link: {
+      label: 'Read why Maelstrom takes this approach',
+      href: 'https://docs.maelstrom-ai.co/understanding/why-maelstrom/',
+    },
   },
   {
     q: 'What do I need to get started?',
@@ -46,7 +63,15 @@ const FAQS = [
             </h3>
           </summary>
           <div class="faq-a-wrap" id={`faq-a-${i}`}>
-            <p class="faq-a">{f.a}</p>
+            <p class="faq-a">
+              {f.a}
+              {f.link && (
+                <>
+                  {' '}
+                  <a href={f.link.href}>{f.link.label}</a>.
+                </>
+              )}
+            </p>
           </div>
         </details>
       ))}
