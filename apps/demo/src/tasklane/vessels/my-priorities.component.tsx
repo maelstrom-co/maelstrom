@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { tasklaneM } from '../maelstrom';
+import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { PersonChip } from '../person-chip';
 import { plural } from '../plural';
 import {
@@ -20,22 +21,27 @@ type ExecuteAction = TypedVesselProps<
 export default function MyPrioritiesComponent({
   instanceId,
   variantProps,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof myPrioritiesVessel>) {
+  const executeAction = withManualReceipt(executeVesselAction);
   const prioritised = prioritisedTasks(useProjectTasksStore());
 
-  tasklaneM.useActions('my-priorities', instanceId, {
-    addToMyPriorities: async ({ task, position }) =>
-      reportPriorityChange(
-        'addToMyPriorities',
-        projectTaskActions.addToMyPriorities(task, position),
-      ),
-    removeFromMyPriorities: async ({ task }) =>
-      reportPriorityChange(
-        'removeFromMyPriorities',
-        projectTaskActions.removeFromMyPriorities(task),
-      ),
-  });
+  tasklaneM.useActions(
+    'my-priorities',
+    instanceId,
+    withManualReceipts({
+      addToMyPriorities: async ({ task, position }) =>
+        reportPriorityChange(
+          'addToMyPriorities',
+          projectTaskActions.addToMyPriorities(task, position),
+        ),
+      removeFromMyPriorities: async ({ task }) =>
+        reportPriorityChange(
+          'removeFromMyPriorities',
+          projectTaskActions.removeFromMyPriorities(task),
+        ),
+    }),
+  );
 
   if (variantProps.variant === 'strip')
     return <PriorityStrip prioritised={prioritised} />;

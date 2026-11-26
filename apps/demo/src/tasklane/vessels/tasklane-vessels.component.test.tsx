@@ -8,6 +8,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,8 +71,8 @@ const TeamLoadComponent = (await import('./team-load.component')).default;
 const TriageInboxComponent = (await import('./triage-inbox.component')).default;
 const ProjectPulseComponent = (await import('./project-pulse.component'))
   .default;
-const { __resetTasklaneActivityForTests, getLatestReceipt } =
-  await import('../tasklane-activity');
+const { __resetManualReceiptForTests, getManualReceipt } =
+  await import('../manual-receipt');
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -89,7 +90,7 @@ beforeEach(() => {
   __resetFeedbackStoreForTests();
   __resetTaskDetailStoreForTests();
   __resetBoardFilterStoreForTests();
-  __resetTasklaneActivityForTests();
+  __resetManualReceiptForTests();
 });
 
 afterEach(cleanup);
@@ -621,7 +622,7 @@ describe('Tasks board assignee filter', () => {
     });
     expect(result?.ok).toBe(false);
     expect(result?.error?.message).toBe(
-      'No team member matches "robin". Use chris (Chris, me), alex (Alex), sam (Sam), or everyone to clear the filter.',
+      'Couldn\'t find a team member called "robin"\nNo team member matches "robin". Use chris (Chris, me), alex (Alex), sam (Sam), or everyone to clear the filter.',
     );
   });
 });
@@ -954,7 +955,11 @@ describe('Triage inbox Vessel', () => {
       assignee: 'sam',
     });
     expect(getProjectTasksSnapshot().tasks.at(-1)?.assigneeId).toBe('sam');
-    expect(getLatestReceipt()?.text).toBe('✓ Assigned "Unowned child" to Sam');
+    await waitFor(() =>
+      expect(getManualReceipt()?.line?.text).toBe(
+        '✓ Assigned "Unowned child" to Sam',
+      ),
+    );
     expect(triageRows().map((row) => row.id)).toEqual(['TL-2']);
   });
 

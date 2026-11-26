@@ -1,395 +1,347 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { ActionName, InstanceId } from '@maelstrom-co/protocol';
+import type { RequestActionOutcome, RequestOutcome } from '@maelstrom-co/react';
+import { describe, expect, it } from 'vitest';
 
 import {
-  __resetTasklaneActivityForTests,
-  closeRequestWindow,
-  failRequestWindow,
-  getLatestReceipt,
-  openRequestWindow,
-  recordChange,
-  recordFailure,
-  recordUnchanged,
-  settleRequestActions,
+  type ChangeDescription,
+  describeChange,
+  summariseReceipt,
 } from './tasklane-activity';
 
-beforeEach(() => {
-  __resetTasklaneActivityForTests();
+describe('change notes', () => {
+  it('uses singular phrasing for one change of each kind', () => {
+    const changes: ChangeDescription[] = [
+      { kind: 'created', subject: 'A' },
+      { kind: 'described', subject: 'A' },
+      { kind: 'moved', subject: 'B', detail: null },
+      { kind: 'moved', subject: 'B', detail: 'Parent' },
+      { kind: 'deprioritised', subject: 'C' },
+      { kind: 'reprioritised', subject: 'D', detail: '2' },
+      { kind: 'removed', subject: 'E' },
+      { kind: 'unassigned', subject: 'F' },
+      { kind: 'renamed', subject: 'G' },
+      { kind: 'edited', subject: 'H' },
+      { kind: 'reassigned', subject: 'I', detail: 'Alex' },
+      { kind: 'urgency', subject: 'J', detail: 'high' },
+      { kind: 'status', subject: 'K', detail: 'doing' },
+      { kind: 'status', subject: 'L', detail: 'blocked' },
+      { kind: 'feedback', subject: 'feedback', detail: 'truncated' },
+      { kind: 'feedback', subject: 'feedback', detail: null },
+    ];
+    expect(changes.map(describeChange)).toEqual([
+      'Created "A"',
+      'Updated the description of "A"',
+      'Moved "B" to the top level',
+      'Moved "B" under "Parent"',
+      'Removed "C" from your priorities',
+      'Moved "D" to priority #2',
+      'Deleted "E"',
+      'Unassigned "F"',
+      'Renamed "G"',
+      'Updated "H"',
+      'Reassigned "I" to Alex',
+      'Set "J" to high urgency',
+      'Marked "K" as in progress',
+      'Marked "L" as blocked',
+      'Replaced the feedback (truncated to 2000 characters)',
+      'Replaced the feedback',
+    ]);
+  });
 });
 
-describe('direct interactions', () => {
-  it('turns a change outside any request into its own one-entry receipt', () => {
-    recordChange('assignTask', {
-      kind: 'reassigned',
-      subject: 'Write demo copy',
-      subjectId: 'Write demo copy',
-      detail: 'Alex',
-    });
-    expect(getLatestReceipt()).toEqual({
-      text: '✓ Reassigned "Write demo copy" to Alex',
-      tone: 'success',
-    });
-
-    recordChange('setUrgency', {
-      kind: 'urgency',
-      subject: 'Write demo copy',
-      subjectId: 'Write demo copy',
-      detail: 'high',
-    });
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Set "Write demo copy" to high urgency',
-    );
+describe('request receipts', () => {
+  it('shows nothing before a request', () => {
+    expect(summariseReceipt(undefined)).toBeNull();
   });
 
-  it('shows a direct failure as a problem', () => {
-    recordFailure('removeTask', 'Couldn\'t find a task matching "Ghost"');
-    expect(getLatestReceipt()).toEqual({
-      text: '✗ Couldn\'t find a task matching "Ghost"',
-      tone: 'problem',
-    });
-  });
-
-  it('shows nothing for an unchanged direct edit', () => {
-    recordUnchanged('setUrgency');
-    expect(getLatestReceipt()).toBeNull();
-  });
-});
-
-describe('request windows', () => {
   it('aggregates same-kind changes in one request', () => {
-    openRequestWindow('r1');
-    for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('createTask', {
-        kind: 'created',
-        subject,
-        subjectId: subject,
-      });
-    }
-    settleRequestActions('r1', []);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+    const actions = ['A', 'B', 'C', 'D'].map((title) =>
+      ran('createTask', { title }, `Created "${title}"`),
+    );
+    expect(summariseReceipt(outcome(actions))).toEqual({
       text: '✓ Created 4 tasks',
       tone: 'success',
     });
   });
 
   it('describes grouping, assignment and priorities like a person would', () => {
-    openRequestWindow('r1');
-    recordChange('createTask', {
-      kind: 'created',
-      subject: 'Improve the demo',
-      subjectId: 'Improve the demo',
-    });
-    for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('setParent', {
-        kind: 'moved',
-        subject,
-        subjectId: subject,
-        detail: 'Improve the demo',
-      });
-    }
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe(
+    expect(
+      summariseReceipt(
+        outcome([
+          ran(
+            'createTask',
+            { title: 'Improve the demo' },
+            'Created "Improve the demo"',
+          ),
+          ...['A', 'B', 'C', 'D'].map((title, i) =>
+            ran(
+              'setParent',
+              { task: `TL-${i + 1} ${title}`, parent: 'Improve the demo' },
+              `Moved "${title}" under "Improve the demo"`,
+            ),
+          ),
+        ]),
+      )?.text,
+    ).toBe(
       '✓ Created "Improve the demo" · ✓ Grouped 4 tasks under "Improve the demo"',
     );
 
-    openRequestWindow('r2');
-    for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('assignTask', {
-        kind: 'assigned',
-        subject,
-        subjectId: subject,
-        detail: 'Chris',
-      });
-    }
-    for (const subject of ['A', 'B', 'C', 'D']) {
-      recordChange('addToMyPriorities', {
-        kind: 'prioritised',
-        subject,
-        subjectId: subject,
-      });
-    }
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Assigned 4 tasks to Chris · ✓ Added 4 tasks to your priorities',
-    );
-  });
-
-  it('uses singular phrasing for one change of each kind', () => {
-    openRequestWindow('r1');
-    recordChange('updateTask', {
-      kind: 'described',
-      subject: 'A',
-      subjectId: 'A',
-    });
-    recordChange('setParent', {
-      kind: 'moved',
-      subject: 'B',
-      subjectId: 'B',
-      detail: null,
-    });
-    recordChange('removeFromMyPriorities', {
-      kind: 'deprioritised',
-      subject: 'C',
-      subjectId: 'C',
-    });
-    recordChange('addToMyPriorities', {
-      kind: 'reprioritised',
-      subject: 'D',
-      subjectId: 'D',
-      detail: '2',
-    });
-    recordChange('removeTask', {
-      kind: 'removed',
-      subject: 'E',
-      subjectId: 'E',
-    });
-    recordChange('assignTask', {
-      kind: 'unassigned',
-      subject: 'F',
-      subjectId: 'F',
-    });
-    recordChange('updateTask', {
-      kind: 'renamed',
-      subject: 'G',
-      subjectId: 'G',
-    });
-    recordChange('replaceFeedback', {
-      kind: 'feedback',
-      subject: 'feedback',
-      subjectId: 'feedback',
-      detail: 'truncated',
-    });
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe(
-      [
-        '✓ Updated the description of "A"',
-        '✓ Moved "B" to the top level',
-        '✓ Removed "C" from your priorities',
-        '✓ Moved "D" to priority #2',
-        '✓ Deleted "E"',
-        '✓ Unassigned "F"',
-        '✓ Renamed "G"',
-        '✓ Replaced the feedback (truncated to 2000 characters)',
-      ].join(' · '),
-    );
+    expect(
+      summariseReceipt(
+        outcome([
+          ...['A', 'B', 'C', 'D'].map((title, i) =>
+            ran(
+              'assignTask',
+              { task: `TL-${i + 1}`, assignee: 'chris' },
+              `Assigned "${title}" to Chris`,
+            ),
+          ),
+          ...['A', 'B', 'C', 'D'].map((title, i) =>
+            ran(
+              'addToMyPriorities',
+              { task: `TL-${i + 1}` },
+              `Added "${title}" to your priorities`,
+            ),
+          ),
+        ]),
+      )?.text,
+    ).toBe('✓ Assigned 4 tasks to Chris · ✓ Added 4 tasks to your priorities');
   });
 
   it('groups status changes by the status they reached', () => {
-    openRequestWindow('r1');
-    for (const subjectId of ['TL-1', 'TL-2', 'TL-3']) {
-      recordChange('setStatus', {
-        kind: 'status',
-        subject: subjectId,
-        subjectId,
-        detail: 'done',
-      });
-    }
-    recordChange('setStatus', {
-      kind: 'status',
-      subject: 'Write demo copy',
-      subjectId: 'TL-4',
-      detail: 'doing',
-    });
-    settleRequestActions('r1', []);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+    expect(
+      summariseReceipt(
+        outcome([
+          ...['TL-1', 'TL-2', 'TL-3'].map((task) =>
+            ran(
+              'setStatus',
+              { task, status: 'done' },
+              `Marked "${task}" as done`,
+            ),
+          ),
+          ran(
+            'setStatus',
+            { task: 'TL-4', status: 'doing' },
+            'Marked "Write demo copy" as in progress',
+          ),
+        ]),
+      ),
+    ).toEqual({
       text: '✓ Marked 3 tasks as done · ✓ Marked "Write demo copy" as in progress',
       tone: 'success',
     });
   });
 
-  it('names a status it does not know as it was recorded', () => {
-    recordChange('setStatus', {
-      kind: 'status',
-      subject: 'Write demo copy',
-      subjectId: 'TL-4',
-      detail: 'blocked',
-    });
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Marked "Write demo copy" as blocked',
-    );
-  });
-
   it('pluralises descriptions', () => {
-    openRequestWindow('r1');
-    recordChange('updateTask', {
-      kind: 'described',
-      subject: 'A',
-      subjectId: 'A',
-    });
-    recordChange('updateTask', {
-      kind: 'described',
-      subject: 'B',
-      subjectId: 'B',
-    });
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe('✓ Updated 2 descriptions');
+    expect(
+      summariseReceipt(
+        outcome([
+          ran('updateTask', { task: 'TL-1' }, 'Updated the description of "A"'),
+          ran('updateTask', { task: 'TL-2' }, 'Updated the description of "B"'),
+        ]),
+      )?.text,
+    ).toBe('✓ Updated 2 descriptions');
   });
 
   it('counts a task changed twice the same way as one task', () => {
-    openRequestWindow('r1');
-    for (let step = 0; step < 2; step += 1) {
-      recordChange('setUrgency', {
-        kind: 'urgency',
-        subject: 'Write demo copy',
-        subjectId: 'TL-1',
-        detail: 'high',
-      });
-    }
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Set "Write demo copy" to high urgency',
-    );
+    const note = 'Set "Write demo copy" to high urgency';
+    expect(
+      summariseReceipt(
+        outcome([
+          ran('setUrgency', { task: 'TL-1 Write demo copy (Alex)' }, note),
+          ran('setUrgency', { task: 'tl-1' }, note),
+        ]),
+      )?.text,
+    ).toBe(`✓ ${note}`);
   });
 
   it('counts different tasks that share a title separately', () => {
-    openRequestWindow('r1');
-    for (const subjectId of ['TL-1', 'TL-2']) {
-      recordChange('setUrgency', {
-        kind: 'urgency',
-        subject: 'Write demo copy',
-        subjectId,
-        detail: 'high',
-      });
-    }
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe('✓ Set 2 tasks to high urgency');
+    const note = 'Set "Write demo copy" to high urgency';
+    expect(
+      summariseReceipt(
+        outcome([
+          ran('setUrgency', { task: 'TL-1' }, note),
+          ran('setUrgency', { task: 'TL-2' }, note),
+        ]),
+      )?.text,
+    ).toBe('✓ Set 2 tasks to high urgency');
   });
 
   it('puts failures first and never reports them as success', () => {
-    openRequestWindow('r1');
-    recordChange('updateTask', {
-      kind: 'described',
-      subject: 'A',
-      subjectId: 'A',
-    });
-    recordChange('updateTask', {
-      kind: 'described',
-      subject: 'B',
-      subjectId: 'B',
-    });
-    recordFailure(
-      'updateTask',
-      'Couldn\'t update "Write demo copy" because it changed: now assigned to Alex',
-    );
-    settleRequestActions('r1', []);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+    expect(
+      summariseReceipt(
+        outcome(
+          [
+            ran(
+              'updateTask',
+              { task: 'TL-1' },
+              'Updated the description of "A"',
+            ),
+            failed(
+              'updateTask',
+              'Couldn\'t update "Write demo copy" because it changed: now assigned to Alex\nTL-3 changed. Use its current label.',
+            ),
+            ran(
+              'updateTask',
+              { task: 'TL-2' },
+              'Updated the description of "B"',
+            ),
+          ],
+          'unknown',
+        ),
+      ),
+    ).toEqual({
       text: '✗ Couldn\'t update "Write demo copy" because it changed: now assigned to Alex · ✓ Updated 2 descriptions',
       tone: 'problem',
     });
   });
 
-  it('shows planned data Actions the orchestrator skipped as not confirmed', () => {
-    openRequestWindow('r1');
-    recordChange('assignTask', {
-      kind: 'assigned',
-      subject: 'A',
-      subjectId: 'A',
-      detail: 'Chris',
-    });
-    expect(getLatestReceipt()?.text).toBe('✓ Assigned "A" to Chris');
-
-    settleRequestActions('r1', [
-      'assignTask',
-      'assignTask',
-      'addToMyPriorities',
-    ]);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+  it('shows planned data Actions that were skipped or whose outcome is unknown as not confirmed', () => {
+    expect(
+      summariseReceipt(
+        outcome(
+          [
+            ran('assignTask', { task: 'TL-1' }, 'Assigned "A" to Chris'),
+            skipped('assignTask'),
+            unknown('assignTask'),
+            unknown('addToMyPriorities'),
+          ],
+          'unknown',
+        ),
+      ),
+    ).toEqual({
       text: '? Not confirmed: assign a task, add to your priorities · ✓ Assigned "A" to Chris',
       tone: 'problem',
     });
   });
 
-  it('keeps a skipped planned Action unconfirmed beside a same-kind manual edit in the request', () => {
-    openRequestWindow('r1');
-    recordChange('assignTask', {
-      kind: 'assigned',
-      subject: 'Manual',
-      subjectId: 'TL-1',
-      detail: 'Sam',
-    });
-    settleRequestActions('r1', ['assignTask']);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
-      text: '? Not confirmed: assign a task · ✓ Assigned "Manual" to Sam',
-      tone: 'problem',
-    });
+  it('reports a failed Action without a reason for the person by its phrase', () => {
+    expect(
+      summariseReceipt(
+        outcome(
+          [
+            failed('assignTask', 'Handler timed out'),
+            failed('showSomething', 'boom'),
+          ],
+          'unknown',
+        ),
+      ),
+    ).toEqual({ text: "✗ Couldn't assign a task", tone: 'problem' });
   });
 
-  it('reports a failed batch Action that recorded nothing as a failure', () => {
-    openRequestWindow('r1');
-    settleRequestActions('r1', [], ['assignTask', 'showSomething']);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
-      text: "✗ Couldn't assign a task",
-      tone: 'problem',
-    });
-  });
-
-  it('does not repeat a failure the Action already recorded', () => {
-    openRequestWindow('r1');
-    recordFailure('updateTask', 'Couldn\'t update "A" because it changed');
-    settleRequestActions('r1', [], ['updateTask', 'updateTask']);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+  it('does not merge an Action failure with another of the same Action', () => {
+    expect(
+      summariseReceipt(
+        outcome(
+          [
+            failed('updateTask', 'Couldn\'t update "A" because it changed'),
+            failed('updateTask', 'Handler threw'),
+          ],
+          'unknown',
+        ),
+      ),
+    ).toEqual({
       text: '✗ Couldn\'t update "A" because it changed · ✗ Couldn\'t update a task',
       tone: 'problem',
     });
   });
 
-  it('counts an unchanged Action as confirmed without a receipt part', () => {
-    openRequestWindow('r1');
-    recordUnchanged('addToMyPriorities');
-    settleRequestActions('r1', []);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toBeNull();
+  it('counts an Action that ran without a note as confirmed without a receipt part', () => {
+    expect(
+      summariseReceipt(outcome([ran('addToMyPriorities', { task: 'TL-1' })])),
+    ).toBeNull();
   });
 
   it('shows no line for a layout-only request', () => {
-    recordChange('createTask', {
-      kind: 'created',
-      subject: 'Earlier',
-      subjectId: 'Earlier',
-    });
-    openRequestWindow('r1');
-    settleRequestActions('r1', []);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toBeNull();
+    expect(summariseReceipt(outcome([]))).toBeNull();
   });
 
   it('ignores skipped Actions outside the Tasklane data Actions', () => {
-    openRequestWindow('r1');
-    settleRequestActions('r1', ['showSomething']);
-    closeRequestWindow();
-    expect(getLatestReceipt()).toBeNull();
+    expect(summariseReceipt(outcome([skipped('showSomething')]))).toBeNull();
+  });
+
+  it('shows settled Actions while the rest are still pending', () => {
+    expect(
+      summariseReceipt(
+        outcome(
+          [
+            ran('createTask', { title: 'A' }, 'Created "A"'),
+            pending('createTask'),
+          ],
+          'processing',
+        ),
+      )?.text,
+    ).toBe('✓ Created "A"');
   });
 
   it('reports a request that failed before any Action ran', () => {
-    openRequestWindow('r1');
-    failRequestWindow('r1', "Couldn't complete the request");
-    closeRequestWindow();
-    expect(getLatestReceipt()).toEqual({
+    expect(summariseReceipt(outcome([], 'failed'))).toEqual({
       text: "✗ Couldn't complete the request",
       tone: 'problem',
     });
   });
 
-  it('closes the previous window when the next request starts', () => {
-    openRequestWindow('r1');
-    recordChange('createTask', {
-      kind: 'created',
-      subject: 'A',
-      subjectId: 'A',
+  it('never reports an unknown request outcome as failed', () => {
+    expect(summariseReceipt(outcome([], 'unknown'))).toEqual({
+      text: '? Not confirmed: the request',
+      tone: 'problem',
     });
-    openRequestWindow('r2');
-    recordChange('createTask', {
-      kind: 'created',
-      subject: 'B',
-      subjectId: 'B',
-    });
-    closeRequestWindow();
-    expect(getLatestReceipt()?.text).toBe('✓ Created "B"');
   });
 });
+
+const TASKS = InstanceId('project-tasks-main');
+
+function outcome(
+  actions: RequestActionOutcome[],
+  status: RequestOutcome['status'] = 'applied',
+): RequestOutcome {
+  return {
+    id: 'ticket-1',
+    intent: 'test',
+    status,
+    actions,
+    ...(status === 'failed' || status === 'unknown'
+      ? { error: new Error('request error') }
+      : {}),
+  };
+}
+
+function ran(
+  action: string,
+  params: Record<string, unknown>,
+  note?: string,
+): RequestActionOutcome {
+  return {
+    instanceId: TASKS,
+    action: ActionName(action),
+    params,
+    status: 'ran',
+    ...(note === undefined ? {} : { note }),
+  };
+}
+
+function failed(action: string, reason: string): RequestActionOutcome {
+  return {
+    instanceId: TASKS,
+    action: ActionName(action),
+    status: 'failed',
+    reason,
+  };
+}
+
+function skipped(action: string): RequestActionOutcome {
+  return {
+    instanceId: TASKS,
+    action: ActionName(action),
+    status: 'skipped',
+    reason: 'instance_missing',
+  };
+}
+
+function unknown(action: string): RequestActionOutcome {
+  return { instanceId: TASKS, action: ActionName(action), status: 'unknown' };
+}
+
+function pending(action: string): RequestActionOutcome {
+  return { instanceId: TASKS, action: ActionName(action), status: 'pending' };
+}

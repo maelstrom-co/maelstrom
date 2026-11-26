@@ -1,3 +1,5 @@
+import { ActionName, InstanceId } from '@maelstrom-co/protocol';
+import type { ActionResult } from '@maelstrom-co/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -19,14 +21,10 @@ import {
   reportShowTask,
   reportTaskChange,
 } from './task-action-receipts';
-import {
-  __resetTasklaneActivityForTests,
-  getLatestReceipt,
-} from './tasklane-activity';
+import { type ReceiptLine, summariseReceipt } from './tasklane-activity';
 
 beforeEach(() => {
   __resetProjectTasksStoreForTests();
-  __resetTasklaneActivityForTests();
   __resetTaskDetailStoreForTests();
   __resetBoardFilterStoreForTests();
 });
@@ -38,46 +36,58 @@ describe('stale reference receipts', () => {
     const staleParent = taskReferenceLabel(readme);
     projectTaskActions.assignTask('TL-1', 'sam');
 
-    reportTaskChange(
+    const result = reportTaskChange(
       'setParent',
       projectTaskActions.setParent('TL-2', staleParent),
     );
 
-    expect(getLatestReceipt()?.text).toMatch(
+    expect(receiptOf('setParent', result)?.text).toMatch(
       /^✗ Couldn't use "Update demo README" as the parent because it changed: now /,
     );
+  });
+
+  it('keeps the Planner guidance after the receipt reason', () => {
+    const result = reportTaskChange(
+      'setStatus',
+      projectTaskActions.setStatus('Ghost', 'done'),
+    );
+    if (result.ok) throw new Error('expected a failure');
+    const [reason, ...guidance] = result.error.message.split('\n');
+    expect(reason).toBe('Couldn\'t find a task matching "Ghost"');
+    expect(guidance.join('\n')).toContain('TL-1 Update demo README');
   });
 });
 
 describe('showTask receipts', () => {
   it('records nothing when a task opens, since opening changes no data', () => {
-    expect(reportShowTask(openTaskDetail('detail-1', 'TL-1')).ok).toBe(true);
-    expect(getLatestReceipt()).toBeNull();
+    const result = reportShowTask(openTaskDetail('detail-1', 'TL-1'));
+    expect(result.ok).toBe(true);
+    expect(receiptOf('showTask', result)).toBeNull();
   });
 
   it('reports a task it could not find', () => {
     const result = reportShowTask(openTaskDetail('detail-1', 'Ghost'));
     expect(result.ok).toBe(false);
-    expect(getLatestReceipt()?.text).toBe(
+    expect(receiptOf('showTask', result)?.text).toBe(
       '✗ Couldn\'t find a task matching "Ghost"',
     );
   });
 
-  it('confirms reopening the task already open, so an earlier failure line does not linger', () => {
+  it('confirms reopening the task already open without a receipt part', () => {
     reportShowTask(openTaskDetail('detail-1', 'TL-1'));
-    reportShowTask(openTaskDetail('detail-1', 'Ghost'));
-    expect(getLatestReceipt()?.tone).toBe('problem');
-    expect(reportShowTask(openTaskDetail('detail-1', 'TL-1')).ok).toBe(true);
-    expect(getLatestReceipt()).toBeNull();
+    const result = reportShowTask(openTaskDetail('detail-1', 'TL-1'));
+    expect(result.ok).toBe(true);
+    expect(receiptOf('showTask', result)).toBeNull();
   });
 });
 
 describe('board filter receipts', () => {
   it('records nothing when a filter applies, since filtering changes no data', () => {
-    expect(
-      reportBoardFilter(boardFilterActions.filterByAssignee('alex')).ok,
-    ).toBe(true);
-    expect(getLatestReceipt()).toBeNull();
+    const result = reportBoardFilter(
+      boardFilterActions.filterByAssignee('alex'),
+    );
+    expect(result.ok).toBe(true);
+    expect(receiptOf('filterByAssignee', result)).toBeNull();
   });
 
   it('reports a team member it could not find', () => {
@@ -85,54 +95,59 @@ describe('board filter receipts', () => {
       boardFilterActions.filterByAssignee('robin'),
     );
     expect(result.ok).toBe(false);
-    expect(getLatestReceipt()?.text).toBe(
+    expect(receiptOf('filterByAssignee', result)?.text).toBe(
       '✗ Couldn\'t find a team member called "robin"',
     );
   });
 
-  it('confirms repeating the active filter, so an earlier failure line does not linger', () => {
+  it('confirms repeating the active filter without a receipt part', () => {
     reportBoardFilter(boardFilterActions.filterByAssignee('alex'));
-    reportBoardFilter(boardFilterActions.filterByAssignee('robin'));
-    expect(getLatestReceipt()?.tone).toBe('problem');
-    expect(
-      reportBoardFilter(boardFilterActions.filterByAssignee('alex')).ok,
-    ).toBe(true);
-    expect(getLatestReceipt()).toBeNull();
+    const result = reportBoardFilter(
+      boardFilterActions.filterByAssignee('alex'),
+    );
+    expect(result.ok).toBe(true);
+    expect(receiptOf('filterByAssignee', result)).toBeNull();
   });
 });
 
 describe('status receipts', () => {
   it('marks a task as done, in progress or to do', () => {
-    reportTaskChange('setStatus', projectTaskActions.setStatus('TL-1', 'done'));
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Marked "Update demo README" as done',
-    );
-    reportTaskChange(
-      'setStatus',
-      projectTaskActions.setStatus('TL-1', 'doing'),
-    );
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Marked "Update demo README" as in progress',
-    );
-    reportTaskChange('setStatus', projectTaskActions.setStatus('TL-1', 'todo'));
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Marked "Update demo README" as to do',
-    );
+    expect(
+      receiptOf(
+        'setStatus',
+        reportTaskChange(
+          'setStatus',
+          projectTaskActions.setStatus('TL-1', 'done'),
+        ),
+      )?.text,
+    ).toBe('✓ Marked "Update demo README" as done');
+    expect(
+      receiptOf(
+        'setStatus',
+        reportTaskChange(
+          'setStatus',
+          projectTaskActions.setStatus('TL-1', 'doing'),
+        ),
+      )?.text,
+    ).toBe('✓ Marked "Update demo README" as in progress');
+    expect(
+      receiptOf(
+        'setStatus',
+        reportTaskChange(
+          'setStatus',
+          projectTaskActions.setStatus('TL-1', 'todo'),
+        ),
+      )?.text,
+    ).toBe('✓ Marked "Update demo README" as to do');
   });
 
-  it('confirms a status the task already has, so an earlier failure line does not linger', () => {
-    reportTaskChange(
+  it('confirms a status the task already has without a receipt part', () => {
+    const result = reportTaskChange(
       'setStatus',
-      projectTaskActions.setStatus('TL-1', 'later'),
+      projectTaskActions.setStatus('TL-1', 'todo'),
     );
-    expect(getLatestReceipt()?.tone).toBe('problem');
-    expect(
-      reportTaskChange(
-        'setStatus',
-        projectTaskActions.setStatus('TL-1', 'todo'),
-      ).ok,
-    ).toBe(true);
-    expect(getLatestReceipt()).toBeNull();
+    expect(result.ok).toBe(true);
+    expect(receiptOf('setStatus', result)).toBeNull();
   });
 
   it('names an unknown status in the failure receipt', () => {
@@ -141,7 +156,7 @@ describe('status receipts', () => {
       projectTaskActions.setStatus('TL-1', 'blocked'),
     );
     expect(result.ok).toBe(false);
-    expect(getLatestReceipt()?.text).toBe(
+    expect(receiptOf('setStatus', result)?.text).toBe(
       '✗ Couldn\'t set the status to "blocked"',
     );
   });
@@ -150,12 +165,52 @@ describe('status receipts', () => {
 describe('due date receipts', () => {
   it('reports clearing a task due date', () => {
     projectTaskActions.setDueDate('TL-2', '2026-05-01');
-    reportTaskChange(
+    expect(
+      receiptOf(
+        'setDueDate',
+        reportTaskChange(
+          'setDueDate',
+          projectTaskActions.setDueDate('TL-2', 'none'),
+        ),
+      )?.text,
+    ).toBe('✓ Cleared the due date on "Record launch video"');
+  });
+
+  it('names an invalid due date in the failure receipt and returns a readable error', () => {
+    const result = reportTaskChange(
       'setDueDate',
-      projectTaskActions.setDueDate('TL-2', 'none'),
+      projectTaskActions.setDueDate('TL-1', 'next Friday'),
     );
-    expect(getLatestReceipt()?.text).toBe(
-      '✓ Cleared the due date on "Record launch video"',
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    const [reason, ...guidance] = result.error.message.split('\n');
+    expect(reason).toBe('Couldn\'t set the due date to "next Friday"');
+    expect(guidance.join('\n')).toBe(
+      'Due date must be an ISO date (YYYY-MM-DD) or "none", got "next Friday".',
+    );
+    expect(receiptOf('setDueDate', result)?.text).toBe(
+      '✗ Couldn\'t set the due date to "next Friday"',
     );
   });
 });
+
+function receiptOf(action: string, result: ActionResult): ReceiptLine | null {
+  const target = {
+    instanceId: InstanceId('project-tasks-main'),
+    action: ActionName(action),
+  };
+  return summariseReceipt({
+    id: 'ticket-1',
+    intent: 'test',
+    status: result.ok ? 'applied' : 'unknown',
+    actions: [
+      result.ok
+        ? {
+            ...target,
+            status: 'ran',
+            ...(result.value === undefined ? {} : { note: result.value }),
+          }
+        : { ...target, status: 'failed', reason: result.error.message },
+    ],
+  });
+}

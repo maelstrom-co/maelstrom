@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { tasklaneM } from '../maelstrom';
+import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { PersonChip } from '../person-chip';
 import {
   type ProjectTask,
@@ -17,15 +18,20 @@ type ExecuteAction = TypedVesselProps<typeof taskDetailVessel>['executeAction'];
 
 export default function TaskDetailComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof taskDetailVessel>) {
+  const executeAction = withManualReceipt(executeVesselAction);
   const { tasks, myPriorities } = useProjectTasksStore();
   const selectedId = useSelectedTaskId(instanceId);
 
-  tasklaneM.useActions('task-detail', instanceId, {
-    showTask: async ({ task }) =>
-      reportShowTask(openTaskDetail(instanceId, task)),
-  });
+  tasklaneM.useActions(
+    'task-detail',
+    instanceId,
+    withManualReceipts({
+      showTask: async ({ task }) =>
+        reportShowTask(openTaskDetail(instanceId, task)),
+    }),
+  );
 
   const task = selectedId
     ? tasks.find((candidate) => candidate.id === selectedId)

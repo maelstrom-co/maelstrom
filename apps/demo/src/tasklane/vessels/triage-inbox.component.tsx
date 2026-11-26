@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { tasklaneM } from '../maelstrom';
+import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { AssigneeSelect } from '../person-chip';
 import {
   isOpenTask,
@@ -25,17 +26,22 @@ interface TriageItem {
 
 export default function TriageInboxComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof triageInboxVessel>) {
+  const executeAction = withManualReceipt(executeVesselAction);
   const { tasks } = useProjectTasksStore();
 
-  tasklaneM.useActions('triage-inbox', instanceId, {
-    assignTask: async ({ task, assignee }) =>
-      reportTaskChange(
-        'assignTask',
-        projectTaskActions.assignTask(task, assignee),
-      ),
-  });
+  tasklaneM.useActions(
+    'triage-inbox',
+    instanceId,
+    withManualReceipts({
+      assignTask: async ({ task, assignee }) =>
+        reportTaskChange(
+          'assignTask',
+          projectTaskActions.assignTask(task, assignee),
+        ),
+    }),
+  );
 
   const items = triageItems(tasks);
 

@@ -11,6 +11,7 @@ import {
   type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
+import type { RequestOutcome } from '@maelstrom-co/react';
 import {
   act,
   cleanup,
@@ -30,6 +31,7 @@ import {
 } from '../lib/playground-key-store';
 import { selectVoiceProvider } from '../lib/voice-provider';
 import { tasklaneM } from './maelstrom';
+import { __resetManualReceiptForTests } from './manual-receipt';
 import { __resetBoardFilterStoreForTests } from './stores/board-filter.store';
 import { __resetFeedbackStoreForTests } from './stores/feedback.store';
 import {
@@ -43,7 +45,6 @@ import {
   __resetTaskDetailStoreForTests,
   getTaskDetailSnapshot,
 } from './stores/task-detail.store';
-import { __resetTasklaneActivityForTests } from './tasklane-activity';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
@@ -413,6 +414,91 @@ describe('Tasklane journey from feedback to my priorities', () => {
   });
 });
 
+describe('Tasklane request outcomes', () => {
+  const INTENT = "Mark all of Sam's to-do tasks done";
+
+  it.each([
+    ['typed', (intent: string) => ask(intent)],
+    ['voice', (intent: string) => askByVoice(intent)],
+  ] as const)(
+    'reports one setStatus Action with its note after a %s request',
+    async (_path, submit) => {
+      const latestOutcome = vi.spyOn(tasklaneM, 'useLatestRequestOutcome');
+      setPlaygroundKey('sk-tasklane-outcome-1234567890');
+      const { TasklanePage } = await import('./tasklane-page');
+      render(<TasklanePage />);
+      await screen.findByRole('status', {
+        name: 'Connection status: connected',
+      });
+
+      engine.plans.set(INTENT, () =>
+        plan(
+          ...getProjectTasksSnapshot()
+            .tasks.filter(
+              (candidate) =>
+                candidate.assigneeId === 'sam' && candidate.status === 'todo',
+            )
+            .map(
+              (candidate) =>
+                [
+                  'setStatus',
+                  { task: taskReferenceLabel(candidate), status: 'done' },
+                ] as const,
+            ),
+        ),
+      );
+      await submit(INTENT);
+
+      await expectReceipt('✓ Marked "Record launch video" as done');
+      const outcome = latestOutcome.mock.results.at(-1)?.value as
+        | RequestOutcome
+        | undefined;
+      expect(outcome).toMatchObject({ intent: INTENT, status: 'applied' });
+      expect(outcome?.actions).toEqual([
+        expect.objectContaining({
+          instanceId: TASKS,
+          action: 'setStatus',
+          status: 'ran',
+          note: 'Marked "Record launch video" as done',
+        }),
+      ]);
+      expect(task('Record launch video').status).toBe('done');
+    },
+  );
+
+  it('keeps a manual click out of the request outcome and shows its own receipt', async () => {
+    const latestOutcome = vi.spyOn(tasklaneM, 'useLatestRequestOutcome');
+    setPlaygroundKey('sk-tasklane-manual-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    engine.plans.set('Turn this feedback into tasks.', () =>
+      plan(['createTask', { title: 'Only one' }]),
+    );
+    await ask('Turn this feedback into tasks.');
+    await expectReceipt('✓ Created "Only one"');
+
+    await act(async () => {
+      fireEvent.change(
+        screen.getAllByRole('combobox', {
+          name: 'Status for Update demo README',
+        })[0] as HTMLElement,
+        { target: { value: 'done' } },
+      );
+    });
+    await expectReceipt('✓ Marked "Update demo README" as done');
+    const outcome = latestOutcome.mock.results.at(-1)?.value as
+      | RequestOutcome
+      | undefined;
+    expect(outcome?.actions.map((action) => action.action)).toEqual([
+      'createTask',
+    ]);
+  });
+});
+
 describe('Tasklane summons Vessels the start screen leaves out', () => {
   it('opens a task in a Task detail Instance the same response adds', async () => {
     setPlaygroundKey('sk-tasklane-open-task-1234567890');
@@ -615,6 +701,26 @@ async function ask(intent: string): Promise<void> {
   });
 }
 
+async function askByVoice(intent: string): Promise<void> {
+  const session = FakeRealtimeSession.instances.at(-1);
+  const instance = (
+    session?.options as
+      | {
+          instance?: {
+            createIntentScope?: () => {
+              enqueueIntent: (text: string) => unknown;
+            };
+          };
+        }
+      | undefined
+  )?.instance;
+  const scope = instance?.createIntentScope?.();
+  if (!scope) throw new Error('the realtime session has no intent scope');
+  await act(async () => {
+    scope.enqueueIntent(intent);
+  });
+}
+
 async function expectReceipt(text: string, timeout = 3000): Promise<void> {
   await waitFor(() => expect(receipt().textContent).toBe(text), { timeout });
   expect(receipt().getAttribute('title')).toBe(text);
@@ -701,5 +807,5 @@ function resetTasklane(): void {
   __resetFeedbackStoreForTests();
   __resetProjectTasksStoreForTests();
   __resetTaskDetailStoreForTests();
-  __resetTasklaneActivityForTests();
+  __resetManualReceiptForTests();
 }

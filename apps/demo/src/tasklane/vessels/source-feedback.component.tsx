@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
+import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { plural } from '../plural';
 import {
   type FeedbackAttribution,
@@ -23,18 +24,23 @@ import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
 export default function SourceFeedbackComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof sourceFeedbackVessel>) {
+  const executeAction = withManualReceipt(executeVesselAction);
   const { text, truncated } = useFeedbackStore();
   const { tasks, removedSourceFeedback } = useProjectTasksStore();
   const [draft, setDraft] = useState<string | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
 
-  tasklaneM.useActions('source-feedback', instanceId, {
-    replaceFeedback: async ({ text: next }) =>
-      reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
-  });
+  tasklaneM.useActions(
+    'source-feedback',
+    instanceId,
+    withManualReceipts({
+      replaceFeedback: async ({ text: next }) =>
+        reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
+    }),
+  );
 
   useEffect(() => {
     if (draft !== null || !restoreFocus.current) return;

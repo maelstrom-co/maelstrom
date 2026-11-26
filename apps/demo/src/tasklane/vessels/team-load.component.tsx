@@ -2,6 +2,7 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
+import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { plural } from '../plural';
 import {
   boardFilterActions,
@@ -22,15 +23,20 @@ import type { teamLoadVessel } from './team-load.vessel';
 
 export default function TeamLoadComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof teamLoadVessel>) {
+  const executeAction = withManualReceipt(executeVesselAction);
   const { tasks } = useProjectTasksStore();
   const { assigneeFilter } = useBoardFilterStore();
 
-  tasklaneM.useActions('team-load', instanceId, {
-    filterByAssignee: async ({ assignee }) =>
-      reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
-  });
+  tasklaneM.useActions(
+    'team-load',
+    instanceId,
+    withManualReceipts({
+      filterByAssignee: async ({ assignee }) =>
+        reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
+    }),
+  );
 
   const open = tasks.filter(isOpenTask);
   const rows = TEAM.map((member) => memberLoad(member, open));
