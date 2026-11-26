@@ -368,6 +368,23 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     }
   });
 
+  test('throws from a scoped enqueue on an agent-routed orchestrator without starting any agent submission', async () => {
+    await withAgentOrchestrator(
+      async ({ orchestrator, agent }) => {
+        const scope = createRealtimeInstance(orchestrator).createIntentScope?.();
+        if (!scope) throw new Error('expected createIntentScope');
+
+        expect(() => scope.enqueueIntent('show the board')).toThrow(
+          'Cannot enqueue single-request intent on an agent-routed orchestrator',
+        );
+        await flush();
+        expect(agent.inputs).toEqual([]);
+        expect(orchestrator.agent.store.state.runs).toEqual([]);
+      },
+      { intentRoute: 'agent' },
+    );
+  });
+
   test('rejects when the option throws, so the session reports the outcome as unconfirmed', async () => {
     await withAgentOrchestrator(async ({ orchestrator }) => {
       const failure = new Error('submit path broke');

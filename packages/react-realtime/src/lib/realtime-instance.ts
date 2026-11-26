@@ -97,14 +97,15 @@ export function createRealtimeInstance(
       const scope = orchestrator.createIntentScope();
       return {
         enqueueIntent: (intent: string) => {
+          if (orchestrator.getConfig().intentRoute === 'agent') {
+            throw agentRoutedEnqueueError();
+          }
           const submitted = orchestrator.submit(intent, {
             source: 'voice',
             scope,
           });
           if (submitted.route !== 'single-request') {
-            throw new Error(
-              'Cannot enqueue single-request intent on an agent-routed orchestrator',
-            );
+            throw agentRoutedEnqueueError();
           }
           return submitted.submission;
         },
@@ -136,4 +137,10 @@ export function createRealtimeInstance(
       return unsubscribe;
     },
   };
+}
+
+function agentRoutedEnqueueError(): Error {
+  return new Error(
+    'Cannot enqueue single-request intent on an agent-routed orchestrator',
+  );
 }
