@@ -178,11 +178,14 @@ function serializeParameter(
   const values = parameter.enum ?? [];
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
-  const serialized = enumSnapshot
-    .get(parameter)
-    .map((value) => value.serialized);
+  const candidates = enumSnapshot.get(parameter);
+  // Counted and listed once per distinct literal, as the voice capability
+  // catalog does, so one declaration is bounded the same way on both paths.
+  const serialized = [
+    ...new Set(candidates.map((value) => value.serialized)),
+  ];
 
-  const dropped = values.length - serialized.length;
+  const dropped = values.length - candidates.length;
   if (dropped > 0) {
     logger?.warn(
       `Dropped ${dropped} enum value(s) that cannot be rendered as JSON matching the declared type for parameter "${parameter.name}" on action "${actionName}"`,

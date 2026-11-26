@@ -573,8 +573,8 @@ describe('buildVesselsSection', () => {
     expect(normalized?.value).toEqual({ nested: { id: 1 } });
   });
 
-  // Each value renders as a JSON string literal, so its quotes count toward
-  // the character budget exactly as the voice capability catalog counts them.
+  // The prompt renders each value as a JSON string literal, so its quotes
+  // count toward the character budget.
   test('lists enum values whose rendered length totals exactly MAX_CAPABILITY_OPTIONS_TOTAL_CHARS', () => {
     const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
     const values = ['a'.repeat(half), 'b'.repeat(half)];
@@ -618,15 +618,52 @@ describe('buildVesselsSection', () => {
     expect(output).not.toContain('options omitted');
   });
 
+  test('renders a duplicated enum value once without reporting it as unrenderable', () => {
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel(['a', 'b', 'a'])],
+    });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain('checkTask(title: "a"|"b")');
+    expect(warns).toHaveLength(0);
+  });
+
+  test('counts distinct enum values toward the character budget', () => {
+    const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
+    const value = 'a'.repeat(half);
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel([value, value, value])],
+    });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain(`checkTask(title: "${value}")`);
+    expect(output).not.toContain('options omitted');
+    expect(warns).toHaveLength(0);
+  });
+
+  test('counts distinct enum values toward MAX_CAPABILITY_OPTION_COUNT', () => {
+    const values = [
+      ...Array.from({ length: MAX_CAPABILITY_OPTION_COUNT }, (_, i) => i),
+      0,
+    ];
+    const output = vesselsSectionForOptionValues(values);
+    expect(output).toContain('checkTask(title: 0|1|');
+    expect(output).not.toContain('options omitted');
+  });
+
   test('lists exactly MAX_CAPABILITY_OPTION_COUNT enum values', () => {
-    const output = vesselsSectionForOptionCount(MAX_CAPABILITY_OPTION_COUNT);
+    const output = vesselsSectionForOptionValues(
+      Array.from({ length: MAX_CAPABILITY_OPTION_COUNT }, (_, i) => i),
+    );
     expect(output).toContain('checkTask(title: 0|1|');
     expect(output).not.toContain('options omitted');
   });
 
   test('omits the whole enum list above MAX_CAPABILITY_OPTION_COUNT values', () => {
     const count = MAX_CAPABILITY_OPTION_COUNT + 1;
-    const output = vesselsSectionForOptionCount(count);
+    const output = vesselsSectionForOptionValues(
+      Array.from({ length: count }, (_, i) => i),
+    );
     expect(output).toContain(
       `checkTask(title: number (${count} options omitted))`,
     );
@@ -636,8 +673,7 @@ describe('buildVesselsSection', () => {
 
 // The protocol schema caps declared enums below MAX_CAPABILITY_OPTION_COUNT,
 // so the count bound is exercised through an injected snapshot.
-function vesselsSectionForOptionCount(count: number): string {
-  const values = Array.from({ length: count }, (_, index) => index);
+function vesselsSectionForOptionValues(values: number[]): string {
   const vessel = makeEnumVessel(values);
   const parameter = vessel.variants.list.actions[0]!.parameters[0]!;
   const numericParameter = { ...parameter, type: 'number' as const };
