@@ -86,6 +86,12 @@ export type FlexibleTableFailure =
     }
   | {
       readonly ok: false;
+      readonly reason: 'column_in_use';
+      readonly column: TableColumn;
+      readonly dependents: readonly string[];
+    }
+  | {
+      readonly ok: false;
       readonly reason: 'not_free_column';
       readonly column: TableColumn;
     }
@@ -324,6 +330,14 @@ export const flexibleTableActions = {
     const resolved = findColumn(columnRef);
     if (!resolved.ok) return resolved;
     const found = resolved.column;
+    const dependents = columnsReferencing(
+      found,
+      state.columns,
+      getProjectTasksSnapshot().tasks,
+    );
+    if (dependents.length > 0) {
+      return { ok: false, reason: 'column_in_use', column: found, dependents };
+    }
     const { [found.id]: _removed, ...restCells } = state.cells;
     setState({
       ...state,
@@ -566,6 +580,8 @@ export function describeTableFailure(failure: FlexibleTableFailure): string {
       return `Unknown column "${failure.query}". Current columns: ${state.columns.map((c) => `${c.id} (${c.label})`).join(', ')}.`;
     case 'ambiguous_column':
       return `"${failure.query}" matches more than one column: ${failure.candidates.join(', ')}. Use the column id.`;
+    case 'column_in_use':
+      return `Column "${failure.column.label}" is used by computed column(s) ${failure.dependents.join(', ')}. Remove those first.`;
     case 'not_free_column':
       return `Column "${failure.column.label}" is a ${failure.column.kind} column and cannot be edited directly.`;
     case 'bad_position':
@@ -982,6 +998,34 @@ function lookupColumn(
     if (hits.length > 1) return { kind: 'ambiguous', candidates: hits };
   }
   return { kind: 'not_found' };
+}
+
+function columnsReferencing(
+  target: TableColumn,
+  columns: readonly TableColumn[],
+  tasks: readonly ProjectTask[],
+): readonly string[] {
+  const dependents: string[] = [];
+  for (const col of columns) {
+    if (col.kind !== 'computed' || col.id === target.id) continue;
+    const parsed = parseFormula(col.formula ?? '');
+    if (!parsed.ok) continue;
+    const others = columns.filter((other) => other.id !== col.id);
+    const remaining = others.filter((other) => other.id !== target.id);
+    const blocks = parsed.references.some((ref) => {
+      const lookup = lookupColumn(ref, others);
+      if (lookup.kind !== 'found' || lookup.column.id !== target.id) {
+        return false;
+      }
+      const readsSameTaskField =
+        target.kind === 'field' &&
+        lookupColumn(ref, remaining).kind === 'not_found' &&
+        resolveTaskField(ref, tasks) === (target.field ?? target.id);
+      return !readsSameTaskField;
+    });
+    if (blocks) dependents.push(col.label);
+  }
+  return dependents;
 }
 
 function resolveTaskField(

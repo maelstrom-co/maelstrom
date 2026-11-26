@@ -439,15 +439,15 @@ describe('flexible-table review regressions', () => {
   });
 
   it('still reports a genuine two-column formula cycle as an error', () => {
-    flexibleTableActions.addColumn({ label: 'Base', kind: 'free' });
+    flexibleTableActions.showPreset('triage');
+    flexibleTableActions.clearFilters();
     flexibleTableActions.addColumn({
       label: 'Alpha',
       kind: 'computed',
-      formula: 'base + 1',
+      formula: 'spent + 1',
     });
-    flexibleTableActions.removeColumn('base');
     flexibleTableActions.addColumn({
-      label: 'Base',
+      label: 'Spent',
       kind: 'computed',
       formula: 'alpha + 1',
     });
@@ -455,7 +455,7 @@ describe('flexible-table review regressions', () => {
     const rows = projectTableRows(getProjectTasksSnapshot().tasks);
     const tl1 = rows.find((r) => r.task.id === 'TL-1');
     expect(tl1?.cells.alpha?.error).toBeDefined();
-    expect(tl1?.cells.base?.error).toBeDefined();
+    expect(tl1?.cells.spent?.error).toBeDefined();
   });
 
   it('evaluates a long doubling chain of computed columns without exponential work', () => {
@@ -639,5 +639,57 @@ describe('flexible-table review regressions', () => {
         formula: 'Score * 2',
       }),
     ).toMatchObject({ ok: false, reason: 'ambiguous_column', query: 'Score' });
+  });
+
+  it('refuses to remove a column that a computed column references', () => {
+    flexibleTableActions.showPreset('triage');
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.addColumn({ label: 'Estimate', kind: 'free' });
+    flexibleTableActions.setCell('TL-1', 'estimate', '10');
+    flexibleTableActions.addColumn({
+      label: 'Plus',
+      kind: 'computed',
+      formula: 'estimate + 1',
+    });
+
+    const refused = flexibleTableActions.removeColumn('estimate');
+    expect(refused).toMatchObject({
+      ok: false,
+      reason: 'column_in_use',
+      dependents: ['Plus'],
+    });
+    if (refused.ok) throw new Error('expected a column_in_use failure');
+    expect(describeTableFailure(refused)).toContain('Plus');
+    expect(getFlexibleTableSnapshot().columns.map((col) => col.id)).toContain(
+      'estimate',
+    );
+    expect(getFlexibleTableSnapshot().cells.estimate).toEqual({ 'TL-1': '10' });
+    const tl1 = projectTableRows(getProjectTasksSnapshot().tasks).find(
+      (r) => r.task.id === 'TL-1',
+    );
+    expect(tl1?.cells.plus).toMatchObject({ raw: 11, display: '11' });
+
+    expect(flexibleTableActions.removeColumn('plus')).toMatchObject({
+      ok: true,
+    });
+    expect(flexibleTableActions.removeColumn('estimate')).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('still removes a field column when the formula reads the same task field', () => {
+    flexibleTableActions.addColumn({
+      label: 'Total',
+      kind: 'computed',
+      formula: 'estimate + spent',
+    });
+
+    expect(flexibleTableActions.removeColumn('estimate')).toMatchObject({
+      ok: true,
+    });
+    const tl1 = projectTableRows(getProjectTasksSnapshot().tasks).find(
+      (r) => r.task.id === 'TL-1',
+    );
+    expect(tl1?.cells.total?.raw).toBe(3);
   });
 });
