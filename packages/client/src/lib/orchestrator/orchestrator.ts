@@ -806,6 +806,15 @@ export class Orchestrator {
         };
       }
       this.#requestOutcomes.planned(ticketId, outcome.response.executionPlan);
+      const plannedReason = isFenced('request outcome notification completed');
+      if (plannedReason || !live()) {
+        this.#discardResponse(request.id, plannedReason ?? 'retired');
+        this.#recoverFencedRequest(pendingUpdates);
+        return {
+          status: 'unknown',
+          error: new Error('Intent response fenced'),
+        };
+      }
       const settlement = await this.#dispatchSettledResponse(
         outcome.response,
         request.id,

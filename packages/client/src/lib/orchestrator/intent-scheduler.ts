@@ -153,8 +153,8 @@ export class IntentScheduler {
     };
     if (reason) this.#finish(entry, { status: 'not_submitted', reason });
     else this.#pending.push(entry);
-    this.#publish();
     this.#onAdmit(ticket, intent);
+    this.#publish();
     this.wake();
     return ticket;
   }

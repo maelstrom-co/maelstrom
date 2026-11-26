@@ -360,6 +360,52 @@ describe('Orchestrator request outcomes', () => {
     expect(client.requestOutcomes.store.state.latestId).toBe(pending.id);
   });
 
+  it('keeps the later request latest when a scheduler subscriber enqueues during admission', async () => {
+    const { client } = await setup(['show']);
+    let nested: IntentSubmission | undefined;
+    const subscription = client.intentScheduler.store.subscribe(() => {
+      if (nested) return;
+      nested = client.enqueueIntent('second');
+    });
+    const first = client.enqueueIntent('first');
+    subscription.unsubscribe();
+    if (!nested) throw new Error('the subscriber did not enqueue');
+
+    const { outcomes, latestId } = client.requestOutcomes.store.state;
+    expect(latestId).toBe(nested.id);
+    expect(Object.keys(outcomes)).toEqual([first.id, nested.id]);
+  });
+
+  it('does not apply a response when an outcome subscriber replaces the connector on plan publication', async () => {
+    const { client, sent, responses, outcomeOf } = await setup(['setStatus']);
+    const handler = mock(() => ok('done'));
+    client.commandProcessor.registerRunner(InstanceId('board'), {
+      setStatus: handler,
+    });
+    const ticket = client.enqueueIntent('mark everything done');
+    let replaced = false;
+    const subscription = client.requestOutcomes.store.subscribe(() => {
+      if (replaced || (outcomeOf(ticket)?.actions.length ?? 0) === 0) return;
+      replaced = true;
+      client.setConnector(createMockConnector());
+    });
+    await flushMicrotasks();
+    responses[0].resolve(createMockResponse(sent[0].id, 'board', 'setStatus'));
+    const result = await ticket.result;
+    subscription.unsubscribe();
+
+    expect(replaced).toBe(true);
+    expect(result.status).toBe('unknown');
+    expect(handler).not.toHaveBeenCalled();
+    expect(
+      client.commandProcessor.store.state.instances.has(InstanceId('board')),
+    ).toBe(false);
+    expect(outcomeOf(ticket)).toMatchObject({
+      status: 'unknown',
+      actions: [{ action: ActionName('setStatus'), status: 'unknown' }],
+    });
+  });
+
   it(`retains only the ${REQUEST_OUTCOME_RETENTION} most recently admitted requests`, async () => {
     const { client } = await setup(['show']);
     await client.dispose();

@@ -52,8 +52,8 @@ export class RequestOutcomeRecorder implements RequestOutcomeView {
       });
       tracked.release = () => subscription.unsubscribe();
     }
-    this.#evictOldest();
-    this.#publish(ticket.id, ticket.accepted);
+    const evicted = this.#evictOldest();
+    this.#publish(ticket.id, ticket.accepted, evicted);
   }
 
   planned(id: string, plan: readonly ActionExecution[]): void {
@@ -70,19 +70,29 @@ export class RequestOutcomeRecorder implements RequestOutcomeView {
     this.#publish(id);
   }
 
-  #publish(id: string, becomesLatest = false): void {
+  #publish(
+    id: string,
+    becomesLatest = false,
+    evicted: readonly string[] = [],
+  ): void {
     const tracked = this.#tracked.get(id);
     if (!tracked) return;
     const outcome = toOutcome(id, tracked);
-    this.store.setState((state) => ({
-      outcomes: { ...state.outcomes, [id]: outcome },
-      latestId: becomesLatest ? id : state.latestId,
-    }));
+    this.store.setState((state) => {
+      const outcomes = { ...state.outcomes };
+      for (const evictedId of evicted) delete outcomes[evictedId];
+      outcomes[id] = outcome;
+      const previous =
+        state.latestId !== null && evicted.includes(state.latestId)
+          ? null
+          : state.latestId;
+      return { outcomes, latestId: becomesLatest ? id : previous };
+    });
   }
 
-  #evictOldest(): void {
-    if (this.#tracked.size <= REQUEST_OUTCOME_RETENTION) return;
+  #evictOldest(): string[] {
     const evicted: string[] = [];
+    if (this.#tracked.size <= REQUEST_OUTCOME_RETENTION) return evicted;
     for (const [id, tracked] of this.#tracked) {
       if (this.#tracked.size - evicted.length <= REQUEST_OUTCOME_RETENTION)
         break;
@@ -90,17 +100,7 @@ export class RequestOutcomeRecorder implements RequestOutcomeView {
       evicted.push(id);
     }
     for (const id of evicted) this.#tracked.delete(id);
-    this.store.setState((state) => {
-      const outcomes = { ...state.outcomes };
-      for (const id of evicted) delete outcomes[id];
-      return {
-        outcomes,
-        latestId:
-          state.latestId !== null && evicted.includes(state.latestId)
-            ? null
-            : state.latestId,
-      };
-    });
+    return evicted;
   }
 
   #release(tracked: Tracked): void {
