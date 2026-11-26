@@ -22,6 +22,7 @@ export type SessionEvent =
   | TranscriptFragmentEvent
   | TranscriptEntryEvent
   | MediaEvent
+  | InferenceEvent
   | ToolCallEvent
   | ToolOutcomeEvent
   | TimingEvent
@@ -101,6 +102,16 @@ export interface MediaEvent {
   readonly generation: number;
   /** Changed media fields only; absent fields keep their previous value. */
   readonly media: Partial<VoiceMediaObservation>;
+}
+
+/** Adapter inference state evidence, relayed only after the session fenced stale connections. */
+export interface InferenceEvent {
+  /** Discriminant. */
+  readonly type: 'inference';
+  /** Connection generation the evidence belongs to. */
+  readonly generation: number;
+  /** Whether provider inference is paused or running. */
+  readonly inference: 'paused' | 'running';
 }
 
 /**

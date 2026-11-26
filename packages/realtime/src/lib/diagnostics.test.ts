@@ -1121,3 +1121,36 @@ test('voice diagnostic events stay out of client metadata subscriptions', async 
     releaseMetadata();
   }
 });
+
+test('inference observations surface paused and resumed states without typed intents changing them', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  await h.session.connect();
+
+  h.observe({ type: 'inference', inference: 'paused' });
+  expect(h.session.observations.getSnapshot().inference).toBe('paused');
+
+  // Typed intent while voice inference is paused does not change inference state.
+  await h.client.processIntent('typed intent during pause').catch(() => {});
+  expect(h.session.observations.getSnapshot().inference).toBe('paused');
+
+  h.observe({ type: 'inference', inference: 'running' });
+  expect(h.session.observations.getSnapshot().inference).toBe('running');
+
+  const inferenceEvents = events.filter(
+    (event) => event.kind === 'voice.inference',
+  );
+  expect(inferenceEvents.map((event) => event.metadata.inference)).toEqual([
+    'paused',
+    'running',
+  ]);
+  const observationStates = events
+    .filter((event) => event.kind === 'voice.observations')
+    .map((event) => event.metadata.inference);
+  expect(observationStates).toContain('paused');
+  expect(observationStates.at(-1)).toBe('running');
+  detach();
+});

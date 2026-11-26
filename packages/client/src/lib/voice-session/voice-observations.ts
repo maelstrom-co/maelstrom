@@ -3,6 +3,9 @@ import type { Unsubscribe } from '../types.js';
 /** An observed activity value. Unknown means that no current evidence exists. */
 export type VoiceActivity = 'active' | 'inactive' | 'unknown';
 
+/** Observed provider inference state, independent of transport connectivity. */
+export type VoiceInferenceState = 'running' | 'paused' | 'unknown';
+
 /** Local provider connection lifecycle, independent of conversation activity. */
 export type VoiceConnectionState =
   | 'disconnected'
@@ -87,6 +90,8 @@ export interface VoiceObservationSnapshot {
   readonly connection: VoiceConnectionState;
   /** Current generation's observed media activity. */
   readonly media: VoiceMediaObservation;
+  /** Observed provider inference state for the current generation; absent or `unknown` when unreported. */
+  readonly inference?: VoiceInferenceState;
   /** Current application observations, independent of voice connectivity. */
   readonly applicationWork: VoiceApplicationWork;
   /** Bounded raw fragments ordered by start time, then first receipt for ties; reset on a new connection attempt. */

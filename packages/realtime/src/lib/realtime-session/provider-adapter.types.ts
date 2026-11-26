@@ -332,6 +332,12 @@ export type AdapterVoiceObservation =
       readonly type: 'fragment';
       /** New or revised raw fragment on this connection's media timeline. */
       readonly fragment: TimedTranscriptFragment;
+    }
+  | {
+      /** Provider inference state discriminator. */
+      readonly type: 'inference';
+      /** Whether provider inference is paused or running for the current connection. */
+      readonly inference: 'paused' | 'running';
     };
 
 /** Adapter evidence channel, subscribed before connection setup and released on teardown. */

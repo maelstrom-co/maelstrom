@@ -29,6 +29,9 @@ import {
 
 import { type LiveContextKind, LiveDiagnostics } from './live-diagnostics.js';
 
+const SESSION_PAUSED_EVENT = 'session.paused';
+const SESSION_RESUMED_EVENT = 'session.resumed';
+
 /** Browser transport configuration. Factories must return exclusively owned resources. */
 export interface LiveTransportOptions {
   /** Host-owned SDP exchange, usually an authenticated application route. */
@@ -653,6 +656,15 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
           startMs: event.start_ms,
           endMs: event.end_ms,
         },
+      });
+    } else if (
+      !run.closing &&
+      (event.type === SESSION_PAUSED_EVENT ||
+        event.type === SESSION_RESUMED_EVENT)
+    ) {
+      this.mediaEvent({
+        type: 'inference',
+        inference: event.type === SESSION_PAUSED_EVENT ? 'paused' : 'running',
       });
     }
     if (this.current(run)) this.publishNative(run, event);

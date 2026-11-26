@@ -263,6 +263,7 @@ export type {
   VoiceApplicationWorkSource,
   VoiceCaption,
   VoiceConnectionState,
+  VoiceInferenceState,
   VoiceMediaObservation,
   VoiceObservationSnapshot,
   VoiceObservationSource,

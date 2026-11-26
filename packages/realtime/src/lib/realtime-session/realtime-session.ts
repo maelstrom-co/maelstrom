@@ -548,6 +548,12 @@ export class RealtimeSession implements VoiceSession {
               generation,
               media: event.media,
             });
+          else if (event.type === 'inference')
+            this.#events.publish({
+              type: 'inference',
+              generation,
+              inference: event.inference,
+            });
           else
             this.#events.publish({
               type: 'transcript.fragment',
