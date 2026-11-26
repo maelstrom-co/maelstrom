@@ -169,6 +169,23 @@ describe('feedbackCoverage', () => {
       ),
     ).toEqual({ kind: 'dropped' });
   });
+
+  it('says dropped for a quote ending in an inner quote mark when the removed source carries a different attribution', () => {
+    expect(
+      feedbackCoverage(
+        '"The status is "Done""',
+        [],
+        [normalizeFeedbackQuote('"The status is "Done"" - Ana, 2026-11-02')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(
+        '"The status is "Done"" - Ana, 2026-11-02',
+        [],
+        [normalizeFeedbackQuote('"The status is "Done"" - Ana')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+  });
 });
 
 describe('feedback coverage of tasks created from a quote', () => {

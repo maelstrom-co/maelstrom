@@ -85,5 +85,7 @@ function normalizeQuoteBody(text: string): string {
 }
 
 function stripNormalizedAttribution(normalized: string): string {
-  return normalized.replace(NORMALIZED_TRAILING_ATTRIBUTION, '').trim();
+  return normalizeFeedbackQuote(
+    normalized.replace(NORMALIZED_TRAILING_ATTRIBUTION, ''),
+  );
 }
