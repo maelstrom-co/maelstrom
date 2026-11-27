@@ -29,15 +29,18 @@ export function parseFeedbackQuote(paragraph: string): ParsedFeedbackQuote {
 
 const OPENING_QUOTE_MARK = /^\s*["“]/;
 const ATTRIBUTED_QUOTE = /^\s*(["“][\s\S]+["”])\s*[-–—]\s*([^"”]+)$/;
+const DIGIT = /\d/;
 
+// The date follows the last comma and always contains a digit, so an author
+// name may itself contain commas.
 function parseAttribution(raw: string): FeedbackAttribution | null {
-  const comma = raw.indexOf(',');
-  if (comma === -1) {
+  const comma = raw.lastIndexOf(',');
+  const tail = comma === -1 ? '' : raw.slice(comma + 1).trim();
+  if (comma === -1 || (tail && !DIGIT.test(tail))) {
     const author = raw.trim();
     return author ? { author, date: null } : null;
   }
   const author = raw.slice(0, comma).trim();
   if (!author) return null;
-  const date = raw.slice(comma + 1).trim();
-  return { author, date: date || null };
+  return { author, date: tail || null };
 }

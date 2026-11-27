@@ -101,6 +101,19 @@ describe('normalizeFeedbackQuote', () => {
   });
 });
 
+describe('parseFeedbackQuote author names with commas', () => {
+  it('takes the date from after the last comma and keeps commas in the author', () => {
+    expect(parseFeedbackQuote('"Quote" - Doe, Jane, 2026-11-02')).toEqual({
+      quote: '"Quote"',
+      attribution: { author: 'Doe, Jane', date: '2026-11-02' },
+    });
+    expect(parseFeedbackQuote('"Quote" - Doe, Jane')).toEqual({
+      quote: '"Quote"',
+      attribution: { author: 'Doe, Jane', date: null },
+    });
+  });
+});
+
 describe('feedbackCoverage', () => {
   it('counts the live tasks whose source matches the quote', () => {
     const tasks = [
@@ -182,6 +195,26 @@ describe('feedbackCoverage', () => {
         [feedbackSourceKey('"The status is "Done"" - Ana')],
       ),
     ).toEqual({ kind: 'dropped' });
+  });
+
+  it('matches a task source that repeats the attribution without quote marks', () => {
+    const feedback = '"Quote" - Ana, 2026-11-02';
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote - Ana, 2026-11-02')], []),
+    ).toEqual({ kind: 'covered', taskCount: 1 });
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote — Ana, 2026-11-02')], []),
+    ).toEqual({ kind: 'covered', taskCount: 1 });
+    expect(
+      feedbackCoverage(
+        feedback,
+        [],
+        [feedbackSourceKey('Quote - Ana, 2026-11-02')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote - Bo, 2026-11-02')], []),
+    ).toEqual({ kind: 'uncovered' });
   });
 
   it('keeps a quote with an inner quote mark apart from a removed source that continues past it', () => {
