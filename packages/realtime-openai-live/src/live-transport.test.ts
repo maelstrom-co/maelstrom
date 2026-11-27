@@ -1377,23 +1377,6 @@ describe('manualTurns with input mute', () => {
     return { ...h, micStates };
   }
 
-  test('a turn start does not reopen a muted microphone and unmuting during the turn opens it', async () => {
-    const h = await connected();
-
-    h.transport.setInputEnabled(false);
-    h.transport.startTurn();
-    expect(h.mic.enabled).toBe(false);
-    expect(h.micStates.at(-1)).toBe('inactive');
-
-    h.transport.setInputEnabled(true);
-    expect(h.mic.enabled).toBe(true);
-    expect(h.micStates.at(-1)).toBe('active');
-
-    h.transport.endTurn();
-    expect(h.mic.enabled).toBe(false);
-    expect(h.micStates.at(-1)).toBe('inactive');
-  });
-
   test('mute and unmute inside a press reopens the microphone', async () => {
     const h = await connected();
 
@@ -1402,29 +1385,6 @@ describe('manualTurns with input mute', () => {
     h.transport.setInputEnabled(false);
     expect(h.mic.enabled).toBe(false);
     h.transport.setInputEnabled(true);
-    expect(h.mic.enabled).toBe(true);
-    expect(h.micStates.at(-1)).toBe('active');
-  });
-
-  test('unmuting outside a turn keeps the microphone closed until the next turn', async () => {
-    const h = await connected();
-
-    h.transport.setInputEnabled(false);
-    h.transport.setInputEnabled(true);
-    expect(h.mic.enabled).toBe(false);
-    expect(h.micStates.at(-1)).toBe('inactive');
-
-    h.transport.startTurn();
-    expect(h.mic.enabled).toBe(true);
-    h.transport.setInputEnabled(false);
-    expect(h.mic.enabled).toBe(false);
-    expect(h.micStates.at(-1)).toBe('inactive');
-    h.transport.endTurn();
-    h.transport.setInputEnabled(true);
-    expect(h.mic.enabled).toBe(false);
-    expect(h.micStates.at(-1)).toBe('inactive');
-
-    h.transport.startTurn();
     expect(h.mic.enabled).toBe(true);
     expect(h.micStates.at(-1)).toBe('active');
   });
@@ -1558,39 +1518,3 @@ test('disconnect without a connection drops a mute requested before connect', as
   expect(h.mic.enabled).toBe(true);
 });
 
-test('setInputEnabled disables mic tracks and marks microphone observation inactive without disconnecting', async () => {
-  const h = harness();
-  const mediaEvents: AdapterVoiceObservation[] = [];
-  h.transport.observations.subscribe((event) => {
-    if (event.type === 'media') mediaEvents.push(event);
-  });
-
-  const ready = h.start();
-  await tick();
-  h.started();
-  await ready;
-
-  expect(h.mic.enabled).toBe(true);
-  expect(mediaEvents.at(-1)).toEqual({
-    type: 'media',
-    media: { microphone: 'active' },
-  });
-
-  h.transport.setInputEnabled(false);
-  expect(h.mic.enabled).toBe(false);
-  expect(mediaEvents.at(-1)).toEqual({
-    type: 'media',
-    media: { microphone: 'inactive' },
-  });
-  expect(h.transport.getSnapshot().state).toBe('connected');
-  expect(h.peer.closed).toBe(false);
-  expect(h.peer.channel.closed).toBe(false);
-
-  h.transport.setInputEnabled(true);
-  expect(h.mic.enabled).toBe(true);
-  expect(mediaEvents.at(-1)).toEqual({
-    type: 'media',
-    media: { microphone: 'active' },
-  });
-  expect(h.transport.getSnapshot().state).toBe('connected');
-});

@@ -1913,6 +1913,10 @@ test('session mute and manual turns gate the microphone independently: a muted p
     'inactive',
   );
 
+  await h.session.turnControl?.startTurn();
+  expect(micTrack?.enabled).toBe(true);
+  await h.session.turnControl?.endTurn();
+
   h.session.setInputMuted(true);
   await h.session.turnControl?.startTurn();
   expect(micTrack?.enabled).toBe(false);
@@ -1965,6 +1969,8 @@ test('muting via inputControl mid-delegation disables mic tracks while keeping t
   const micTracks = h.adapter.getAudioStreams().mic?.getAudioTracks() ?? [];
   expect(micTracks.length).toBeGreaterThan(0);
   expect(micTracks.every((track) => track.enabled === false)).toBe(true);
+  expect(h.channel.readyState).toBe('open');
+  expect(h.peers).toHaveLength(1);
 
   pending.resolve({ userMessage: 'Updated while muted.' });
   await tick();
