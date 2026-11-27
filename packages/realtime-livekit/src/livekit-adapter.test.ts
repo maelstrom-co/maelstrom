@@ -97,8 +97,21 @@ const mockSetMicrophoneEnabled = mock(async (enabled: boolean) => {
   mockPublishedMicTrack.enabled = enabled;
   mockMicPublication.track.isMuted = !enabled;
 });
+const micTrackRestartHandlers = new Set<(track: unknown) => void>();
+const mockMicTrackOn = mock(
+  (event: string, handler: (track: unknown) => void) => {
+    if (event === 'restarted') micTrackRestartHandlers.add(handler);
+  },
+);
+const mockMicTrackOff = mock(
+  (event: string, handler: (track: unknown) => void) => {
+    if (event === 'restarted') micTrackRestartHandlers.delete(handler);
+  },
+);
 const mockMicPublication = {
   track: {
+    on: mockMicTrackOn,
+    off: mockMicTrackOff,
     isMuted: false,
     mediaStream: { id: 'published-mic-stream' } as unknown as MediaStream,
     mediaStreamTrack: mockPublishedMicTrack as unknown as MediaStreamTrack,
@@ -177,6 +190,7 @@ mock.module('livekit-client', () => ({
     DataReceived: 'dataReceived',
   },
   Track: { Kind: { Audio: 'audio' }, Source: { Microphone: 'microphone' } },
+  TrackEvent: { Restarted: 'restarted' },
   setLogLevel: mock(() => {}),
 }));
 
@@ -2469,6 +2483,8 @@ describe('LiveKitAdapter connect', () => {
         stop: mock(() => {}),
       };
       const track = {
+        on: mock(() => {}),
+        off: mock(() => {}),
         isMuted: false,
         mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
         mediaStreamTrack: raw as unknown as MediaStreamTrack,
@@ -2547,6 +2563,8 @@ describe('LiveKitAdapter connect', () => {
         stop: mock(() => {}),
       };
       const track = {
+        on: mock(() => {}),
+        off: mock(() => {}),
         isMuted: false,
         mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
         mediaStreamTrack: raw as unknown as MediaStreamTrack,
@@ -2621,6 +2639,8 @@ describe('LiveKitAdapter connect', () => {
         stop: mock(() => {}),
       };
       const track = {
+        on: mock(() => {}),
+        off: mock(() => {}),
         isMuted: false,
         mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
         mediaStreamTrack: raw as unknown as MediaStreamTrack,
@@ -5023,6 +5043,33 @@ describe('LiveKitAdapter inputControl mute', () => {
     expect(mockPauseUpstream).not.toHaveBeenCalled();
     expect(mockResumeUpstream).not.toHaveBeenCalled();
     await adapter.disconnect();
+  });
+
+  test('keeps a track LiveKit restarted during a held muted turn closed', async () => {
+    micTrackRestartHandlers.clear();
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.turnControl?.startTurn();
+    adapter.inputControl.setInputEnabled(false);
+
+    const replacement = { enabled: true, stop: mock(() => {}) };
+    const original = mockMicPublication.track.mediaStreamTrack;
+    mockMicPublication.track.mediaStreamTrack =
+      replacement as unknown as MediaStreamTrack;
+    try {
+      for (const handler of micTrackRestartHandlers)
+        handler(mockMicPublication.track);
+      expect(replacement.enabled).toBe(false);
+
+      adapter.inputControl.setInputEnabled(true);
+      expect(replacement.enabled).toBe(true);
+
+      await adapter.disconnect();
+      expect(replacement.stop).toHaveBeenCalled();
+      expect(micTrackRestartHandlers.size).toBe(0);
+    } finally {
+      mockMicPublication.track.mediaStreamTrack = original;
+    }
   });
 
   test('a press while muted runs a silent turn that unmuting reopens', async () => {

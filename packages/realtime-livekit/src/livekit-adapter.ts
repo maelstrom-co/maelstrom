@@ -47,6 +47,7 @@ import {
   RoomEvent,
   setLogLevel,
   Track,
+  TrackEvent,
 } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
@@ -226,6 +227,7 @@ export class LiveKitAdapter
   // unsupported browsers the native publication retains manual mute semantics.
   #micClone: MediaStreamTrack | undefined;
   #rawMicTrack: MediaStreamTrack | undefined;
+  #restartWatchedMicTrack: LocalAudioTrack | undefined;
   #localAudioPreRoll: LocalAudioPreRoll | undefined;
   #browserVad: BrowserVad | undefined;
   #manualTurnControlAvailable = false;
@@ -458,6 +460,8 @@ export class LiveKitAdapter
         attempt.assertCurrent();
         unpublishedMicTrack = undefined;
         this.#rawMicTrack = rawMicTrack;
+        micTrack.on(TrackEvent.Restarted, this.#onMicTrackRestarted);
+        this.#restartWatchedMicTrack = micTrack;
         clone.enabled = !this.#inputMuted;
         this.#micClone = clone;
         this.#micStream = stream;
@@ -1894,6 +1898,11 @@ export class LiveKitAdapter
     const browserVad = this.#browserVad;
     this.#manualTurnControlAvailable = false;
     this.#inputMuted = false;
+    this.#restartWatchedMicTrack?.off(
+      TrackEvent.Restarted,
+      this.#onMicTrackRestarted,
+    );
+    this.#restartWatchedMicTrack = undefined;
     this.#localAudioPreRoll = undefined;
     this.#browserVad = undefined;
     this.#micClone = undefined;
@@ -1940,6 +1949,14 @@ export class LiveKitAdapter
    * feeds VAD. Without it the native track is published directly, and LiveKit
    * re-enables that track whenever it unmutes for a turn.
    */
+  // LiveKit replaces and re-enables the native track on a device switch or
+  // reacquire, so the gate and teardown must follow the replacement.
+  readonly #onMicTrackRestarted = (track: LocalAudioTrack): void => {
+    if (this.#localAudioPreRoll || !this.#rawMicTrack) return;
+    this.#rawMicTrack = track.mediaStreamTrack;
+    this.#applyInputGate();
+  };
+
   #applyInputGate(): void {
     const enabled = !this.#inputMuted;
     if (this.#micClone) this.#micClone.enabled = enabled;
