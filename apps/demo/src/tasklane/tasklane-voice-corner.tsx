@@ -20,6 +20,7 @@ export function TasklaneVoiceCorner({
     switching,
     turnMode,
     turnControl,
+    provider,
     playbackBlocked,
     resumePlayback,
   } = tasklaneM.useVoice();
@@ -39,7 +40,8 @@ export function TasklaneVoiceCorner({
   };
 
   // Blocked playback takes the pill's slot so the dock never grows.
-  const showEnablePlayback = playbackBlocked && isVoiceConnected(state);
+  const showEnablePlayback =
+    provider === 'live' && playbackBlocked && isVoiceConnected(state);
 
   return (
     <div className="tasklane-voice-corner">

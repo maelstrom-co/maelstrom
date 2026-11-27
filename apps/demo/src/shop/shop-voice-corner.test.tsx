@@ -260,13 +260,13 @@ describe('ShopVoiceCorner playback recovery', () => {
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
-  it('shows Enable playback for OpenAI Realtime when playback is blocked', () => {
-    const { getByRole } = renderVoice('connected', {
+  it('keeps the status pill on OpenAI Realtime even while playback is blocked', () => {
+    const { getByRole, queryByRole } = renderVoice('connected', {
       provider: 'realtime',
       playbackBlocked: true,
     });
-    fireEvent.click(getByRole('button', { name: 'Enable playback' }));
-    expect(resumePlayback).toHaveBeenCalledTimes(1);
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' })).toBeTruthy();
   });
 });
 

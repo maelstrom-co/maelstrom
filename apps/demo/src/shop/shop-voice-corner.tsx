@@ -44,6 +44,7 @@ export function ShopVoiceCorner({
     switching,
     turnMode,
     turnControl,
+    provider,
     playbackBlocked,
     resumePlayback,
   } = shopM.useVoice();
@@ -63,7 +64,8 @@ export function ShopVoiceCorner({
   };
 
   // Blocked playback takes the pill's slot so the dock never grows.
-  const showEnablePlayback = playbackBlocked && isVoiceConnected(state);
+  const showEnablePlayback =
+    provider === 'live' && playbackBlocked && isVoiceConnected(state);
 
   return (
     <div className="shop-voice-corner">

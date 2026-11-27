@@ -3,7 +3,6 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 
 import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
-import { isVoiceConnected } from '../lib/voice-session-state';
 import { EnablePlaybackButton } from './enable-playback-button';
 import { TurnModeToggle } from './turn-mode-toggle';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
@@ -56,7 +55,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     switching,
     turnControl,
     turnMode,
-    playbackBlocked,
     resumePlayback,
   } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
@@ -119,6 +117,11 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
                 : 'Reconnect'
               : 'End voice'}
           </button>
+          <EnablePlaybackButton
+            state={state}
+            switching={switching}
+            onResume={resumePlayback}
+          />
           {state === 'error' && (
             <span
               role="alert"
@@ -130,13 +133,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
             </span>
           )}
         </>
-      )}
-      {playbackBlocked && isVoiceConnected(state) && (
-        <EnablePlaybackButton
-          state={state}
-          switching={switching}
-          onResume={resumePlayback}
-        />
       )}
       {isPreparing && (
         <button

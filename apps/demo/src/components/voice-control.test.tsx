@@ -347,32 +347,41 @@ describe('VoiceControl status and SDK controls', () => {
 });
 
 describe('VoiceControl playback recovery', () => {
-  it('shows Enable playback when connected and playbackBlocked is true, and calls resumePlayback on click', () => {
+  it('shows Enable playback on GPT Live even when playback is not blocked, and calls resumePlayback on click', () => {
     const resumePlayback = vi.fn(async () => {});
     voiceResult = {
       ...makeVoiceResult('connected', undefined, 'automatic'),
-      playbackBlocked: true,
+      provider: 'live',
+      playbackBlocked: false,
       resumePlayback,
     };
     const { getByRole } = render(<VoiceControl />);
     const button = getByRole('button', { name: 'Enable playback' });
+    expect(button).toHaveProperty('disabled', false);
     fireEvent.click(button);
     expect(resumePlayback).toHaveBeenCalledTimes(1);
   });
 
-  it('hides Enable playback when playbackBlocked is false or disconnected', () => {
-    voiceResult = {
-      ...makeVoiceResult('connected', undefined, 'automatic'),
-      playbackBlocked: false,
-    };
-    const { queryByRole, rerender } = render(<VoiceControl />);
-    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-
+  it('disables Enable playback on GPT Live while disconnected', () => {
     voiceResult = {
       ...makeVoiceResult('idle', undefined, 'automatic'),
+      provider: 'live',
       playbackBlocked: true,
     };
-    rerender(<VoiceControl />);
+    const { getByRole } = render(<VoiceControl />);
+    expect(getByRole('button', { name: 'Enable playback' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+  });
+
+  it('hides Enable playback on providers other than GPT Live', () => {
+    voiceResult = {
+      ...makeVoiceResult('connected', undefined, 'automatic'),
+      provider: 'realtime',
+      playbackBlocked: true,
+    };
+    const { queryByRole } = render(<VoiceControl />);
     expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
   });
 });
