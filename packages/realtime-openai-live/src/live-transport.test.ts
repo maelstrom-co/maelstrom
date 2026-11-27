@@ -1437,6 +1437,25 @@ describe('manualTurns with input mute', () => {
     expect(h.mic.enabled).toBe(false);
   });
 
+  test('mute still wins after switching turn mode either way', async () => {
+    const h = await connected({ manualTurns: true });
+    h.transport.setInputEnabled(false);
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(false);
+
+    h.transport.setTurnMode('automatic');
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setInputEnabled(false);
+    h.transport.setTurnMode('manual');
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+  });
+
   for (const manualTurns of [true, false]) {
     test(`a muted microphone stays closed while a graceful close drains (manualTurns: ${manualTurns})`, async () => {
       const h = await connected({ manualTurns });

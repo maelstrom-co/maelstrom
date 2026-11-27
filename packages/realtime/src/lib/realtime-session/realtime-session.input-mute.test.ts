@@ -252,6 +252,24 @@ describe('RealtimeSession input mute', () => {
     expect(muteEvents).toEqual([true, false, true, false]);
   });
 
+  it('keeps setTurnMode on the muted control so the mode can change while muted', async () => {
+    const startTurn = mock(async () => {});
+    const setTurnMode = mock(async () => {});
+    const h = makeHarness({
+      turnControl: { startTurn, endTurn: async () => {}, setTurnMode },
+    });
+    await h.session.connect();
+    h.session.setInputMuted(true);
+
+    expect(h.session.turnMode).toBe('automatic');
+    await h.session.turnControl?.setTurnMode?.('manual');
+    expect(setTurnMode).toHaveBeenCalledWith('manual');
+
+    h.adapter.emit({ type: 'turn_mode', mode: 'manual' });
+    await h.session.turnControl?.startTurn();
+    expect(startTurn).not.toHaveBeenCalled();
+  });
+
   it('ignores a mute request when the adapter cannot gate its microphone', async () => {
     const h = makeHarness({ omitInputControl: true });
     const observed: boolean[] = [];
