@@ -5005,6 +5005,47 @@ describe('LiveKitAdapter greeting capability', () => {
 });
 
 describe('LiveKitAdapter inputControl mute', () => {
+  test('a mute withdrawn after it skipped capture activation still opens the microphone for the turn', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPauseUpstream.mockClear();
+    mockResumeUpstream.mockClear();
+    mockSetMicrophoneEnabled.mockClear();
+
+    let releaseResume!: () => void;
+    let releasePause!: () => void;
+    mockResumeUpstream.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseResume = resolve;
+        }),
+    );
+    mockPauseUpstream.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePause = resolve;
+        }),
+    );
+
+    const starting = adapter.turnControl?.startTurn();
+    await Promise.resolve();
+    const muting = adapter.inputControl.setInputEnabled(false);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    releaseResume();
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
+
+    await adapter.inputControl.setInputEnabled(true);
+    releasePause();
+    await muting;
+    await starting;
+
+    expect(mockResumeUpstream).toHaveBeenCalledTimes(2);
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+    await adapter.disconnect();
+  });
+
   test('a withdrawn mute whose pause queued behind a turn start leaves upstream open for that turn', async () => {
     const { adapter } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });

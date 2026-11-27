@@ -1159,23 +1159,32 @@ export class LiveKitAdapter
         );
       }
       if (!this.#isCurrentRoom(generation, room)) return;
-      if (!this.#inputMuted) {
-        if (bridge) {
+      let captureStarted = false;
+      const startCapture = async (): Promise<void> => {
+        if (!bridge) {
+          await room.localParticipant.setMicrophoneEnabled(true);
+        } else if (!captureStarted) {
           if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
           else await bridge.startManualTurn();
-        } else {
-          await room.localParticipant.setMicrophoneEnabled(true);
         }
+        captureStarted = true;
+      };
+      if (!this.#inputMuted) {
+        await startCapture();
         if (!this.#isCurrentRoom(generation, room)) return;
       }
       if (this.#inputMuteRequest !== inputMuteRequestAtStart) {
-        // A mute overlapped this start and was withdrawn. Its upstream pause
-        // may have queued behind the resume above and closed upstream again,
-        // so wait for it and reopen upstream for the accepted turn.
+        // A mute overlapped this start. Its upstream pause may have queued
+        // behind the resume above, and it may have skipped or undone capture.
+        // Wait for it, then reopen upstream and capture if it was withdrawn.
         await this.#inputGateSettled;
         if (!this.#isCurrentRoom(generation, room)) return;
         if (!this.#inputMuted) {
           await this.#getPublishedMicTrack(room)?.resumeUpstream();
+          if (!this.#isCurrentRoom(generation, room)) return;
+        }
+        if (!this.#inputMuted) {
+          await startCapture();
           if (!this.#isCurrentRoom(generation, room)) return;
         }
       }
