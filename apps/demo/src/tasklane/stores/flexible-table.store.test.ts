@@ -240,6 +240,44 @@ describe('flexible-table store columns', () => {
     flexibleTableActions.filterRows('due', 'lt', '2026-04-15');
     expect(ids()).toEqual(['TL-2']);
   });
+
+  it('rejects gt and lt filters on a date column when the threshold is not a real date', () => {
+    flexibleTableActions.addColumn({
+      label: 'Due',
+      kind: 'field',
+      source: 'due',
+    });
+    flexibleTableActions.addColumn({
+      label: 'Created',
+      kind: 'field',
+      source: 'created',
+    });
+
+    const impossible = flexibleTableActions.filterRows(
+      'due',
+      'lt',
+      '2026-02-30',
+    );
+    expect(impossible).toMatchObject({
+      ok: false,
+      reason: 'invalid_filter_value',
+      expected: 'date',
+    });
+    if (impossible.ok) throw new Error('expected a rejected filter');
+    expect(describeTableFailure(impossible)).toContain('YYYY-MM-DD');
+    expect(
+      flexibleTableActions.filterRows('created', 'gt', 'next week'),
+    ).toMatchObject({ ok: false, reason: 'invalid_filter_value' });
+    expect(getFlexibleTableSnapshot().filters).toEqual([]);
+
+    expect(flexibleTableActions.filterRows('due', 'contains', '2026').ok).toBe(
+      true,
+    );
+    expect(flexibleTableActions.filterRows('due', 'eq', '').ok).toBe(true);
+    expect(
+      flexibleTableActions.filterRows('due', 'gt', ' 2026-04-01 ').ok,
+    ).toBe(true);
+  });
 });
 
 describe('flexible-table sorting and stability', () => {
@@ -909,6 +947,41 @@ describe('flexible-table review regressions', () => {
     flexibleTableActions.sortBy('ratio', 'desc');
     const rows = projectTableRows(getProjectTasksSnapshot().tasks);
     expect(rows.map((r) => r.task.id)).toEqual(['TL-1', 'TL-2', 'TL-3']);
+    expect(rows.at(-1)?.cells.ratio?.error).toBeDefined();
+  });
+
+  it('keeps whitespace-only cells with the blank cells when sorting', () => {
+    projectTaskActions.createTask({ title: 'Third' }); // TL-3
+    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
+    flexibleTableActions.setCell('TL-1', 'notes', '   ');
+    flexibleTableActions.setCell('TL-2', 'notes', '2');
+    flexibleTableActions.setCell('TL-3', 'notes', '0');
+
+    const ids = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
+
+    flexibleTableActions.sortBy('notes', 'desc');
+    expect(ids()).toEqual(['TL-2', 'TL-3', 'TL-1']);
+    flexibleTableActions.sortBy('notes', 'asc');
+    expect(ids()).toEqual(['TL-3', 'TL-2', 'TL-1']);
+  });
+
+  it('moves a computed error ahead of valid rows to the end of a descending sort', () => {
+    projectTaskActions.removeTask('TL-1');
+    projectTaskActions.removeTask('TL-2');
+    projectTaskActions.createTask({ title: 'Zero', estimate: 5, spent: 0 }); // TL-3
+    projectTaskActions.createTask({ title: 'Three', estimate: 6, spent: 2 }); // TL-4
+    projectTaskActions.createTask({ title: 'Four', estimate: 8, spent: 2 }); // TL-5
+    flexibleTableActions.addColumn({
+      label: 'Ratio',
+      kind: 'computed',
+      formula: 'estimate / spent',
+    });
+
+    flexibleTableActions.sortBy('ratio', 'desc');
+    const rows = projectTableRows(getProjectTasksSnapshot().tasks);
+    expect(rows.map((r) => r.task.id)).toEqual(['TL-5', 'TL-4', 'TL-3']);
+    expect(rows.map((r) => r.cells.ratio?.raw)).toEqual([4, 3, null]);
     expect(rows.at(-1)?.cells.ratio?.error).toBeDefined();
   });
 });

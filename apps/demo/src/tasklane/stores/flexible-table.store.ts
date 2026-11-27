@@ -5,6 +5,7 @@ import {
   assigneeLabel,
   getProjectTasksSnapshot,
   isOpenTask,
+  parseIsoDate,
   type ProjectTask,
   resolveTaskReference,
   TASK_STATUS_NAMES,
@@ -120,6 +121,7 @@ export type FlexibleTableFailure =
       readonly reason: 'invalid_filter_value';
       readonly op: FilterOp;
       readonly value: string;
+      readonly expected: 'number' | 'date';
     }
   | {
       readonly ok: false;
@@ -263,6 +265,7 @@ const RESERVED_COLUMN_IDS = ['none', 'clear', 'ungroup'];
 const CLEAR_GROUP_WORDS = new Set(['', ...RESERVED_COLUMN_IDS]);
 
 const NUMERIC_TASK_FIELDS = new Set(['estimate', 'spent']);
+const DATE_TASK_FIELDS = new Set(['createdAt', 'dueDate']);
 
 let state: FlexibleTableState = INITIAL_STATE;
 const listeners = new Set<() => void>();
@@ -509,12 +512,25 @@ export const flexibleTableActions = {
     if (!op) {
       return { ok: false, reason: 'unknown_op', query: opInput };
     }
-    if (
-      (op === 'gt' || op === 'lt') &&
-      isNumericColumn(found) &&
-      toComparableNumber(value) === undefined
-    ) {
-      return { ok: false, reason: 'invalid_filter_value', op, value };
+    if (op === 'gt' || op === 'lt') {
+      if (isNumericColumn(found) && toComparableNumber(value) === undefined) {
+        return {
+          ok: false,
+          reason: 'invalid_filter_value',
+          op,
+          value,
+          expected: 'number',
+        };
+      }
+      if (isDateColumn(found) && parseIsoDate(value.trim()) === undefined) {
+        return {
+          ok: false,
+          reason: 'invalid_filter_value',
+          op,
+          value,
+          expected: 'date',
+        };
+      }
     }
     const rule: FilterRule = { column: found.id, op, value };
     const exists = state.filters.some(
@@ -612,7 +628,9 @@ export function describeTableFailure(failure: FlexibleTableFailure): string {
     case 'unknown_op':
       return `Filter op must be one of ${FILTER_OPS.join(', ')}, got "${failure.query}".`;
     case 'invalid_filter_value':
-      return `Filter "${failure.op}" needs a numeric value for this column, got "${failure.value}".`;
+      return failure.expected === 'date'
+        ? `Filter "${failure.op}" needs an ISO date (YYYY-MM-DD) for this column, got "${failure.value}".`
+        : `Filter "${failure.op}" needs a numeric value for this column, got "${failure.value}".`;
     case 'unknown_preset':
       return `Preset must be one of ${TABLE_PRESETS.join(', ')}, got "${failure.query}".`;
     case 'task_not_found':
@@ -939,7 +957,7 @@ function hasSortableValue(
     cell !== undefined &&
     cell.error === undefined &&
     cell.raw !== null &&
-    cell.raw !== ''
+    !(typeof cell.raw === 'string' && cell.raw.trim() === '')
   );
 }
 
@@ -1133,6 +1151,10 @@ function resolveTaskField(
 
 function lookupFieldAlias(key: string): string | undefined {
   return Object.hasOwn(FIELD_ALIASES, key) ? FIELD_ALIASES[key] : undefined;
+}
+
+function isDateColumn(column: TableColumn): boolean {
+  return column.kind === 'field' && DATE_TASK_FIELDS.has(column.field ?? '');
 }
 
 function isNumericColumn(column: TableColumn): boolean {

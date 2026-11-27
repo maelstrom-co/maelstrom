@@ -757,7 +757,11 @@ function resolveDueDate(dueDate: string | null): string | null | undefined {
   return parseIsoDate(trimmed);
 }
 
-function parseIsoDate(value: string): string | undefined {
+/**
+ * Returns the value when it is a real ISO calendar date (YYYY-MM-DD), so an
+ * impossible date such as 2026-02-30 is rejected.
+ */
+export function parseIsoDate(value: string): string | undefined {
   const match = ISO_DATE.exec(value);
   if (!match) return undefined;
   const year = Number(match[1]);
