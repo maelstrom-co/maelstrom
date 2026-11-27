@@ -8,7 +8,6 @@ import {
 
 import { TASKLANE_GREETING } from '../lib/demo-greeting-tts';
 import { createDemoTelemetry } from '../lib/demo-telemetry';
-import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
@@ -72,7 +71,6 @@ export const tasklaneM = createMaelstrom({
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
       opening: tasklaneVoiceOpening,
-      onSession: registerDemoVoice,
     }),
   )
   .with(tasklaneRequestReferences)

@@ -13,7 +13,6 @@ import {
   useSyncExternalStore,
 } from 'react';
 
-import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { KeyDrawer } from '../components/key-drawer';
 import { TurnModeToggle } from '../components/turn-mode-toggle';
 import { createDemoConnector } from '../lib/connector';
@@ -31,7 +30,6 @@ import {
   playgroundKeyStore,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
-import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { createLiveTake, type LiveTake } from './live-take';
 import {
@@ -366,7 +364,6 @@ function PreparationWorkspace({
   );
   const [receipt, setReceipt] = useState('');
   const revision = useRef(0);
-  const playbackBlocked = useLivePlaybackBlocked(voice.session);
   useEffect(() => {
     if (voice.state !== 'error') return;
     if (
@@ -516,14 +513,6 @@ function PreparationWorkspace({
               switching={voice.switching}
               className="status-pill rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 aria-checked:text-brand-2"
             />
-            {playbackBlocked && (
-              <EnablePlaybackButton
-                provider={voice.provider}
-                state={voice.state}
-                session={voice.session}
-                switching={voice.switching}
-              />
-            )}
           </div>
           {recovery.length > 0 && (
             <section aria-label="Unsent instructions">

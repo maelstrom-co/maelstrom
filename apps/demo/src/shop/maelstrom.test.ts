@@ -2,7 +2,6 @@ import type { Orchestrator } from '@maelstrom-co/client';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';
 import { SHOP_VOICE_PROVIDERS } from './voice-providers';
@@ -94,7 +93,7 @@ describe('shop instance', () => {
     const [options] = state.realtimeOptions;
     expect(options?.providers).toBe(SHOP_VOICE_PROVIDERS);
     expect(SHOP_VOICE_PROVIDERS).toEqual(['live', 'realtime']);
-    expect(options?.onSession).toBe(registerDemoVoice);
+    expect(options).not.toHaveProperty('onSession');
     expect(options).not.toHaveProperty('opening');
     expect(options).not.toHaveProperty('greeting');
     expect(options).not.toHaveProperty('generatedOpening');

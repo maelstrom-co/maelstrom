@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { TASKLANE_GREETING } from '../lib/demo-greeting-tts';
-import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';
 import { TASKLANE_VOICE_PROVIDERS } from './voice-providers';
@@ -98,7 +97,7 @@ describe('Tasklane instance', () => {
     const [options] = state.realtimeOptions;
     expect(options?.providers).toBe(TASKLANE_VOICE_PROVIDERS);
     expect(TASKLANE_VOICE_PROVIDERS).toEqual(['live', 'realtime']);
-    expect(options?.onSession).toBe(registerDemoVoice);
+    expect(options).not.toHaveProperty('onSession');
     expect(options).not.toHaveProperty('greeting');
     expect(options).not.toHaveProperty('generatedOpening');
   });

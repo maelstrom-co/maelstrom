@@ -146,6 +146,14 @@ export class SharedRealtimeSessionRegistry<Provider> {
     this.#slots.get(orchestrator)?.entry?.session.setInputMuted(muted);
   }
 
+  /** Retries blocked playback on the current entry without recreating a retired session. */
+  resumePlayback(orchestrator: Orchestrator): Promise<void> {
+    return (
+      this.#slots.get(orchestrator)?.entry?.session.resumePlayback() ??
+      Promise.resolve()
+    );
+  }
+
   /**
    * Replaces the current session with one for `provider`, keeping memory and
    * coordinator. A newer target supersedes this one, which then resolves

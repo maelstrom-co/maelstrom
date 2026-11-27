@@ -95,6 +95,7 @@ export class FakeRealtimeSession {
   turnModeError: unknown = undefined;
   turnControl = undefined;
   inputMuted = false;
+  playbackBlocked = false;
   skipGreeting(): void {}
   setInputMuted(muted: boolean): void {
     if (this.state === 'idle' || this.state === 'error') return;
@@ -102,6 +103,7 @@ export class FakeRealtimeSession {
     this.inputMuted = muted;
     for (const handler of this.#inputMutedHandlers) handler(muted);
   }
+  async resumePlayback(): Promise<void> {}
   get memory() {
     return {
       sessionId: (this.options as { sessionId?: string } | undefined)
@@ -150,7 +152,8 @@ export class FakeRealtimeSession {
       | 'transcript'
       | 'greeting_state'
       | 'turn_mode'
-      | 'input_muted',
+      | 'input_muted'
+      | 'playback_blocked',
     handler: never,
   ): () => void {
     const set =

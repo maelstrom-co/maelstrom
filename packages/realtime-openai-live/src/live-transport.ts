@@ -1,6 +1,7 @@
 import type {
   AdapterAudioStreams,
   AdapterDiagnosticSource,
+  AdapterPlaybackControl,
   AdapterVoiceObservation,
   AdapterVoiceObservations,
   RealtimeAdapterEvent,
@@ -193,6 +194,21 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         this.observers.delete(handler);
       };
     },
+  };
+
+  /** Provider-neutral playback-recovery capability backed by transport playback state. */
+  readonly playbackControl: AdapterPlaybackControl = {
+    isBlocked: (): boolean => this.snapshot.playback === 'blocked',
+    subscribe: (handler: () => void): (() => void) => {
+      let blocked = this.snapshot.playback === 'blocked';
+      return this.subscribe(() => {
+        const next = this.snapshot.playback === 'blocked';
+        if (next === blocked) return;
+        blocked = next;
+        handler();
+      });
+    },
+    resume: (): Promise<void> => this.activateAudio(),
   };
 
   /** Creates an inert transport. No media or billed session starts until connect. */

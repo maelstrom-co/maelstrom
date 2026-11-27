@@ -10,7 +10,6 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
-import { registerDemoVoice } from '../lib/demo-voice';
 import { DiagnosticCapture } from '../lib/diagnostic-capture';
 import { playgroundKeyStore } from '../lib/playground-key-store';
 import { createAdapter } from '../lib/voice-adapter';
@@ -56,7 +55,6 @@ export function createPreparationRuntime(store: OutlineStore) {
           createAdapter(selected, sessionId),
         conversationInstructions:
           'You help prepare an ordered speaking outline in Talking Points. Submit all requested outline changes as natural-language intent. This is preparation, not a live speaking take.',
-        onSession: registerDemoVoice,
         createIntentScope: (orchestrator: Orchestrator) =>
           admission.wrap(orchestrator.createIntentScope()),
       }),

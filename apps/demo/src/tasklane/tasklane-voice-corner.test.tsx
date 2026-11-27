@@ -3,7 +3,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
@@ -107,4 +107,34 @@ describe('TasklaneVoiceCorner turn controls', () => {
       );
     },
   );
+});
+
+describe('TasklaneVoiceCorner playback recovery', () => {
+  it('shows Enable playback in place of the pill on GPT Live while playback is blocked', () => {
+    const resumePlayback = vi.fn(async () => {});
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      playbackBlocked: true,
+      resumePlayback,
+    });
+    const { getByRole, queryByRole } = render(
+      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    fireEvent.click(getByRole('button', { name: 'Enable playback' }));
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
+    expect(queryByRole('status', { name: 'Voice status' })).toBeNull();
+  });
+
+  it('keeps the status pill on OpenAI Realtime even while playback is blocked', () => {
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'realtime',
+      playbackBlocked: true,
+      resumePlayback: vi.fn(async () => {}),
+    });
+    const { getByRole, queryByRole } = render(
+      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' })).toBeTruthy();
+  });
 });

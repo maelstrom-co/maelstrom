@@ -3,7 +3,6 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 
 import { createDemoTelemetry } from '../lib/demo-telemetry';
-import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
@@ -31,7 +30,6 @@ export const shopM = createMaelstrom({
         shopVoiceProvider(voiceProviderStore.state.provider),
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
-      onSession: registerDemoVoice,
       sendAgentMessage: (orchestrator, text) =>
         sendShopInput(
           orchestrator.sendMessage.bind(orchestrator),

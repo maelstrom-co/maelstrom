@@ -233,6 +233,8 @@ export interface RealtimeTransportAdapter<Options = AdapterConnectOptions> {
   readonly diagnostics?: AdapterDiagnosticSource;
   /** Optional continuous media and transcript evidence. */
   readonly observations?: AdapterVoiceObservations;
+  /** Optional playback-recovery capability when browser autoplay can block output. */
+  readonly playbackControl?: AdapterPlaybackControl;
   /** Starts one explicit connection attempt from a user action. */
   connect(opts: Options): Promise<void>;
   /** Releases local participation and bounds provider finalization. */
@@ -297,6 +299,11 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
    * `false`.
    */
   readonly inputControl?: AdapterInputControl;
+  /**
+   * Optional playback-recovery capability for adapters whose browser audio
+   * output can be blocked by autoplay policy.
+   */
+  readonly playbackControl?: AdapterPlaybackControl;
 }
 
 /** Provider-reported response identity and lifecycle, independent of native event names. */
@@ -398,6 +405,29 @@ export interface AdapterGeneratedOpening {
    * Rejection may follow a send, so callers must not automatically retry.
    */
   request(instructions: string): Promise<void>;
+}
+
+/**
+ * Optional playback-recovery capability for adapters whose browser audio
+ * output can be blocked by autoplay policy. Adapters that do not expose
+ * browser playback blocking omit this field.
+ */
+export interface AdapterPlaybackControl {
+  /**
+   * Whether the adapter's current remote audio playback is blocked by browser
+   * autoplay policy and waiting for a user gesture to resume.
+   */
+  isBlocked(): boolean;
+  /**
+   * Subscribes to playback-blocked state changes. The returned disposer
+   * releases the subscription.
+   */
+  subscribe(handler: () => void): Unsubscribe;
+  /**
+   * Retries blocked audio playback within the caller's user gesture.
+   * Resolution proves browser play acceptance, not audibility.
+   */
+  resume(): Promise<void>;
 }
 
 /** Verdict of a greeting speech attempt. */

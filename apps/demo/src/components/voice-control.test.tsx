@@ -12,12 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 import { createVoiceMuteToggleStub } from '../lib/__tests__/voice-mute-toggle-stub';
+import type { DemoVoiceProvider } from '../lib/voice-provider';
 
 // voice-control.tsx only touches `m.useVoice`, `m.useVoiceObservations`,
 // `m.VoiceOrb`, and `m.HoldToTalkControl` — faking the module boundary here
 // isolates these tests from the real Provider/session and SDK control wiring
 // already covered by react-realtime's own test suite.
-let voiceResult: UseVoiceResult;
+let voiceResult: UseVoiceResult<DemoVoiceProvider>;
 
 vi.doMock('../lib/maelstrom', () => ({
   m: {
@@ -47,14 +48,14 @@ function makeVoiceResult(
   turnModeError: unknown = undefined,
   greetingState: GreetingState = 'not_configured',
   skipGreeting: () => void = () => {},
-): UseVoiceResult {
+): UseVoiceResult<DemoVoiceProvider> {
   return {
     state,
     error: undefined,
     userTranscript: undefined,
     assistantTranscript: undefined,
     session: {} as never,
-    provider: undefined,
+    provider: 'realtime',
     switching: false,
     switchProvider: async () => {},
     turnControl,
@@ -66,7 +67,9 @@ function makeVoiceResult(
     skipGreeting,
     inputMuted: false,
     setInputMuted: () => {},
-  } as UseVoiceResult;
+    playbackBlocked: false,
+    resumePlayback: async () => {},
+  } as UseVoiceResult<DemoVoiceProvider>;
 }
 
 afterEach(() => {
@@ -341,5 +344,45 @@ describe('VoiceControl status and SDK controls', () => {
     const { queryByTestId } = render(<VoiceControl showOrb={false} />);
 
     expect(queryByTestId('voice-orb')).toBeNull();
+  });
+});
+
+describe('VoiceControl playback recovery', () => {
+  it('shows Enable playback on GPT Live even when playback is not blocked, and calls resumePlayback on click', () => {
+    const resumePlayback = vi.fn(async () => {});
+    voiceResult = {
+      ...makeVoiceResult('connected', undefined, 'automatic'),
+      provider: 'live',
+      playbackBlocked: false,
+      resumePlayback,
+    };
+    const { getByRole } = render(<VoiceControl />);
+    const button = getByRole('button', { name: 'Enable playback' });
+    expect(button).toHaveProperty('disabled', false);
+    fireEvent.click(button);
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Enable playback on GPT Live while disconnected', () => {
+    voiceResult = {
+      ...makeVoiceResult('idle', undefined, 'automatic'),
+      provider: 'live',
+      playbackBlocked: true,
+    };
+    const { getByRole } = render(<VoiceControl />);
+    expect(getByRole('button', { name: 'Enable playback' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+  });
+
+  it('hides Enable playback on providers other than GPT Live', () => {
+    voiceResult = {
+      ...makeVoiceResult('connected', undefined, 'automatic'),
+      provider: 'realtime',
+      playbackBlocked: true,
+    };
+    const { queryByRole } = render(<VoiceControl />);
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
   });
 });

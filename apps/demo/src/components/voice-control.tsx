@@ -49,13 +49,13 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     state,
     error,
     skipGreeting,
-    session,
     provider,
     connect,
     disconnect,
     switching,
     turnControl,
     turnMode,
+    resumePlayback,
   } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
   const isPreparing =
@@ -118,10 +118,9 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
               : 'End voice'}
           </button>
           <EnablePlaybackButton
-            provider={provider}
             state={state}
-            session={session}
             switching={switching}
+            onResume={resumePlayback}
           />
           {state === 'error' && (
             <span

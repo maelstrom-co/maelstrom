@@ -148,20 +148,30 @@ interface ConnectionSubscriptions {
   recovery?: Unsubscribe;
   adapter?: Unsubscribe;
   observations?: Unsubscribe;
+  playback?: Unsubscribe;
   settled?: Unsubscribe;
 }
 
 function releaseSubscriptions(
   subscriptions: ConnectionSubscriptions,
 ): unknown[] {
-  const { adapter, observations, settled, recovery, opening } = subscriptions;
+  const { adapter, observations, playback, settled, recovery, opening } =
+    subscriptions;
   subscriptions.opening = undefined;
   subscriptions.recovery = undefined;
   subscriptions.adapter = undefined;
   subscriptions.observations = undefined;
+  subscriptions.playback = undefined;
   subscriptions.settled = undefined;
   const errors: unknown[] = [];
-  for (const release of [opening, recovery, observations, adapter, settled]) {
+  for (const release of [
+    opening,
+    recovery,
+    observations,
+    playback,
+    adapter,
+    settled,
+  ]) {
     try {
       release?.();
     } catch (error) {
@@ -308,11 +318,13 @@ export class RealtimeSession implements VoiceSession {
   // Identifies the latest mute change, so a late adapter failure cannot undo a
   // newer request or a later connection.
   #inputMuteRequest = 0;
+  #playbackBlocked = false;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
   readonly #greetingStateHandlers = new Set<(state: GreetingState) => void>();
   readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
+  readonly #playbackBlockedHandlers = new Set<(blocked: boolean) => void>();
   #intentScope: IntentScope | undefined;
   #groundingClampWarned = false;
   #lastError: unknown;
@@ -528,6 +540,40 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /**
+   * Whether the active adapter reports that browser autoplay policy has blocked
+   * remote audio playback. Always `false` while disconnected or when the
+   * adapter does not expose {@link AdapterPlaybackControl}.
+   */
+  get playbackBlocked(): boolean {
+    return this.#playbackBlocked;
+  }
+
+  /**
+   * Retries blocked audio playback on the active adapter within a user gesture.
+   * Resolves as a no-op when disconnected or when the adapter does not expose
+   * {@link AdapterPlaybackControl}. Resolution proves browser play acceptance,
+   * not audibility.
+   */
+  async resumePlayback(): Promise<void> {
+    const playbackControl = this.#adapter.playbackControl;
+    if (
+      !playbackControl ||
+      (this.#connection !== 'connecting' && this.#connection !== 'connected')
+    )
+      return;
+    const epoch = this.#connectEpoch;
+    const subscriptions = this.#subscriptions;
+    await playbackControl.resume();
+    if (
+      epoch === this.#connectEpoch &&
+      subscriptions !== undefined &&
+      this.#subscriptions === subscriptions
+    ) {
+      this.#setPlaybackBlocked(playbackControl.isBlocked());
+    }
+  }
+
+  /**
    * The failure behind the most recent `error` state, if any. Cleared at the
    * start of the next `connect()` attempt, but preserved by explicit
    * `disconnect()` even after that method returns the public state to `idle`.
@@ -639,6 +685,19 @@ export class RealtimeSession implements VoiceSession {
             });
         },
       );
+      const playbackControl = this.#adapter.playbackControl;
+      if (playbackControl) {
+        subscriptions.playback = playbackControl.subscribe(() => {
+          if (
+            epoch !== this.#connectEpoch ||
+            this.#subscriptions !== subscriptions
+          )
+            return;
+          this.#setPlaybackBlocked(playbackControl.isBlocked());
+        });
+      }
+      if (playbackControl && epoch === this.#connectEpoch)
+        this.#setPlaybackBlocked(playbackControl.isBlocked());
       if (epoch !== this.#connectEpoch) {
         throwConnectionFailures(releaseSubscriptions(subscriptions));
         return;
@@ -845,6 +904,11 @@ export class RealtimeSession implements VoiceSession {
     } catch (error) {
       errors.push(error);
     }
+    try {
+      this.#setPlaybackBlocked(false);
+    } catch (error) {
+      errors.push(error);
+    }
     return errors;
   }
 
@@ -966,19 +1030,30 @@ export class RealtimeSession implements VoiceSession {
    * first for the current value.
    */
   on(event: 'input_muted', handler: (muted: boolean) => void): Unsubscribe;
+  /**
+   * Subscribes to playback-blocked state changes. The handler runs after each
+   * change, not immediately on subscription; read
+   * {@link RealtimeSession.playbackBlocked} first for the current value.
+   */
+  on(
+    event: 'playback_blocked',
+    handler: (blocked: boolean) => void,
+  ): Unsubscribe;
   on(
     event:
       | 'state'
       | 'transcript'
       | 'turn_mode'
       | 'greeting_state'
-      | 'input_muted',
+      | 'input_muted'
+      | 'playback_blocked',
     handler:
       | ((s: VoiceSessionState) => void)
       | ((t: TranscriptEntry) => void)
       | ((event: TurnModeEvent) => void)
       | ((state: GreetingState) => void)
-      | ((muted: boolean) => void),
+      | ((muted: boolean) => void)
+      | ((blocked: boolean) => void),
   ): Unsubscribe {
     if (event === 'transcript') {
       const h = handler as (t: TranscriptEntry) => void;
@@ -1006,6 +1081,13 @@ export class RealtimeSession implements VoiceSession {
       this.#inputMutedHandlers.add(h);
       return () => {
         this.#inputMutedHandlers.delete(h);
+      };
+    }
+    if (event === 'playback_blocked') {
+      const h = handler as (blocked: boolean) => void;
+      this.#playbackBlockedHandlers.add(h);
+      return () => {
+        this.#playbackBlockedHandlers.delete(h);
       };
     }
     const h = handler as (s: VoiceSessionState) => void;
@@ -1098,6 +1180,25 @@ export class RealtimeSession implements VoiceSession {
       void Promise.resolve(control.setInputEnabled(!muted)).catch(failed);
     } catch (error) {
       failed(error);
+    }
+  }
+
+  /**
+   * Subscriber failures stay isolated so one cannot hide a playback change
+   * from later subscribers. Notification stops once a re-entrant subscriber
+   * has replaced the value, because that newer change already notified every
+   * subscriber.
+   */
+  #setPlaybackBlocked(next: boolean): void {
+    if (next === this.#playbackBlocked) return;
+    this.#playbackBlocked = next;
+    for (const handler of this.#playbackBlockedHandlers) {
+      if (this.#playbackBlocked !== next) return;
+      try {
+        handler(next);
+      } catch (error) {
+        this.#logger.warn('playback_blocked subscriber failed', error);
+      }
     }
   }
 

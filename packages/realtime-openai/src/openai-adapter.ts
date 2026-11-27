@@ -5,6 +5,7 @@ import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterInputControl,
+  AdapterPlaybackControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -232,6 +233,25 @@ export class OpenAIAdapter
     setInputEnabled: (enabled: boolean): void => {
       this.#setInputEnabled(enabled);
     },
+  };
+
+  /**
+   * Provider-neutral playback-recovery capability backed by the remote audio
+   * element. Reports blocked state on autoplay refusal and retries playback
+   * without reconnecting.
+   */
+  readonly playbackControl: AdapterPlaybackControl = {
+    isBlocked: (): boolean => this.#remotePlayback.getStatus() === 'blocked',
+    subscribe: (handler: () => void): Unsubscribe => {
+      let blocked = this.#remotePlayback.getStatus() === 'blocked';
+      return this.#remotePlayback.subscribe(() => {
+        const next = this.#remotePlayback.getStatus() === 'blocked';
+        if (next === blocked) return;
+        blocked = next;
+        handler();
+      });
+    },
+    resume: (): Promise<void> => this.resumeAudioPlayback(),
   };
 
   #pc: RTCPeerConnection | undefined;

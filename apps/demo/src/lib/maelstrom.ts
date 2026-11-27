@@ -10,7 +10,7 @@ import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { DEMO_GREETING, DEMO_OPENAI_VOICE } from './demo-greeting-tts';
 import { createDemoTelemetry } from './demo-telemetry';
-import { demoVoiceOpening, registerDemoVoice } from './demo-voice';
+import { demoVoiceOpening } from './demo-voice';
 import { diagnosticCapture } from './diagnostic-capture';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { createAdapter, prepareBrowserOpenAIVoice } from './voice-adapter';
@@ -40,7 +40,6 @@ export const m = createMaelstrom({
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
       opening: demoVoiceOpening(DEMO_GREETING),
-      onSession: registerDemoVoice,
     }),
   )
   .with(orchestrationLegibility)
