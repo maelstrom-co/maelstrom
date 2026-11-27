@@ -113,6 +113,20 @@ describe('Tasklane instance', () => {
     });
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Tasklane');
     expect(TASKLANE_OPENING_INSTRUCTIONS).toContain('Maelstrom');
+    expect(TASKLANE_OPENING_INSTRUCTIONS).toMatch(/^Greet in English,/);
+    expect(TASKLANE_OPENING_INSTRUCTIONS).toContain(
+      "After that, follow the user's language.",
+    );
+    expect(TASKLANE_OPENING_INSTRUCTIONS).not.toMatch(/^In English/);
+  });
+
+  it('keeps the Live opening within the 500-byte limit including the fixed prefix', () => {
+    const livePrefix =
+      "Greet immediately without waiting for the caller, then pause and listen. Follow the application's language and introduction instructions: ";
+    expect(
+      new TextEncoder().encode(livePrefix + TASKLANE_OPENING_INSTRUCTIONS)
+        .length,
+    ).toBeLessThanOrEqual(500);
   });
 
   it('starts on GPT-Live when the stored choice is LiveKit', () => {
