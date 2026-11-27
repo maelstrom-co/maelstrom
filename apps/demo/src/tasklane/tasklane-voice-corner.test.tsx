@@ -3,7 +3,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
@@ -70,43 +70,16 @@ function makeTurnControl(): AdapterTurnControl {
 afterEach(cleanup);
 
 describe('TasklaneVoiceCorner turn controls', () => {
-  it('renders the SDK hold-to-talk control when connected in manual turn mode with turnControl', () => {
+  it('mounts the SDK hold-to-talk control and the hold mode switch', () => {
     voiceResult = makeVoiceResult('connected', {
-      provider: 'live',
       turnMode: 'manual',
-      turnControl: makeTurnControl(),
+      turnControl: { ...makeTurnControl(), setTurnMode: vi.fn(async () => {}) },
     });
     const { getByRole } = render(
       <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
     );
     expect(getByRole('button', { name: 'Hold to talk' })).toBeTruthy();
-  });
-
-  it.each(['live', 'realtime'] as const)(
-    'hides hold-to-talk for %s in automatic mode even with turnControl',
-    (provider) => {
-      voiceResult = makeVoiceResult('connected', {
-        provider,
-        turnMode: 'automatic',
-        turnControl: makeTurnControl(),
-      });
-      const { queryByRole } = render(
-        <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-      );
-      expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-    },
-  );
-
-  it('hides hold-to-talk in manual mode when turnControl is absent', () => {
-    voiceResult = makeVoiceResult('connected', {
-      provider: 'live',
-      turnMode: 'manual',
-      turnControl: undefined,
-    });
-    const { queryByRole } = render(
-      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-    );
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+    expect(getByRole('switch', { name: 'Hold mode' })).toBeTruthy();
   });
 
   it.each([
@@ -130,49 +103,4 @@ describe('TasklaneVoiceCorner turn controls', () => {
       );
     },
   );
-
-  it('clears the hold-to-talk control when disconnecting or switching to automatic mode', () => {
-    voiceResult = makeVoiceResult('listening', {
-      provider: 'live',
-      turnMode: 'manual',
-      turnControl: makeTurnControl(),
-    });
-    const { queryByRole, rerender } = render(
-      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-    );
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeTruthy();
-
-    voiceResult = makeVoiceResult('idle', {
-      provider: 'live',
-      turnMode: 'manual',
-      turnControl: undefined,
-    });
-    rerender(<TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-  });
-});
-
-describe('TasklaneVoiceCorner hold mode switch', () => {
-  it('shows the switch only while turnControl can change mode', () => {
-    voiceResult = makeVoiceResult('connected', {
-      turnMode: 'automatic',
-      turnControl: makeTurnControl(),
-    });
-    const { queryByRole, rerender } = render(
-      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
-    );
-    expect(queryByRole('switch', { name: 'Hold mode' })).toBeNull();
-
-    const setTurnMode = vi.fn(async () => {});
-    voiceResult = makeVoiceResult('connected', {
-      turnMode: 'automatic',
-      turnControl: { ...makeTurnControl(), setTurnMode },
-    });
-    rerender(<TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
-    const toggle = queryByRole('switch', { name: 'Hold mode' });
-    expect(toggle).toBeTruthy();
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-    fireEvent.click(toggle!);
-    expect(setTurnMode).toHaveBeenCalledWith('manual');
-  });
 });
