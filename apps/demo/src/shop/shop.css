@@ -1,16 +1,19 @@
-/* Every size in the dock is fixed: a dock that grows with a caption or a
+/* Every height in the dock is fixed: a dock that grows with a caption or a
    status word would resize the Chart host and start a chart_resize request.
    The devtools launcher is fixed over the viewport's bottom-right corner, so
-   the dock keeps that corner empty instead of placing controls under it. */
+   the dock keeps that corner empty instead of placing controls under it.
+   The voice corner sizes to its controls, and the two flexible side tracks
+   keep the intent form centred until the corner outgrows its side. */
 .shop-app {
   --shop-devtools-clearance: 184px;
 }
 
 .shop-app .shop-dock {
-  display: flex;
+  display: grid;
   height: 96px;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, 520px) 1fr;
   align-items: center;
-  gap: 24px;
+  column-gap: 24px;
   padding: 12px var(--shop-devtools-clearance) 12px 24px;
   border-color: var(--line);
 }
@@ -18,7 +21,7 @@
 .shop-app .shop-intent-form {
   display: flex;
   min-width: 0;
-  flex: 0 1 520px;
+  grid-column: 2;
   align-items: center;
   gap: 8px;
 }
@@ -33,10 +36,12 @@
 
 .shop-app .shop-voice-corner {
   display: grid;
-  width: 300px;
+  width: max-content;
+  min-width: 300px;
   height: 72px;
-  flex: 0 0 auto;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-column: 1;
+  justify-self: start;
+  grid-template-columns: 56px max-content;
   grid-template-rows: 36px 28px;
   column-gap: 12px;
   row-gap: 8px;
@@ -44,12 +49,14 @@
 }
 
 /* The voice caption and the Agent Run reply share one fixed band. Alone,
-   either takes both lines. Together they stack one line each. */
+   either takes both lines. Together they stack one line each. Inline-size
+   containment keeps long text from widening the corner. */
 .shop-app .shop-voice-text {
   display: flex;
   min-width: 0;
   height: 36px;
   overflow: hidden;
+  contain: inline-size;
   grid-column: 2;
   grid-row: 1;
   flex-direction: column;
@@ -117,6 +124,23 @@
   white-space: nowrap;
 }
 
+.shop-app .shop-voice-control {
+  width: auto;
+  gap: 6px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.shop-app .shop-voice-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.shop-app .shop-voice-control[aria-checked='true'],
+.shop-app .shop-voice-control[aria-pressed='true'] {
+  color: var(--color-brand-2);
+}
+
 .shop-app .shop-voice-playback {
   width: auto;
   min-width: 104px;
@@ -159,22 +183,28 @@
 @media (max-width: 819px) {
   .shop-app .shop-dock {
     height: 168px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 88px;
+    align-content: center;
+    row-gap: 8px;
     padding: 12px 16px;
   }
 
   .shop-app .shop-intent-form {
     width: 100%;
     max-width: 560px;
-    flex: 0 0 auto;
-    order: -1;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
   }
 
   .shop-app .shop-voice-corner {
     width: 100%;
+    min-width: 0;
     height: 88px;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: 56px minmax(0, 1fr);
     grid-template-rows: 36px 44px;
   }
 
@@ -187,10 +217,9 @@
   }
 
   .shop-app .shop-voice-status {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 2px;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 4px 8px;
   }
 }
 
