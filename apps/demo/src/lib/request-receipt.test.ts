@@ -62,13 +62,19 @@ describe('requestReceiptParts', () => {
     ).toBe('✓ Added "A" · ? Not confirmed: addTask');
   });
 
-  it('ignores Actions that are not data Actions or have no note', () => {
+  it('ignores Actions that are not data Actions or have no value', () => {
     expect(
       text([
         { ...target('openEntry'), status: 'unknown' },
         { ...target('setView'), status: 'ran' },
       ] as ActionOutcome[]),
     ).toBe('');
+  });
+
+  it('shows no receipt for a value that is not text', () => {
+    expect(text([ran('addTask', { added: 'A' }), ran('removeTask', 3)])).toBe(
+      '',
+    );
   });
 
   it('says nothing yet for pending Actions', () => {
@@ -139,8 +145,8 @@ function target(action: string) {
   >;
 }
 
-function ran(action: string, note: string): ActionOutcome {
-  return { ...target(action), status: 'ran', note } as ActionOutcome;
+function ran(action: string, value: unknown): ActionOutcome {
+  return { ...target(action), status: 'ran', value } as ActionOutcome;
 }
 
 function failed(action: string, reason: string): ActionOutcome {

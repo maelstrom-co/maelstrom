@@ -208,7 +208,7 @@ function receiptOf(action: string, result: ActionResult): ReceiptLine | null {
         ? {
             ...target,
             status: 'ran',
-            ...(result.value === undefined ? {} : { note: result.value }),
+            ...(result.value === undefined ? {} : { value: result.value }),
           }
         : { ...target, status: 'failed', reason: result.error.message },
     ],

@@ -207,7 +207,7 @@ export interface MaelstromInstanceCore<
    * is no longer retained. Accepts the ticket from `enqueueIntent` or its id.
    * Voice and typed requests are recorded the same way. The outcome lists
    * the request's planned Actions in plan order with each Action's status and
-   * the note its handler returned. Only that request's own response batch
+   * the value its handler returned, carried through untouched. Only that request's own response batch
    * contributes, so Actions clicked directly never appear. An `unknown` status
    * may have had side effects: do not resubmit it automatically.
    *
@@ -216,8 +216,8 @@ export interface MaelstromInstanceCore<
    * const { enqueueIntent } = m.useMaelstrom();
    * const [ticket, setTicket] = useState<IntentSubmission | null>(null);
    * const outcome = m.useRequestOutcome(ticket);
-   * const notes = outcome?.actions.flatMap((a) =>
-   *   a.status === 'ran' && a.note ? [a.note] : [],
+   * const updated = outcome?.actions.flatMap((a) =>
+   *   a.status === 'ran' && typeof a.value === 'number' ? [a.value] : [],
    * );
    * ```
    */

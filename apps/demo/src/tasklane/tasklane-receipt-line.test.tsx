@@ -101,8 +101,8 @@ function requestStore(): RequestOutcomeView['store'] {
   } as unknown as RequestOutcomeView['store'];
 }
 
-async function click(note: string): Promise<void> {
-  const handlers = withManualReceipts({ assignTask: async () => ok(note) });
+async function click(receipt: string): Promise<void> {
+  const handlers = withManualReceipts({ assignTask: async () => ok(receipt) });
   let run: Promise<unknown> = Promise.resolve();
   withManualReceipt((name: string) => {
     run = handlers[name as 'assignTask']();
@@ -110,13 +110,18 @@ async function click(note: string): Promise<void> {
   await run;
 }
 
-function settle(id: string, note: string): void {
+function settle(id: string, receipt: string): void {
   const outcome: RequestOutcome = {
     id,
     intent: id,
     status: 'applied',
     actions: [
-      { instanceId: 'tasks-1', action: 'createTask', status: 'ran', note },
+      {
+        instanceId: 'tasks-1',
+        action: 'createTask',
+        status: 'ran',
+        value: receipt,
+      },
     ] as unknown as RequestOutcome['actions'],
   };
   requests.state = {

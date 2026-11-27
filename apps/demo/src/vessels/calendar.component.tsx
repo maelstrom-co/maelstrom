@@ -7,7 +7,7 @@ import {
   CALENDAR_EVENT_ACCENTS,
   VESSEL_ACCENTS,
 } from '../lib/design-tokens';
-import { failureResult, noteResult } from '../lib/direct-action-receipt';
+import { failureResult, receiptResult } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
 import {
   type CalendarEvent,
@@ -126,7 +126,7 @@ export default function CalendarComponent({
     addEvent: async ({ title, time }) => {
       calendarActions.addEvent(title, time);
       const added = getCalendarSnapshot().events.at(-1);
-      return noteResult(
+      return receiptResult(
         `Added event "${added?.title ?? title}" at ${added?.time ?? time}`,
         { vesselId: 'calendar', action: 'addEvent' },
       );
@@ -142,7 +142,7 @@ export default function CalendarComponent({
       ) {
         return eventNotFound('removeEvent', title);
       }
-      return noteResult(`Removed event "${match.item.title}"`, {
+      return receiptResult(`Removed event "${match.item.title}"`, {
         vesselId: 'calendar',
         action: 'removeEvent',
       });
@@ -160,7 +160,7 @@ export default function CalendarComponent({
       }
       const { item } = match;
       const moved = getCalendarSnapshot().events.find((e) => e.id === item.id);
-      return noteResult(`Moved "${item.title}" to ${moved?.time ?? time}`, {
+      return receiptResult(`Moved "${item.title}" to ${moved?.time ?? time}`, {
         vesselId: 'calendar',
         action: 'moveEvent',
       });

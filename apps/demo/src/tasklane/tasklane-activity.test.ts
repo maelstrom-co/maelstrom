@@ -198,24 +198,24 @@ describe('request receipts', () => {
   });
 
   it('counts a task changed twice the same way as one task', () => {
-    const note = 'Set "Write demo copy" to high urgency';
+    const receipt = 'Set "Write demo copy" to high urgency';
     expect(
       summariseReceipt(
         outcome([
-          ran('setUrgency', { task: 'TL-1 Write demo copy (Alex)' }, note),
-          ran('setUrgency', { task: 'tl-1' }, note),
+          ran('setUrgency', { task: 'TL-1 Write demo copy (Alex)' }, receipt),
+          ran('setUrgency', { task: 'tl-1' }, receipt),
         ]),
       )?.text,
-    ).toBe(`✓ ${note}`);
+    ).toBe(`✓ ${receipt}`);
   });
 
   it('counts different tasks that share a title separately', () => {
-    const note = 'Set "Write demo copy" to high urgency';
+    const receipt = 'Set "Write demo copy" to high urgency';
     expect(
       summariseReceipt(
         outcome([
-          ran('setUrgency', { task: 'TL-1' }, note),
-          ran('setUrgency', { task: 'TL-2' }, note),
+          ran('setUrgency', { task: 'TL-1' }, receipt),
+          ran('setUrgency', { task: 'TL-2' }, receipt),
         ]),
       )?.text,
     ).toBe('✓ Set 2 tasks to high urgency');
@@ -300,9 +300,17 @@ describe('request receipts', () => {
     });
   });
 
-  it('counts an Action that ran without a note as confirmed without a receipt part', () => {
+  it('counts an Action that ran without a value as confirmed without a receipt part', () => {
     expect(
       summariseReceipt(outcome([ran('addToMyPriorities', { task: 'TL-1' })])),
+    ).toBeNull();
+  });
+
+  it('shows no receipt part for a value that is not text', () => {
+    expect(
+      summariseReceipt(
+        outcome([ran('setUrgency', { task: 'TL-1' }, { urgency: 'high' })]),
+      ),
     ).toBeNull();
   });
 
@@ -363,14 +371,14 @@ function outcome(
 function ran(
   action: string,
   params: Record<string, unknown>,
-  note?: string,
+  value?: unknown,
 ): RequestActionOutcome {
   return {
     instanceId: TASKS,
     action: ActionName(action),
     params,
     status: 'ran',
-    ...(note === undefined ? {} : { note }),
+    ...(value === undefined ? {} : { value }),
   };
 }
 

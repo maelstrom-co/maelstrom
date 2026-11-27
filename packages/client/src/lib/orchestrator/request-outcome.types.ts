@@ -27,8 +27,13 @@ export type RequestActionOutcome = RequestActionTarget &
     | {
         /** The handler succeeded, or the Action had no effect to run. */
         readonly status: 'ran';
-        /** Short note the handler returned on success, when it returned one. */
-        readonly note?: string;
+        /**
+         * Value the handler returned on success, carried through untouched and
+         * omitted when the handler returned `undefined`. The SDK never reads
+         * it. It should be small plain data. Typed access by Action name is
+         * planned.
+         */
+        readonly value?: unknown;
       }
     | {
         /** The handler reported an error or threw. */

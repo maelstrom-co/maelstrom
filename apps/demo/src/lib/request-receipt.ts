@@ -9,7 +9,7 @@ export interface ReceiptPart {
 }
 
 /**
- * Actions whose handlers return a receipt note. A planned one that did not
+ * Actions whose handlers return their receipt as the value. A planned one that did not
  * run, or failed without a "Couldn't" reason, is reported as not confirmed.
  */
 export const LOGGED_DATA_ACTIONS: ReadonlySet<string> = new Set([
@@ -32,7 +32,7 @@ const RECEIPT_SEPARATOR = ' · ';
 const FAILURE_PREFIX = "Couldn't";
 
 /**
- * Handler notes and failures in plan order, then the logged data Actions
+ * Handler receipts and failures in plan order, then the logged data Actions
  * that were not confirmed. Pending Actions contribute nothing yet.
  */
 export function requestReceiptParts(
@@ -74,12 +74,14 @@ export function hasReportedFailure(
 /** The receipt part for one Action's own result, or null when it has none. */
 export function actionReceiptPart(
   action:
-    | { readonly status: 'ran'; readonly note?: string }
+    | { readonly status: 'ran'; readonly value?: unknown }
     | { readonly status: 'failed'; readonly reason: string }
     | { readonly status: 'pending' | 'skipped' | 'unknown' },
 ): ReceiptPart | null {
   if (action.status === 'ran')
-    return action.note ? { tone: 'success', text: `✓ ${action.note}` } : null;
+    return typeof action.value === 'string' && action.value
+      ? { tone: 'success', text: `✓ ${action.value}` }
+      : null;
   if (action.status === 'failed') {
     const [reason = ''] = action.reason.split('\n');
     return reason.startsWith(FAILURE_PREFIX)

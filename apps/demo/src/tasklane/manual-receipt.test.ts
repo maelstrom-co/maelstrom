@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 describe('manual receipts', () => {
-  it('turns a clicked Action note into its own receipt', async () => {
+  it('turns the text value of a clicked Action into its own receipt', async () => {
     const handlers = withManualReceipts({
       assignTask: async () => ok('Reassigned "Write demo copy" to Alex'),
     });

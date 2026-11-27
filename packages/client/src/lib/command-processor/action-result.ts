@@ -8,10 +8,10 @@ import type { Result } from '@maelstrom-co/protocol';
  * `ok(value)` and failure with `err(new Error(...))` from
  * `@maelstrom-co/protocol`.
  *
- * The success value is an optional short note describing what the Action did,
- * such as `'12 tasks updated'`. It is reported as the Action's note in the
- * requesting operation's outcome. Return `ok(undefined)` when there is nothing
- * to say.
+ * The success value belongs to the application. The SDK never reads it and
+ * carries it through untouched as the Action's `value` in the requesting
+ * operation's outcome. Keep it small plain data. Typed access by Action name
+ * is planned. Return `ok(undefined)` when there is nothing to carry back.
  *
  * @example
  * ```typescript
@@ -20,8 +20,8 @@ import type { Result } from '@maelstrom-co/protocol';
  *
  * const handler = async (params: { orderId: string }): Promise<ActionResult> => {
  *   if (!params.orderId) return err(new Error('orderId required'));
- *   return ok('order selected');
+ *   return ok({ orderId: params.orderId });
  * };
  * ```
  */
-export type ActionResult = Result<string | undefined, Error>;
+export type ActionResult = Result<unknown, Error>;

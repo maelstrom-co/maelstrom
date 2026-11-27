@@ -63,10 +63,11 @@ describe('Orchestrator request outcomes', () => {
     return { client, sent, responses, outcomeOf };
   }
 
-  it('reports one setStatus Action with its note once the batch applies', async () => {
+  it('reports one setStatus Action with its untouched value once the batch applies', async () => {
     const { client, sent, responses, outcomeOf } = await setup(['setStatus']);
+    const returned = { updated: 12, ids: ['T-1', 'T-2'] };
     client.commandProcessor.registerRunner(InstanceId('board'), {
-      setStatus: () => ok('12 tasks updated'),
+      setStatus: () => ok(returned),
     });
     const ticket = client.enqueueIntent('mark everything done');
     expect(outcomeOf(ticket)).toMatchObject({
@@ -89,10 +90,12 @@ describe('Orchestrator request outcomes', () => {
           instanceId: InstanceId('board'),
           action: ActionName('setStatus'),
           status: 'ran',
-          note: '12 tasks updated',
+          value: { updated: 12, ids: ['T-1', 'T-2'] },
         },
       ],
     });
+    const [action] = outcomeOf(ticket)?.actions ?? [];
+    expect(action?.status === 'ran' && action.value).toBe(returned);
   });
 
   it('reports a mixed batch with ran, failed and skipped Actions as unknown', async () => {
@@ -129,7 +132,7 @@ describe('Orchestrator request outcomes', () => {
       status: 'unknown',
       error: expect.any(Error),
       actions: [
-        { instanceId: 'a', action: 'show', status: 'ran', note: 'opened' },
+        { instanceId: 'a', action: 'show', status: 'ran', value: 'opened' },
         {
           instanceId: 'b',
           action: 'fail',
@@ -146,7 +149,7 @@ describe('Orchestrator request outcomes', () => {
     });
   });
 
-  it('keeps each Instance in plan order with its own notes', async () => {
+  it('keeps each Instance in plan order with its own values', async () => {
     const { client, sent, responses, outcomeOf } = await setup([
       'first',
       'middle',
@@ -156,11 +159,11 @@ describe('Orchestrator request outcomes', () => {
     client.commandProcessor.registerRunner(InstanceId('a'), {
       first: () => {
         calls.push('a.first');
-        return ok('first note');
+        return ok('first value');
       },
       second: () => {
         calls.push('a.second');
-        return ok('second note');
+        return ok('second value');
       },
     });
     client.commandProcessor.registerRunner(InstanceId('b'), {
@@ -186,7 +189,7 @@ describe('Orchestrator request outcomes', () => {
         instanceId: InstanceId('a'),
         action: ActionName('first'),
         status: 'ran',
-        note: 'first note',
+        value: 'first value',
       },
       {
         instanceId: InstanceId('b'),
@@ -197,7 +200,7 @@ describe('Orchestrator request outcomes', () => {
         instanceId: InstanceId('a'),
         action: ActionName('second'),
         status: 'ran',
-        note: 'second note',
+        value: 'second value',
       },
     ]);
   });
@@ -282,7 +285,7 @@ describe('Orchestrator request outcomes', () => {
     const planned = deferred<ActionResult>();
     client.commandProcessor.registerRunner(InstanceId('a'), {
       show: () => planned.promise,
-      toggle: () => ok('manual note'),
+      toggle: () => ok('manual value'),
     });
     const ticket = client.enqueueIntent('show a');
     await flushMicrotasks();
@@ -295,7 +298,7 @@ describe('Orchestrator request outcomes', () => {
     const queuedClick = client.commandProcessor.runLocalAction(
       step('a', 'toggle'),
     );
-    planned.resolve(ok('planned note'));
+    planned.resolve(ok('planned value'));
     expect((await ticket.result).status).toBe('applied');
     expect(await queuedClick).toBe('succeeded');
 
@@ -304,7 +307,7 @@ describe('Orchestrator request outcomes', () => {
         instanceId: InstanceId('a'),
         action: ActionName('show'),
         status: 'ran',
-        note: 'planned note',
+        value: 'planned value',
       },
     ]);
   });
@@ -332,7 +335,7 @@ describe('Orchestrator request outcomes', () => {
     expect(voiceShape).toEqual(typedShape);
     expect(voiceShape).toMatchObject({
       status: 'applied',
-      actions: [{ status: 'ran', note: '3 tasks updated' }],
+      actions: [{ status: 'ran', value: '3 tasks updated' }],
     });
   });
 

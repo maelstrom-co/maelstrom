@@ -330,10 +330,10 @@ describe('VariantNames Type Tests', () => {
 });
 
 describe('ActionResult ↔ Result equivalence', () => {
-  it('resolves to Result<string | undefined, Error>', () => {
+  it('resolves to Result<unknown, Error>', () => {
     type _AssertActionResult =
-      ActionResult extends Result<string | undefined, Error>
-        ? Result<string | undefined, Error> extends ActionResult
+      ActionResult extends Result<unknown, Error>
+        ? Result<unknown, Error> extends ActionResult
           ? true
           : never
         : never;
@@ -341,13 +341,15 @@ describe('ActionResult ↔ Result equivalence', () => {
     void _check;
   });
 
-  it('accepts handlers that return no note', () => {
+  it('accepts handlers that return nothing or any value', () => {
     const _silent: Handler = () => ok(undefined);
     const _silentAsync: () => Promise<ActionResult> = () =>
       Promise.resolve(ok(undefined));
-    const _noted: Handler = () => ok('12 tasks updated');
+    const _text: Handler = () => ok('12 tasks updated');
+    const _data: Handler = () => ok({ updated: 12 });
     void _silent;
     void _silentAsync;
-    void _noted;
+    void _text;
+    void _data;
   });
 });

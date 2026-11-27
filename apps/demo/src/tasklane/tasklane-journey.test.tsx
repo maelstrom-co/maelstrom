@@ -459,7 +459,7 @@ describe('Tasklane request outcomes', () => {
           instanceId: TASKS,
           action: 'setStatus',
           status: 'ran',
-          note: 'Marked "Record launch video" as done',
+          value: 'Marked "Record launch video" as done',
         }),
       ]);
       expect(task('Record launch video').status).toBe('done');

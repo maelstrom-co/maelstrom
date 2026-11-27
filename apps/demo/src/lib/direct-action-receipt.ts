@@ -32,8 +32,8 @@ export function markDirectAction(source: ActionSource): void {
   directMarks.push({ source, expiresAt: Date.now() + DIRECT_MARK_TTL_MS });
 }
 
-/** A successful handler result whose note is the receipt text. */
-export function noteResult(text: string, source: ActionSource) {
+/** A successful handler result whose value is the receipt text. */
+export function receiptResult(text: string, source: ActionSource) {
   publishIfDirect(source, { tone: 'success', text: `✓ ${text}` });
   return ok(text);
 }

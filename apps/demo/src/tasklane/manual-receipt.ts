@@ -96,7 +96,8 @@ function consumeMark(action: string): boolean {
 function publish(action: string, result: ActionResult): void {
   let line: ReceiptLine | null = null;
   if (result.ok) {
-    if (result.value) line = { text: `✓ ${result.value}`, tone: 'success' };
+    if (typeof result.value === 'string' && result.value)
+      line = { text: `✓ ${result.value}`, tone: 'success' };
   } else {
     const text = failureText(
       result.error.message,

@@ -23,7 +23,7 @@ export function recordRequestResult(result: HandlerResult | undefined): void {
     result.ok
       ? {
           status: 'ran',
-          ...(typeof result.value === 'string' ? { note: result.value } : {}),
+          ...(result.value === undefined ? {} : { value: result.value }),
         }
       : { status: 'failed', reason: result.error?.message ?? '' },
   );

@@ -42,7 +42,7 @@ const VERBS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Each report returns the Action result. A change returns its receipt note.
+ * Each report returns the Action result. A change returns its receipt as the value.
  * A failure's message starts with a short reason for the person, then gives
  * the Planner a message naming valid choices on the following lines.
  */

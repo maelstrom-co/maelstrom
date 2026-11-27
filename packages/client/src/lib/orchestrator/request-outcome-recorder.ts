@@ -168,7 +168,7 @@ function toActionOutcomes(tracked: Tracked): RequestActionOutcome[] {
 function fromRecord(
   record: ActionRecord,
 ):
-  | { status: 'ran'; note?: string }
+  | { status: 'ran'; value?: unknown }
   | { status: 'failed' | 'skipped'; reason: string } {
   if (record.skipped === true)
     return {
@@ -177,7 +177,7 @@ function fromRecord(
     };
   if (!record.result.ok)
     return { status: 'failed', reason: record.result.error.message };
-  return typeof record.result.value === 'string'
-    ? { status: 'ran', note: record.result.value }
-    : { status: 'ran' };
+  return record.result.value === undefined
+    ? { status: 'ran' }
+    : { status: 'ran', value: record.result.value };
 }

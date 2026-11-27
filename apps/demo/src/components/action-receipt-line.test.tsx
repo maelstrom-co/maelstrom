@@ -27,7 +27,7 @@ const {
   __resetDirectActionReceiptForTests,
   markDirectAction,
   failureResult,
-  noteResult,
+  receiptResult,
   orderSettledRequests,
 } = await import('../lib/direct-action-receipt');
 const { ActionReceiptLine } = await import('./action-receipt-line');
@@ -142,7 +142,7 @@ describe('ActionReceiptLine', () => {
     act(() => {
       const source = { vesselId: 'tasks', action: 'checkTask' };
       markDirectAction(source);
-      noteResult('Checked task "Ship this sprint"', source);
+      receiptResult('Checked task "Ship this sprint"', source);
     });
     const band = screen.getByTestId('action-receipt-line');
     expect(band.textContent).toBe('✓ Checked task "Ship this sprint"');
@@ -160,7 +160,7 @@ describe('ActionReceiptLine', () => {
     act(() => {
       const source = { vesselId: 'tasks', action: 'checkTask' };
       markDirectAction(source);
-      noteResult('Checked task "Ship this sprint"', source);
+      receiptResult('Checked task "Ship this sprint"', source);
     });
     first.unmount();
     render(<ActionReceiptLine />);
@@ -174,7 +174,7 @@ describe('ActionReceiptLine', () => {
     setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
     const source = { vesselId: 'tasks', action: 'checkTask' };
     markDirectAction(source);
-    noteResult('Checked task "Ship this sprint"', source);
+    receiptResult('Checked task "Ship this sprint"', source);
     render(<ActionReceiptLine />);
     const band = screen.getByTestId('action-receipt-line');
     expect(band.textContent).toBe('✓ Checked task "Ship this sprint"');
@@ -240,11 +240,11 @@ function outcome(
   return { id, intent: id, status, actions };
 }
 
-function ran(action: string, note: string): RequestOutcome['actions'][number] {
+function ran(action: string, value: string): RequestOutcome['actions'][number] {
   return {
     instanceId: 'tasks-1',
     action,
     status: 'ran',
-    note,
+    value,
   } as unknown as RequestOutcome['actions'][number];
 }

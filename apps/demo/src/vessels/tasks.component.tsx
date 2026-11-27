@@ -7,7 +7,7 @@ import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import {
   failureResult,
   markDirectAction,
-  noteResult,
+  receiptResult,
 } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
 import {
@@ -29,7 +29,7 @@ export default function TasksComponent({
   m.useActions('tasks', instanceId, {
     addTask: async ({ title, subtasks }) => {
       const result = tasksActions.addTask(title, splitSubtaskTitles(subtasks));
-      return noteResult(
+      return receiptResult(
         describeAddedTask(result.task.title, result.task.subtasks.length),
         source('addTask'),
       );
@@ -223,7 +223,7 @@ function taskOutcome(
   describe: (task: { title: string }) => string,
 ) {
   if (!result.ok) return notFound(action, 'task', result.query);
-  return noteResult(
+  return receiptResult(
     result.changed ? describe(result.task) : alreadyText(result.task),
     source(action),
   );
@@ -243,7 +243,7 @@ function subtaskOutcome(
     );
   }
   if (!result.ok) return notFound(action, kind, result.query);
-  return noteResult(
+  return receiptResult(
     result.changed ? describe(result) : alreadyText(result.subtask),
     source(action),
   );

@@ -7,7 +7,7 @@ import { ACCENT_HEX, accentAlpha, VESSEL_ACCENTS } from '../lib/design-tokens';
 import {
   failureResult,
   markDirectAction,
-  noteResult,
+  receiptResult,
 } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
 import {
@@ -74,7 +74,7 @@ export default function JournalComponent({
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
       const { entry } = journalActions.createEntry(title);
-      return noteResult(
+      return receiptResult(
         `Created journal entry "${entry.title}"`,
         source('createEntry'),
       );
@@ -93,7 +93,7 @@ export default function JournalComponent({
           'No active journal entry. Call openEntry or createEntry first.',
         );
       }
-      return noteResult(
+      return receiptResult(
         `Wrote to "${result.entry.title}"`,
         source('writeContent'),
       );
@@ -101,7 +101,7 @@ export default function JournalComponent({
     editEntry: async ({ entry, content }) => {
       const result = journalActions.setEntryContent(entry, content);
       if (!result.ok) return notFound('editEntry', result);
-      return noteResult(
+      return receiptResult(
         result.changed
           ? `Updated journal entry "${result.entry.title}"`
           : `"${result.entry.title}" already had that text`,

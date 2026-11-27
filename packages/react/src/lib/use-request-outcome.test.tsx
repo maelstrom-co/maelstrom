@@ -39,7 +39,7 @@ const boardVessel = defineVessel({
   },
 });
 
-it('reports a typed and a voice request through processing to applied with the note', async () => {
+it('reports a typed and a voice request through processing to applied with the value', async () => {
   const sent: ChartRequestMessage[] = [];
   const pending: Array<(response: MaelstromResponse) => void> = [];
   const connector = createMockConnector({
@@ -123,7 +123,7 @@ it('reports a typed and a voice request through processing to applied with the n
         instanceId: InstanceId('board-1'),
         action: ActionName('setStatus'),
         status: 'ran',
-        note: '12 tasks updated',
+        value: '12 tasks updated',
       },
     ],
   };

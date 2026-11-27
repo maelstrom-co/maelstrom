@@ -6,7 +6,7 @@ import {
   failureResult,
   getDirectReceipt,
   markDirectAction,
-  noteResult,
+  receiptResult,
 } from './direct-action-receipt';
 
 const CHECK = { vesselId: 'tasks', action: 'checkTask' } as const;
@@ -16,8 +16,8 @@ beforeEach(() => {
 });
 
 describe('direct action receipts', () => {
-  it('returns the note as the success value', () => {
-    const result = noteResult('Added "A"', CHECK);
+  it('returns the receipt text as the success value', () => {
+    const result = receiptResult('Added "A"', CHECK);
     expect(isOk(result) && result.value).toBe('Added "A"');
   });
 
@@ -31,11 +31,11 @@ describe('direct action receipts', () => {
   });
 
   it('publishes a receipt only for a marked direct click', () => {
-    noteResult('Checked task "Ship this sprint"', CHECK);
+    receiptResult('Checked task "Ship this sprint"', CHECK);
     expect(getDirectReceipt()).toBeNull();
 
     markDirectAction(CHECK);
-    noteResult('Checked task "Ship this sprint"', CHECK);
+    receiptResult('Checked task "Ship this sprint"', CHECK);
     expect(getDirectReceipt()?.part).toEqual({
       tone: 'success',
       text: '✓ Checked task "Ship this sprint"',
@@ -44,9 +44,9 @@ describe('direct action receipts', () => {
 
   it('uses a direct mark once and orders newer clicks after older ones', () => {
     markDirectAction(CHECK);
-    noteResult('Checked task "A"', CHECK);
+    receiptResult('Checked task "A"', CHECK);
     const first = getDirectReceipt();
-    noteResult('Checked task "B"', CHECK);
+    receiptResult('Checked task "B"', CHECK);
     expect(getDirectReceipt()).toBe(first);
 
     markDirectAction(CHECK);
@@ -63,7 +63,7 @@ describe('direct action receipts', () => {
     try {
       markDirectAction(CHECK);
       vi.advanceTimersByTime(10_000);
-      noteResult('Checked task "Ship this sprint"', CHECK);
+      receiptResult('Checked task "Ship this sprint"', CHECK);
       expect(getDirectReceipt()).toBeNull();
     } finally {
       vi.useRealTimers();
@@ -72,7 +72,7 @@ describe('direct action receipts', () => {
 
   it('matches the mark to the same Vessel and Action', () => {
     markDirectAction({ vesselId: 'journal', action: 'checkTask' });
-    noteResult('Checked task "Ship this sprint"', CHECK);
+    receiptResult('Checked task "Ship this sprint"', CHECK);
     expect(getDirectReceipt()).toBeNull();
   });
 });

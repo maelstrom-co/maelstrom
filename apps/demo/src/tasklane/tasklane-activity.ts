@@ -60,7 +60,7 @@ interface ChangeForm {
   readonly many: (count: number, detail: string | null) => string;
 }
 
-// Each form writes the note a handler returns for one change and reads it
+// Each form writes the receipt a handler returns for one change and reads it
 // back, so a receipt can group same-kind changes of one request.
 const CHANGE_FORMS: readonly ChangeForm[] = [
   {
@@ -190,7 +190,7 @@ const DETAIL_OPTIONAL_KINDS: ReadonlySet<ChangeKind> = new Set([
   'dueDate',
 ]);
 
-/** The note a handler returns for one change, read back by {@link summariseReceipt}. */
+/** The receipt a handler returns as its value for one change, read back by {@link summariseReceipt}. */
 export function describeChange(change: ChangeDescription): string {
   if (change.kind === 'feedback') {
     return change.detail === 'truncated'
@@ -222,12 +222,13 @@ export function summariseReceipt(
   if (!outcome) return null;
   const failures: string[] = [];
   const unconfirmed: string[] = [];
-  const notes: { action: RequestActionOutcome; note: string }[] = [];
+  const receipts: { action: RequestActionOutcome; text: string }[] = [];
   for (const action of outcome.actions) {
     const phrase = TASKLANE_DATA_ACTIONS[action.action];
     switch (action.status) {
       case 'ran':
-        if (action.note) notes.push({ action, note: action.note });
+        if (typeof action.value === 'string' && action.value)
+          receipts.push({ action, text: action.value });
         break;
       case 'failed': {
         const text = failureText(action.reason, phrase);
@@ -254,7 +255,7 @@ export function summariseReceipt(
     ...(unconfirmed.length > 0
       ? [`? Not confirmed: ${unconfirmed.join(', ')}`]
       : []),
-    ...groupNotes(notes).map((text) => `✓ ${text}`),
+    ...groupReceipts(receipts).map((text) => `✓ ${text}`),
   ];
   if (parts.length === 0) return null;
   return {
@@ -273,8 +274,8 @@ export function failureText(
   return phrase ? `Couldn't ${phrase}` : null;
 }
 
-function groupNotes(
-  notes: readonly { action: RequestActionOutcome; note: string }[],
+function groupReceipts(
+  receipts: readonly { action: RequestActionOutcome; text: string }[],
 ): string[] {
   const groups = new Map<
     string,
@@ -285,12 +286,12 @@ function groupNotes(
       first: string;
     }
   >();
-  notes.forEach(({ action, note }, index) => {
-    const parsed = parseNote(note);
+  receipts.forEach(({ action, text }, index) => {
+    const parsed = parseReceipt(text);
     const key = parsed
       ? `${CHANGE_FORMS.indexOf(parsed.form)}\u0000${parsed.detail ?? ''}`
-      : `note\u0000${note}`;
-    const subject = parsed ? subjectKey(action, parsed.subject, index) : note;
+      : `text\u0000${text}`;
+    const subject = parsed ? subjectKey(action, parsed.subject, index) : text;
     const group = groups.get(key);
     if (group) {
       if (!group.subjects.includes(subject)) group.subjects.push(subject);
@@ -299,7 +300,7 @@ function groupNotes(
         form: parsed?.form ?? null,
         detail: parsed?.detail ?? null,
         subjects: [subject],
-        first: note,
+        first: text,
       });
     }
   });
@@ -310,11 +311,11 @@ function groupNotes(
   );
 }
 
-function parseNote(
-  note: string,
+function parseReceipt(
+  text: string,
 ): { form: ChangeForm; subject: string; detail: string | null } | null {
   for (const form of CHANGE_FORMS) {
-    const match = form.pattern.exec(note);
+    const match = form.pattern.exec(text);
     if (!match?.[1]) continue;
     return {
       form,
