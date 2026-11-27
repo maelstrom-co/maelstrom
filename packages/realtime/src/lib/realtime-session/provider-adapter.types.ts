@@ -39,7 +39,8 @@ export interface AdapterConnectOptions {
    * `backendInstructions` (or `instructions` when absent) and `tools` configure
    * their managed tool backend. Single-model providers add them to `instructions`.
    * `RealtimeSession` always sets this field: the application's value, or
-   * `DEFAULT_CONVERSATION_INSTRUCTIONS`. Legacy adapters may ignore it.
+   * `DEFAULT_CONVERSATION_INSTRUCTIONS`. Adapters without a conversational model,
+   * such as LiveKit, ignore it. Legacy adapters may ignore it too.
    */
   readonly conversationInstructions?: string;
   /** Concise observed UI data for adapters that seed grounding when ready; never behavioral instructions. */

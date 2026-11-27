@@ -485,8 +485,9 @@ describe('additive continuous capabilities', () => {
       DEFAULT_CONVERSATION_INSTRUCTIONS,
     );
     expect(DEFAULT_CONVERSATION_INSTRUCTIONS).toContain(
-      "language of the user's most recent",
+      "language of the user's most recent spoken request",
     );
+    expect(DEFAULT_CONVERSATION_INSTRUCTIONS).not.toContain('typed');
     await session.disconnect();
   });
 
