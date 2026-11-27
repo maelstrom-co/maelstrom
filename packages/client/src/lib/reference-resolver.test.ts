@@ -33,6 +33,28 @@ describe('createReferenceResolver', () => {
       });
     });
 
+    it('prefers an exact-case id over ids that differ only by case', () => {
+      const caseItems: readonly SampleItem[] = [
+        { id: 'Ab1', title: 'Upper' },
+        { id: 'ab1', title: 'Lower' },
+      ];
+      const caseResolver = createReferenceResolver({
+        items: caseItems,
+        id: (item) => item.id,
+        title: (item) => item.title,
+      });
+
+      expect(caseResolver.resolve('Ab1')).toEqual({
+        kind: 'found',
+        item: caseItems[0],
+      });
+      expect(caseResolver.resolve('ab1')).toEqual({
+        kind: 'found',
+        item: caseItems[1],
+      });
+      expect(caseResolver.resolve('AB1').kind).toBe('ambiguous');
+    });
+
     it('rung 2: matches an exact published label case-insensitively', () => {
       expect(resolver.resolve('tl-1 update demo readme (docs)')).toEqual({
         kind: 'found',

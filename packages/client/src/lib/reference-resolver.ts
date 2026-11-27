@@ -71,8 +71,9 @@ export type ReferenceResolution<T> =
 export interface ReferenceResolver<T> {
   /**
    * Resolves `reference` through a deterministic matching ladder:
-   * exact id, exact label, exact normalized title, forward substring,
-   * most-specific reverse substring, and multi-word token match.
+   * exact id, case-insensitive id, exact label, exact normalized title,
+   * forward substring, most-specific reverse substring, and multi-word token
+   * match.
    */
   resolve(reference: string): ReferenceResolution<T>;
 }
@@ -116,6 +117,13 @@ export function createReferenceResolver<T>(
 
       if (!query) {
         return notFound(query, currentItems, formatLabel, maxChoices);
+      }
+
+      const byExactId = currentItems.filter(
+        (item) => id(item).trim() === query,
+      );
+      if (byExactId.length > 0) {
+        return settle(byExactId, query, formatLabel, maxChoices);
       }
 
       const queryLower = query.toLowerCase();
