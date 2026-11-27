@@ -2,10 +2,7 @@ import type { SessionId } from '@maelstrom-co/protocol';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
-import {
-  type LiveMicrophoneOptions,
-  OpenAILiveAdapter,
-} from '@maelstrom-co/realtime-openai-live';
+import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 
 import { isDebugRequested } from './debug-mode';
 import {
@@ -61,14 +58,6 @@ export function prepareBrowserOpenAIVoice(
   return true;
 }
 
-/** Reads the `liveMic` search parameter as the Live microphone device ID, or returns undefined to keep the browser default. */
-export function liveMicrophoneFromSearch(
-  search: string,
-): LiveMicrophoneOptions | undefined {
-  const deviceId = new URLSearchParams(search).get('liveMic');
-  return deviceId ? { deviceId } : undefined;
-}
-
 /** Hands a browser-key realtime session the adapter prepared by `prepareBrowserOpenAIVoice` exactly once, otherwise constructs a new adapter. */
 export function createAdapter(
   provider: DemoVoiceProvider,
@@ -109,11 +98,8 @@ export function createAdapter(
 }
 
 function createLiveAdapter(): OpenAILiveAdapter {
-  const search = typeof window === 'undefined' ? '' : window.location.search;
-  const microphone = liveMicrophoneFromSearch(search);
   return new OpenAILiveAdapter({
     model: LIVE_MODEL,
-    ...(microphone ? { microphone } : {}),
     playbackBargeIn: { providerOptions: { model: HOSTED_VAD_MODEL } },
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(

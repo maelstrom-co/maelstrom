@@ -34,18 +34,6 @@ import { type LiveContextKind, LiveDiagnostics } from './live-diagnostics.js';
 const SESSION_PAUSED_EVENT = 'session.paused';
 const SESSION_RESUMED_EVENT = 'session.resumed';
 
-/** Microphone selection and processing requested from the browser for Live capture. */
-export interface LiveMicrophoneOptions {
-  /** Input device to capture, from `navigator.mediaDevices.enumerateDevices()`. Required exactly: an unavailable device fails microphone acquisition instead of falling back. */
-  readonly deviceId?: string;
-  /** Requests browser echo cancellation; the browser default applies when omitted. */
-  readonly echoCancellation?: boolean;
-  /** Requests browser noise suppression; the browser default applies when omitted. */
-  readonly noiseSuppression?: boolean;
-  /** Requests browser automatic gain control; the browser default applies when omitted. */
-  readonly autoGainControl?: boolean;
-}
-
 /** Browser transport configuration. Factories must return exclusively owned resources. */
 export interface LiveTransportOptions {
   /** Host-owned SDP exchange, usually an authenticated application route. */
@@ -56,17 +44,8 @@ export interface LiveTransportOptions {
   readonly closeTimeoutMs?: number;
   /** Trusted peer factory, useful for RTC configuration and isolated browser tests. */
   readonly createPeer?: () => RTCPeerConnection;
-  /**
-   * Owned microphone acquisition, invoked synchronously by connect in the user gesture.
-   * Receives the `getUserMedia` constraints built from `microphone`, which are
-   * `{ audio: true }` when no microphone options are set. Defaults to
-   * `navigator.mediaDevices.getUserMedia` with the same constraints.
-   */
-  readonly getMicrophone?: (
-    constraints: MediaStreamConstraints,
-  ) => Promise<MediaStream>;
-  /** Microphone device and processing constraints; the browser default microphone and processing apply when omitted. */
-  readonly microphone?: LiveMicrophoneOptions;
+  /** Owned microphone acquisition, invoked synchronously by connect in the user gesture. */
+  readonly getMicrophone?: () => Promise<MediaStream>;
   /** Owned audio player factory; playback can be retried through activateAudio. */
   readonly createAudio?: () => HTMLAudioElement;
   /**
@@ -505,14 +484,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       this.assert(run);
     }
     run.audio = audio;
-    const constraints: MediaStreamConstraints = {
-      audio: microphoneConstraints(this.options.microphone),
-    };
     const acquisition = (
       this.options.getMicrophone ??
-      ((value: MediaStreamConstraints) =>
-        navigator.mediaDevices.getUserMedia(value))
-    )(constraints);
+      (() => navigator.mediaDevices.getUserMedia({ audio: true }))
+    )();
     const mic = acquisition.then((stream) => {
       if (!this.current(run) || run.closing) stop(stream);
       else run.mic = stream;
@@ -973,20 +948,4 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       }
     }
   }
-}
-
-function microphoneConstraints(
-  options: LiveMicrophoneOptions | undefined,
-): MediaTrackConstraints | true {
-  if (!options) return true;
-  const constraints: MediaTrackConstraints = {};
-  if (options.deviceId !== undefined)
-    constraints.deviceId = { exact: options.deviceId };
-  if (options.echoCancellation !== undefined)
-    constraints.echoCancellation = options.echoCancellation;
-  if (options.noiseSuppression !== undefined)
-    constraints.noiseSuppression = options.noiseSuppression;
-  if (options.autoGainControl !== undefined)
-    constraints.autoGainControl = options.autoGainControl;
-  return Object.keys(constraints).length > 0 ? constraints : true;
 }

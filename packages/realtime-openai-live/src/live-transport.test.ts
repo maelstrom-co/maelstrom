@@ -11,10 +11,7 @@ import type {
 } from '@maelstrom-co/realtime-protocol/openai-live';
 import { install } from '@sinonjs/fake-timers';
 
-import {
-  type LiveMicrophoneOptions,
-  OpenAILiveTransport,
-} from './live-transport.js';
+import { OpenAILiveTransport } from './live-transport.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -111,12 +108,10 @@ function harness(
     close?: number;
     playbackBargeIn?: boolean;
     manualTurns?: boolean;
-    microphone?: LiveMicrophoneOptions;
   } = {},
 ) {
   const peer = new Peer();
   const mic = new Track();
-  const constraints: MediaStreamConstraints[] = [];
   let calls = 0;
   let playbackCalls = 0;
   let rejectPlay = false;
@@ -132,17 +127,12 @@ function harness(
     handshakeTimeoutMs: options.handshake ?? 1000,
     playbackBargeIn: options.playbackBargeIn,
     manualTurns: options.manualTurns,
-    microphone: options.microphone,
     closeTimeoutMs: options.close ?? 5,
     createPeer: () => peer as unknown as RTCPeerConnection,
     createAudio: () => audio as unknown as HTMLAudioElement,
-    getMicrophone: (requested) => {
-      constraints.push(requested);
-      return (
-        options.permission ??
-        Promise.resolve(new Stream([mic]) as unknown as MediaStream)
-      );
-    },
+    getMicrophone: () =>
+      options.permission ??
+      Promise.resolve(new Stream([mic]) as unknown as MediaStream),
     exchange: async (_, signal) => {
       calls++;
       await options.exchangeGate;
@@ -166,7 +156,6 @@ function harness(
     start,
     started,
     calls: () => calls,
-    constraints,
     playbackCalls: () => playbackCalls,
     rejectPlayback: (value: boolean) => {
       rejectPlay = value;
@@ -1664,74 +1653,4 @@ test('without barge-in the transport reports no browser user speech', async () =
   expect(speech).toEqual([]);
   await h.transport.disconnect();
   expect(speech.filter((value) => value !== 'unknown')).toEqual([]);
-});
-
-test('microphone options reach the injected getMicrophone as exact audio constraints', async () => {
-  const h = harness({
-    microphone: {
-      deviceId: 'usb-mic',
-      echoCancellation: false,
-      noiseSuppression: true,
-      autoGainControl: false,
-    },
-  });
-  const ready = h.start();
-  expect(h.constraints).toEqual([
-    {
-      audio: {
-        deviceId: { exact: 'usb-mic' },
-        echoCancellation: false,
-        noiseSuppression: true,
-        autoGainControl: false,
-      },
-    },
-  ]);
-  await tick();
-  h.started();
-  await ready;
-});
-
-test('omitted microphone options keep the browser default microphone', async () => {
-  const partial = harness({ microphone: { noiseSuppression: false } });
-  void partial.start().catch(() => {});
-  expect(partial.constraints).toEqual([{ audio: { noiseSuppression: false } }]);
-  const unset = harness();
-  void unset.start().catch(() => {});
-  expect(unset.constraints).toEqual([{ audio: true }]);
-  const empty = harness({ microphone: {} });
-  void empty.start().catch(() => {});
-  expect(empty.constraints).toEqual([{ audio: true }]);
-});
-
-test('without an injected getMicrophone the same constraints reach getUserMedia', async () => {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  const requested: MediaStreamConstraints[] = [];
-  Object.defineProperty(globalThis, 'navigator', {
-    configurable: true,
-    value: {
-      mediaDevices: {
-        getUserMedia: (constraints: MediaStreamConstraints) => {
-          requested.push(constraints);
-          return Promise.resolve(
-            new Stream([new Track()]) as unknown as MediaStream,
-          );
-        },
-      },
-    },
-  });
-  try {
-    const transport = new OpenAILiveTransport({
-      microphone: { deviceId: 'usb-mic' },
-      createPeer: () => new Peer() as unknown as RTCPeerConnection,
-      createAudio: () =>
-        ({ pause() {}, play: async () => {} }) as unknown as HTMLAudioElement,
-      exchange: () => new Promise(() => {}),
-    });
-    all.push(transport);
-    void transport.connect(config).catch(() => {});
-    expect(requested).toEqual([{ audio: { deviceId: { exact: 'usb-mic' } } }]);
-  } finally {
-    if (previous) Object.defineProperty(globalThis, 'navigator', previous);
-    else Reflect.deleteProperty(globalThis, 'navigator');
-  }
 });

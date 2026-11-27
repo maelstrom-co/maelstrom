@@ -63,7 +63,7 @@ vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
 }));
 
-const { createAdapter, liveMicrophoneFromSearch, prepareBrowserOpenAIVoice } =
+const { createAdapter, prepareBrowserOpenAIVoice } =
   await import('./voice-adapter');
 
 const sessionId = SessionId('session-1');
@@ -101,34 +101,6 @@ describe('createAdapter', () => {
     expect(constructed.live).toHaveLength(1);
     expect(constructed.openAI).toHaveLength(0);
     expect(constructed.liveKit).toHaveLength(0);
-  });
-
-  it('passes the liveMic search parameter to the Live adapter as its microphone', () => {
-    vi.stubEnv('VITE_HOSTED', '0');
-    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-    vi.stubGlobal('window', { location: { search: '?liveMic=usb-mic' } });
-    try {
-      createAdapter('live', sessionId);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-
-    expect(constructed.live[0]).toMatchObject({
-      microphone: { deviceId: 'usb-mic' },
-    });
-  });
-
-  it('keeps the browser default microphone without a liveMic search parameter', () => {
-    vi.stubEnv('VITE_HOSTED', '0');
-    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-
-    createAdapter('live', sessionId);
-
-    expect(constructed.live[0]).not.toHaveProperty('microphone');
-    expect(liveMicrophoneFromSearch('?liveMic=')).toBeUndefined();
-    expect(liveMicrophoneFromSearch('?debug&liveMic=abc')).toEqual({
-      deviceId: 'abc',
-    });
   });
 
   it('builds an OpenAI Realtime adapter for the realtime provider', () => {

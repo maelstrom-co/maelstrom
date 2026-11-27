@@ -82,8 +82,6 @@ OpenAI has a separate `greetingInterruption` option for locally interrupting the
 
 Both adapters request echo cancellation (AEC), noise suppression (NS), and automatic gain control (AGC) when they acquire a microphone. OpenAI captures the original browser track directly and attaches it to its peer connection. LiveKit inspects its accepted original track, then clones it for local VAD, metering, and pre-roll while the published track remains behind the mute/upstream gate.
 
-OpenAI Live leaves device choice and processing to the browser defaults unless its `microphone` option names a `deviceId` or sets `echoCancellation`, `noiseSuppression`, or `autoGainControl`. A named device is required exactly, so a missing device fails microphone acquisition instead of falling back to another input.
-
 The browser treats these plain booleans as preferences. Support and results vary by browser, operating system, microphone, speaker, and Bluetooth or wired route. Debug output narrows the observation to `true`, `false`, or `unavailable` for each applied setting on the accepted original track. `unavailable` also covers missing or throwing settings APIs and missing or non-boolean fields. The output excludes device identity, complete settings objects, tracks, streams, and audio. An applied `true` still does not prove that playback echo is removed or that human interruption remains usable.
 
 ## Validate browser audio processing
