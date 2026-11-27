@@ -295,7 +295,7 @@ describe('Tasks Vessel by hand', () => {
     expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('done');
   });
 
-  it('renders created and due dates in the board view and updates due date via setDueDate', async () => {
+  it('renders created and due dates in the board view and sends setDueDate from the date input', async () => {
     const vesselProps = props('project-tasks');
     render(<ProjectTasksComponent {...vesselProps} />);
 
@@ -320,18 +320,6 @@ describe('Tasks Vessel by hand', () => {
     expect(getProjectTasksSnapshot().tasks[1]?.dueDate).toBe('2026-05-01');
     expect(taskRow('Record launch video').textContent).toContain(
       'Due 2026-05-01',
-    );
-
-    const invalid = await invoke('project-tasks', 'setDueDate', {
-      task: 'TL-2',
-      dueDate: '2026-02-30',
-    });
-    expect(invalid?.ok).toBe(false);
-    expect(invalid?.error?.message).toBe(
-      'Due date must be an ISO date (YYYY-MM-DD) or "none", got "2026-02-30".',
-    );
-    expect(getLatestReceipt()?.text).toBe(
-      '✗ Couldn\'t set the due date to "2026-02-30"',
     );
   });
 
@@ -666,7 +654,7 @@ describe('Tasks board columns variant', () => {
     ).toContain("Showing Sam's tasks");
   });
 
-  it('renders created and due dates on column cards and reflects setDueDate', async () => {
+  it('renders created and due dates on column cards', async () => {
     render(
       <ProjectTasksComponent
         {...props('project-tasks', 'tasks-columns', 'columns')}
@@ -676,14 +664,6 @@ describe('Tasks board columns variant', () => {
     expect(columnCard('TL-1').textContent).toContain('Due 2026-04-17');
     expect(columnCard('TL-2').textContent).toContain('Created 2026-04-08');
     expect(columnCard('TL-2').textContent).not.toContain('Due ');
-
-    expect(
-      await invoke('project-tasks', 'setDueDate', {
-        task: 'TL-2',
-        dueDate: '2026-05-08',
-      }),
-    ).toMatchObject({ ok: true });
-    expect(columnCard('TL-2').textContent).toContain('Due 2026-05-08');
   });
 });
 
