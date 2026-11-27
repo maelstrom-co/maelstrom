@@ -1639,6 +1639,63 @@ test('local Live barge-in reports browser VAD user speech as media observations'
   }
 });
 
+test('local Live barge-in does not settle a misfire after an observer disconnects', async () => {
+  const originalContext = globalThis.AudioContext;
+  const originalStream = globalThis.MediaStream;
+  let callbacks!: {
+    onSpeechStart(): Promise<void>;
+    onSpeechEnd(): Promise<void>;
+    onVADMisfire(): Promise<void>;
+  };
+  mock.module('@ricky0123/vad-web', () => ({
+    MicVAD: {
+      new: async (options: typeof callbacks) => {
+        callbacks = options;
+        return {
+          start: async () => {},
+          pause: async () => {},
+          destroy: async () => {},
+        };
+      },
+    },
+  }));
+  Object.assign(globalThis, {
+    MediaStream: Stream,
+    AudioContext: class {
+      state = 'running';
+      currentTime = 0;
+      async resume() {}
+      async close() {}
+    },
+  });
+  const h = harness({ playbackBargeIn: true });
+  const speech: unknown[] = [];
+  let disconnecting: Promise<void> | undefined;
+  h.transport.observations.subscribe((event) => {
+    if (event.type !== 'media' || !('userSpeech' in event.media)) return;
+    speech.push(event.media.userSpeech);
+    if (event.media.userSpeech === 'unknown' && speech.length === 2)
+      disconnecting = h.transport.disconnect();
+  });
+  try {
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    await disconnecting;
+    expect(speech.at(-1)).toBe('unknown');
+    expect(speech.filter((value) => value !== 'unknown')).toEqual(['active']);
+  } finally {
+    await h.transport.disconnect();
+    Object.assign(globalThis, {
+      AudioContext: originalContext,
+      MediaStream: originalStream,
+    });
+  }
+});
+
 test('without barge-in the transport reports no browser user speech', async () => {
   const h = harness();
   const speech: unknown[] = [];

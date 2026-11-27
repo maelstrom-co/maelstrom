@@ -591,7 +591,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         onUserSpeech: (speech) => {
           if (!this.current(run) || run.closing) return;
           // A retracted onset clears the open speech span before settling inactive.
-          if (speech === 'misfire') this.media({ userSpeech: 'unknown' });
+          if (speech === 'misfire') {
+            this.media({ userSpeech: 'unknown' });
+            if (!this.current(run) || run.closing) return;
+          }
           this.media({
             userSpeech: speech === 'speaking' ? 'active' : 'inactive',
           });
