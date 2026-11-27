@@ -1,3 +1,4 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { sanitizeControlChars } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 
@@ -267,11 +268,21 @@ export function resolveTaskReference(
     return { kind: 'found', task };
   }
 
-  const wanted = normalizeTitle(query);
-  const exact = tasks.filter((task) => normalizeTitle(task.title) === wanted);
-  if (exact.length > 0) return matchFrom(exact);
-
-  return matchFrom(findByFuzzyTitle(wanted, tasks));
+  const match = createReferenceResolver({
+    items: tasks,
+    id: (task) => task.id,
+    title: (task) => task.title,
+    label: (task) => taskReferenceLabel(task),
+    maxChoices: MAX_LISTED_TASKS,
+  }).resolve(query);
+  if (match.kind === 'found') return { kind: 'found', task: match.item };
+  if (match.kind === 'ambiguous') {
+    return {
+      kind: 'ambiguous',
+      candidates: match.candidates.map((task) => task.id),
+    };
+  }
+  return { kind: 'not_found' };
 }
 
 /**
@@ -678,33 +689,6 @@ function cleanSourceFeedback(source: string | undefined): string | null {
   return clean.length > SOURCE_FEEDBACK_LIMIT
     ? `${clean.slice(0, SOURCE_FEEDBACK_LIMIT).trimEnd()}...`
     : clean;
-}
-
-function matchFrom(tasks: readonly ProjectTask[]): TaskReferenceMatch {
-  if (tasks.length === 0) return { kind: 'not_found' };
-  if (tasks.length > 1)
-    return { kind: 'ambiguous', candidates: tasks.map((task) => task.id) };
-  return { kind: 'found', task: tasks[0] as ProjectTask };
-}
-
-function findByFuzzyTitle(
-  wanted: string,
-  tasks: readonly ProjectTask[],
-): ProjectTask[] {
-  if (!wanted) return [];
-  return tasks.filter((task) => {
-    const title = normalizeTitle(task.title);
-    if (!title) return false;
-    return title.includes(wanted) || wanted.includes(title);
-  });
-}
-
-function normalizeTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/["'“”‘’.,!?:]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function isNoParent(reference: string): boolean {

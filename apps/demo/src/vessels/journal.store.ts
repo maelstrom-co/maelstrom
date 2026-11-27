@@ -1,6 +1,5 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { useSyncExternalStore } from 'react';
-
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 export interface JournalEntry {
   id: string;
@@ -106,23 +105,23 @@ export function entryReferenceLabel(entry: JournalEntry): string {
 
 /**
  * Resolves an id (`J-2`), a published label (`J-2 Architecture review`) or a
- * title. A bare id that names nothing never falls back to a title match.
+ * title. A reference led by an id that names no entry resolves only to an
+ * entry whose title is the whole reference.
  */
 export function resolveEntryReference(
   entries: readonly JournalEntry[],
   reference: string,
 ): JournalEntry | undefined {
-  const trimmed = reference.trim();
-  const id = ENTRY_ID_PATTERN.exec(trimmed)?.[1];
-  if (id) {
-    const byId = entries.find((entry) => entry.id === id);
-    const rest = trimmed.slice(id.length).trim();
-    if (!rest) return byId;
-    // A title may itself start like an id, so the prefix counts only when
-    // the rest names that same entry.
-    if (byId && byId.title.toLowerCase() === rest.toLowerCase()) return byId;
-  }
-  return findByFuzzyTitle([...entries], trimmed);
+  const match = createReferenceResolver({
+    items: entries,
+    id: (entry) => entry.id,
+    title: (entry) => entry.title,
+    label: entryReferenceLabel,
+  }).resolve(reference);
+  if (match.kind !== 'found') return undefined;
+  return acceptsEntryMatch(reference.trim(), entries, match.item)
+    ? match.item
+    : undefined;
 }
 
 export const journalActions = {
@@ -174,7 +173,19 @@ export const journalActions = {
   },
 };
 
-const ENTRY_ID_PATTERN = /^(J-\d+)(?:\s|$)/;
+const ENTRY_ID_PATTERN = /^(J-\d+)(?:\s|$)/i;
+
+function acceptsEntryMatch(
+  reference: string,
+  entries: readonly JournalEntry[],
+  match: JournalEntry,
+): boolean {
+  const id = ENTRY_ID_PATTERN.exec(reference)?.[1]?.toUpperCase();
+  if (!id || entries.some((entry) => entry.id.toUpperCase() === id)) {
+    return true;
+  }
+  return match.title.trim().toLowerCase() === reference.toLowerCase();
+}
 
 function replaceEntry(entry: JournalEntry): void {
   setState({

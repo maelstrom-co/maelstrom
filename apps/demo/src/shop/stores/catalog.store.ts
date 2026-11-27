@@ -1,11 +1,10 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { useSyncExternalStore } from 'react';
 
-import { findByFuzzyTitle } from '../../vessels/find-by-fuzzy-title';
 import {
   CATALOG_PRODUCTS,
   type FoodType,
   type Product,
-  productBySku,
   type Species,
 } from './fixtures';
 
@@ -54,15 +53,16 @@ export function __resetCatalogStoreForTests(): void {
   setState(INITIAL_STATE);
 }
 
+const catalogResolver = createReferenceResolver({
+  items: CATALOG_PRODUCTS,
+  id: (product) => product.sku,
+  title: (product) => product.name,
+});
+
 /** Resolves a SKU (trimmed, case-insensitive) first, then falls back to a fuzzy product-name match. */
 export function findProduct(skuOrName: string): Product | undefined {
-  return (
-    productBySku(skuOrName) ??
-    findByFuzzyTitle(
-      CATALOG_PRODUCTS.map((product) => ({ ...product, title: product.name })),
-      skuOrName,
-    )
-  );
+  const match = catalogResolver.resolve(skuOrName);
+  return match.kind === 'found' ? match.item : undefined;
 }
 
 /**

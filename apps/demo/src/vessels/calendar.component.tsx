@@ -14,10 +14,10 @@ import {
   type CalendarEvent,
   calendarActions,
   getCalendarSnapshot,
+  resolveCalendarEvent,
   useCalendarStore,
 } from './calendar.store';
 import type { calendarVessel } from './calendar.vessel';
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -66,6 +66,14 @@ function eventNotFound(action: string, title: string) {
     action,
   });
   return err(noMatchError(title));
+}
+
+function eventAmbiguous(action: string, title: string, message: string) {
+  recordFailure(`"${title}" matches more than one event`, {
+    vesselId: 'calendar',
+    action,
+  });
+  return err(new Error(message));
 }
 
 function eventLabel(event: CalendarEvent): string {
@@ -126,23 +134,36 @@ export default function CalendarComponent({
       return ok(undefined);
     },
     removeEvent: async ({ title }) => {
-      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
-      if (!match || !calendarActions.removeEvent(title)) {
+      const match = resolveCalendarEvent(title);
+      if (match.kind === 'ambiguous') {
+        return eventAmbiguous('removeEvent', title, match.message);
+      }
+      if (
+        match.kind !== 'found' ||
+        !calendarActions.removeEvent(match.item.id)
+      ) {
         return eventNotFound('removeEvent', title);
       }
-      recordChange(`Removed event "${match.title}"`, {
+      recordChange(`Removed event "${match.item.title}"`, {
         vesselId: 'calendar',
         action: 'removeEvent',
       });
       return ok(undefined);
     },
     moveEvent: async ({ title, time }) => {
-      const match = findByFuzzyTitle(getCalendarSnapshot().events, title);
-      if (!match || !calendarActions.moveEvent(title, time)) {
+      const match = resolveCalendarEvent(title);
+      if (match.kind === 'ambiguous') {
+        return eventAmbiguous('moveEvent', title, match.message);
+      }
+      if (
+        match.kind !== 'found' ||
+        !calendarActions.moveEvent(match.item.id, time)
+      ) {
         return eventNotFound('moveEvent', title);
       }
-      const moved = getCalendarSnapshot().events.find((e) => e.id === match.id);
-      recordChange(`Moved "${match.title}" to ${moved?.time ?? time}`, {
+      const { item } = match;
+      const moved = getCalendarSnapshot().events.find((e) => e.id === item.id);
+      recordChange(`Moved "${item.title}" to ${moved?.time ?? time}`, {
         vesselId: 'calendar',
         action: 'moveEvent',
       });

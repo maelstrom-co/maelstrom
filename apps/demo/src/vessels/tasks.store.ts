@@ -1,6 +1,5 @@
+import { createReferenceResolver } from '@maelstrom-co/client';
 import { useSyncExternalStore } from 'react';
-
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
 export interface Subtask {
   id: string;
@@ -76,41 +75,45 @@ export function taskReferenceLabel(item: Subtask | Task): string {
 
 /**
  * Resolves an id (`T-2`, `T-4.1`), a published label
- * (`T-2 Prep design review notes (open)`) or a title. A bare id that names
- * nothing never falls back to a title match.
+ * (`T-2 Prep design review notes (open)`) or a title. A reference led by an id
+ * that names no task resolves only to a task whose title is the whole
+ * reference.
  */
 export function resolveTaskReference(
   tasks: readonly Task[],
   reference: string,
   kind: 'task' | 'subtask',
 ): TaskReferenceMatch | undefined {
-  const trimmed = reference.trim();
-  const id = TASK_ID_PATTERN.exec(trimmed)?.[1];
-  if (id) {
-    const byId = findTaskById(tasks, id, kind);
-    const rest = trimmed
-      .slice(id.length)
-      .trim()
-      .replace(STATUS_SUFFIX_PATTERN, '');
-    if (!rest) return byId;
-    // A title may itself start like an id, so the prefix counts only when
-    // the rest names that same item.
-    const named = byId?.subtask ?? byId?.task;
-    if (named && named.title.toLowerCase() === rest.toLowerCase()) return byId;
-  }
-
-  const title = trimmed.replace(STATUS_SUFFIX_PATTERN, '');
+  const cleaned = reference.trim().replace(STATUS_SUFFIX_PATTERN, '');
   if (kind === 'task') {
-    const task = findByFuzzyTitle([...tasks], title);
-    return task ? { task } : undefined;
+    const match = createReferenceResolver({
+      items: tasks,
+      id: (task) => task.id,
+      title: (task) => task.title,
+      label: (task) => `${task.id} ${task.title}`,
+    }).resolve(cleaned);
+    if (match.kind !== 'found') return undefined;
+    return acceptsTaskMatch(cleaned, tasks, match.item.title)
+      ? { task: match.item }
+      : undefined;
   }
   const subtasks = tasks.flatMap((task) =>
-    task.subtasks.map((subtask) => ({ ...subtask, task })),
+    task.subtasks.map((subtask) => ({ task, subtask })),
   );
-  const match = findByFuzzyTitle(subtasks, title);
-  if (!match) return undefined;
-  const subtask = match.task.subtasks.find((s) => s.id === match.id);
-  return subtask ? { task: match.task, subtask } : undefined;
+  const match = createReferenceResolver({
+    items: subtasks,
+    id: ({ subtask }) => subtask.id,
+    title: ({ subtask }) => subtask.title,
+    label: ({ subtask }) => `${subtask.id} ${subtask.title}`,
+  }).resolve(cleaned);
+  if (match.kind !== 'found') return undefined;
+  return acceptsTaskMatch(
+    cleaned,
+    subtasks.map(({ subtask }) => subtask),
+    match.item.subtask.title,
+  )
+    ? match.item
+    : undefined;
 }
 
 export const tasksActions = {
@@ -190,21 +193,17 @@ export const tasksActions = {
   },
 };
 
-const TASK_ID_PATTERN = /^(T-\d+(?:\.\d+)?)(?:\s|$)/;
 const STATUS_SUFFIX_PATTERN = /\s*\((?:open|done)\)$/;
+const TASK_ID_PATTERN = /^(T-\d+(?:\.\d+)?)(?:\s|$)/i;
 
-function findTaskById(
-  tasks: readonly Task[],
-  id: string,
-  kind: 'task' | 'subtask',
-): TaskReferenceMatch | undefined {
-  if (id.includes('.') !== (kind === 'subtask')) return undefined;
-  for (const task of tasks) {
-    if (task.id === id) return { task };
-    const subtask = task.subtasks.find((s) => s.id === id);
-    if (subtask) return { task, subtask };
-  }
-  return undefined;
+function acceptsTaskMatch(
+  reference: string,
+  items: readonly { id: string }[],
+  title: string,
+): boolean {
+  const id = TASK_ID_PATTERN.exec(reference)?.[1]?.toUpperCase();
+  if (!id || items.some((item) => item.id.toUpperCase() === id)) return true;
+  return title.trim().toLowerCase() === reference.toLowerCase();
 }
 
 function seedTasks(): Task[] {

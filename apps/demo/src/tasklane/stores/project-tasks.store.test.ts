@@ -464,6 +464,14 @@ describe('describeTaskFailure', () => {
     );
   });
 
+  it('lists valid tasks when assigning an unknown task id like TL-99 to Sam', () => {
+    const result = projectTaskActions.assignTask('TL-99', 'Sam');
+    if (result.ok) throw new Error('expected a failure');
+    expect(describeTaskFailure(result)).toBe(
+      'No task matches "TL-99". Current tasks: TL-1 Update demo README, TL-2 Record launch video',
+    );
+  });
+
   it('lists the team ids for an unknown assignee', () => {
     const result = projectTaskActions.assignTask('TL-1', 'robin');
     if (result.ok) throw new Error('expected a failure');

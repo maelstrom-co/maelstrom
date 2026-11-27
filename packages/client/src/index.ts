@@ -212,6 +212,13 @@ export type { UpdateCoordinatorEvents } from './lib/update-coordination/update-c
 export { UpdateCoordinator } from './lib/update-coordination/update-coordinator.js';
 export type { UpdateCoordinatorOptions } from './lib/update-coordination/update-coordinator.types.js';
 // Utilities
+export {
+  createReferenceResolver,
+  DEFAULT_MAX_REFERENCE_CHOICES,
+  type ReferenceResolution,
+  type ReferenceResolver,
+  type ReferenceResolverOptions,
+} from './lib/reference-resolver.js';
 export { Logger } from './lib/utils/logger.js';
 export type { EventMap, EventSubscriber } from './lib/utils/typed-emitter.js';
 export { TypedEmitter } from './lib/utils/typed-emitter.js';
