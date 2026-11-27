@@ -68,11 +68,6 @@ export type OperationalMetadata = {
   readonly 'voice.tool.cancelled': Scalars & { readonly outcome: 'cancelled' };
   /** Loss of an observation before export. */
   readonly 'voice.telemetry.dropped': Scalars;
-  /** Diagnostic-only suspicion that a voice turn stalled; never projected to telemetry facts. */
-  readonly 'voice.stall_suspected': Scalars & {
-    readonly reason: 'no_assistant_response' | 'tool_result_timeout';
-    readonly callId?: string;
-  };
 };
 
 /** Checks built-in fields while leaving application-defined diagnostic kinds extensible. */

@@ -21,7 +21,6 @@ import {
   attachRealtimeDiagnostics,
   attachRealtimeTelemetry,
   type RealtimeAdapterEvent,
-  type RealtimeDiagnosticClock,
   type RealtimeInstance,
   type RealtimeProviderAdapter,
   RealtimeSession,
@@ -622,10 +621,7 @@ test('a legacy source scheduler cannot override an explicit diagnostic capabilit
   retire();
 });
 
-function harness(
-  override: Partial<RealtimeInstance> = {},
-  clock?: RealtimeDiagnosticClock,
-) {
+function harness(override: Partial<RealtimeInstance> = {}) {
   const client = new Orchestrator(
     createTestConnector({
       process: async () => {
@@ -696,7 +692,6 @@ function harness(
     adapter,
     sink: client.diagnostics,
     identity,
-    ...(clock ? { clock } : {}),
   });
   cleanups.push(async () => {
     retire();
@@ -729,29 +724,6 @@ function harness(
           },
         });
     },
-    say: (id: string, role: 'user' | 'assistant', startMs = 0) => {
-      for (const listener of [...media])
-        listener({
-          type: 'fragment',
-          fragment: {
-            id,
-            role,
-            speakerId: role,
-            text: `${role} ${id}`,
-            startMs,
-            endMs: startMs + 10,
-          },
-        });
-    },
-    call: (callId: string) =>
-      [...events].forEach((listener) =>
-        listener({
-          type: 'tool_call',
-          callId: ToolCallId(callId),
-          name: 'submit_intent',
-          argumentsJson: '{"intent":"change"}',
-        }),
-      ),
     provider: (observation: AdapterDiagnosticObservation) => {
       for (const listener of [...provider]) listener(observation);
     },
@@ -1242,249 +1214,4 @@ test('processing observations surface standby and active states without typed in
   expect(observationStates).toContain('standby');
   expect(observationStates.at(-1)).toBe('active');
   detach();
-});
-
-function fakeClock() {
-  let now = 0;
-  let nextHandle = 0;
-  const timers = new Map<number, { at: number; callback: () => void }>();
-  const clock: RealtimeDiagnosticClock = {
-    now: () => now,
-    setTimeout: (callback, delayMs) => {
-      const handle = ++nextHandle;
-      timers.set(handle, { at: now + delayMs, callback });
-      return handle;
-    },
-    clearTimeout: (handle) => {
-      timers.delete(handle as number);
-    },
-  };
-  return {
-    clock,
-    pending: () => timers.size,
-    advance(ms: number) {
-      const target = now + ms;
-      for (;;) {
-        const due = [...timers]
-          .filter(([, timer]) => timer.at <= target)
-          .sort((left, right) => left[1].at - right[1].at)[0];
-        if (!due) break;
-        timers.delete(due[0]);
-        now = due[1].at;
-        due[1].callback();
-      }
-      now = target;
-    },
-  };
-}
-
-function stallHarness(override: Partial<RealtimeInstance> = {}) {
-  const time = fakeClock();
-  const h = harness(override, time.clock);
-  const events: DiagnosticEvent[] = [];
-  const detach = h.client.diagnostics.subscribe(({ event }) =>
-    events.push(event),
-  );
-  cleanups.push(async () => detach());
-  return {
-    ...h,
-    ...time,
-    detach,
-    stalls: () =>
-      events
-        .filter((event) => event.kind === 'voice.stall_suspected')
-        .map((event) => event.metadata),
-  };
-}
-
-test('a user fragment without an assistant reply suspects one stall after 8 seconds', async () => {
-  const h = stallHarness();
-  await h.session.connect();
-  h.say('question', 'user');
-  h.advance(7_999);
-  expect(h.stalls()).toEqual([]);
-  h.advance(1);
-  h.advance(60_000);
-
-  expect(h.stalls()).toHaveLength(1);
-  expect(h.stalls()[0]).toMatchObject({
-    reason: 'no_assistant_response',
-    fragmentId: 'question',
-    provider: 'example',
-    providerInstanceId: 'voice-lifetime',
-    generationScope: 'session',
-  });
-});
-
-test('a partial user fragment arms the response deadline and a later revision re-arms it', async () => {
-  const h = stallHarness();
-  await h.session.connect();
-  h.observe({
-    type: 'fragment',
-    fragment: {
-      id: 'question',
-      role: 'user',
-      speakerId: 'user',
-      text: 'partial',
-      startMs: 0,
-      endMs: 10,
-      final: false,
-    },
-  });
-  h.advance(5_000);
-  h.say('question', 'user');
-  h.advance(7_999);
-  expect(h.stalls()).toEqual([]);
-  h.advance(1);
-
-  expect(h.stalls().map((stall) => stall.reason)).toEqual([
-    'no_assistant_response',
-  ]);
-});
-
-test('an assistant fragment or a tool call before the deadline clears the response stall', async () => {
-  const replied = stallHarness();
-  await replied.session.connect();
-  replied.say('question', 'user');
-  replied.advance(3_000);
-  replied.say('answer', 'assistant', 20);
-  replied.advance(60_000);
-  expect(replied.stalls()).toEqual([]);
-
-  const delegated = stallHarness();
-  await delegated.session.connect();
-  delegated.say('question', 'user');
-  delegated.advance(3_000);
-  delegated.call('call');
-  await tick();
-  delegated.advance(60_000);
-  expect(delegated.stalls()).toEqual([]);
-});
-
-test('a tool call without a result suspects one stall after 20 seconds', async () => {
-  const never = pendingIntent();
-  const h = stallHarness({ submitIntent: () => never.promise });
-  await h.session.connect();
-  h.call('stuck');
-  h.advance(19_999);
-  expect(h.stalls()).toEqual([]);
-  h.advance(1);
-  h.advance(60_000);
-
-  expect(h.stalls()).toHaveLength(1);
-  expect(h.stalls()[0]).toMatchObject({
-    reason: 'tool_result_timeout',
-    callId: 'stuck',
-    tool: 'submit_intent',
-    provider: 'example',
-    generation: 1,
-  });
-});
-
-test('a typed submit outcome the voice session awaits past 20 seconds is suspected once', async () => {
-  const typed = pendingIntent();
-  const h = stallHarness({ submitIntent: () => typed.promise });
-  await h.session.connect();
-  h.call('typed-intent');
-  h.advance(20_000);
-  typed.resolve({});
-  await tick();
-  h.advance(60_000);
-
-  expect(h.stalls()).toEqual([
-    expect.objectContaining({
-      reason: 'tool_result_timeout',
-      callId: 'typed-intent',
-    }),
-  ]);
-});
-
-test('replayed call scenarios suspect exactly one stall per stalled turn with its reason', async () => {
-  const scenarios: {
-    readonly name: string;
-    readonly replay: (h: ReturnType<typeof stallHarness>) => Promise<void>;
-    readonly expected: readonly string[];
-  }[] = [
-    {
-      name: 'user speaks and the assistant stays silent',
-      replay: async (h) => {
-        h.say('turn-1', 'user');
-        h.advance(30_000);
-      },
-      expected: ['no_assistant_response'],
-    },
-    {
-      name: 'tool call never returns a result',
-      replay: async (h) => {
-        h.say('turn-1', 'user');
-        h.advance(1_200);
-        h.call('lost-result');
-        await tick();
-        h.advance(45_000);
-      },
-      expected: ['tool_result_timeout'],
-    },
-    {
-      name: 'quick reply and a tool result in time',
-      replay: async (h) => {
-        h.say('turn-1', 'user');
-        h.advance(900);
-        h.say('reply-1', 'assistant', 20);
-        h.advance(2_000);
-        h.call('fast-result');
-        await tick();
-        h.advance(45_000);
-      },
-      expected: [],
-    },
-    {
-      name: 'no user fragment at all',
-      replay: async (h) => {
-        h.advance(120_000);
-      },
-      expected: [],
-    },
-  ];
-  for (const scenario of scenarios) {
-    const never = pendingIntent();
-    const h = stallHarness(
-      scenario.name === 'tool call never returns a result'
-        ? { submitIntent: () => never.promise }
-        : {},
-    );
-    await h.session.connect();
-    await scenario.replay(h);
-    expect({
-      name: scenario.name,
-      reasons: h.stalls().map((stall) => stall.reason),
-    }).toEqual({ name: scenario.name, reasons: [...scenario.expected] });
-  }
-});
-
-test('stall timers stop on disconnect, detach, and retirement without publishing later', async () => {
-  const never = pendingIntent();
-  const disconnected = stallHarness({ submitIntent: () => never.promise });
-  await disconnected.session.connect();
-  disconnected.say('question', 'user');
-  disconnected.call('stuck');
-  await disconnected.session.disconnect();
-  expect(disconnected.pending()).toBe(0);
-  disconnected.advance(60_000);
-  expect(disconnected.stalls()).toEqual([]);
-
-  const detached = stallHarness({ submitIntent: () => never.promise });
-  await detached.session.connect();
-  detached.call('stuck');
-  detached.say('question', 'user');
-  detached.detach();
-  expect(detached.pending()).toBe(0);
-
-  const retired = stallHarness({ submitIntent: () => never.promise });
-  await retired.session.connect();
-  retired.call('stuck');
-  retired.say('question', 'user');
-  retired.retire();
-  expect(retired.pending()).toBe(0);
-  retired.advance(60_000);
-  expect(retired.stalls()).toEqual([]);
 });
