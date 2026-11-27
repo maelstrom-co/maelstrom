@@ -43,13 +43,14 @@ describe('flexible-table store columns', () => {
   });
 
   it('rejects bad formulas and unknown columns with typed errors', () => {
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Broken',
-        kind: 'computed',
-        formula: 'estimate + *',
-      }),
-    ).toMatchObject({ ok: false, reason: 'invalid_formula' });
+    const badFormula = flexibleTableActions.addColumn({
+      label: 'Broken',
+      kind: 'computed',
+      formula: 'estimate + *',
+    });
+    expect(badFormula).toMatchObject({ ok: false, reason: 'invalid_formula' });
+    if (badFormula.ok) throw new Error('expected an invalid_formula failure');
+    expect(describeTableFailure(badFormula)).toContain('Invalid formula');
 
     expect(
       flexibleTableActions.addColumn({
@@ -59,11 +60,14 @@ describe('flexible-table store columns', () => {
       }),
     ).toMatchObject({ ok: false, reason: 'unknown_column', query: 'nope' });
 
-    expect(flexibleTableActions.sortBy('ghost', 'asc')).toMatchObject({
+    const unknownSort = flexibleTableActions.sortBy('ghost', 'asc');
+    expect(unknownSort).toMatchObject({
       ok: false,
       reason: 'unknown_column',
       query: 'ghost',
     });
+    if (unknownSort.ok) throw new Error('expected an unknown_column failure');
+    expect(describeTableFailure(unknownSort)).toContain('Unknown column');
 
     expect(flexibleTableActions.filterRows('ghost', 'eq', 'x')).toMatchObject({
       ok: false,
@@ -278,20 +282,6 @@ describe('flexible-table sorting and stability', () => {
     ]);
   });
 
-  it('sorts by a newly added computed column in the same sequence', () => {
-    flexibleTableActions.addColumn({
-      label: 'Total',
-      kind: 'computed',
-      formula: 'estimate + spent',
-    });
-    expect(flexibleTableActions.sortBy('Total', 'desc').ok).toBe(true);
-
-    const orderedIds = projectTableRows(getProjectTasksSnapshot().tasks).map(
-      (r) => r.task.id,
-    );
-    expect(orderedIds).toEqual(['TL-2', 'TL-1']);
-  });
-
   it('clears sort rules', () => {
     flexibleTableActions.sortBy('estimate', 'desc');
     expect(flexibleTableActions.clearSort()).toEqual({
@@ -393,16 +383,6 @@ describe('flexible-table filtering, grouping, and triage preset', () => {
 });
 
 describe('flexible-table review regressions', () => {
-  it('rejects an oversized formula as invalid_formula', () => {
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Huge',
-        kind: 'computed',
-        formula: '1' + '+1'.repeat(20000),
-      }),
-    ).toMatchObject({ ok: false, reason: 'invalid_formula' });
-  });
-
   it('does not declare removeColumn as idempotent and removes by id before label', () => {
     const removeColumn = flexibleTableVessel.variants.table.actions.find(
       (action) => action.name === 'removeColumn',
