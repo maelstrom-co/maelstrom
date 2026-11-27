@@ -711,23 +711,45 @@ export function groupProjectedRows(
 
   const groups = new Map<
     string,
-    { label: string; rows: ProjectedTableRow[] }
+    { label: string; exact: string | null; rows: ProjectedTableRow[] }
   >();
   for (const row of rows) {
-    const display = row.cells[column.id]?.display ?? '';
+    const cell = row.cells[column.id];
+    const display = cell?.display ?? '';
     const isBlank = !display.trim();
+    const number =
+      cell !== undefined &&
+      cell.error === undefined &&
+      typeof cell.raw === 'number'
+        ? cell.raw
+        : undefined;
     const label = isBlank ? '(empty)' : display;
-    const key = isBlank ? '' : display.toLowerCase();
+    const key = isBlank
+      ? ''
+      : number !== undefined
+        ? `#${number}`
+        : display.toLowerCase();
     const existing = groups.get(key);
     if (existing) {
       existing.rows.push(row);
     } else {
-      groups.set(key, { label, rows: [row] });
+      groups.set(key, {
+        label,
+        exact: number === undefined ? null : String(number),
+        rows: [row],
+      });
     }
+  }
+  const labelCounts = new Map<string, number>();
+  for (const group of groups.values()) {
+    labelCounts.set(group.label, (labelCounts.get(group.label) ?? 0) + 1);
   }
   return [...groups.entries()].map(([key, group]) => ({
     key,
-    label: group.label,
+    label:
+      group.exact !== null && (labelCounts.get(group.label) ?? 0) > 1
+        ? group.exact
+        : group.label,
     rows: group.rows,
   }));
 }
@@ -891,6 +913,7 @@ function matchesFilter(
     if (leftNum !== undefined && rightNum !== undefined) {
       return rule.op === 'gt' ? leftNum > rightNum : leftNum < rightNum;
     }
+    if (isNumericColumn(column)) return false;
     if (cellRaw === null || cellRaw === '') return false;
     const cmp = String(cellRaw).localeCompare(query, undefined, {
       sensitivity: 'base',
@@ -1030,13 +1053,13 @@ function lookupColumn(
   const exact = query.trim();
   if (!exact) return { kind: 'not_found' };
   const lower = exact.toLowerCase();
-  const slug = slugify(lower);
+  const slug = slugKey(lower);
   const aliasedField = lookupFieldAlias(lower) ?? lookupFieldAlias(slug);
 
   const tiers: readonly ((col: TableColumn) => boolean)[] = [
     (col) => col.id === exact,
     (col) => col.label.trim().toLowerCase() === lower,
-    (col) => slugify(col.label) === slug,
+    (col) => slug !== '' && slugKey(col.label) === slug,
     (col) => col.id.toLowerCase() === lower,
     (col) =>
       col.kind === 'field' &&
@@ -1131,7 +1154,7 @@ function resolveTaskField(
   const trimmed = query.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
-  const slug = slugify(trimmed);
+  const slug = slugKey(trimmed);
 
   const alias = lookupFieldAlias(lower) ?? lookupFieldAlias(slug);
   if (alias) return alias;
@@ -1142,7 +1165,8 @@ function resolveTaskField(
 
   for (const task of tasks) {
     for (const key of Object.keys(task)) {
-      if (key.toLowerCase() === lower || slugify(key) === slug) return key;
+      if (key.toLowerCase() === lower || (slug !== '' && slugKey(key) === slug))
+        return key;
     }
   }
 
@@ -1185,12 +1209,17 @@ function resolvePreset(query: string): TablePreset | undefined {
 }
 
 function slugify(value: string): string {
-  const slug = value
+  return slugKey(value) || 'col';
+}
+
+// Empty for a name with no ASCII letters or digits, so such names never
+// match each other through the slug.
+function slugKey(value: string): string {
+  return value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-  return slug || 'col';
 }
 
 function uniqueColumnId(base: string, columns: readonly TableColumn[]): string {

@@ -950,6 +950,57 @@ describe('flexible-table review regressions', () => {
     expect(rows.at(-1)?.cells.ratio?.error).toBeDefined();
   });
 
+  it('groups numeric cells by value even when their labels round alike', () => {
+    flexibleTableActions.addColumn({
+      label: 'Scaled',
+      kind: 'computed',
+      formula: 'estimate / 1000',
+    });
+    flexibleTableActions.groupBy('scaled');
+
+    const groups = groupProjectedRows(
+      projectTableRows(getProjectTasksSnapshot().tasks),
+    );
+    expect(groups.map((group) => group.label)).toEqual(['0.002', '0.004']);
+    expect(groups.map((group) => group.rows.map((r) => r.task.id))).toEqual([
+      ['TL-1'],
+      ['TL-2'],
+    ]);
+  });
+
+  it('leaves out rows whose numeric cell is not a finite number from range filters', () => {
+    projectTaskActions.createTask({
+      title: 'Unmeasured',
+      estimate: Number.NaN,
+    }); // TL-3
+    flexibleTableActions.filterRows('estimate', 'gt', '0');
+
+    expect(
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id),
+    ).toEqual(['TL-1', 'TL-2']);
+  });
+
+  it('does not match unrelated non-ASCII column names through the fallback id', () => {
+    flexibleTableActions.addColumn({ label: '予算', kind: 'free' });
+    flexibleTableActions.setCell('TL-1', '予算', '100');
+
+    expect(flexibleTableActions.removeColumn('担当')).toMatchObject({
+      ok: false,
+      reason: 'unknown_column',
+    });
+    const column = getFlexibleTableSnapshot().columns.find(
+      (col) => col.label === '予算',
+    );
+    expect(column?.id).toBe('col');
+    expect(flexibleTableActions.removeColumn('col')).toMatchObject({
+      ok: true,
+    });
+    flexibleTableActions.addColumn({ label: '予算', kind: 'free' });
+    expect(flexibleTableActions.removeColumn('予算')).toMatchObject({
+      ok: true,
+    });
+  });
+
   it('keeps whitespace-only cells with the blank cells when sorting', () => {
     projectTaskActions.createTask({ title: 'Third' }); // TL-3
     flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
