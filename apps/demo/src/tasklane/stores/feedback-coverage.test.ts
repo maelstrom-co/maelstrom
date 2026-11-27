@@ -7,6 +7,7 @@ import {
 } from './feedback-coverage';
 import {
   __resetProjectTasksStoreForTests,
+  feedbackSourceKey,
   getProjectTasksSnapshot,
   normalizeFeedbackQuote,
   type ProjectTask,
@@ -122,11 +123,7 @@ describe('feedbackCoverage', () => {
 
   it('says dropped when every task from the quote was removed', () => {
     expect(
-      feedbackCoverage(
-        QUOTE,
-        [],
-        [normalizeFeedbackQuote(QUOTE.toUpperCase())],
-      ),
+      feedbackCoverage(QUOTE, [], [feedbackSourceKey(QUOTE.toUpperCase())]),
     ).toEqual({ kind: 'dropped' });
   });
 
@@ -135,7 +132,7 @@ describe('feedbackCoverage', () => {
       feedbackCoverage(
         QUOTE,
         [task('TL-4', QUOTE)],
-        [normalizeFeedbackQuote(QUOTE)],
+        [feedbackSourceKey(QUOTE)],
       ),
     ).toEqual({ kind: 'covered', taskCount: 1 });
   });
@@ -152,17 +149,17 @@ describe('feedbackCoverage', () => {
       taskCount: 3,
     });
     expect(
-      feedbackCoverage(attributed, [], [normalizeFeedbackQuote(QUOTE)]),
+      feedbackCoverage(attributed, [], [feedbackSourceKey(QUOTE)]),
     ).toEqual({ kind: 'dropped' });
     expect(
-      feedbackCoverage(attributed, [], [normalizeFeedbackQuote(attributed)]),
+      feedbackCoverage(attributed, [], [feedbackSourceKey(attributed)]),
     ).toEqual({ kind: 'dropped' });
     expect(
       feedbackCoverage(
         attributed,
         [],
         [
-          normalizeFeedbackQuote(
+          feedbackSourceKey(
             '“I like that I can shape the screen around how I work.” — Jonas Lind, 2026-11-03',
           ),
         ],
@@ -175,16 +172,26 @@ describe('feedbackCoverage', () => {
       feedbackCoverage(
         '"The status is "Done""',
         [],
-        [normalizeFeedbackQuote('"The status is "Done"" - Ana, 2026-11-02')],
+        [feedbackSourceKey('"The status is "Done"" - Ana, 2026-11-02')],
       ),
     ).toEqual({ kind: 'dropped' });
     expect(
       feedbackCoverage(
         '"The status is "Done"" - Ana, 2026-11-02',
         [],
-        [normalizeFeedbackQuote('"The status is "Done"" - Ana')],
+        [feedbackSourceKey('"The status is "Done"" - Ana')],
       ),
     ).toEqual({ kind: 'dropped' });
+  });
+
+  it('keeps a quote with an inner quote mark apart from a removed source that continues past it', () => {
+    expect(
+      feedbackCoverage(
+        '"Call it "Tasklane""',
+        [],
+        [feedbackSourceKey('"Call it "Tasklane" - the layout tool"')],
+      ),
+    ).toEqual({ kind: 'uncovered' });
   });
 });
 
@@ -222,6 +229,18 @@ describe('feedback coverage of tasks created from a quote', () => {
     projectTaskActions.removeTask('TL-4');
     expect(coverage(LONG_QUOTE)).toEqual({ kind: 'dropped' });
     expect(coverage(PIPE_QUOTE)).toEqual({ kind: 'dropped' });
+  });
+
+  it('says no task for a different quote that shares the removed source prefix', () => {
+    projectTaskActions.createTask({
+      title: 'Name it',
+      source: '"Call it "Tasklane" - the layout tool"',
+    });
+    projectTaskActions.removeTask('TL-3');
+    expect(coverage('"Call it "Tasklane""')).toEqual({ kind: 'uncovered' });
+    expect(coverage('"Call it "Tasklane" - the layout tool"')).toEqual({
+      kind: 'dropped',
+    });
   });
 });
 
