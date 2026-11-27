@@ -1,70 +1,29 @@
-import type { VoiceCaption } from '@maelstrom-co/client';
-import { useEffect, useState } from 'react';
-
 import { cn } from '../lib/cn';
 import { m } from '../lib/maelstrom';
 
-/** How long a finalized caption stays fully visible before it starts to fade. */
+/** How long a caption stays fully visible after its last fragment before it fades. */
 const FADE_DELAY_MS = 3500;
-
-interface FadingCaption {
-  readonly text: string;
-  readonly faded: boolean;
-}
-
-// Caption groups are rebuilt on unrelated fragment updates, so identity is the
-// caption ID within its generation, never the object.
-function useFadingCaption(
-  caption: VoiceCaption | undefined,
-  generation: number,
-): FadingCaption | undefined {
-  const [faded, setFaded] = useState(false);
-  const identity = caption?.id;
-  const text = caption?.text;
-  const final = caption?.final;
-
-  useEffect(() => {
-    setFaded(false);
-    if (!final) return;
-    const timeoutId = setTimeout(() => setFaded(true), FADE_DELAY_MS);
-    return () => clearTimeout(timeoutId);
-  }, [identity, text, final, generation]);
-
-  if (!caption) return undefined;
-  return { text: caption.text, faded };
-}
 
 /**
  * Live voice captions in the footer chrome, above the orb and intent input.
  * Every provider feeds the session's observation store, so captions read only
  * its latest caption per role. Streaming fragments render as they arrive; a
- * finalized line stays put for a few seconds and then fades rather than
- * disappearing abruptly.
+ * line with no new fragment for a few seconds fades rather than disappearing
+ * abruptly, whether or not the provider finalized it.
  *
  * Always mounts a fixed-height band so showing or hiding captions cannot
  * resize the chart (and fire engine `chart_resize`). Lines clamp at two rows,
  * stack on narrow screens, and use the full row when only one speaker is shown.
  */
 export function Captions() {
-  const { state } = m.useVoice();
-  const { snapshot } = m.useVoiceObservations();
-  const assistant = useFadingCaption(
-    snapshot.captions.filter((caption) => caption.role === 'assistant').at(-1),
-    snapshot.generation,
-  );
-  const user = useFadingCaption(
-    snapshot.captions.filter((caption) => caption.role === 'user').at(-1),
-    snapshot.generation,
-  );
-
-  const voiceLive = state !== 'idle' && state !== 'error';
-  // Empty/whitespace entries still produce a FadingCaption object — do not
-  // render a lone accent dot or blank paragraph for those. Keep the truthy
-  // object check first so TS narrows inside each branch.
+  const { assistant, user } = m.useVoiceCaptions({
+    fadeDelayMs: FADE_DELAY_MS,
+  });
+  // Empty/whitespace entries still produce a caption object, so do not render
+  // a lone accent dot or blank paragraph for those.
   const showAssistant =
-    voiceLive && assistant !== undefined && assistant.text.trim().length > 0;
-  const showUser =
-    voiceLive && user !== undefined && user.text.trim().length > 0;
+    assistant !== undefined && assistant.text.trim().length > 0;
+  const showUser = user !== undefined && user.text.trim().length > 0;
 
   return (
     <div

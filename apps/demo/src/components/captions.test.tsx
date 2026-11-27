@@ -345,6 +345,13 @@ describe('Captions', () => {
     expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
   });
 
+  it('asks the captions hook to fade after 3.5s', () => {
+    const useVoiceCaptions = vi.spyOn(m, 'useVoiceCaptions');
+    renderCaptions();
+    expect(useVoiceCaptions).toHaveBeenLastCalledWith({ fadeDelayMs: 3500 });
+    useVoiceCaptions.mockRestore();
+  });
+
   it('resets fade state when a fresh fragment starts streaming again', async () => {
     vi.useFakeTimers();
     const { container, session } = renderCaptions();

@@ -1,77 +1,56 @@
 // @vitest-environment happy-dom
 
-import type { VoiceCaption, VoiceSessionState } from '@maelstrom-co/client';
-import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
-import { act, cleanup, render } from '@testing-library/react';
+import type {
+  UseVoiceCaptionsOptions,
+  UseVoiceCaptionsResult,
+} from '@maelstrom-co/react-realtime';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
+const NO_CAPTIONS: UseVoiceCaptionsResult = {
+  user: undefined,
+  assistant: undefined,
+};
 
-let voiceResult: UseVoiceResult;
-let captions: readonly VoiceCaption[] = [];
-let generation = 1;
+let captionsResult: UseVoiceCaptionsResult = NO_CAPTIONS;
+const captionOptions: UseVoiceCaptionsOptions[] = [];
 
 vi.doMock('./maelstrom', () => ({
   shopM: {
-    useVoice: () => voiceResult,
-    useVoiceObservations: () => ({
-      snapshot: { ...EMPTY_VOICE_OBSERVATIONS, generation, captions },
-    }),
+    useVoiceCaptions: (options: UseVoiceCaptionsOptions) => {
+      captionOptions.push(options);
+      return captionsResult;
+    },
   },
 }));
 
 const { ShopCaption } = await import('./shop-caption');
 
-function makeCaption(overrides: Partial<VoiceCaption> = {}): VoiceCaption {
-  return {
-    id: 'user-1',
-    speakerId: 'user',
-    role: 'user',
-    text: 'Show the catalog',
-    final: true,
-    fragmentIds: ['f1'],
-    startMs: 0,
-    endMs: 100,
-    ...overrides,
-  };
-}
-
-function renderCaption(
-  state: VoiceSessionState,
-  nextCaptions: readonly VoiceCaption[],
-) {
-  voiceResult = { state } as UseVoiceResult;
-  captions = nextCaptions;
-  generation = 1;
+function renderCaption(next: Partial<UseVoiceCaptionsResult>) {
+  captionsResult = { ...NO_CAPTIONS, ...next };
   return render(<ShopCaption />);
 }
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
+  captionOptions.length = 0;
 });
 
 const line = (container: HTMLElement) =>
   container.querySelector('.shop-caption-line');
 
 describe('ShopCaption', () => {
-  it('keeps the band mounted while idle', () => {
-    const { getByTestId, container } = renderCaption('idle', []);
+  it('keeps the band mounted with no caption', () => {
+    const { getByTestId, container } = renderCaption({});
     expect(getByTestId('shop-caption')).toBeTruthy();
     expect(line(container)).toBeNull();
   });
 
-  it('shows only the latest user line and never assistant captions', () => {
-    const { container } = renderCaption('listening', [
-      makeCaption({ id: 'u1', text: 'First question' }),
-      makeCaption({
-        id: 'a1',
-        role: 'assistant',
-        speakerId: 'assistant',
-        text: 'Assistant words',
-      }),
-      makeCaption({ id: 'u2', text: 'Second question' }),
-    ]);
+  it('shows only the user line and never assistant captions', () => {
+    const { container } = renderCaption({
+      user: { text: 'Second question', faded: false },
+      assistant: { text: 'Assistant words', faded: false },
+    });
     const lines = container.querySelectorAll('.shop-caption-line');
     expect(lines).toHaveLength(1);
     expect(lines[0]?.textContent).toBe('Second question');
@@ -79,47 +58,29 @@ describe('ShopCaption', () => {
   });
 
   it('renders nothing for assistant-only captions', () => {
-    const { container } = renderCaption('speaking', [
-      makeCaption({ role: 'assistant', speakerId: 'assistant' }),
-    ]);
+    const { container } = renderCaption({
+      assistant: { text: 'Assistant words', faded: false },
+    });
     expect(line(container)).toBeNull();
-  });
-
-  it.each(['idle', 'error'] as const)('hides the line in %s', (state) => {
-    const { container, getByTestId } = renderCaption(state, [makeCaption()]);
-    expect(line(container)).toBeNull();
-    expect(getByTestId('shop-caption')).toBeTruthy();
   });
 
   it('renders nothing for blank text', () => {
-    const { container } = renderCaption('listening', [
-      makeCaption({ text: '   ' }),
-    ]);
+    const { container } = renderCaption({
+      user: { text: '   ', faded: false },
+    });
     expect(line(container)).toBeNull();
   });
 
-  it('fades a finalized line after 3s but not at 2.9s', async () => {
-    vi.useFakeTimers();
-    const { container } = renderCaption('listening', [makeCaption()]);
-    expect(line(container)?.getAttribute('data-faded')).toBe('false');
-    await act(async () => {
-      vi.advanceTimersByTime(2900);
-    });
-    expect(line(container)?.getAttribute('data-faded')).toBe('false');
-    await act(async () => {
-      vi.advanceTimersByTime(100);
-    });
-    expect(line(container)?.getAttribute('data-faded')).toBe('true');
+  it('fades captions after 3s', () => {
+    renderCaption({});
+    expect(captionOptions.at(-1)).toEqual({ fadeDelayMs: 3000 });
   });
 
-  it('never fades a line that is still streaming', async () => {
-    vi.useFakeTimers();
-    const { container } = renderCaption('listening', [
-      makeCaption({ final: false }),
-    ]);
-    await act(async () => {
-      vi.advanceTimersByTime(10_000);
+  it('marks a faded caption without unmounting the band', () => {
+    const { container, getByTestId } = renderCaption({
+      user: { text: 'Show the catalog', faded: true },
     });
-    expect(line(container)?.getAttribute('data-faded')).toBe('false');
+    expect(line(container)?.getAttribute('data-faded')).toBe('true');
+    expect(getByTestId('shop-caption')).toBeTruthy();
   });
 });

@@ -38,6 +38,11 @@ import {
   SharedRealtimeSessionRegistry,
   type SharedRealtimeSessionView,
 } from './shared-realtime-session.js';
+import {
+  createUseVoiceCaptions,
+  type UseVoiceCaptionsOptions,
+  type UseVoiceCaptionsResult,
+} from './voice-captions.js';
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
 
 /**
@@ -344,12 +349,26 @@ type RealtimeExtension<Provider> = MaelstromExtension<{
   useVoice: () => UseVoiceResult<Provider>;
   /** Reads continuous observations and retains the shared session without connecting the provider. */
   useVoiceObservations: () => UseVoiceObservationsResult;
+  /**
+   * Latest user and assistant captions from the shared observation store, each
+   * with a display fade. Returns no captions while voice is idle or in error.
+   * Reading captions does not connect the provider.
+   *
+   * @example
+   * ```tsx
+   * const { user } = realtime.useVoiceCaptions({ fadeDelayMs: 3000 });
+   * return user ? <p data-faded={user.faded}>{user.text}</p> : null;
+   * ```
+   */
+  useVoiceCaptions: (
+    options: UseVoiceCaptionsOptions,
+  ) => UseVoiceCaptionsResult;
   VoiceOrb: (props: VoiceOrbProps) => ReactElement;
 }>;
 
 /**
  * Creates one React extension that adds a shared realtime session, `useVoice`,
- * `useVoiceObservations`, and `VoiceOrb`. Both hooks retain the same session
+ * `useVoiceObservations`, `useVoiceCaptions`, and `VoiceOrb`. Both hooks retain the same session
  * per Orchestrator until the last consumer unmounts. Reading or subscribing
  * through `useVoiceObservations` does not connect the provider.
  * Provider adapters own turn detection and publish their mode
@@ -556,6 +575,7 @@ export function maelstromRealtime<
     return {
       useVoice,
       useVoiceObservations,
+      useVoiceCaptions: createUseVoiceCaptions(useVoice, useVoiceObservations),
       VoiceOrb: createVoiceOrb(useVoice),
     };
   };

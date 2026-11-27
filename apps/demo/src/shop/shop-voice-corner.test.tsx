@@ -19,6 +19,7 @@ vi.doMock('./maelstrom', () => ({
   shopM: {
     useVoice: () => voiceResult,
     useVoiceObservations: () => ({ snapshot: EMPTY_VOICE_OBSERVATIONS }),
+    useVoiceCaptions: () => ({ user: undefined, assistant: undefined }),
     VoiceOrb: (props: { className?: string }) => (
       <button
         type="button"
