@@ -14,8 +14,8 @@ import {
 } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
-import { HoldToTalkControl } from '../components/hold-to-talk-control';
 import { KeyDrawer } from '../components/key-drawer';
+import { TurnModeToggle } from '../components/turn-mode-toggle';
 import { createDemoConnector } from '../lib/connector';
 import { usesBrowserKey } from '../lib/hosted-mode';
 import {
@@ -506,11 +506,15 @@ function PreparationWorkspace({
               {voice.state === 'idle' ? 'Tap to talk' : voice.state}
             </span>
             <span>AI-generated voice</span>
-            <HoldToTalkControl
-              state={voice.state}
+            <m.HoldToTalkControl
+              className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
+              guidanceClassName="min-w-0 text-xs text-amber-300"
+            />
+            <TurnModeToggle
               turnControl={voice.turnControl}
               turnMode={voice.turnMode}
-              turnModeError={voice.turnModeError}
+              switching={voice.switching}
+              className="status-pill rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 aria-checked:text-brand-2"
             />
             {playbackBlocked && (
               <EnablePlaybackButton
