@@ -284,13 +284,17 @@
   opacity: 0;
 }
 
+/* The row holds its 60px track and scrolls a third wrapped line instead of
+   spilling into the caption band above it. */
 .tasklane-app .tasklane-voice-status {
   display: flex;
   min-width: 0;
   grid-column: 2;
   grid-row: 2;
   flex-wrap: wrap;
-  align-content: center;
+  align-self: stretch;
+  overflow-y: auto;
+  align-content: safe center;
   align-items: center;
   justify-content: flex-start;
   gap: 4px 10px;
