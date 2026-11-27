@@ -106,14 +106,14 @@ describe('Orchestrator.submit', () => {
     );
     expect((await spoken.result).status).toBe('applied');
 
-    const ran = (note: string) => ({
+    const ran = (value: string) => ({
       status: 'applied',
       actions: [
         {
           instanceId: InstanceId('board'),
           action: ActionName('setStatus'),
           status: 'ran',
-          note,
+          value,
         },
       ],
     });
