@@ -104,18 +104,15 @@ vi.mock('../lib/voice-adapter', async (original) => {
     },
   };
 });
-vi.mock('../lib/demo-voice', async (original) => {
-  const actual = await original<typeof import('../lib/demo-voice')>();
-  return {
-    ...actual,
-    registerDemoVoice: (
-      session: RealtimeSession,
-      context: Parameters<typeof actual.registerDemoVoice>[1],
-    ) => {
-      voice.sessions.push(session);
-      return actual.registerDemoVoice(session, context);
-    },
-  };
+vi.mock('@maelstrom-co/realtime', async (original) => {
+  const actual = await original<typeof import('@maelstrom-co/realtime')>();
+  class RecordedRealtimeSession extends actual.RealtimeSession {
+    constructor(...args: ConstructorParameters<typeof actual.RealtimeSession>) {
+      super(...args);
+      voice.sessions.push(this);
+    }
+  }
+  return { ...actual, RealtimeSession: RecordedRealtimeSession };
 });
 
 class TestAdapter implements RealtimeProviderAdapter {
