@@ -1322,6 +1322,27 @@ describe('manualTurns', () => {
     expect(h.mic.enabled).toBe(true);
   });
 
+  test('setTurnMode stops dispatching a mode that a subscriber replaced', async () => {
+    const h = harness();
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    const seen: string[] = [];
+    h.transport.on((event) => {
+      if (event.type !== 'turn_mode') return;
+      if (event.mode === 'manual') h.transport.setTurnMode('automatic');
+    });
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') seen.push(event.mode);
+    });
+    h.transport.setTurnMode('manual');
+
+    expect(seen).toEqual(['automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
+
   test('setTurnMode is a no-op while disconnected and each connection starts in the configured mode', async () => {
     const h = harness();
     const modes: string[] = [];

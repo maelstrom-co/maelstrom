@@ -834,7 +834,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       if (
         generation !== this.generation ||
         run !== this.run ||
-        closing !== run?.closing
+        closing !== run?.closing ||
+        (event.type === 'turn_mode' &&
+          run !== undefined &&
+          run.manualTurns !== (event.mode === 'manual'))
       )
         break;
       try {
