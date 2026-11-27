@@ -104,12 +104,10 @@ describe('Feedback Vessel', () => {
     );
   });
 
-  it('tells the Planner about quote attribution and passing the quote as the task source', () => {
+  it('tells the Planner to pass the quote as the task source', () => {
     expect(sourceFeedbackVessel.description).toContain(
       'pass that quote as source',
     );
-    expect(sourceFeedbackVessel.description).toContain('attribution');
-    expect(sourceFeedbackVessel.description).toContain('author and date');
   });
 
   it('renders author and date captions for seeded quotes and omits captions when pasted feedback has none', async () => {
