@@ -6229,6 +6229,33 @@ describe('OpenAIAdapter — local playback barge-in', () => {
     expect(later).toEqual(['unknown']);
   });
 
+  it('does not settle a misfire after an observer disconnects during its unknown notice', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const current = adapter;
+    const speech: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    current.observations.subscribe((event) => {
+      if (event.type !== 'media') return;
+      speech.push(event.media.userSpeech);
+      if (event.media.userSpeech === 'unknown')
+        disconnecting ??= current.disconnect();
+    });
+    const connecting = current.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    await disconnecting;
+
+    expect(speech).toEqual(['active', 'unknown']);
+  });
+
   it('returns user speech to unknown when the local detector becomes unavailable', async () => {
     const Base = globalThis.AudioContext as unknown as new () => {
       state: string;

@@ -482,7 +482,10 @@ export class OpenAIAdapter
           onUserSpeech: (speech) => {
             if (generation !== this.#connectionGeneration) return;
             // A retracted onset clears the open speech span before settling inactive.
-            if (speech === 'misfire') this.#reportUserSpeech('unknown');
+            if (speech === 'misfire') {
+              this.#reportUserSpeech('unknown');
+              if (generation !== this.#connectionGeneration) return;
+            }
             this.#reportUserSpeech(
               speech === 'speaking' ? 'active' : 'inactive',
             );
