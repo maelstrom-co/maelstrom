@@ -5,9 +5,11 @@ import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import { plural } from '../plural';
 import {
+  type FeedbackAttribution,
   type FeedbackCoverage,
   feedbackCoverage,
   isFeedbackQuote,
+  parseFeedbackQuote,
 } from '../stores/feedback-coverage';
 import {
   FEEDBACK_CHARACTER_LIMIT,
@@ -66,23 +68,28 @@ export default function SourceFeedbackComponent({
             aria-label="Feedback snapshot"
             className="tasklane-feedback flex-1 min-h-0 overflow-y-auto"
           >
-            {paragraphs(text).map((paragraph, index) =>
-              isFeedbackQuote(paragraph) ? (
+            {paragraphs(text).map((paragraph, index) => {
+              if (!isFeedbackQuote(paragraph)) {
+                return (
+                  <p key={index} className="tasklane-feedback-note">
+                    {paragraph}
+                  </p>
+                );
+              }
+              const parsed = parseFeedbackQuote(paragraph);
+              return (
                 <FeedbackQuote
                   key={index}
-                  quote={paragraph}
+                  quote={parsed.quote}
+                  attribution={parsed.attribution}
                   coverage={feedbackCoverage(
                     paragraph,
                     tasks,
                     removedSourceFeedback,
                   )}
                 />
-              ) : (
-                <p key={index} className="tasklane-feedback-note">
-                  {paragraph}
-                </p>
-              ),
-            )}
+              );
+            })}
           </section>
           <div className="tasklane-feedback-footer">
             {truncated ? (
@@ -141,23 +148,38 @@ export default function SourceFeedbackComponent({
 
 function FeedbackQuote({
   quote,
+  attribution,
   coverage,
 }: {
   readonly quote: string;
+  readonly attribution: FeedbackAttribution | null;
   readonly coverage: FeedbackCoverage;
 }) {
   return (
     <figure data-coverage={coverage.kind} className="tasklane-feedback-card">
       <blockquote className="tasklane-feedback-quote">{quote}</blockquote>
-      <figcaption
-        className={cn(
-          'tasklane-feedback-coverage text-xs font-mono',
-          coverage.kind === 'covered' && 'text-green',
-          coverage.kind === 'uncovered' && 'text-ink-3',
-          coverage.kind === 'dropped' && 'text-amber',
-        )}
-      >
-        {coverageText(coverage)}
+      <figcaption className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-xs font-mono">
+        {attribution ? (
+          <span className="tasklane-feedback-attribution text-ink-3">
+            <cite className="not-italic">{attribution.author}</cite>
+            {attribution.date ? (
+              <>
+                {' · '}
+                <time dateTime={attribution.date}>{attribution.date}</time>
+              </>
+            ) : null}
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            'tasklane-feedback-coverage',
+            coverage.kind === 'covered' && 'text-green',
+            coverage.kind === 'uncovered' && 'text-ink-3',
+            coverage.kind === 'dropped' && 'text-amber',
+          )}
+        >
+          {coverageText(coverage)}
+        </span>
       </figcaption>
     </figure>
   );

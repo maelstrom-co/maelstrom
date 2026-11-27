@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { feedbackCoverage, isFeedbackQuote } from './feedback-coverage';
+import {
+  feedbackCoverage,
+  isFeedbackQuote,
+  parseFeedbackQuote,
+} from './feedback-coverage';
 import {
   __resetProjectTasksStoreForTests,
+  feedbackSourceKey,
   getProjectTasksSnapshot,
   normalizeFeedbackQuote,
   type ProjectTask,
@@ -25,6 +30,51 @@ describe('isFeedbackQuote', () => {
   it('rejects notes that do not open with a quote', () => {
     expect(isFeedbackQuote('Team note: “quoted” later.')).toBe(false);
     expect(isFeedbackQuote('')).toBe(false);
+  });
+});
+
+describe('parseFeedbackQuote', () => {
+  it('parses an attributed quote with author and date', () => {
+    expect(
+      parseFeedbackQuote(
+        '"I like that I can shape the screen around how I work." - Jonas Lind, 2026-11-03',
+      ),
+    ).toEqual({
+      quote: '"I like that I can shape the screen around how I work."',
+      attribution: { author: 'Jonas Lind', date: '2026-11-03' },
+    });
+  });
+
+  it('supports curly quotes, em dashes and author-only attributions', () => {
+    expect(
+      parseFeedbackQuote('“This should be editable.” — Maya Chen, 2026-11-02'),
+    ).toEqual({
+      quote: '“This should be editable.”',
+      attribution: { author: 'Maya Chen', date: '2026-11-02' },
+    });
+    expect(
+      parseFeedbackQuote('"Can I edit inside the panels?" - Priya Patel'),
+    ).toEqual({
+      quote: '"Can I edit inside the panels?"',
+      attribution: { author: 'Priya Patel', date: null },
+    });
+  });
+
+  it('returns null attribution for quotes without a trailing attribution', () => {
+    expect(parseFeedbackQuote(QUOTE)).toEqual({
+      quote: QUOTE,
+      attribution: null,
+    });
+    expect(
+      parseFeedbackQuote('"Call it "Tasklane" - the layout tool"'),
+    ).toEqual({
+      quote: '"Call it "Tasklane" - the layout tool"',
+      attribution: null,
+    });
+    expect(parseFeedbackQuote('"Quote" - , 2026-11-02')).toEqual({
+      quote: '"Quote" - , 2026-11-02',
+      attribution: null,
+    });
   });
 });
 
@@ -51,6 +101,19 @@ describe('normalizeFeedbackQuote', () => {
   });
 });
 
+describe('parseFeedbackQuote author names with commas', () => {
+  it('takes the date from after the last comma and keeps commas in the author', () => {
+    expect(parseFeedbackQuote('"Quote" - Doe, Jane, 2026-11-02')).toEqual({
+      quote: '"Quote"',
+      attribution: { author: 'Doe, Jane', date: '2026-11-02' },
+    });
+    expect(parseFeedbackQuote('"Quote" - Doe, Jane')).toEqual({
+      quote: '"Quote"',
+      attribution: { author: 'Doe, Jane', date: null },
+    });
+  });
+});
+
 describe('feedbackCoverage', () => {
   it('counts the live tasks whose source matches the quote', () => {
     const tasks = [
@@ -73,11 +136,7 @@ describe('feedbackCoverage', () => {
 
   it('says dropped when every task from the quote was removed', () => {
     expect(
-      feedbackCoverage(
-        QUOTE,
-        [],
-        [normalizeFeedbackQuote(QUOTE.toUpperCase())],
-      ),
+      feedbackCoverage(QUOTE, [], [feedbackSourceKey(QUOTE.toUpperCase())]),
     ).toEqual({ kind: 'dropped' });
   });
 
@@ -86,9 +145,111 @@ describe('feedbackCoverage', () => {
       feedbackCoverage(
         QUOTE,
         [task('TL-4', QUOTE)],
-        [normalizeFeedbackQuote(QUOTE)],
+        [feedbackSourceKey(QUOTE)],
       ),
     ).toEqual({ kind: 'covered', taskCount: 1 });
+  });
+
+  it('matches attributed quotes whether the task source carries the attribution or not', () => {
+    const attributed = `${QUOTE} - Jonas Lind, 2026-11-03`;
+    const tasks = [
+      task('TL-3', QUOTE),
+      task('TL-4', attributed),
+      task('TL-5', 'i like that i can shape the screen around how i work.'),
+    ];
+    expect(feedbackCoverage(attributed, tasks, [])).toEqual({
+      kind: 'covered',
+      taskCount: 3,
+    });
+    expect(
+      feedbackCoverage(attributed, [], [feedbackSourceKey(QUOTE)]),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(attributed, [], [feedbackSourceKey(attributed)]),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(
+        attributed,
+        [],
+        [
+          feedbackSourceKey(
+            '“I like that I can shape the screen around how I work.” — Jonas Lind, 2026-11-03',
+          ),
+        ],
+      ),
+    ).toEqual({ kind: 'dropped' });
+  });
+
+  it('says dropped for a quote ending in an inner quote mark when the removed source carries a different attribution', () => {
+    expect(
+      feedbackCoverage(
+        '"The status is "Done""',
+        [],
+        [feedbackSourceKey('"The status is "Done"" - Ana, 2026-11-02')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(
+        '"The status is "Done"" - Ana, 2026-11-02',
+        [],
+        [feedbackSourceKey('"The status is "Done"" - Ana')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+  });
+
+  it('matches a task source that repeats the attribution without quote marks', () => {
+    const feedback = '"Quote" - Ana, 2026-11-02';
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote - Ana, 2026-11-02')], []),
+    ).toEqual({ kind: 'covered', taskCount: 1 });
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote — Ana, 2026-11-02')], []),
+    ).toEqual({ kind: 'covered', taskCount: 1 });
+    expect(
+      feedbackCoverage(
+        feedback,
+        [],
+        [feedbackSourceKey('Quote - Ana, 2026-11-02')],
+      ),
+    ).toEqual({ kind: 'dropped' });
+    expect(
+      feedbackCoverage(feedback, [task('TL-3', 'Quote - Bo, 2026-11-02')], []),
+    ).toEqual({ kind: 'uncovered' });
+  });
+
+  it('keeps dashes inside the quote body significant', () => {
+    const feedback = '"Show dates as YYYY-MM-DD"';
+    expect(
+      feedbackCoverage(
+        feedback,
+        [task('TL-3', '"Show dates as YYYY - MM - DD"')],
+        [],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+    expect(
+      feedbackCoverage(
+        feedback,
+        [],
+        [feedbackSourceKey('"Show dates as YYYY - MM - DD"')],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+    expect(
+      feedbackCoverage(
+        '"Show dates as YYYY-MM-DD" - Ana',
+        [task('TL-3', 'Show dates as YYYY - MM - DD - Ana')],
+        [],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+  });
+
+  it('keeps a quote with an inner quote mark apart from a removed source that continues past it', () => {
+    expect(
+      feedbackCoverage(
+        '"Call it "Tasklane""',
+        [],
+        [feedbackSourceKey('"Call it "Tasklane" - the layout tool"')],
+      ),
+    ).toEqual({ kind: 'uncovered' });
   });
 });
 
@@ -126,6 +287,18 @@ describe('feedback coverage of tasks created from a quote', () => {
     projectTaskActions.removeTask('TL-4');
     expect(coverage(LONG_QUOTE)).toEqual({ kind: 'dropped' });
     expect(coverage(PIPE_QUOTE)).toEqual({ kind: 'dropped' });
+  });
+
+  it('says no task for a different quote that shares the removed source prefix', () => {
+    projectTaskActions.createTask({
+      title: 'Name it',
+      source: '"Call it "Tasklane" - the layout tool"',
+    });
+    projectTaskActions.removeTask('TL-3');
+    expect(coverage('"Call it "Tasklane""')).toEqual({ kind: 'uncovered' });
+    expect(coverage('"Call it "Tasklane" - the layout tool"')).toEqual({
+      kind: 'dropped',
+    });
   });
 });
 

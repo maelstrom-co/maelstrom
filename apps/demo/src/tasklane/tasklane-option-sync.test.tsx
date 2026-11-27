@@ -310,6 +310,16 @@ describe('sourceFeedbackDefinition', () => {
     );
   });
 
+  it('publishes attribution guidance and the seeded author and date text to the Planner', () => {
+    const { description } = sourceFeedbackDefinition(getFeedbackSnapshot());
+    expect(description).toContain('author and date');
+    expect(description).toContain('Maya Chen, 2026-11-02');
+    expect(description).toContain('Jonas Lind, 2026-11-03');
+    expect(description).toContain('Priya Patel, 2026-11-04');
+    expect(description).toContain('Tomas Novak, 2026-11-05');
+    expect(description).toContain('Hannah Brooks, 2026-11-06');
+  });
+
   it('is bounded by the store limit', () => {
     feedbackActions.replaceFeedback('z'.repeat(FEEDBACK_CHARACTER_LIMIT + 500));
     const { description } = sourceFeedbackDefinition(getFeedbackSnapshot());

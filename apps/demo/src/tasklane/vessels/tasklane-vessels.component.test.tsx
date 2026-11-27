@@ -110,6 +110,53 @@ describe('Feedback Vessel', () => {
     );
   });
 
+  it('renders author and date captions for seeded quotes and omits captions when pasted feedback has none', async () => {
+    render(<SourceFeedbackComponent {...props('source-feedback')} />);
+
+    const figures = screen.getAllByRole('figure');
+    expect(figures).toHaveLength(5);
+    expect(
+      figures.map((item) => [
+        item.querySelector('blockquote')?.textContent ?? '',
+        item.querySelector('.tasklane-feedback-attribution')?.textContent ?? '',
+      ]),
+    ).toEqual([
+      [
+        '"Asking for more room and watching the panels rearrange feels like a real layout tool."',
+        'Maya Chen · 2026-11-02',
+      ],
+      [
+        '"I like that I can shape the screen around how I work."',
+        'Jonas Lind · 2026-11-03',
+      ],
+      [
+        '"Can I also click and edit things inside the panels, or only ask for changes?"',
+        'Priya Patel · 2026-11-04',
+      ],
+      [
+        '"Could a task panel sync with the tracker my team already uses?"',
+        'Tomas Novak · 2026-11-05',
+      ],
+      [
+        '"The weather panel under the map takes up far too much space. I wanted a small one-line version and could not get one."',
+        'Hannah Brooks · 2026-11-06',
+      ],
+    ]);
+
+    await invoke('source-feedback', 'replaceFeedback', {
+      text: '"Plain pasted quote without an author."',
+    });
+
+    const pasted = screen.getByRole('figure');
+    expect(pasted.querySelector('blockquote')?.textContent).toBe(
+      '"Plain pasted quote without an author."',
+    );
+    expect(pasted.querySelector('.tasklane-feedback-attribution')).toBeNull();
+    expect(
+      pasted.querySelector('.tasklane-feedback-coverage')?.textContent,
+    ).toBe('○ no task');
+  });
+
   it('shows each quote as an item with the tasks that cover it', () => {
     projectTaskActions.createTask({
       title: 'Compact weather',
@@ -1309,7 +1356,10 @@ function feedbackItems(): [string, string][] {
     const key =
       FEEDBACK_ITEM_KEYS.find((candidate) => quote.includes(candidate)) ??
       quote;
-    return [key, item.querySelector('figcaption')?.textContent ?? ''];
+    return [
+      key,
+      item.querySelector('.tasklane-feedback-coverage')?.textContent ?? '',
+    ];
   });
 }
 

@@ -3,6 +3,7 @@ import { sanitizeControlChars } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 
 import { browserCalendarContext } from '../../lib/calendar-context';
+import { parseFeedbackQuote } from './feedback-quote';
 import { FEEDBACK_CHARACTER_LIMIT } from './feedback.store';
 import {
   describeTeamChoices,
@@ -58,7 +59,7 @@ export interface ProjectTasksState {
   /** Chris's own ordered list of task ids, separate from each task's urgency. */
   readonly myPriorities: readonly string[];
   /**
-   * The feedback quotes of removed tasks as `normalizeFeedbackQuote` keys,
+   * The feedback quotes of removed tasks as `feedbackSourceKey` keys,
    * each kept once, so a quote can tell dropped from never covered.
    */
   readonly removedSourceFeedback: readonly string[];
@@ -348,6 +349,14 @@ export function normalizeFeedbackQuote(text: string): string {
     .toLowerCase();
 }
 
+/**
+ * The key that matches a feedback quote to task sources: the quoted text
+ * without a trailing attribution, normalized like {@link normalizeFeedbackQuote}.
+ */
+export function feedbackSourceKey(text: string): string {
+  return normalizeFeedbackQuote(parseFeedbackQuote(text).quote);
+}
+
 /** Parents before their children, depth-first, in creation order. */
 export function orderedTaskRows(
   tasks: readonly ProjectTask[] = state.tasks,
@@ -603,7 +612,7 @@ export const projectTaskActions = {
     const source =
       task.sourceFeedback === null
         ? null
-        : normalizeFeedbackQuote(task.sourceFeedback);
+        : feedbackSourceKey(task.sourceFeedback);
     setState({
       ...state,
       tasks,
