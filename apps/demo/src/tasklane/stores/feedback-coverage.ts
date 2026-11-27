@@ -27,39 +27,35 @@ export function feedbackCoverage(
   tasks: readonly ProjectTask[],
   removedSources: readonly string[],
 ): FeedbackCoverage {
-  const wanted = wantedSourceKeys(quote);
+  const matches = sourceMatcher(quote);
   const taskCount = tasks.filter(
     (task) =>
       task.sourceFeedback !== null &&
-      wanted.has(unifyDashes(feedbackSourceKey(task.sourceFeedback))),
+      matches(feedbackSourceKey(task.sourceFeedback)),
   ).length;
   if (taskCount > 0) return { kind: 'covered', taskCount };
-  return removedSources.some((entry) => wanted.has(unifyDashes(entry)))
+  return removedSources.some(matches)
     ? { kind: 'dropped' }
     : { kind: 'uncovered' };
 }
 
-const DASH_SEPARATOR = /\s*[-–—]\s*/g;
-
 // A task source may repeat the attribution without the quote marks, such as
 // `Quote - Ana, 2026-11-02`. The parser keeps that whole, so it is matched
-// against the quote body joined to its attribution.
-function wantedSourceKeys(quote: string): ReadonlySet<string> {
-  const keys = new Set([unifyDashes(feedbackSourceKey(quote))]);
+// against the quote body, any dash, then the attribution. Only that separator
+// is loosened, so dashes inside a quote body still have to match exactly.
+function sourceMatcher(quote: string): (key: string) => boolean {
+  const bodyKey = feedbackSourceKey(quote);
   const { quote: body, attribution } = parseFeedbackQuote(quote);
-  if (attribution) {
-    const credit = attribution.date
-      ? `${attribution.author}, ${attribution.date}`
-      : attribution.author;
-    keys.add(
-      unifyDashes(
-        normalizeFeedbackQuote(`${normalizeFeedbackQuote(body)} - ${credit}`),
-      ),
-    );
-  }
-  return keys;
+  if (!attribution) return (key) => key === bodyKey;
+  const credit = attribution.date
+    ? `${attribution.author}, ${attribution.date}`
+    : attribution.author;
+  const unquoted = new RegExp(
+    `^${escapeRegExp(normalizeFeedbackQuote(body))}\\s*[-–—]\\s*${escapeRegExp(normalizeFeedbackQuote(credit))}$`,
+  );
+  return (key) => key === bodyKey || unquoted.test(key);
 }
 
-function unifyDashes(key: string): string {
-  return key.replace(DASH_SEPARATOR, ' - ');
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

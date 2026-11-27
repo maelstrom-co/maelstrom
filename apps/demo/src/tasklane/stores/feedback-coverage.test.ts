@@ -217,6 +217,31 @@ describe('feedbackCoverage', () => {
     ).toEqual({ kind: 'uncovered' });
   });
 
+  it('keeps dashes inside the quote body significant', () => {
+    const feedback = '"Show dates as YYYY-MM-DD"';
+    expect(
+      feedbackCoverage(
+        feedback,
+        [task('TL-3', '"Show dates as YYYY - MM - DD"')],
+        [],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+    expect(
+      feedbackCoverage(
+        feedback,
+        [],
+        [feedbackSourceKey('"Show dates as YYYY - MM - DD"')],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+    expect(
+      feedbackCoverage(
+        '"Show dates as YYYY-MM-DD" - Ana',
+        [task('TL-3', 'Show dates as YYYY - MM - DD - Ana')],
+        [],
+      ),
+    ).toEqual({ kind: 'uncovered' });
+  });
+
   it('keeps a quote with an inner quote mark apart from a removed source that continues past it', () => {
     expect(
       feedbackCoverage(
