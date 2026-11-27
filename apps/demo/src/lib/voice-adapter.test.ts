@@ -63,12 +63,8 @@ vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
 }));
 
-const {
-  createAdapter,
-  liveMicrophoneFromSearch,
-  liveWakeFromSearch,
-  prepareBrowserOpenAIVoice,
-} = await import('./voice-adapter');
+const { createAdapter, liveMicrophoneFromSearch, prepareBrowserOpenAIVoice } =
+  await import('./voice-adapter');
 
 const sessionId = SessionId('session-1');
 
@@ -133,48 +129,6 @@ describe('createAdapter', () => {
     expect(liveMicrophoneFromSearch('?debug&liveMic=abc')).toEqual({
       deviceId: 'abc',
     });
-  });
-
-  it('passes Live wake search parameters to the Live adapter', () => {
-    vi.stubEnv('VITE_HOSTED', '0');
-    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-    vi.stubGlobal('window', {
-      location: { search: '?liveVadThreshold=0.35&liveIdleTimeout=45' },
-    });
-    try {
-      createAdapter('live', sessionId);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-
-    expect(constructed.live[0]).toMatchObject({
-      wakePolicy: { vadThreshold: 0.35 },
-      idleTimeoutS: 45,
-    });
-  });
-
-  it('keeps provider wake defaults for absent or out-of-range search parameters', () => {
-    vi.stubEnv('VITE_HOSTED', '0');
-    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-
-    createAdapter('live', sessionId);
-
-    expect(constructed.live[0]).not.toHaveProperty('wakePolicy');
-    expect(constructed.live[0]).not.toHaveProperty('idleTimeoutS');
-    expect(liveWakeFromSearch('')).toEqual({});
-    expect(liveWakeFromSearch('?liveVadThreshold=0&liveIdleTimeout=5')).toEqual(
-      { wakePolicy: { vadThreshold: 0 }, idleTimeoutS: 5 },
-    );
-    expect(
-      liveWakeFromSearch('?liveVadThreshold=1&liveIdleTimeout=60'),
-    ).toEqual({ wakePolicy: { vadThreshold: 1 }, idleTimeoutS: 60 });
-    for (const search of [
-      '?liveVadThreshold=-0.1&liveIdleTimeout=4',
-      '?liveVadThreshold=1.1&liveIdleTimeout=61',
-      '?liveVadThreshold=loud&liveIdleTimeout=5.5',
-      '?liveVadThreshold=&liveIdleTimeout=',
-    ])
-      expect(liveWakeFromSearch(search)).toEqual({});
   });
 
   it('builds an OpenAI Realtime adapter for the realtime provider', () => {

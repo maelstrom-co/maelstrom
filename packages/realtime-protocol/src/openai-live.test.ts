@@ -40,37 +40,6 @@ test('startup recovery accepts text roles but rejects executable history and bou
     ).toBe(false);
 });
 
-test('wake policy threshold and idle timeout accept only their documented ranges', () => {
-  const session = {
-    model: 'live',
-    delegation: { type: 'responses', responses: { model: 'backend' } },
-  };
-  const accepts = (extra: Record<string, unknown>) =>
-    LiveSessionConfigSchema.safeParse({ ...session, ...extra }).success;
-  const wake = (vad_threshold: unknown) => ({
-    wake_policy: { type: 'speech', vad_threshold },
-  });
-  for (const threshold of [0, 0.5, 1])
-    expect(accepts(wake(threshold))).toBe(true);
-  for (const seconds of [5, 60])
-    expect(accepts({ idle_timeout_s: seconds })).toBe(true);
-  expect(accepts({ ...wake(0.3), idle_timeout_s: 30 })).toBe(true);
-
-  for (const threshold of [-0.1, 1.1, '0.5'])
-    expect(accepts(wake(threshold))).toBe(false);
-  for (const seconds of [4, 61, 5.5])
-    expect(accepts({ idle_timeout_s: seconds })).toBe(false);
-  expect(
-    accepts({ wake_policy: { type: 'keyword', vad_threshold: 0.5 } }),
-  ).toBe(false);
-  expect(
-    accepts({
-      wake_policy: { type: 'speech', vad_threshold: 0.5, silence_ms: 200 },
-    }),
-  ).toBe(false);
-  expect(accepts({ wake_policy: { type: 'speech' } })).toBe(false);
-});
-
 test('diagnostic correlation preserves printable opaque IDs without truncating them into different IDs', () => {
   const options = {
     requestId: 'req:opaque/123',

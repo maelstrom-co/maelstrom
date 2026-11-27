@@ -40,51 +40,6 @@ describe('paid session boundary', () => {
     expect(await exchange(offer, signal())).toEqual(answer);
     expect(calls).toBe(1);
   });
-  test('forwards wake policy and idle timeout to the provider session request', async () => {
-    const configured: LiveExchangeRequest = {
-      ...offer,
-      session: {
-        ...offer.session,
-        wake_policy: { type: 'speech', vad_threshold: 0.35 },
-        idle_timeout_s: 40,
-      },
-    };
-    let body: unknown;
-    const exchange = exchangeWith(async (_url, init) => {
-      body = JSON.parse(String(init?.body));
-      return Response.json(answer, { status: 201 });
-    });
-    await exchange(configured, signal());
-    expect(body).toMatchObject({
-      session: {
-        wake_policy: { type: 'speech', vad_threshold: 0.35 },
-        idle_timeout_s: 40,
-      },
-    });
-  });
-  test.each([
-    { wake_policy: { type: 'speech', vad_threshold: 1.5 } },
-    { idle_timeout_s: 120 },
-  ])(
-    'out-of-range wake configuration cannot create a billed session: %j',
-    async (extra) => {
-      let calls = 0;
-      const exchange = exchangeWith(async () => {
-        calls++;
-        return Response.json(answer, { status: 201 });
-      });
-      await expect(
-        exchange(
-          {
-            ...offer,
-            session: { ...offer.session, ...extra },
-          } as LiveExchangeRequest,
-          signal(),
-        ),
-      ).rejects.toMatchObject({ code: 'invalid_offer' });
-      expect(calls).toBe(0);
-    },
-  );
   test.each([
     {},
     { ...offer, apiKey: 'must-not-forward' },

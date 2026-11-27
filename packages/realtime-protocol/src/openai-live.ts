@@ -63,15 +63,6 @@ export interface LiveSessionConfig {
       readonly voice: string;
     };
   };
-  /** Speech detection that wakes the session from user audio. Omission keeps the provider default threshold of 0.5. Typed input is unaffected. */
-  readonly wake_policy?: {
-    /** Wake policy discriminator; only speech detection is supported. */
-    readonly type: 'speech';
-    /** Speech detection sensitivity from 0 to 1. Higher values require louder or clearer speech. */
-    readonly vad_threshold: number;
-  };
-  /** Seconds of inactivity, as an integer from 5 to 60, before the provider treats the conversation as idle. Omission keeps the provider default. */
-  readonly idle_timeout_s?: number;
   /** Managed backend configuration. */
   readonly delegation: {
     /** Managed backend ownership. */
@@ -173,13 +164,6 @@ export const LiveSessionConfigSchema: z.ZodType<LiveSessionConfig> =
     audio: z
       .strictObject({ output: z.strictObject({ voice: nonempty }) })
       .optional(),
-    wake_policy: z
-      .strictObject({
-        type: z.literal('speech'),
-        vad_threshold: z.number().min(0).max(1),
-      })
-      .optional(),
-    idle_timeout_s: z.number().int().min(5).max(60).optional(),
     delegation: z.strictObject({
       type: z.literal('responses'),
       responses: z.strictObject({

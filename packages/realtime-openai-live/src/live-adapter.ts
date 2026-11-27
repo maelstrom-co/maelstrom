@@ -46,13 +46,6 @@ export interface OpenAILiveAdapterOptions extends LiveTransportOptions {
   readonly responses: Omit<LiveResponsesConfig, 'instructions' | 'tools'>;
   /** Voice selected before media starts; omission uses the provider default. */
   readonly voice?: string;
-  /** Speech detection that wakes the session from user audio. Omission keeps the provider default threshold of 0.5. Typed input is unaffected. */
-  readonly wakePolicy?: {
-    /** Speech detection sensitivity from 0 to 1. Higher values require louder or clearer speech. Values outside the range fail connection. */
-    readonly vadThreshold: number;
-  };
-  /** Seconds of inactivity, as an integer from 5 to 60, before the provider treats the conversation as idle. Omission keeps the provider default. Values outside the range fail connection. */
-  readonly idleTimeoutS?: number;
   /** Maximum retained responses per connection, default 256. Exhaustion ends voice rather than evicting replay protection. */
   readonly maxResponses?: number;
   /** Maximum retained function identities per connection, default 1024. Exhaustion ends voice without replaying work. */
@@ -330,17 +323,6 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
       ...(this.options.voice
         ? { audio: { output: { voice: this.options.voice } } }
         : {}),
-      ...(this.options.wakePolicy
-        ? {
-            wake_policy: {
-              type: 'speech',
-              vad_threshold: this.options.wakePolicy.vadThreshold,
-            },
-          }
-        : {}),
-      ...(this.options.idleTimeoutS === undefined
-        ? {}
-        : { idle_timeout_s: this.options.idleTimeoutS }),
       delegation: {
         type: 'responses',
         responses: {

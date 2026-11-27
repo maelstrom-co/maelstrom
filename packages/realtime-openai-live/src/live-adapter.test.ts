@@ -817,23 +817,6 @@ test('all three session tools use managed configuration and settled results befo
   expect(Object.keys(h.channel.continues()[0]!)).toEqual(['type', 'event_id']);
 });
 
-test('wake policy and idle timeout options reach the exchange session only when set', async () => {
-  const configured = await harness(
-    {},
-    { wakePolicy: { vadThreshold: 0.3 }, idleTimeoutS: 45 },
-  );
-  expect(configured.config().wake_policy).toEqual({
-    type: 'speech',
-    vad_threshold: 0.3,
-  });
-  expect(configured.config().idle_timeout_s).toBe(45);
-  await configured.session.disconnect();
-
-  const defaults = await harness();
-  expect(defaults.config()).not.toHaveProperty('wake_policy');
-  expect(defaults.config()).not.toHaveProperty('idle_timeout_s');
-});
-
 test('direct adapter callers retain their legacy instructions when no backend prompt is supplied', async () => {
   const h = await harness();
   await h.session.disconnect();
