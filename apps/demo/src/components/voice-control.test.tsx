@@ -12,12 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 import { createVoiceMuteToggleStub } from '../lib/__tests__/voice-mute-toggle-stub';
+import type { DemoVoiceProvider } from '../lib/voice-provider';
 
 // voice-control.tsx only touches `m.useVoice`, `m.useVoiceObservations`,
 // `m.VoiceOrb`, and `m.HoldToTalkControl` — faking the module boundary here
 // isolates these tests from the real Provider/session and SDK control wiring
 // already covered by react-realtime's own test suite.
-let voiceResult: UseVoiceResult;
+let voiceResult: UseVoiceResult<DemoVoiceProvider>;
 
 vi.doMock('../lib/maelstrom', () => ({
   m: {
@@ -47,14 +48,14 @@ function makeVoiceResult(
   turnModeError: unknown = undefined,
   greetingState: GreetingState = 'not_configured',
   skipGreeting: () => void = () => {},
-): UseVoiceResult {
+): UseVoiceResult<DemoVoiceProvider> {
   return {
     state,
     error: undefined,
     userTranscript: undefined,
     assistantTranscript: undefined,
     session: {} as never,
-    provider: undefined,
+    provider: 'realtime',
     switching: false,
     switchProvider: async () => {},
     turnControl,
@@ -68,7 +69,7 @@ function makeVoiceResult(
     setInputMuted: () => {},
     playbackBlocked: false,
     resumePlayback: async () => {},
-  } as UseVoiceResult;
+  } as UseVoiceResult<DemoVoiceProvider>;
 }
 
 afterEach(() => {
