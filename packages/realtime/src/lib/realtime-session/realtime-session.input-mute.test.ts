@@ -49,6 +49,8 @@ function makeHarness(
     submitIntent?: (intent: string) => Promise<SubmitIntentResult>;
     turnControl?: AdapterTurnControl;
     omitInputControl?: boolean;
+    setInputEnabled?: (enabled: boolean) => void | Promise<void>;
+    disconnect?: () => Promise<void>;
   } = {},
 ) {
   const eventHandlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -69,6 +71,7 @@ function makeHarness(
           media: { microphone: enabled ? 'active' : 'inactive' },
         });
       }
+      return options.setInputEnabled?.(enabled);
     },
   };
 
@@ -94,6 +97,7 @@ function makeHarness(
     },
     async disconnect() {
       disconnectCount += 1;
+      await options.disconnect?.();
     },
     getAudioStreams: () => ({}),
     async sendToolResult(callId, output) {
@@ -262,6 +266,104 @@ describe('RealtimeSession input mute', () => {
     expect(observed).toEqual([]);
     expect(h.inputEnabledCalls).toEqual([]);
     expect(h.session.state).not.toBe('error');
+    await h.session.disconnect();
+  });
+
+  it('returns to unmuted when the adapter rejects the mute, and a retry reaches the adapter again', async () => {
+    let rejectNext = true;
+    const h = makeHarness({
+      setInputEnabled: (enabled) => {
+        if (!enabled && rejectNext) {
+          rejectNext = false;
+          return Promise.reject(new Error('gate failed'));
+        }
+        return undefined;
+      },
+    });
+    const observed: boolean[] = [];
+    h.session.on('input_muted', (muted) => {
+      observed.push(muted);
+    });
+    await h.session.connect();
+
+    h.session.setInputMuted(true);
+    await flushMicrotasks();
+    expect(h.session.inputMuted).toBe(false);
+    expect(observed).toEqual([true, false]);
+
+    h.session.setInputMuted(true);
+    await flushMicrotasks();
+    expect(h.session.inputMuted).toBe(true);
+    expect(h.inputEnabledCalls).toEqual([false, false]);
+    expect(observed).toEqual([true, false, true]);
+    await h.session.disconnect();
+  });
+
+  it('returns to unmuted when the adapter throws synchronously on mute', async () => {
+    const h = makeHarness({
+      setInputEnabled: (enabled) => {
+        if (!enabled) throw new Error('gate failed');
+      },
+    });
+    await h.session.connect();
+
+    h.session.setInputMuted(true);
+
+    expect(h.session.inputMuted).toBe(false);
+    expect(h.session.state).not.toBe('error');
+    await h.session.disconnect();
+  });
+
+  it('ignores a late mute rejection once a newer request replaced it', async () => {
+    const first = deferred<void>();
+    let rejectFirst!: (error: Error) => void;
+    const firstFailure = new Promise<void>((_, reject) => {
+      rejectFirst = reject;
+    });
+    let muteCalls = 0;
+    const h = makeHarness({
+      setInputEnabled: (enabled) => {
+        if (enabled) return undefined;
+        muteCalls += 1;
+        return muteCalls === 1 ? firstFailure : first.promise;
+      },
+    });
+    await h.session.connect();
+
+    h.session.setInputMuted(true);
+    h.session.setInputMuted(false);
+    h.session.setInputMuted(true);
+    rejectFirst(new Error('stale gate failure'));
+    first.resolve();
+    await flushMicrotasks();
+
+    expect(h.session.inputMuted).toBe(true);
+    await h.session.disconnect();
+  });
+
+  it('ignores mute requests while the connection is ending', async () => {
+    const ending = deferred<void>();
+    const h = makeHarness({ disconnect: () => ending.promise });
+    await h.session.connect();
+    h.session.setInputMuted(true);
+    h.session.on('input_muted', (muted) => {
+      if (!muted) h.session.setInputMuted(true);
+    });
+
+    const disconnecting = h.session.disconnect();
+    expect(h.session.inputMuted).toBe(false);
+    h.session.setInputMuted(true);
+    expect(h.session.inputMuted).toBe(false);
+    expect(h.inputEnabledCalls).toEqual([false]);
+
+    ending.resolve();
+    await disconnecting;
+    expect(h.session.state).toBe('idle');
+    expect(h.session.inputMuted).toBe(false);
+
+    await h.session.connect();
+    h.session.setInputMuted(true);
+    expect(h.session.inputMuted).toBe(true);
     await h.session.disconnect();
   });
 

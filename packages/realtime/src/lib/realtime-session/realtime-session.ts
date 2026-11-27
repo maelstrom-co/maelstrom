@@ -302,6 +302,12 @@ export class RealtimeSession implements VoiceSession {
   #turnMode: TurnMode = 'automatic';
   #turnModeError: unknown;
   #inputMuted = false;
+  // Open from the start of a connection attempt until its cleanup, so a mute
+  // cannot land on a connection that is already ending.
+  #inputMuteOpen = false;
+  // Identifies the latest mute change, so a late adapter failure cannot undo a
+  // newer request or a later connection.
+  #inputMuteRequest = 0;
   #wrappedTurnControl:
     | {
         readonly source: AdapterTurnControl;
@@ -521,10 +527,14 @@ export class RealtimeSession implements VoiceSession {
    * resets on disconnect.
    *
    * A mute request is ignored when the adapter has no `inputControl`, because
-   * the session could not stop capture. `inputMuted` then stays `false`.
+   * the session could not stop capture. `inputMuted` then stays `false`. When
+   * the adapter fails to close its microphone, `inputMuted` returns to `false`
+   * and `input_muted` subscribers are notified. Requests made while the
+   * connection is ending are ignored.
    */
   setInputMuted(muted: boolean): void {
     if (this.#state === 'idle' || this.#state === 'error') return;
+    if (!this.#inputMuteOpen) return;
     if (this.#inputMuted === muted) return;
     if (muted && !this.#adapter.inputControl) {
       this.#logger.warn(
@@ -533,6 +543,7 @@ export class RealtimeSession implements VoiceSession {
       return;
     }
     this.#inputMuted = muted;
+    this.#inputMuteRequest += 1;
     this.#applyAdapterInputMute(muted);
     this.#notifyInputMuted(muted);
   }
@@ -600,6 +611,7 @@ export class RealtimeSession implements VoiceSession {
       if (epoch !== this.#connectEpoch) return;
     }
 
+    this.#inputMuteOpen = true;
     this.#setState('connecting');
     if (epoch !== this.#connectEpoch) return;
     const generation = this.#startGeneration(connectionId);
@@ -848,6 +860,7 @@ export class RealtimeSession implements VoiceSession {
     this.#pushGrounding.cancel();
     this.#greetingController?.abort();
     this.#greetingController = undefined;
+    this.#inputMuteOpen = false;
     try {
       this.#setInputMutedState(false);
     } catch (error) {
@@ -1068,6 +1081,7 @@ export class RealtimeSession implements VoiceSession {
   #setInputMutedState(next: boolean): void {
     if (next === this.#inputMuted) return;
     this.#inputMuted = next;
+    this.#inputMuteRequest += 1;
     this.#notifyInputMuted(next);
   }
 
@@ -1087,15 +1101,24 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 
+  /**
+   * A failed mute must not leave `inputMuted` reporting a closed microphone.
+   * The retained value returns to `false` only while the failed request is
+   * still the latest one, so a newer request or connection is left alone.
+   */
   #applyAdapterInputMute(muted: boolean): void {
     const control = this.#adapter.inputControl;
     if (!control) return;
-    try {
-      void Promise.resolve(control.setInputEnabled(!muted)).catch((error) => {
-        this.#logger.warn('adapter inputControl.setInputEnabled failed', error);
-      });
-    } catch (error) {
+    const request = this.#inputMuteRequest;
+    const failed = (error: unknown): void => {
       this.#logger.warn('adapter inputControl.setInputEnabled failed', error);
+      if (muted && request === this.#inputMuteRequest)
+        this.#setInputMutedState(false);
+    };
+    try {
+      void Promise.resolve(control.setInputEnabled(!muted)).catch(failed);
+    } catch (error) {
+      failed(error);
     }
   }
 
