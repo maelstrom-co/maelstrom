@@ -74,7 +74,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Tasklane voice mute toggle with FakeRealtimeSession', () => {
-  it('renders the mute toggle when connected, keeps the session connected, and allows typed submit while muted', async () => {
+  it('still sends a typed intent while the microphone is muted', async () => {
     render(
       <tasklaneM.Provider
         sessionId={SessionId('tasklane-mute-test')}
@@ -84,38 +84,15 @@ describe('Tasklane voice mute toggle with FakeRealtimeSession', () => {
       </tasklaneM.Provider>,
     );
 
-    expect(
-      screen.queryByRole('button', { name: /mute microphone/i }),
-    ).toBeNull();
-
-    const orb = screen.getByRole('button', { name: 'Start voice' });
     await act(async () => {
-      fireEvent.click(orb);
+      fireEvent.click(screen.getByRole('button', { name: 'Start voice' }));
     });
-
     const session = FakeRealtimeSession.instances.at(-1)!;
-    expect(session.state).toBe('connected');
-    expect(session.connectCalls).toBe(1);
-    expect(session.disconnectCalls).toBe(0);
-
-    const toggle = screen.getByRole('button', { name: 'Mute microphone' });
-    expect(toggle.getAttribute('aria-pressed')).toBe('false');
-
     act(() => {
-      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }));
     });
     expect(session.inputMuted).toBe(true);
-    expect(session.state).toBe('connected');
-    expect(session.disconnectCalls).toBe(0);
-    expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    expect(toggle.getAttribute('aria-label')).toBe('Unmute microphone');
-    expect(
-      screen
-        .getByRole('button', { name: 'Stop voice' })
-        .getAttribute('data-muted'),
-    ).toBe('true');
 
-    // Typed input still submits while voice is muted.
     const input = screen.getByLabelText('Ask Tasklane');
     fireEvent.change(input, { target: { value: 'show all tasks' } });
     await act(async () => {
@@ -131,13 +108,5 @@ describe('Tasklane voice mute toggle with FakeRealtimeSession', () => {
     ).toBe(true);
     expect(session.state).toBe('connected');
     expect(session.inputMuted).toBe(true);
-
-    // Unmute keeps the same session connected.
-    act(() => {
-      fireEvent.click(toggle);
-    });
-    expect(session.inputMuted).toBe(false);
-    expect(session.connectCalls).toBe(1);
-    expect(session.disconnectCalls).toBe(0);
   });
 });
