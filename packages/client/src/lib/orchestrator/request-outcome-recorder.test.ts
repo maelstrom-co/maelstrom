@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
+import type { ActionExecution } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
+import type { ActionRecord } from '../command-processor/action-runner.types.js';
 import type {
   IntentSnapshot,
   IntentSubmission,
@@ -37,6 +39,39 @@ describe('RequestOutcomeRecorder', () => {
           ids.length === REQUEST_OUTCOME_RETENTION || ids.includes('t51'),
       ),
     ).toBe(true);
+  });
+
+  it('keeps Actions unknown when records settle after the ticket became unknown', () => {
+    const recorder = new RequestOutcomeRecorder();
+    const submission = ticket('t1');
+    recorder.admit(submission, 'rename the task');
+    const store = submission.store as Store<IntentSnapshot>;
+    store.setState(() => ({ status: 'processing' }) as IntentSnapshot);
+    recorder.planned('t1', [
+      { instanceId: 'tasks', action: 'rename', params: {} },
+    ] as unknown as ActionExecution[]);
+    store.setState(
+      () =>
+        ({
+          status: 'unknown',
+          error: new Error('Intent active deadline exceeded'),
+        }) as IntentSnapshot,
+    );
+
+    recorder.settled('t1', [
+      {
+        instanceId: 'tasks',
+        action: 'rename',
+        result: { ok: true, value: 'Renamed' },
+        duration: 1,
+      },
+    ] as unknown as ActionRecord[]);
+
+    const outcome = recorder.store.state.outcomes['t1'];
+    expect(outcome?.status).toBe('unknown');
+    expect(outcome?.actions.map((action) => action.status)).toEqual([
+      'unknown',
+    ]);
   });
 });
 

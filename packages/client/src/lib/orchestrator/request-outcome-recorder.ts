@@ -58,14 +58,16 @@ export class RequestOutcomeRecorder implements RequestOutcomeView {
 
   planned(id: string, plan: readonly ActionExecution[]): void {
     const tracked = this.#tracked.get(id);
-    if (!tracked) return;
+    if (!tracked || isTerminal(tracked.snapshot)) return;
     tracked.plan = plan;
     this.#publish(id);
   }
 
+  // A ticket can turn terminal (an active deadline reports unknown) while its
+  // batch keeps running. Its outcome is final once the caller can read it.
   settled(id: string, records: readonly ActionRecord[]): void {
     const tracked = this.#tracked.get(id);
-    if (!tracked) return;
+    if (!tracked || isTerminal(tracked.snapshot)) return;
     tracked.records = records;
     this.#publish(id);
   }
