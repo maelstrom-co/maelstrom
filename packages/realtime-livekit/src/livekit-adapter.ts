@@ -230,6 +230,7 @@ export class LiveKitAdapter
   #browserVad: BrowserVad | undefined;
   #manualTurnControlAvailable = false;
   #inputMuted = false;
+  #inputMuteRequest = 0;
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -1963,6 +1964,7 @@ export class LiveKitAdapter
     const muted = !enabled;
     if (this.#inputMuted === muted) return;
     this.#inputMuted = muted;
+    const request = ++this.#inputMuteRequest;
     const generation = this.#connectionGeneration;
     const room = this.#room;
     if (this.#micClone) this.#micClone.enabled = enabled;
@@ -1970,9 +1972,25 @@ export class LiveKitAdapter
     const publishedMicTrack = this.#getPublishedMicTrack(room);
     if (!publishedMicTrack) return;
     if (muted) {
-      await publishedMicTrack.mute();
-      if (!this.#isCurrentRoom(generation, room)) return;
-      await publishedMicTrack.pauseUpstream();
+      try {
+        await publishedMicTrack.mute();
+        if (!this.#isCurrentRoom(generation, room)) return;
+        await publishedMicTrack.pauseUpstream();
+      } catch (error) {
+        // A failed gate must not keep the muted flag, or a retry would return
+        // at the equal-value guard without reaching the track. Roll back as an
+        // unmute request would, unless a newer request or room took over.
+        if (
+          request === this.#inputMuteRequest &&
+          this.#isCurrentRoom(generation, room)
+        ) {
+          this.#inputMuted = false;
+          if (this.#micClone) this.#micClone.enabled = true;
+          if (this.#localAudioPreRoll)
+            await publishedMicTrack.unmute().catch(() => {});
+        }
+        throw error;
+      }
     } else if (this.#localAudioPreRoll) {
       await publishedMicTrack.unmute();
     }

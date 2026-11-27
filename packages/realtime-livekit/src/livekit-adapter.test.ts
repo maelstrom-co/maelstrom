@@ -5005,6 +5005,28 @@ describe('LiveKitAdapter greeting capability', () => {
 });
 
 describe('LiveKitAdapter inputControl mute', () => {
+  test('a failed mute rolls back so a retry reaches the published track', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    mockMuteLocalMic.mockClear();
+    mockPauseUpstream.mockClear();
+    mockMuteLocalMic.mockImplementationOnce(async () => {
+      throw new Error('mute failed');
+    });
+
+    await expect(adapter.inputControl.setInputEnabled(false)).rejects.toThrow(
+      'mute failed',
+    );
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+
+    await adapter.inputControl.setInputEnabled(false);
+    expect(mockMuteLocalMic).toHaveBeenCalledTimes(2);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.enabled).toBe(false);
+    await adapter.disconnect();
+  });
+
   test('mutes the local published track, blocks startTurn while muted, keeps tool results alive, and resets on disconnect', async () => {
     const { adapter } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });
