@@ -100,6 +100,7 @@ describe('calendar action handlers', () => {
       });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
+        expect(result.error.message).toMatch(/^Couldn't pick event "Standup"/);
         expect(result.error.message).toContain(
           '"Standup" matches multiple choices',
         );

@@ -69,7 +69,7 @@ function eventNotFound(action: string, title: string) {
 
 function eventAmbiguous(action: string, title: string, message: string) {
   return failureResult(
-    `"${title}" matches more than one event`,
+    `Couldn't pick event "${title}": more than one event matches`,
     { vesselId: 'calendar', action },
     message,
   );
