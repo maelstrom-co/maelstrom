@@ -663,8 +663,8 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         event.type === SESSION_RESUMED_EVENT)
     ) {
       this.mediaEvent({
-        type: 'inference',
-        inference: event.type === SESSION_PAUSED_EVENT ? 'paused' : 'running',
+        type: 'processing',
+        processing: event.type === SESSION_PAUSED_EVENT ? 'standby' : 'active',
       });
     }
     if (this.current(run)) this.publishNative(run, event);

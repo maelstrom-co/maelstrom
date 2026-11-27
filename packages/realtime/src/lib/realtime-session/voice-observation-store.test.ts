@@ -393,7 +393,7 @@ describe('continuous voice observations', () => {
     expect(notifications).toBe(0);
   });
 
-  it('tracks provider inference state, keeps it across typed application work, and resets across generations and disconnects', () => {
+  it('tracks provider processing state, keeps it across typed application work, and resets across generations and disconnects', () => {
     let work: VoiceApplicationWork = {
       planning: 'inactive',
       applying: 'inactive',
@@ -417,39 +417,39 @@ describe('continuous voice observations', () => {
       notifications += 1;
     });
 
-    expect(store.getSnapshot().inference).toBe('unknown');
+    expect(store.getSnapshot().processing).toBe('unknown');
     handle({ type: 'session.started', generation: 1, connectionId: 'c1' });
     handle({ type: 'session.connected', generation: 1 });
-    expect(store.getSnapshot().inference).toBe('unknown');
+    expect(store.getSnapshot().processing).toBe('unknown');
 
     notifications = 0;
-    handle({ type: 'inference', generation: 1, inference: 'paused' });
-    const paused = store.getSnapshot();
-    expect(paused.inference).toBe('paused');
+    handle({ type: 'processing', generation: 1, processing: 'standby' });
+    const standby = store.getSnapshot();
+    expect(standby.processing).toBe('standby');
     expect(notifications).toBe(1);
 
-    // Repeated unchanged inference does not reallocate or notify.
-    handle({ type: 'inference', generation: 1, inference: 'paused' });
-    expect(store.getSnapshot()).toBe(paused);
+    // Repeated unchanged processing does not reallocate or notify.
+    handle({ type: 'processing', generation: 1, processing: 'standby' });
+    expect(store.getSnapshot()).toBe(standby);
     expect(notifications).toBe(1);
 
-    // Typed intent activity while paused leaves inference paused.
+    // Typed intent activity while on standby leaves processing on standby.
     work = { planning: 'active', applying: 'inactive' };
     notifyWork?.();
     expect(store.getSnapshot().applicationWork.planning).toBe('active');
-    expect(store.getSnapshot().inference).toBe('paused');
+    expect(store.getSnapshot().processing).toBe('standby');
 
-    handle({ type: 'inference', generation: 1, inference: 'running' });
-    expect(store.getSnapshot().inference).toBe('running');
+    handle({ type: 'processing', generation: 1, processing: 'active' });
+    expect(store.getSnapshot().processing).toBe('active');
 
     handle({ type: 'session.disconnected', generation: 1 });
-    expect(store.getSnapshot().inference).toBe('unknown');
+    expect(store.getSnapshot().processing).toBe('unknown');
 
     handle({ type: 'session.started', generation: 2, connectionId: 'c2' });
-    handle({ type: 'inference', generation: 2, inference: 'paused' });
-    expect(store.getSnapshot().inference).toBe('paused');
+    handle({ type: 'processing', generation: 2, processing: 'standby' });
+    expect(store.getSnapshot().processing).toBe('standby');
     handle({ type: 'session.started', generation: 3, connectionId: 'c3' });
-    expect(store.getSnapshot().inference).toBe('unknown');
+    expect(store.getSnapshot().processing).toBe('unknown');
     release();
   });
 });

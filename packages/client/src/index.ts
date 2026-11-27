@@ -263,10 +263,10 @@ export type {
   VoiceApplicationWorkSource,
   VoiceCaption,
   VoiceConnectionState,
-  VoiceInferenceState,
   VoiceMediaObservation,
   VoiceObservationSnapshot,
   VoiceObservationSource,
+  VoiceProcessingState,
 } from './lib/voice-session/voice-observations.js';
 export type {
   GroundingUpdate,

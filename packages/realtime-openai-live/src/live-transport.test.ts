@@ -1174,7 +1174,7 @@ test('local Live barge-in gates received audio without sending unsupported cance
   }
 });
 
-test('session.paused and session.resumed emit inference observations without dropping native events', async () => {
+test('session.paused and session.resumed emit processing observations without dropping native events', async () => {
   const h = harness();
   const observations: AdapterVoiceObservation[] = [];
   const nativeTypes: string[] = [];
@@ -1188,9 +1188,9 @@ test('session.paused and session.resumed emit inference observations without dro
   h.peer.channel.event('session.paused');
   h.peer.channel.event('session.resumed');
 
-  expect(observations.filter((event) => event.type === 'inference')).toEqual([
-    { type: 'inference', inference: 'paused' },
-    { type: 'inference', inference: 'running' },
+  expect(observations.filter((event) => event.type === 'processing')).toEqual([
+    { type: 'processing', processing: 'standby' },
+    { type: 'processing', processing: 'active' },
   ]);
   expect(nativeTypes).toEqual([
     'session.started',
@@ -1203,8 +1203,8 @@ test('session.paused and session.resumed emit inference observations without dro
   h.peer.channel.event('session.resumed');
   await closing;
 
-  expect(observations.filter((event) => event.type === 'inference')).toEqual([
-    { type: 'inference', inference: 'paused' },
-    { type: 'inference', inference: 'running' },
+  expect(observations.filter((event) => event.type === 'processing')).toEqual([
+    { type: 'processing', processing: 'standby' },
+    { type: 'processing', processing: 'active' },
   ]);
 });

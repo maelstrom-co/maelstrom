@@ -69,9 +69,9 @@ export type {
 } from './lib/realtime-session/realtime-session-memory.js';
 export { RealtimeSessionMemory } from './lib/realtime-session/realtime-session-memory.js';
 export type {
-  InferenceEvent,
   MediaEvent,
   OpeningClaimedEvent,
+  ProcessingEvent,
   SessionEvent,
   SessionEventHandler,
   SessionEventSource,

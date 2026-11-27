@@ -40,11 +40,11 @@ const unavailableRequestCopy = {
 };
 
 function label(event: PanelEvent): string {
-  if (event.kind === 'voice.inference') {
-    const inference = text(event.metadata.inference);
-    if (inference === 'paused') return 'Inference paused';
-    if (inference === 'running') return 'Inference resumed';
-    return 'Inference changed';
+  if (event.kind === 'voice.processing') {
+    const processing = text(event.metadata.processing);
+    if (processing === 'standby') return 'Processing on standby';
+    if (processing === 'active') return 'Processing active';
+    return 'Processing changed';
   }
   const labels: Record<string, string> = {
     'voice.tool.called': 'Tool called',
@@ -79,7 +79,7 @@ function facts(event: PanelEvent): string {
   const metadata = event.metadata;
   const speech = text(metadata.userSpeech);
   const audio = text(metadata.incomingAudio);
-  const inference = text(metadata.inference);
+  const processing = text(metadata.processing);
   const outcome =
     projectDiagnosticMetadata(event.kind, metadata)?.outcome ??
     text(metadata.responseOutcome) ??
@@ -90,7 +90,9 @@ function facts(event: PanelEvent): string {
     text(metadata.role),
     speech ? `Speech ${speech}` : undefined,
     audio ? `Incoming audio ${audio}` : undefined,
-    inference && inference !== 'unknown' ? `Inference ${inference}` : undefined,
+    processing && processing !== 'unknown'
+      ? `Processing ${processing}`
+      : undefined,
     text(metadata.eventType) ?? text(metadata.type),
     outcome ? humanize(outcome) : undefined,
   ]

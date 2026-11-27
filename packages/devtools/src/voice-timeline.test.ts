@@ -843,7 +843,7 @@ test('request provenance cannot hide a readable app and request identity with th
   ]);
 });
 
-test('voice timeline view renders paused and resumed inference observations', () => {
+test('voice timeline view renders standby and active processing observations', () => {
   interface FakeNode {
     tag: string;
     className: string;
@@ -887,17 +887,17 @@ test('voice timeline view renders paused and resumed inference observations', ()
     const events = panelEvents([
       observation('voice.observations', {
         connection: 'connected',
-        inference: 'unknown',
+        processing: 'unknown',
       }),
-      observation('voice.inference', { inference: 'paused' }),
+      observation('voice.processing', { processing: 'standby' }),
       observation('voice.observations', {
         connection: 'connected',
-        inference: 'paused',
+        processing: 'standby',
       }),
-      observation('voice.inference', { inference: 'running' }),
+      observation('voice.processing', { processing: 'active' }),
       observation('voice.observations', {
         connection: 'connected',
-        inference: 'running',
+        processing: 'active',
       }),
     ]);
     const context = {
@@ -933,10 +933,10 @@ test('voice timeline view renders paused and resumed inference observations', ()
     });
     expect(rows).toEqual([
       { button: 'Session observations', facts: '' },
-      { button: 'Inference paused', facts: 'Inference paused' },
-      { button: 'Session observations', facts: 'Inference paused' },
-      { button: 'Inference resumed', facts: 'Inference running' },
-      { button: 'Session observations', facts: 'Inference running' },
+      { button: 'Processing on standby', facts: 'Processing standby' },
+      { button: 'Session observations', facts: 'Processing standby' },
+      { button: 'Processing active', facts: 'Processing active' },
+      { button: 'Session observations', facts: 'Processing active' },
     ]);
   } finally {
     Object.assign(globalThis, { document: previousDocument });
