@@ -934,6 +934,29 @@ describe('LiveKitAdapter connect', () => {
     expect(speech.at(-1)).toBe('unknown');
   });
 
+  test('stops delivering user speech that an observer retired by disconnecting', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    const later: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media' && event.media.userSpeech === 'active')
+        disconnecting ??= adapter.disconnect();
+    });
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') later.push(event.media.userSpeech);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+    await disconnecting;
+
+    expect(later).toEqual(['unknown']);
+  });
+
   test('returns user speech to unknown when a VAD callback failure degrades to manual', async () => {
     mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
     mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
