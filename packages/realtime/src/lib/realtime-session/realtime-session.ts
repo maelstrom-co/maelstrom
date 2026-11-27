@@ -686,8 +686,9 @@ export class RealtimeSession implements VoiceSession {
           if (epoch !== this.#connectEpoch) return;
           this.#setPlaybackBlocked(playbackControl.isBlocked());
         });
-        this.#setPlaybackBlocked(playbackControl.isBlocked());
       }
+      if (playbackControl && epoch === this.#connectEpoch)
+        this.#setPlaybackBlocked(playbackControl.isBlocked());
       if (epoch !== this.#connectEpoch) {
         throwConnectionFailures(releaseSubscriptions(subscriptions));
         return;

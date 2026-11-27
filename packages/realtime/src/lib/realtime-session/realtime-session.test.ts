@@ -3952,6 +3952,32 @@ describe('playback control', () => {
     unsubscribeObserver();
   });
 
+  it('leaves playbackBlocked false when a superseded connect reads a blocked adapter', async () => {
+    const { session, adapter } = makeHarness();
+    let ending: Promise<void> | undefined;
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => true,
+        subscribe: () => {
+          ending = session.disconnect();
+          return () => undefined;
+        },
+        resume: async () => undefined,
+      },
+    });
+    const observed: boolean[] = [];
+    const unsubscribe = session.on('playback_blocked', (next) => {
+      observed.push(next);
+    });
+
+    await session.connect().catch(() => undefined);
+    await ending;
+
+    expect(session.playbackBlocked).toBe(false);
+    expect(observed).not.toContain(true);
+    unsubscribe();
+  });
+
   it('keeps notifying later playback_blocked subscribers when an earlier one throws', async () => {
     const { session, adapter } = makeHarness();
     let blocked = false;
