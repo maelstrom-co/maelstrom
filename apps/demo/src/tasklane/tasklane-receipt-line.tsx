@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
+import { newerClickReceipt, useClickReceipt } from '../lib/click-receipt';
 import { tasklaneM } from './maelstrom';
-import { useManualReceipt } from './manual-receipt';
 import { summariseReceipt } from './tasklane-activity';
 
 // The band always renders at a fixed height, empty when there is nothing to
@@ -10,12 +10,12 @@ export function TasklaneReceiptLine() {
   tasklaneM.useRequestReferences();
   const outcome = tasklaneM.useRequestOutcome(tasklaneM.useReceiptRequestId());
   const requestReceipt = useMemo(() => summariseReceipt(outcome), [outcome]);
-  const manual = useManualReceipt();
-  const requestSequence = tasklaneM.useRequestReceiptSequence();
+  const click = useClickReceipt();
+  const requestOrder = tasklaneM.useRequestReceiptSequence();
 
   // Whichever changed last, the latest request or a click, owns the band.
-  const receipt =
-    manual && manual.sequence > requestSequence ? manual.line : requestReceipt;
+  const newerClick = newerClickReceipt(click, requestOrder);
+  const receipt = newerClick ? newerClick.part : requestReceipt;
   const text = receipt?.text ?? '';
 
   return (

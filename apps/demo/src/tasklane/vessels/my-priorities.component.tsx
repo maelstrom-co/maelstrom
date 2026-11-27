@@ -1,7 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
-import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { PersonChip } from '../person-chip';
 import { plural } from '../plural';
 import {
@@ -11,6 +11,7 @@ import {
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
 import { reportPriorityChange } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { myPrioritiesVessel } from './my-priorities.vessel';
 
@@ -23,24 +24,28 @@ export default function MyPrioritiesComponent({
   variantProps,
   executeAction: executeVesselAction,
 }: TypedVesselProps<typeof myPrioritiesVessel>) {
-  const executeAction = withManualReceipt(executeVesselAction);
+  const executeAction = withClickMarks('my-priorities', executeVesselAction);
   const prioritised = prioritisedTasks(useProjectTasksStore());
 
   tasklaneM.useActions(
     'my-priorities',
     instanceId,
-    withManualReceipts({
-      addToMyPriorities: async ({ task, position }) =>
-        reportPriorityChange(
-          'addToMyPriorities',
-          projectTaskActions.addToMyPriorities(task, position),
-        ),
-      removeFromMyPriorities: async ({ task }) =>
-        reportPriorityChange(
-          'removeFromMyPriorities',
-          projectTaskActions.removeFromMyPriorities(task),
-        ),
-    }),
+    withClickReceipts(
+      'my-priorities',
+      {
+        addToMyPriorities: async ({ task, position }) =>
+          reportPriorityChange(
+            'addToMyPriorities',
+            projectTaskActions.addToMyPriorities(task, position),
+          ),
+        removeFromMyPriorities: async ({ task }) =>
+          reportPriorityChange(
+            'removeFromMyPriorities',
+            projectTaskActions.removeFromMyPriorities(task),
+          ),
+      },
+      tasklaneClickReceipt,
+    ),
   );
 
   if (variantProps.variant === 'strip')

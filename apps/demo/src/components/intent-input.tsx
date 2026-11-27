@@ -6,14 +6,14 @@ import type {
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import {
+  hasReportedFailure,
+  requestProblemSummary,
+} from '../lib/home-request-receipt';
 import { usesBrowserKey } from '../lib/hosted-mode';
 import { isInvalidKeyError } from '../lib/invalid-key-error';
 import { m } from '../lib/maelstrom';
 import { playgroundKeyStore } from '../lib/playground-key-store';
-import {
-  hasReportedFailure,
-  requestProblemSummary,
-} from '../lib/request-receipt';
 import { ActionReceiptLine } from './action-receipt-line';
 import { AssistantResponse } from './assistant-response';
 import { Captions } from './captions';

@@ -2,8 +2,8 @@ import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Fragment } from 'react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
-import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import type { TableColumn } from '../stores/flexible-table-columns';
 import {
   describeTableFailure,
@@ -18,6 +18,7 @@ import {
   useFlexibleTableStore,
 } from '../stores/flexible-table.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { flexibleTableVessel } from './flexible-table.vessel';
 
@@ -25,39 +26,45 @@ export default function FlexibleTableComponent({
   instanceId,
   executeAction: executeVesselAction,
 }: TypedVesselProps<typeof flexibleTableVessel>) {
-  const executeAction = withManualReceipt(executeVesselAction);
+  const executeAction = withClickMarks('flexible-table', executeVesselAction);
   const { tasks } = useProjectTasksStore();
   const table = useFlexibleTableStore();
 
   tasklaneM.useActions(
     'flexible-table',
     instanceId,
-    withManualReceipts({
-      addColumn: async ({ label, kind, source, formula }) =>
-        reportTableResult(
-          flexibleTableActions.addColumn({ label, kind, source, formula }),
-        ),
-      removeColumn: async ({ column }) =>
-        reportTableResult(flexibleTableActions.removeColumn(column)),
-      renameColumn: async ({ column, label }) =>
-        reportTableResult(flexibleTableActions.renameColumn(column, label)),
-      moveColumn: async ({ column, position }) =>
-        reportTableResult(flexibleTableActions.moveColumn(column, position)),
-      setCell: async ({ task, column, value }) =>
-        reportTableResult(flexibleTableActions.setCell(task, column, value)),
-      sortBy: async ({ column, direction, add }) =>
-        reportTableResult(flexibleTableActions.sortBy(column, direction, add)),
-      clearSort: async () =>
-        reportTableResult(flexibleTableActions.clearSort()),
-      filterRows: async ({ column, op, value }) =>
-        reportTableResult(flexibleTableActions.filterRows(column, op, value)),
-      clearFilters: async () =>
-        reportTableResult(flexibleTableActions.clearFilters()),
-      groupBy: async ({ column }) =>
-        reportTableResult(flexibleTableActions.groupBy(column)),
-      showPreset: async ({ preset }) =>
-        reportTableResult(flexibleTableActions.showPreset(preset)),
-    }),
+    withClickReceipts(
+      'flexible-table',
+      {
+        addColumn: async ({ label, kind, source, formula }) =>
+          reportTableResult(
+            flexibleTableActions.addColumn({ label, kind, source, formula }),
+          ),
+        removeColumn: async ({ column }) =>
+          reportTableResult(flexibleTableActions.removeColumn(column)),
+        renameColumn: async ({ column, label }) =>
+          reportTableResult(flexibleTableActions.renameColumn(column, label)),
+        moveColumn: async ({ column, position }) =>
+          reportTableResult(flexibleTableActions.moveColumn(column, position)),
+        setCell: async ({ task, column, value }) =>
+          reportTableResult(flexibleTableActions.setCell(task, column, value)),
+        sortBy: async ({ column, direction, add }) =>
+          reportTableResult(
+            flexibleTableActions.sortBy(column, direction, add),
+          ),
+        clearSort: async () =>
+          reportTableResult(flexibleTableActions.clearSort()),
+        filterRows: async ({ column, op, value }) =>
+          reportTableResult(flexibleTableActions.filterRows(column, op, value)),
+        clearFilters: async () =>
+          reportTableResult(flexibleTableActions.clearFilters()),
+        groupBy: async ({ column }) =>
+          reportTableResult(flexibleTableActions.groupBy(column)),
+        showPreset: async ({ preset }) =>
+          reportTableResult(flexibleTableActions.showPreset(preset)),
+      },
+      tasklaneClickReceipt,
+    ),
   );
 
   const rows = projectTableRows(tasks, table);

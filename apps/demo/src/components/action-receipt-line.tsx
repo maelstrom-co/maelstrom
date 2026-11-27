@@ -2,20 +2,21 @@ import type { RequestOutcome } from '@maelstrom-co/client';
 import { Fragment, useRef } from 'react';
 
 import {
+  newerClickReceipt,
   settledRequestOrder,
-  useDirectReceipt,
-} from '../lib/direct-action-receipt';
+  useClickReceipt,
+} from '../lib/click-receipt';
+import { requestReceiptParts } from '../lib/home-request-receipt';
 import { m } from '../lib/maelstrom';
 import {
   isSettledOutcome,
   joinReceiptParts,
   type ReceiptPart,
-  requestReceiptParts,
 } from '../lib/request-receipt';
 
 /**
  * One factual line about the last data change: the latest settled request,
- * typed or spoken, or a newer direct click. The band keeps its height when
+ * typed or spoken, or a newer click. The band keeps its height when
  * empty so a receipt never resizes the Chart.
  */
 export function ActionReceiptLine() {
@@ -51,7 +52,7 @@ interface SettledReceipt {
 // recently settled request even while a later request waits in the queue.
 function useLatestReceiptParts(): readonly ReceiptPart[] {
   const outcome = latestSettledOutcome(m.useRequestOutcomes());
-  const direct = useDirectReceipt();
+  const click = useClickReceipt();
   const settled = useRef<SettledReceipt | null>(null);
   if (
     outcome &&
@@ -65,8 +66,8 @@ function useLatestReceiptParts(): readonly ReceiptPart[] {
     };
   }
   const request = settled.current;
-  if (direct && (!request || direct.order > request.order))
-    return [direct.part];
+  const newerClick = newerClickReceipt(click, request?.order);
+  if (newerClick) return newerClick.part ? [newerClick.part] : [];
   return request?.parts ?? [];
 }
 

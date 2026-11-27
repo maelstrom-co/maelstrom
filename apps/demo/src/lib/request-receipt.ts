@@ -1,94 +1,102 @@
-import type {
-  RequestActionOutcome,
-  RequestOutcome,
-} from '@maelstrom-co/client';
+import type { RequestOutcome } from '@maelstrom-co/client';
+import { err, ok } from '@maelstrom-co/protocol';
+import type { ActionResult } from '@maelstrom-co/react';
 
 export interface ReceiptPart {
   readonly tone: 'success' | 'problem';
   readonly text: string;
 }
 
-/**
- * Actions whose handlers return their receipt as the value. A planned one that did not
- * run, or failed without a "Couldn't" reason, is reported as not confirmed.
- */
-export const LOGGED_DATA_ACTIONS: ReadonlySet<string> = new Set([
-  'addTask',
-  'removeTask',
-  'checkTask',
-  'uncheckTask',
-  'addSubtask',
-  'checkSubtask',
-  'uncheckSubtask',
-  'createEntry',
-  'writeContent',
-  'editEntry',
-  'addEvent',
-  'moveEvent',
-  'removeEvent',
-]);
-
-const RECEIPT_SEPARATOR = ' · ';
-const FAILURE_PREFIX = "Couldn't";
+/** The part of one Action's outcome a receipt reads. */
+export type ActionStatus =
+  | { readonly status: 'ran'; readonly value?: unknown }
+  | { readonly status: 'failed'; readonly reason: string }
+  | { readonly status: 'pending' | 'skipped' | 'unknown' };
 
 /**
- * Handler receipts and failures in plan order, then the logged data Actions
- * that were not confirmed. Pending Actions contribute nothing yet.
+ * What one Action's own result says on a receipt line. A handler's value is
+ * opaque, so only a non-empty string is a receipt. A failure has receipt text
+ * only when the first line of its reason starts with "Couldn't".
  */
-export function requestReceiptParts(
-  outcome: Pick<RequestOutcome, 'actions'>,
-): ReceiptPart[] {
-  const parts: ReceiptPart[] = [];
-  const unconfirmed: string[] = [];
-  for (const action of outcome.actions) {
-    const part = actionReceiptPart(action);
-    if (part) parts.push(part);
-    else if (isUnconfirmed(action) && !unconfirmed.includes(action.action))
-      unconfirmed.push(action.action);
+export type ActionReceipt =
+  | { readonly kind: 'done'; readonly text: string }
+  | { readonly kind: 'failed'; readonly text: string | null }
+  | { readonly kind: 'unconfirmed' }
+  | { readonly kind: 'quiet' };
+
+/** Reads one Action of a request outcome. Pending Actions stay quiet until they settle. */
+export function readActionReceipt(action: ActionStatus): ActionReceipt {
+  switch (action.status) {
+    case 'ran': {
+      const text = receiptText(action.value);
+      return text === null ? { kind: 'quiet' } : { kind: 'done', text };
+    }
+    case 'failed':
+      return { kind: 'failed', text: failureReceipt(action.reason) };
+    case 'skipped':
+    case 'unknown':
+      return { kind: 'unconfirmed' };
+    case 'pending':
+      return { kind: 'quiet' };
   }
-  for (const action of unconfirmed)
-    parts.push({ tone: 'problem', text: `? Not confirmed: ${action}` });
-  return parts;
-}
-
-/** Failures and unconfirmed Actions of one request, or null when it had none. */
-export function requestProblemSummary(
-  outcome: Pick<RequestOutcome, 'actions'>,
-): string | null {
-  const problems = requestReceiptParts(outcome).filter(
-    (part) => part.tone === 'problem',
-  );
-  return problems.length > 0 ? joinReceiptParts(problems) : null;
-}
-
-/** Whether a handler reported a failure of its own for one of the request's Actions. */
-export function hasReportedFailure(
-  outcome: Pick<RequestOutcome, 'actions'>,
-): boolean {
-  return outcome.actions.some(
-    (action) =>
-      action.status === 'failed' && actionReceiptPart(action) !== null,
-  );
 }
 
 /** The receipt part for one Action's own result, or null when it has none. */
-export function actionReceiptPart(
-  action:
-    | { readonly status: 'ran'; readonly value?: unknown }
-    | { readonly status: 'failed'; readonly reason: string }
-    | { readonly status: 'pending' | 'skipped' | 'unknown' },
-): ReceiptPart | null {
-  if (action.status === 'ran')
-    return typeof action.value === 'string' && action.value
-      ? { tone: 'success', text: `✓ ${action.value}` }
-      : null;
-  if (action.status === 'failed') {
-    const [reason = ''] = action.reason.split('\n');
-    return reason.startsWith(FAILURE_PREFIX)
-      ? { tone: 'problem', text: `✗ ${reason}` }
-      : null;
-  }
+export function actionReceiptPart(action: ActionStatus): ReceiptPart | null {
+  const receipt = readActionReceipt(action);
+  if (receipt.kind === 'done') return successPart(receipt.text);
+  if (receipt.kind === 'failed' && receipt.text !== null)
+    return problemPart(receipt.text);
   return null;
+}
+
+/** The receipt part for a handler result, read the way a request outcome records it. */
+export function resultReceiptPart(result: ActionResult): ReceiptPart | null {
+  return actionReceiptPart(
+    result.ok
+      ? { status: 'ran', value: result.value }
+      : { status: 'failed', reason: result.error.message },
+  );
+}
+
+/** A successful handler result whose value is the receipt text. */
+export function receiptResult(text: string) {
+  return ok(text);
+}
+
+/**
+ * A failed handler result. The receipt text, starting with "Couldn't", is the
+ * first line of the error. Planner guidance follows on the next line.
+ */
+export function failureResult(text: string, plannerMessage?: string) {
+  return err(
+    new Error(
+      plannerMessage === undefined ? text : `${text}\n${plannerMessage}`,
+    ),
+  );
+}
+
+/** The receipt text of a handler value, or null when the value is not one. */
+export function receiptText(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
+/** The receipt text of a failure reason, or null when it has none for the person. */
+export function failureReceipt(reason: string): string | null {
+  const firstLine = reason.split('\n', 1)[0] ?? '';
+  return firstLine.startsWith(FAILURE_PREFIX) ? firstLine : null;
+}
+
+export function successPart(text: string): ReceiptPart {
+  return { tone: 'success', text: `✓ ${text}` };
+}
+
+export function problemPart(text: string): ReceiptPart {
+  return { tone: 'problem', text: `✗ ${text}` };
+}
+
+export function joinReceiptParts(parts: readonly ReceiptPart[]): string {
+  return parts.map((part) => part.text).join(RECEIPT_SEPARATOR);
 }
 
 /** Whether a request has settled, so its receipt can replace the previous one. */
@@ -96,15 +104,5 @@ export function isSettledOutcome(outcome: RequestOutcome): boolean {
   return outcome.status !== 'queued' && outcome.status !== 'processing';
 }
 
-export function joinReceiptParts(parts: readonly ReceiptPart[]): string {
-  return parts.map((part) => part.text).join(RECEIPT_SEPARATOR);
-}
-
-function isUnconfirmed(action: RequestActionOutcome): boolean {
-  if (!LOGGED_DATA_ACTIONS.has(action.action)) return false;
-  return (
-    action.status === 'skipped' ||
-    action.status === 'unknown' ||
-    action.status === 'failed'
-  );
-}
+const RECEIPT_SEPARATOR = ' · ';
+const FAILURE_PREFIX = "Couldn't";

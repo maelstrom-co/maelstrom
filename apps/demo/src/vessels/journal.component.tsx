@@ -3,13 +3,10 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { VesselCard } from '../components/vessel-card';
+import { markClick, withClickReceipts } from '../lib/click-receipt';
 import { ACCENT_HEX, accentAlpha, VESSEL_ACCENTS } from '../lib/design-tokens';
-import {
-  failureResult,
-  markDirectAction,
-  receiptResult,
-} from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import {
   type EntryNotFound,
   entryReferenceLabel,
@@ -71,51 +68,47 @@ export default function JournalComponent({
     });
   }, [entries]);
 
-  m.useActions('journal', instanceId, {
-    createEntry: async ({ title }) => {
-      const { entry } = journalActions.createEntry(title);
-      return receiptResult(
-        `Created journal entry "${entry.title}"`,
-        source('createEntry'),
-      );
-    },
-    openEntry: async ({ title }) => {
-      const result = journalActions.openEntry(title);
-      if (!result.ok) return notFound('openEntry', result);
-      return ok(undefined);
-    },
-    writeContent: async ({ text }) => {
-      const result = journalActions.writeContent(text);
-      if (!result.ok) {
-        return failureResult(
-          "Couldn't write: no journal entry is open",
-          source('writeContent'),
-          'No active journal entry. Call openEntry or createEntry first.',
+  m.useActions(
+    'journal',
+    instanceId,
+    withClickReceipts('journal', {
+      createEntry: async ({ title }) => {
+        const { entry } = journalActions.createEntry(title);
+        return receiptResult(`Created journal entry "${entry.title}"`);
+      },
+      openEntry: async ({ title }) => {
+        const result = journalActions.openEntry(title);
+        if (!result.ok) return notFound(result);
+        return ok(undefined);
+      },
+      writeContent: async ({ text }) => {
+        const result = journalActions.writeContent(text);
+        if (!result.ok) {
+          return failureResult(
+            "Couldn't write: no journal entry is open",
+            'No active journal entry. Call openEntry or createEntry first.',
+          );
+        }
+        return receiptResult(`Wrote to "${result.entry.title}"`);
+      },
+      editEntry: async ({ entry, content }) => {
+        const result = journalActions.setEntryContent(entry, content);
+        if (!result.ok) return notFound(result);
+        return receiptResult(
+          result.changed
+            ? `Updated journal entry "${result.entry.title}"`
+            : `"${result.entry.title}" already had that text`,
         );
-      }
-      return receiptResult(
-        `Wrote to "${result.entry.title}"`,
-        source('writeContent'),
-      );
-    },
-    editEntry: async ({ entry, content }) => {
-      const result = journalActions.setEntryContent(entry, content);
-      if (!result.ok) return notFound('editEntry', result);
-      return receiptResult(
-        result.changed
-          ? `Updated journal entry "${result.entry.title}"`
-          : `"${result.entry.title}" already had that text`,
-        source('editEntry'),
-      );
-    },
-    backToList: async () => {
-      journalActions.backToList();
-      return ok(undefined);
-    },
-  });
+      },
+      backToList: async () => {
+        journalActions.backToList();
+        return ok(undefined);
+      },
+    }),
+  );
 
   const saveEntry = (entry: JournalEntry, content: string) => {
-    markDirectAction(source('editEntry'));
+    markClick(source('editEntry'));
     pendingSaves.current.set(entry.id, content);
     executeAction('editEntry', { entry: entry.id, content });
   };
@@ -340,13 +333,12 @@ function source(action: string) {
   return { vesselId: 'journal', action };
 }
 
-function notFound(action: string, result: EntryNotFound) {
+function notFound(result: EntryNotFound) {
   const available = getJournalSnapshot()
     .entries.map((e) => `"${entryReferenceLabel(e)}"`)
     .join(', ');
   return failureResult(
     `Couldn't find journal entry "${result.query}"`,
-    source(action),
     `No journal entry matches "${result.query}". Available: ${available || 'none'}`,
   );
 }

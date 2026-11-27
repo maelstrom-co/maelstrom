@@ -7,8 +7,8 @@ import {
   CALENDAR_EVENT_ACCENTS,
   VESSEL_ACCENTS,
 } from '../lib/design-tokens';
-import { failureResult, receiptResult } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import {
   type CalendarEvent,
   calendarActions,
@@ -59,18 +59,13 @@ function noMatchMessage(title: string): string {
   return `No event matches "${title}". Available: ${available}`;
 }
 
-function eventNotFound(action: string, title: string) {
-  return failureResult(
-    `Couldn't find event "${title}"`,
-    { vesselId: 'calendar', action },
-    noMatchMessage(title),
-  );
+function eventNotFound(title: string) {
+  return failureResult(`Couldn't find event "${title}"`, noMatchMessage(title));
 }
 
-function eventAmbiguous(action: string, title: string, message: string) {
+function eventAmbiguous(title: string, message: string) {
   return failureResult(
     `Couldn't pick event "${title}": more than one event matches`,
-    { vesselId: 'calendar', action },
     message,
   );
 }
@@ -128,42 +123,35 @@ export default function CalendarComponent({
       const added = getCalendarSnapshot().events.at(-1);
       return receiptResult(
         `Added event "${added?.title ?? title}" at ${added?.time ?? time}`,
-        { vesselId: 'calendar', action: 'addEvent' },
       );
     },
     removeEvent: async ({ title }) => {
       const match = resolveCalendarEvent(title);
       if (match.kind === 'ambiguous') {
-        return eventAmbiguous('removeEvent', title, match.message);
+        return eventAmbiguous(title, match.message);
       }
       if (
         match.kind !== 'found' ||
         !calendarActions.removeEvent(match.item.id)
       ) {
-        return eventNotFound('removeEvent', title);
+        return eventNotFound(title);
       }
-      return receiptResult(`Removed event "${match.item.title}"`, {
-        vesselId: 'calendar',
-        action: 'removeEvent',
-      });
+      return receiptResult(`Removed event "${match.item.title}"`);
     },
     moveEvent: async ({ title, time }) => {
       const match = resolveCalendarEvent(title);
       if (match.kind === 'ambiguous') {
-        return eventAmbiguous('moveEvent', title, match.message);
+        return eventAmbiguous(title, match.message);
       }
       if (
         match.kind !== 'found' ||
         !calendarActions.moveEvent(match.item.id, time)
       ) {
-        return eventNotFound('moveEvent', title);
+        return eventNotFound(title);
       }
       const { item } = match;
       const moved = getCalendarSnapshot().events.find((e) => e.id === item.id);
-      return receiptResult(`Moved "${item.title}" to ${moved?.time ?? time}`, {
-        vesselId: 'calendar',
-        action: 'moveEvent',
-      });
+      return receiptResult(`Moved "${item.title}" to ${moved?.time ?? time}`);
     },
   });
 

@@ -1,5 +1,16 @@
-import type { RequestActionOutcome, RequestOutcome } from '@maelstrom-co/react';
+import type {
+  ActionResult,
+  RequestActionOutcome,
+  RequestOutcome,
+} from '@maelstrom-co/react';
 
+import {
+  failureReceipt,
+  problemPart,
+  readActionReceipt,
+  type ReceiptPart,
+  resultReceiptPart,
+} from '../lib/request-receipt';
 import { FEEDBACK_CHARACTER_LIMIT } from './stores/feedback.store';
 import { isTaskStatus, TASK_STATUS_NAMES } from './stores/project-tasks.store';
 
@@ -27,11 +38,6 @@ export interface ChangeDescription {
   readonly subject: string;
   /** Kind-specific detail: parent title (null for top level), assignee name, urgency, status, priority position, or "truncated". */
   readonly detail?: string | null;
-}
-
-export interface ReceiptLine {
-  readonly text: string;
-  readonly tone: 'success' | 'problem';
 }
 
 /** Data Actions with the phrase a receipt uses when a planned one is skipped. */
@@ -218,30 +224,24 @@ export function describeChange(change: ChangeDescription): string {
  */
 export function summariseReceipt(
   outcome: RequestOutcome | null | undefined,
-): ReceiptLine | null {
+): ReceiptPart | null {
   if (!outcome) return null;
   const failures: string[] = [];
   const unconfirmed: string[] = [];
   const receipts: { action: RequestActionOutcome; text: string }[] = [];
   for (const action of outcome.actions) {
     const phrase = TASKLANE_DATA_ACTIONS[action.action];
-    switch (action.status) {
-      case 'ran':
-        if (typeof action.value === 'string' && action.value)
-          receipts.push({ action, text: action.value });
-        break;
-      case 'failed': {
-        const text = failureText(action.reason, phrase);
-        if (text) failures.push(`✗ ${text}`);
-        break;
-      }
-      case 'skipped':
-      case 'unknown':
-        if (phrase && !unconfirmed.includes(phrase)) unconfirmed.push(phrase);
-        break;
-      case 'pending':
-        break;
-    }
+    const receipt = readActionReceipt(action);
+    if (receipt.kind === 'done') receipts.push({ action, text: receipt.text });
+    else if (receipt.kind === 'failed') {
+      const text = receipt.text ?? phraseFailure(phrase);
+      if (text) failures.push(`✗ ${text}`);
+    } else if (
+      receipt.kind === 'unconfirmed' &&
+      phrase &&
+      !unconfirmed.includes(phrase)
+    )
+      unconfirmed.push(phrase);
   }
   // An unknown outcome may have taken effect, so it is never shown as failed.
   if (outcome.actions.length === 0) {
@@ -264,14 +264,19 @@ export function summariseReceipt(
   };
 }
 
-/** The receipt line for one Action's failure reason, or null when it has none for the person. */
-export function failureText(
-  reason: string,
-  phrase: string | undefined,
-): string | null {
-  const firstLine = reason.split('\n', 1)[0] ?? '';
-  if (firstLine.startsWith("Couldn't")) return firstLine;
-  return phrase ? `Couldn't ${phrase}` : null;
+/**
+ * The receipt part of a clicked Tasklane Action. A data Action that failed
+ * without a reason for the person is named by its phrase.
+ */
+export function tasklaneClickReceipt(
+  action: string,
+  result: ActionResult,
+): ReceiptPart | null {
+  if (result.ok) return resultReceiptPart(result);
+  const text =
+    failureReceipt(result.error.message) ??
+    phraseFailure(TASKLANE_DATA_ACTIONS[action]);
+  return text ? problemPart(text) : null;
 }
 
 function groupReceipts(
@@ -345,4 +350,8 @@ function statusPhrase(status: string | null | undefined): string {
   return isTaskStatus(status)
     ? TASK_STATUS_NAMES[status].toLowerCase()
     : String(status);
+}
+
+function phraseFailure(phrase: string | undefined): string | null {
+  return phrase ? `Couldn't ${phrase}` : null;
 }

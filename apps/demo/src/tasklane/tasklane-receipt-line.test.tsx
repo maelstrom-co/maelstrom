@@ -39,12 +39,12 @@ vi.mock('./maelstrom', () => ({
   },
 }));
 
-const { __resetManualReceiptForTests, withManualReceipt, withManualReceipts } =
-  await import('./manual-receipt');
+const { __resetClickReceiptsForTests, withClickMarks, withClickReceipts } =
+  await import('../lib/click-receipt');
 const { TasklaneReceiptLine } = await import('./tasklane-receipt-line');
 
 beforeEach(() => {
-  __resetManualReceiptForTests();
+  __resetClickReceiptsForTests();
   requests.state = { outcomes: {}, latestId: null };
   store = requestStore();
   // The band is absent while requests settle, as an Orchestrator's own watch would see them.
@@ -102,9 +102,11 @@ function requestStore(): RequestOutcomeView['store'] {
 }
 
 async function click(receipt: string): Promise<void> {
-  const handlers = withManualReceipts({ assignTask: async () => ok(receipt) });
+  const handlers = withClickReceipts('project-tasks', {
+    assignTask: async () => ok(receipt),
+  });
   let run: Promise<unknown> = Promise.resolve();
-  withManualReceipt((name: string) => {
+  withClickMarks('project-tasks', (name: string) => {
     run = handlers[name as 'assignTask']();
   })('assignTask');
   await run;

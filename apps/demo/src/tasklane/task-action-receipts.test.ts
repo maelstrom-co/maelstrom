@@ -2,6 +2,7 @@ import { ActionName, InstanceId } from '@maelstrom-co/protocol';
 import type { ActionResult } from '@maelstrom-co/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { ReceiptPart } from '../lib/request-receipt';
 import {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -21,7 +22,7 @@ import {
   reportShowTask,
   reportTaskChange,
 } from './task-action-receipts';
-import { type ReceiptLine, summariseReceipt } from './tasklane-activity';
+import { summariseReceipt } from './tasklane-activity';
 
 beforeEach(() => {
   __resetProjectTasksStoreForTests();
@@ -194,7 +195,7 @@ describe('due date receipts', () => {
   });
 });
 
-function receiptOf(action: string, result: ActionResult): ReceiptLine | null {
+function receiptOf(action: string, result: ActionResult): ReceiptPart | null {
   const target = {
     instanceId: InstanceId('project-tasks-main'),
     action: ActionName(action),

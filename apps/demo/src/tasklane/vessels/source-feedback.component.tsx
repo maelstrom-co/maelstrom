@@ -1,9 +1,9 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
-import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { plural } from '../plural';
 import {
   type FeedbackAttribution,
@@ -19,6 +19,7 @@ import {
 } from '../stores/feedback.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
@@ -26,7 +27,7 @@ export default function SourceFeedbackComponent({
   instanceId,
   executeAction: executeVesselAction,
 }: TypedVesselProps<typeof sourceFeedbackVessel>) {
-  const executeAction = withManualReceipt(executeVesselAction);
+  const executeAction = withClickMarks('source-feedback', executeVesselAction);
   const { text, truncated } = useFeedbackStore();
   const { tasks, removedSourceFeedback } = useProjectTasksStore();
   const [draft, setDraft] = useState<string | null>(null);
@@ -36,10 +37,14 @@ export default function SourceFeedbackComponent({
   tasklaneM.useActions(
     'source-feedback',
     instanceId,
-    withManualReceipts({
-      replaceFeedback: async ({ text: next }) =>
-        reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
-    }),
+    withClickReceipts(
+      'source-feedback',
+      {
+        replaceFeedback: async ({ text: next }) =>
+          reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
+      },
+      tasklaneClickReceipt,
+    ),
   );
 
   useEffect(() => {

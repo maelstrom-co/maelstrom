@@ -23,12 +23,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { __resetClickReceiptsForTests } from '../lib/click-receipt';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 import { selectVoiceProvider } from '../lib/voice-provider';
-import { __resetManualReceiptForTests } from './manual-receipt';
 import { __resetBoardFilterStoreForTests } from './stores/board-filter.store';
 import { __resetFeedbackStoreForTests } from './stores/feedback.store';
 import { __resetFlexibleTableStoreForTests } from './stores/flexible-table.store';
@@ -325,5 +325,5 @@ function resetStores(): void {
   __resetFlexibleTableStoreForTests();
   __resetProjectTasksStoreForTests();
   __resetTaskDetailStoreForTests();
-  __resetManualReceiptForTests();
+  __resetClickReceiptsForTests();
 }

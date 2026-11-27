@@ -1,9 +1,12 @@
+import type { ActionResult } from '@maelstrom-co/react';
+
 import {
-  __resetDirectActionReceiptForTests,
-  getDirectReceipt,
+  __resetClickReceiptsForTests,
+  getClickReceipt,
+  newerClickReceipt,
   nextReceiptOrder,
-} from '../direct-action-receipt';
-import { actionReceiptPart } from '../request-receipt';
+} from '../click-receipt';
+import { resultReceiptPart } from '../request-receipt';
 
 interface HandlerResult {
   readonly ok: boolean;
@@ -19,26 +22,25 @@ let invoked: { text: string; order: number } | null = null;
  */
 export function recordRequestResult(result: HandlerResult | undefined): void {
   if (!result) return;
-  const part = actionReceiptPart(
-    result.ok
-      ? {
-          status: 'ran',
-          ...(result.value === undefined ? {} : { value: result.value }),
-        }
-      : { status: 'failed', reason: result.error?.message ?? '' },
+  const part = resultReceiptPart(
+    (result.ok
+      ? { ok: true, value: result.value }
+      : {
+          ok: false,
+          error: result.error ?? new Error(''),
+        }) as ActionResult,
   );
   invoked = { text: part?.text ?? '', order: nextReceiptOrder() };
 }
 
-/** The receipt line text: the newer of the last request result and direct click. */
+/** The receipt line text: the newer of the last request result and click. */
 export function latestReceiptText(): string {
-  const direct = getDirectReceipt();
-  if (direct && (!invoked || direct.order > invoked.order))
-    return direct.part.text;
+  const click = newerClickReceipt(getClickReceipt(), invoked?.order);
+  if (click) return click.part?.text ?? '';
   return invoked?.text ?? '';
 }
 
 export function resetHandlerReceipts(): void {
   invoked = null;
-  __resetDirectActionReceiptForTests();
+  __resetClickReceiptsForTests();
 }

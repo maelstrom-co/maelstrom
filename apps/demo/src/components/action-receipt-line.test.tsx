@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { RequestOutcome, RequestOutcomeView } from '@maelstrom-co/client';
+import type { ActionResult } from '@maelstrom-co/react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,17 +25,17 @@ vi.mock('../lib/maelstrom', () => ({
 }));
 
 const {
-  __resetDirectActionReceiptForTests,
-  markDirectAction,
-  failureResult,
-  receiptResult,
+  __resetClickReceiptsForTests,
+  markClick,
   orderSettledRequests,
-} = await import('../lib/direct-action-receipt');
+  withClickReceipts,
+} = await import('../lib/click-receipt');
+const { failureResult, receiptResult } = await import('../lib/request-receipt');
 const { ActionReceiptLine } = await import('./action-receipt-line');
 
 beforeEach(() => {
   setLatest(undefined);
-  __resetDirectActionReceiptForTests();
+  __resetClickReceiptsForTests();
 });
 
 afterEach(cleanup);
@@ -134,16 +135,18 @@ describe('ActionReceiptLine', () => {
     expect(problem.getAttribute('data-tone')).toBe('problem');
   });
 
-  it('shows a direct click newer than the latest request, and the next request after it', () => {
+  it('shows a direct click newer than the latest request, and the next request after it', async () => {
     render(<ActionReceiptLine />);
     act(() => {
       setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
     });
-    act(() => {
-      const source = { vesselId: 'tasks', action: 'checkTask' };
-      markDirectAction(source);
-      receiptResult('Checked task "Ship this sprint"', source);
-    });
+    await act(() =>
+      click(
+        'tasks',
+        'checkTask',
+        receiptResult('Checked task "Ship this sprint"'),
+      ),
+    );
     const band = screen.getByTestId('action-receipt-line');
     expect(band.textContent).toBe('✓ Checked task "Ship this sprint"');
     act(() => {
@@ -152,16 +155,18 @@ describe('ActionReceiptLine', () => {
     expect(band.textContent).toBe('✓ Added "B"');
   });
 
-  it('keeps a newer direct click over the request after a remount', () => {
+  it('keeps a newer direct click over the request after a remount', async () => {
     const first = render(<ActionReceiptLine />);
     act(() => {
       setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
     });
-    act(() => {
-      const source = { vesselId: 'tasks', action: 'checkTask' };
-      markDirectAction(source);
-      receiptResult('Checked task "Ship this sprint"', source);
-    });
+    await act(() =>
+      click(
+        'tasks',
+        'checkTask',
+        receiptResult('Checked task "Ship this sprint"'),
+      ),
+    );
     first.unmount();
     render(<ActionReceiptLine />);
     expect(screen.getByTestId('action-receipt-line').textContent).toBe(
@@ -169,12 +174,14 @@ describe('ActionReceiptLine', () => {
     );
   });
 
-  it('orders a request by when it settled, not by when the line first rendered it', () => {
+  it('orders a request by when it settled, not by when the line first rendered it', async () => {
     const stop = orderSettledRequests(outcomeStore());
     setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
-    const source = { vesselId: 'tasks', action: 'checkTask' };
-    markDirectAction(source);
-    receiptResult('Checked task "Ship this sprint"', source);
+    await click(
+      'tasks',
+      'checkTask',
+      receiptResult('Checked task "Ship this sprint"'),
+    );
     render(<ActionReceiptLine />);
     const band = screen.getByTestId('action-receipt-line');
     expect(band.textContent).toBe('✓ Checked task "Ship this sprint"');
@@ -185,13 +192,15 @@ describe('ActionReceiptLine', () => {
     stop();
   });
 
-  it('marks a failed direct click with the problem tone', () => {
+  it('marks a failed direct click with the problem tone', async () => {
     render(<ActionReceiptLine />);
-    act(() => {
-      const source = { vesselId: 'journal', action: 'editEntry' };
-      markDirectAction(source);
-      failureResult('Couldn\'t find journal entry "Gym log"', source, 'x');
-    });
+    await act(() =>
+      click(
+        'journal',
+        'editEntry',
+        failureResult('Couldn\'t find journal entry "Gym log"', 'x'),
+      ),
+    );
     const problem = screen.getByText(
       '✗ Couldn\'t find journal entry "Gym log"',
     );
@@ -214,6 +223,17 @@ describe('ActionReceiptLine', () => {
     expect(band.classList.contains('h-6')).toBe(true);
   });
 });
+
+async function click(
+  vesselId: string,
+  action: string,
+  result: ActionResult,
+): Promise<void> {
+  markClick({ vesselId, action });
+  await withClickReceipts(vesselId, { [action]: async () => result })[
+    action
+  ]?.();
+}
 
 function outcomeStore(): RequestOutcomeView['store'] {
   return {

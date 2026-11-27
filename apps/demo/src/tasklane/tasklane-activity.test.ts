@@ -1,4 +1,4 @@
-import { ActionName, InstanceId } from '@maelstrom-co/protocol';
+import { ActionName, err, InstanceId, ok } from '@maelstrom-co/protocol';
 import type { RequestActionOutcome, RequestOutcome } from '@maelstrom-co/react';
 import { describe, expect, it } from 'vitest';
 
@@ -6,6 +6,7 @@ import {
   type ChangeDescription,
   describeChange,
   summariseReceipt,
+  tasklaneClickReceipt,
 } from './tasklane-activity';
 
 describe('change notes', () => {
@@ -300,20 +301,6 @@ describe('request receipts', () => {
     });
   });
 
-  it('counts an Action that ran without a value as confirmed without a receipt part', () => {
-    expect(
-      summariseReceipt(outcome([ran('addToMyPriorities', { task: 'TL-1' })])),
-    ).toBeNull();
-  });
-
-  it('shows no receipt part for a value that is not text', () => {
-    expect(
-      summariseReceipt(
-        outcome([ran('setUrgency', { task: 'TL-1' }, { urgency: 'high' })]),
-      ),
-    ).toBeNull();
-  });
-
   it('shows no line for a layout-only request', () => {
     expect(summariseReceipt(outcome([]))).toBeNull();
   });
@@ -348,6 +335,32 @@ describe('request receipts', () => {
       text: '? Not confirmed: the request',
       tone: 'problem',
     });
+  });
+});
+
+describe('click receipts', () => {
+  it('names a clicked data Action that failed without a reason for the person by its phrase', () => {
+    expect(
+      tasklaneClickReceipt('assignTask', err(new Error('Handler timed out'))),
+    ).toEqual({ text: "✗ Couldn't assign a task", tone: 'problem' });
+    expect(
+      tasklaneClickReceipt('showSomething', err(new Error('boom'))),
+    ).toBeNull();
+  });
+
+  it('keeps the handler receipt of a clicked Action', () => {
+    expect(
+      tasklaneClickReceipt(
+        'removeTask',
+        err(new Error('Couldn\'t find a task matching "Ghost"\nUse TL-1.')),
+      ),
+    ).toEqual({
+      text: '✗ Couldn\'t find a task matching "Ghost"',
+      tone: 'problem',
+    });
+    expect(
+      tasklaneClickReceipt('assignTask', ok('Reassigned "A" to Alex')),
+    ).toEqual({ text: '✓ Reassigned "A" to Alex', tone: 'success' });
   });
 });
 

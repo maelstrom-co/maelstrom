@@ -71,8 +71,8 @@ const TeamLoadComponent = (await import('./team-load.component')).default;
 const TriageInboxComponent = (await import('./triage-inbox.component')).default;
 const ProjectPulseComponent = (await import('./project-pulse.component'))
   .default;
-const { __resetManualReceiptForTests, getManualReceipt } =
-  await import('../manual-receipt');
+const { __resetClickReceiptsForTests, getClickReceipt } =
+  await import('../../lib/click-receipt');
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -90,7 +90,7 @@ beforeEach(() => {
   __resetFeedbackStoreForTests();
   __resetTaskDetailStoreForTests();
   __resetBoardFilterStoreForTests();
-  __resetManualReceiptForTests();
+  __resetClickReceiptsForTests();
 });
 
 afterEach(cleanup);
@@ -370,7 +370,7 @@ describe('Tasks Vessel by hand', () => {
       'Due 2026-05-01',
     );
     await waitFor(() =>
-      expect(getManualReceipt()?.line?.text).toBe(
+      expect(getClickReceipt()?.part?.text).toBe(
         '✓ Set "Record launch video" due 2026-05-01',
       ),
     );
@@ -961,7 +961,7 @@ describe('Triage inbox Vessel', () => {
     });
     expect(getProjectTasksSnapshot().tasks.at(-1)?.assigneeId).toBe('sam');
     await waitFor(() =>
-      expect(getManualReceipt()?.line?.text).toBe(
+      expect(getClickReceipt()?.part?.text).toBe(
         '✓ Assigned "Unowned child" to Sam',
       ),
     );

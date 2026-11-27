@@ -1,5 +1,6 @@
-import { err, ok } from '@maelstrom-co/protocol';
+import { ok } from '@maelstrom-co/protocol';
 
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import { type BoardFilterResult, EVERYONE } from './stores/board-filter.store';
 import type { FeedbackMutationResult } from './stores/feedback.store';
 import {
@@ -89,7 +90,7 @@ export function reportShowTask(result: OpenTaskDetailResult) {
 /** Filtering changes no data, so only a failure reaches the receipt line. */
 export function reportBoardFilter(result: BoardFilterResult) {
   if (result.ok) return ok(undefined);
-  return failWith(
+  return failureResult(
     `Couldn't find a team member called "${result.query}"`,
     `No team member matches "${result.query}". Use ${describeTeamMembers()}, or ${EVERYONE} to clear the filter.`,
   );
@@ -97,7 +98,7 @@ export function reportBoardFilter(result: BoardFilterResult) {
 
 export function reportReplaceFeedback(result: FeedbackMutationResult) {
   if (!result.ok)
-    return failWith(
+    return failureResult(
       "Couldn't replace the feedback with empty text",
       'Feedback text cannot be empty.',
     );
@@ -146,18 +147,14 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
 }
 
 function fail(action: string, failure: TaskFailure) {
-  return failWith(
+  return failureResult(
     failureReceipt(action, failure),
     describeTaskFailure(failure),
   );
 }
 
-function failWith(receipt: string, guidance: string) {
-  return err(new Error(`${receipt}\n${guidance}`));
-}
-
 function changed(change: ChangeDescription) {
-  return ok(describeChange(change));
+  return receiptResult(describeChange(change));
 }
 
 function describeTaskChange(

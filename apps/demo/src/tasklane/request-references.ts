@@ -10,7 +10,7 @@ import type {
 import { useStore } from '@tanstack/react-store';
 import { useEffect } from 'react';
 
-import { nextReceiptSequence } from './manual-receipt';
+import { nextReceiptOrder } from '../lib/click-receipt';
 import { rememberRequestReferences } from './stores/project-tasks.store';
 import { summariseReceipt } from './tasklane-activity';
 
@@ -19,7 +19,7 @@ export interface TasklaneRequestReferences {
   useRequestReferences: () => void;
   /** Ticket id of the request the receipt line describes, or null before one started. */
   useReceiptRequestId: () => string | null;
-  /** Sequence of the request receipt's last change, comparable with a manual receipt's sequence. */
+  /** Sequence of the request receipt's last change, comparable with a click receipt's order. */
   useRequestReceiptSequence: () => number;
 }
 
@@ -45,7 +45,7 @@ export const tasklaneRequestReferences: MaelstromExtension<
 
 /**
  * Sequence of the last change to the request receipt, taken from the counter
- * manual receipts use. The store is watched from the moment its Orchestrator
+ * click receipts use. The store is watched from the moment its Orchestrator
  * exists, so the sequence records when the receipt changed, not when the band
  * rendered it.
  */
@@ -61,7 +61,7 @@ export function requestReceiptSequence(
   const key = receiptKey(id === null ? undefined : store.state.outcomes[id]);
   if (key !== clock.key) {
     clock.key = key;
-    clock.sequence = nextReceiptSequence();
+    clock.sequence = nextReceiptOrder();
   }
   return clock.sequence;
 }

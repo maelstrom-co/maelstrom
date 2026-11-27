@@ -7,8 +7,8 @@ import {
   useState,
 } from 'react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
-import { withManualReceipt, withManualReceipts } from '../manual-receipt';
 import { AssigneeSelect, PersonChip } from '../person-chip';
 import { plural } from '../plural';
 import {
@@ -38,6 +38,7 @@ import {
   reportRemoveTask,
   reportTaskChange,
 } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { projectTasksVessel } from './project-tasks.vessel';
 
@@ -56,7 +57,7 @@ export default function ProjectTasksComponent({
   variantProps,
   executeAction: executeVesselAction,
 }: TypedVesselProps<typeof projectTasksVessel>) {
-  const executeAction = withManualReceipt(executeVesselAction);
+  const executeAction = withClickMarks('project-tasks', executeVesselAction);
   const { project, tasks, myPriorities } = useProjectTasksStore();
   const { assigneeFilter } = useBoardFilterStore();
   const [draft, setDraft] = useState<TaskDraft | null>(null);
@@ -67,70 +68,74 @@ export default function ProjectTasksComponent({
   tasklaneM.useActions(
     'project-tasks',
     instanceId,
-    withManualReceipts({
-      createTask: async ({
-        title,
-        description,
-        parent,
-        assignee,
-        urgency,
-        source,
-      }) =>
-        reportCreateTask(
-          projectTaskActions.createTask({
-            title,
-            description,
-            parent,
-            assignee,
-            urgency,
-            source,
-          }),
-        ),
-      updateTask: async ({ task, title, description }) =>
-        reportTaskChange(
-          'updateTask',
-          projectTaskActions.updateTask(task, { title, description }),
-        ),
-      setParent: async ({ task, parent }) =>
-        reportTaskChange(
-          'setParent',
-          projectTaskActions.setParent(task, parent),
-        ),
-      assignTask: async ({ task, assignee }) =>
-        reportTaskChange(
-          'assignTask',
-          projectTaskActions.assignTask(task, assignee),
-        ),
-      setUrgency: async ({ task, urgency }) =>
-        reportTaskChange(
-          'setUrgency',
-          projectTaskActions.setUrgency(task, urgency),
-        ),
-      setStatus: async ({ task, status }) =>
-        reportTaskChange(
-          'setStatus',
-          projectTaskActions.setStatus(task, status),
-        ),
-      setDueDate: async ({ task, dueDate }) =>
-        reportTaskChange(
-          'setDueDate',
-          projectTaskActions.setDueDate(task, dueDate),
-        ),
-      addToMyPriorities: async ({ task, position }) =>
-        reportPriorityChange(
-          'addToMyPriorities',
-          projectTaskActions.addToMyPriorities(task, position),
-        ),
-      removeFromMyPriorities: async ({ task }) =>
-        reportPriorityChange(
-          'removeFromMyPriorities',
-          projectTaskActions.removeFromMyPriorities(task),
-        ),
-      removeTask: async ({ task }) =>
-        reportRemoveTask(projectTaskActions.removeTask(task)),
-      filterByAssignee: async ({ assignee }) =>
-        reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
-    }),
+    withClickReceipts(
+      'project-tasks',
+      {
+        createTask: async ({
+          title,
+          description,
+          parent,
+          assignee,
+          urgency,
+          source,
+        }) =>
+          reportCreateTask(
+            projectTaskActions.createTask({
+              title,
+              description,
+              parent,
+              assignee,
+              urgency,
+              source,
+            }),
+          ),
+        updateTask: async ({ task, title, description }) =>
+          reportTaskChange(
+            'updateTask',
+            projectTaskActions.updateTask(task, { title, description }),
+          ),
+        setParent: async ({ task, parent }) =>
+          reportTaskChange(
+            'setParent',
+            projectTaskActions.setParent(task, parent),
+          ),
+        assignTask: async ({ task, assignee }) =>
+          reportTaskChange(
+            'assignTask',
+            projectTaskActions.assignTask(task, assignee),
+          ),
+        setUrgency: async ({ task, urgency }) =>
+          reportTaskChange(
+            'setUrgency',
+            projectTaskActions.setUrgency(task, urgency),
+          ),
+        setStatus: async ({ task, status }) =>
+          reportTaskChange(
+            'setStatus',
+            projectTaskActions.setStatus(task, status),
+          ),
+        setDueDate: async ({ task, dueDate }) =>
+          reportTaskChange(
+            'setDueDate',
+            projectTaskActions.setDueDate(task, dueDate),
+          ),
+        addToMyPriorities: async ({ task, position }) =>
+          reportPriorityChange(
+            'addToMyPriorities',
+            projectTaskActions.addToMyPriorities(task, position),
+          ),
+        removeFromMyPriorities: async ({ task }) =>
+          reportPriorityChange(
+            'removeFromMyPriorities',
+            projectTaskActions.removeFromMyPriorities(task),
+          ),
+        removeTask: async ({ task }) =>
+          reportRemoveTask(projectTaskActions.removeTask(task)),
+        filterByAssignee: async ({ assignee }) =>
+          reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
+      },
+      tasklaneClickReceipt,
+    ),
   );
 
   useEffect(() => {

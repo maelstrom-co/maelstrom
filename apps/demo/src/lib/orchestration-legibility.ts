@@ -6,7 +6,7 @@ import type {
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useSyncExternalStore } from 'react';
 
-import { orderSettledRequests } from './direct-action-receipt';
+import { orderSettledRequests } from './click-receipt';
 import {
   DEFAULT_CLEAR_AFTER_MS,
   useTouchedInstances,

@@ -15,7 +15,7 @@ import {
   recordRequestResult,
   resetHandlerReceipts,
 } from '../lib/__tests__/handler-receipts';
-import { getDirectReceipt } from '../lib/direct-action-receipt';
+import { getClickReceipt } from '../lib/click-receipt';
 import { tasksVessel } from './tasks.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
@@ -198,14 +198,14 @@ describe('TasksComponent checkboxes', () => {
         screen.getByRole('checkbox', { name: 'Check prototype' }),
       );
     });
-    expect(getDirectReceipt()?.part.text).toBe(
+    expect(getClickReceipt()?.part?.text).toBe(
       '✓ Checked subtask "Check prototype"',
     );
     expect(receipt()).toBe('✓ Checked subtask "Check prototype"');
 
-    const direct = getDirectReceipt();
+    const direct = getClickReceipt();
     await invoke('uncheckSubtask', { subtask: 'T-4.1' });
-    expect(getDirectReceipt()).toBe(direct);
+    expect(getClickReceipt()).toBe(direct);
     expect(receipt()).toBe('✓ Unchecked subtask "Check prototype"');
   });
 

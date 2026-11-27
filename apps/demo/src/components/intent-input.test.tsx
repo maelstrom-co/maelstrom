@@ -28,7 +28,7 @@ import {
 import { StrictMode, useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { __resetDirectActionReceiptForTests } from '../lib/direct-action-receipt';
+import { __resetClickReceiptsForTests } from '../lib/click-receipt';
 import { orchestrationLegibility } from '../lib/orchestration-legibility';
 import {
   clearPlaygroundKey,
@@ -73,7 +73,7 @@ const { IntentInput } = await import('./intent-input');
 
 afterEach(() => {
   cleanup();
-  __resetDirectActionReceiptForTests();
+  __resetClickReceiptsForTests();
   voiceState = 'idle';
   clearPlaygroundKey();
   vi.useRealTimers();

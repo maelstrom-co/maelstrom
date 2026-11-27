@@ -2,14 +2,11 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Check } from 'lucide-react';
 
 import { VesselCard } from '../components/vessel-card';
+import { markClick, withClickReceipts } from '../lib/click-receipt';
 import { cn } from '../lib/cn';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import {
-  failureResult,
-  markDirectAction,
-  receiptResult,
-} from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import {
   getTasksSnapshot,
   type SubtaskChange,
@@ -26,55 +23,55 @@ export default function TasksComponent({
 }: TypedVesselProps<typeof tasksVessel>) {
   const { tasks } = useTasksStore();
 
-  m.useActions('tasks', instanceId, {
-    addTask: async ({ title, subtasks }) => {
-      const result = tasksActions.addTask(title, splitSubtaskTitles(subtasks));
-      return receiptResult(
-        describeAddedTask(result.task.title, result.task.subtasks.length),
-        source('addTask'),
-      );
-    },
-    removeTask: async ({ task }) =>
-      taskOutcome(
-        'removeTask',
-        tasksActions.removeTask(task),
-        (changed) => `Removed task "${changed.title}"`,
-      ),
-    checkTask: async ({ task }) =>
-      taskOutcome(
-        'checkTask',
-        tasksActions.setTaskDone(task, true),
-        (changed) => `Checked task "${changed.title}"`,
-      ),
-    uncheckTask: async ({ task }) =>
-      taskOutcome(
-        'uncheckTask',
-        tasksActions.setTaskDone(task, false),
-        (changed) => `Unchecked task "${changed.title}"`,
-      ),
-    addSubtask: async ({ task, subtaskTitle }) =>
-      subtaskOutcome(
-        'addSubtask',
-        'task',
-        tasksActions.addSubtask(task, subtaskTitle),
-        (result) =>
-          `Added subtask "${result.subtask.title}" to "${result.task.title}"`,
-      ),
-    checkSubtask: async ({ subtask }) =>
-      subtaskOutcome(
-        'checkSubtask',
-        'subtask',
-        tasksActions.setSubtaskDone(subtask, true),
-        (result) => `Checked subtask "${result.subtask.title}"`,
-      ),
-    uncheckSubtask: async ({ subtask }) =>
-      subtaskOutcome(
-        'uncheckSubtask',
-        'subtask',
-        tasksActions.setSubtaskDone(subtask, false),
-        (result) => `Unchecked subtask "${result.subtask.title}"`,
-      ),
-  });
+  m.useActions(
+    'tasks',
+    instanceId,
+    withClickReceipts('tasks', {
+      addTask: async ({ title, subtasks }) => {
+        const result = tasksActions.addTask(
+          title,
+          splitSubtaskTitles(subtasks),
+        );
+        return receiptResult(
+          describeAddedTask(result.task.title, result.task.subtasks.length),
+        );
+      },
+      removeTask: async ({ task }) =>
+        taskOutcome(
+          tasksActions.removeTask(task),
+          (changed) => `Removed task "${changed.title}"`,
+        ),
+      checkTask: async ({ task }) =>
+        taskOutcome(
+          tasksActions.setTaskDone(task, true),
+          (changed) => `Checked task "${changed.title}"`,
+        ),
+      uncheckTask: async ({ task }) =>
+        taskOutcome(
+          tasksActions.setTaskDone(task, false),
+          (changed) => `Unchecked task "${changed.title}"`,
+        ),
+      addSubtask: async ({ task, subtaskTitle }) =>
+        subtaskOutcome(
+          'task',
+          tasksActions.addSubtask(task, subtaskTitle),
+          (result) =>
+            `Added subtask "${result.subtask.title}" to "${result.task.title}"`,
+        ),
+      checkSubtask: async ({ subtask }) =>
+        subtaskOutcome(
+          'subtask',
+          tasksActions.setSubtaskDone(subtask, true),
+          (result) => `Checked subtask "${result.subtask.title}"`,
+        ),
+      uncheckSubtask: async ({ subtask }) =>
+        subtaskOutcome(
+          'subtask',
+          tasksActions.setSubtaskDone(subtask, false),
+          (result) => `Unchecked subtask "${result.subtask.title}"`,
+        ),
+    }),
+  );
 
   const allItems = tasks.flatMap((t) => [t, ...t.subtasks]);
   const doneCount = allItems.filter((t) => t.done).length;
@@ -109,7 +106,7 @@ export default function TasksComponent({
                   done={task.done}
                   onToggle={() => {
                     const action = task.done ? 'uncheckTask' : 'checkTask';
-                    markDirectAction(source(action));
+                    markClick(source(action));
                     executeAction(action, { task: task.id });
                   }}
                 />
@@ -139,7 +136,7 @@ export default function TasksComponent({
                           const action = sub.done
                             ? 'uncheckSubtask'
                             : 'checkSubtask';
-                          markDirectAction(source(action));
+                          markClick(source(action));
                           executeAction(action, { subtask: sub.id });
                         }}
                       />
@@ -218,19 +215,16 @@ function splitSubtaskTitles(subtasks: string | undefined): string[] {
 }
 
 function taskOutcome(
-  action: string,
   result: TaskChange,
   describe: (task: { title: string }) => string,
 ) {
-  if (!result.ok) return notFound(action, 'task', result.query);
+  if (!result.ok) return notFound('task', result.query);
   return receiptResult(
     result.changed ? describe(result.task) : alreadyText(result.task),
-    source(action),
   );
 }
 
 function subtaskOutcome(
-  action: string,
   kind: 'task' | 'subtask',
   result: SubtaskChange,
   describe: (result: Extract<SubtaskChange, { ok: true }>) => string,
@@ -238,14 +232,12 @@ function subtaskOutcome(
   if (!result.ok && result.reason === 'blank_title') {
     return failureResult(
       "Couldn't add a subtask without a title",
-      source(action),
       'subtaskTitle must not be blank',
     );
   }
-  if (!result.ok) return notFound(action, kind, result.query);
+  if (!result.ok) return notFound(kind, result.query);
   return receiptResult(
     result.changed ? describe(result) : alreadyText(result.subtask),
-    source(action),
   );
 }
 
@@ -253,7 +245,7 @@ function alreadyText(item: { title: string; done: boolean }): string {
   return `"${item.title}" was already ${item.done ? 'done' : 'open'}`;
 }
 
-function notFound(action: string, kind: 'task' | 'subtask', query: string) {
+function notFound(kind: 'task' | 'subtask', query: string) {
   const { tasks } = getTasksSnapshot();
   const references =
     kind === 'task'
@@ -263,7 +255,6 @@ function notFound(action: string, kind: 'task' | 'subtask', query: string) {
     references.length > 0 ? references.map((r) => `"${r}"`).join(', ') : 'none';
   return failureResult(
     `Couldn't find ${kind} "${query}"`,
-    source(action),
     `No ${kind} matches "${query}". Available: ${available}`,
   );
 }
