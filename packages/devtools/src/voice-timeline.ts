@@ -455,7 +455,7 @@ export function isUserSpeechSpan(event: PanelEvent): boolean {
   const duration = event.metadata.durationMs;
   return (
     event.kind === 'voice.media' &&
-    event.metadata.userSpeech !== 'active' &&
+    event.metadata.userSpeech === 'inactive' &&
     typeof duration === 'number' &&
     Number.isFinite(duration) &&
     duration >= 0

@@ -222,9 +222,10 @@ function attachDiagnosticSources(
         speechStartedAt ??= Date.now();
         return {};
       }
-      if (userSpeech === undefined || speechStartedAt === undefined) return {};
+      if (userSpeech === undefined) return {};
       const startedAt = speechStartedAt;
       speechStartedAt = undefined;
+      if (userSpeech !== 'inactive' || startedAt === undefined) return {};
       return {
         userSpeechStartedAt: startedAt,
         durationMs: Math.max(0, Date.now() - startedAt),

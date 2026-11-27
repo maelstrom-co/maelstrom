@@ -205,6 +205,46 @@ test('user speech ending after it was active reports the speech span duration', 
   detach();
 });
 
+test('user speech turning unknown or retracted records no speech span', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(1_500);
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+    now.mockReturnValue(2_000);
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(2_100);
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const media = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata);
+  expect(media.map((metadata) => metadata.userSpeech)).toEqual([
+    'active',
+    'unknown',
+    'inactive',
+    'active',
+    'unknown',
+    'inactive',
+  ]);
+  for (const metadata of media) {
+    expect(metadata.durationMs).toBeUndefined();
+    expect(metadata.userSpeechStartedAt).toBeUndefined();
+  }
+  detach();
+});
+
 test('a speech span left open at disconnect does not carry into the next connection', async () => {
   const h = harness();
   const events: DiagnosticEvent[] = [];

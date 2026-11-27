@@ -1615,7 +1615,13 @@ test('local Live barge-in reports browser VAD user speech as media observations'
     await callbacks.onSpeechEnd();
     await callbacks.onSpeechStart();
     await callbacks.onVADMisfire();
-    expect(speech).toEqual(['active', 'inactive', 'active', 'inactive']);
+    expect(speech).toEqual([
+      'active',
+      'inactive',
+      'active',
+      'unknown',
+      'inactive',
+    ]);
     await h.transport.disconnect();
     await callbacks.onSpeechStart();
     expect(speech.filter((value) => value !== 'unknown')).toEqual([

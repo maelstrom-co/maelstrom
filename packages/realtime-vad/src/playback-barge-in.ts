@@ -21,10 +21,11 @@ export interface PlaybackBargeInOptions {
   readonly onUnavailable: () => void;
   /**
    * Reports local speech boundaries from the microphone detector: `'speaking'`
-   * on onset, `'silent'` on speech end or a short-speech misfire. Never called
-   * after the gate is destroyed or becomes unavailable.
+   * on onset, `'silent'` on speech end, and `'misfire'` when a short onset is
+   * retracted, so no completed speech occurred. Never called after the gate is
+   * destroyed or becomes unavailable.
    */
-  readonly onUserSpeech?: (speech: 'speaking' | 'silent') => void;
+  readonly onUserSpeech?: (speech: 'speaking' | 'silent' | 'misfire') => void;
 }
 
 const QUIET_MS = 200;
@@ -212,7 +213,7 @@ export function createPlaybackBargeIn(
           speaking = false;
           quietSince = undefined;
           if (!previouslyGated) restore();
-          options.onUserSpeech?.('silent');
+          options.onUserSpeech?.('misfire');
         },
         onFailure: async () => unavailable(),
       });

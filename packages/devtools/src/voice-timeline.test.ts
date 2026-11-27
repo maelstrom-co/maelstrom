@@ -960,7 +960,7 @@ test('only a timed end of user speech reads as a speech span', () => {
     [started, ended, unknown, incoming, untimed].map((event) =>
       isUserSpeechSpan(event!),
     ),
-  ).toEqual([false, true, true, false, false]);
+  ).toEqual([false, true, false, false, false]);
   const lane = voiceTimeline({
     events: panelEvents([
       observation('voice.media', { userSpeech: 'active' }),

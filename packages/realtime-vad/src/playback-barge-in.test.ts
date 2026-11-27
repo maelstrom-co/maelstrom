@@ -102,7 +102,9 @@ afterEach(() => {
   clock.uninstall();
   Object.assign(globalThis, originals);
 });
-function start(onUserSpeech?: (speech: 'speaking' | 'silent') => void) {
+function start(
+  onUserSpeech?: (speech: 'speaking' | 'silent' | 'misfire') => void,
+) {
   const config = resolveBrowserVadConfig(true);
   if (!config.enabled) throw new Error();
   gate = createPlaybackBargeIn({
@@ -237,17 +239,17 @@ test('a timed-out detector is retired when its late initialization completes', a
   expect(Context.instances[0]!.closed).toBe(1);
 });
 
-test('reports user speech on onset, end, and misfire, and stays silent after destroy', async () => {
+test('reports user speech on onset, end, and misfire, and stays quiet after destroy', async () => {
   const speech: string[] = [];
   await start((value) => speech.push(value));
   await boundaries.startTurn();
   await boundaries.endTurn();
   await boundaries.startTurn();
   await boundaries.cancelTurn();
-  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'silent']);
+  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'misfire']);
   gate.destroy();
   await boundaries.startTurn();
   await boundaries.endTurn();
   await boundaries.cancelTurn();
-  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'silent']);
+  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'misfire']);
 });
