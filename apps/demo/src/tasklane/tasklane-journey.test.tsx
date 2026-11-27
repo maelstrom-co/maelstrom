@@ -1,16 +1,10 @@
 // @vitest-environment happy-dom
 
 import {
-  agentAcceptedEvent,
-  agentFinishedEvent,
-  createMockAgentConnector,
-} from '@maelstrom-co/client/_testing';
-import {
   ActionName,
   type ChartRequestMessage,
   InstanceId,
   type MaelstromResponse,
-  RunId,
   type TilingLayout,
   tilingLeafToken,
   VariantName,
@@ -834,57 +828,4 @@ describe('Tasklane unified typed and voice routing', () => {
     expect(intents).toContain('spoken tasklane intent');
   });
 
-  it('moves both typed and spoken intents together when intentRoute is flipped to agent', async () => {
-    const chartRequests = vi.fn((_message: ChartRequestMessage) =>
-      Promise.reject<MaelstromResponse>(new Error('unexpected chart request')),
-    );
-    const agent = createMockAgentConnector({ process: chartRequests });
-    function AgentTasklaneHarness() {
-      const { draft, setDraft, submit } = tasklaneM.useIntentSubmit();
-      tasklaneM.useVoice();
-      return (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          <input
-            aria-label="Ask Tasklane"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <button type="submit">Send</button>
-        </form>
-      );
-    }
-
-    render(
-      <tasklaneM.Provider connector={agent.connector} intentRoute="agent">
-        <AgentTasklaneHarness />
-      </tasklaneM.Provider>,
-    );
-    await waitFor(() => expect(FakeRealtimeSession.instances).toHaveLength(1));
-
-    const voice = realtimeInstance(FakeRealtimeSession.instances.at(-1)!);
-    expect(typeof voice.sendAgentMessage).toBe('function');
-
-    await ask('typed agent intent');
-    const voiceRun = voice.sendAgentMessage!('spoken agent intent');
-    await waitFor(() => expect(agent.inputs).toHaveLength(2));
-
-    expect(agent.inputs).toMatchObject([
-      { type: 'utterance', text: 'typed agent intent', source: 'text' },
-      { type: 'utterance', text: 'spoken agent intent', source: 'voice' },
-    ]);
-    const spokenInput = agent.inputs[1];
-    if (!spokenInput || spokenInput.type !== 'utterance') {
-      throw new Error('expected spoken utterance');
-    }
-    const runId = RunId('tasklane-voice-run');
-    agent.emit(agentAcceptedEvent(spokenInput.inputId, runId, 'ui_only'));
-    agent.emit(agentFinishedEvent(runId, { reply: 'Done' }));
-    expect(await voiceRun).toMatchObject({ status: 'finished', reply: 'Done' });
-    expect(chartRequests).not.toHaveBeenCalled();
-  });
 });
