@@ -3,7 +3,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
