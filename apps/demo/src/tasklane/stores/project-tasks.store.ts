@@ -2,6 +2,7 @@ import { createReferenceResolver } from '@maelstrom-co/client';
 import { sanitizeControlChars } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 
+import { browserCalendarContext } from '../../lib/calendar-context';
 import { FEEDBACK_CHARACTER_LIMIT } from './feedback.store';
 import {
   describeTeamChoices,
@@ -33,6 +34,7 @@ export const TASK_STATUS_NAMES: Readonly<Record<TaskStatus, string>> = {
 export const SOURCE_FEEDBACK_LIMIT = FEEDBACK_CHARACTER_LIMIT;
 
 export const NO_PARENT = 'none';
+export const NO_DUE_DATE = 'none';
 
 export interface ProjectTask {
   readonly id: string;
@@ -42,6 +44,10 @@ export interface ProjectTask {
   readonly assigneeId: TeamMemberId | null;
   readonly urgency: TaskUrgency;
   readonly status: TaskStatus;
+  /** ISO calendar date (YYYY-MM-DD) when the task was created. */
+  readonly createdAt: string;
+  /** ISO calendar date (YYYY-MM-DD) when the task is due, or null. */
+  readonly dueDate: string | null;
   /** The feedback quote the task was created from, or null. */
   readonly sourceFeedback: string | null;
 }
@@ -68,7 +74,8 @@ export type TaskFailure =
         | 'parent_not_found'
         | 'unknown_assignee'
         | 'unknown_urgency'
-        | 'unknown_status';
+        | 'unknown_status'
+        | 'invalid_due_date';
       readonly query: string;
     }
   | {
@@ -179,6 +186,8 @@ const INITIAL_STATE: ProjectTasksState = {
       assigneeId: 'alex',
       urgency: 'normal',
       status: 'todo',
+      createdAt: '2026-04-06',
+      dueDate: '2026-04-17',
       sourceFeedback: null,
     },
     {
@@ -189,6 +198,8 @@ const INITIAL_STATE: ProjectTasksState = {
       assigneeId: 'sam',
       urgency: 'normal',
       status: 'todo',
+      createdAt: '2026-04-08',
+      dueDate: null,
       sourceFeedback: null,
     },
   ],
@@ -200,6 +211,8 @@ const INITIAL_STATE: ProjectTasksState = {
 const TASK_ID = /^(TL-\d+)\b/i;
 const PUBLISHED_LABEL = /^TL-\d+ .+ \([^()]+\)$/i;
 const NO_PARENT_WORDS = new Set([NO_PARENT, '', 'no parent', 'top level']);
+const NO_DUE_DATE_WORDS = new Set([NO_DUE_DATE, '', 'no due date', 'clear']);
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MAX_LISTED_TASKS = 30;
 const PUBLISHED_TITLE_LIMIT = 60;
 // The engine replaces the same characters sanitizeControlChars does, and the
@@ -436,6 +449,8 @@ export const projectTaskActions = {
       assigneeId,
       urgency,
       status: 'todo',
+      createdAt: browserCalendarContext().localDate,
+      dueDate: null,
       sourceFeedback: cleanSourceFeedback(input.source),
     };
     setState({
@@ -509,6 +524,15 @@ export const projectTaskActions = {
     if (!resolved)
       return { ok: false, reason: 'unknown_status', query: status };
     return replaceTask(found.task, { status: resolved });
+  },
+
+  setDueDate(reference: string, dueDate: string | null): TaskChange {
+    const found = lookup(reference, 'task');
+    if (!found.ok) return found;
+    const resolved = resolveDueDate(dueDate);
+    if (resolved === undefined)
+      return { ok: false, reason: 'invalid_due_date', query: dueDate ?? '' };
+    return replaceTask(found.task, { dueDate: resolved });
   },
 
   /**
@@ -621,6 +645,8 @@ export function describeTaskFailure(failure: TaskFailure): string {
       return `${failure.task.id} ${failure.task.title} is not in your priorities.`;
     case 'stale_reference':
       return `"${failure.query}" is out of date. ${failure.task.id} is now "${taskReferenceLabel(failure.task)}". Use the current reference.`;
+    case 'invalid_due_date':
+      return `Due date must be an ISO date (YYYY-MM-DD) or "${NO_DUE_DATE}", got "${failure.query}".`;
   }
 }
 
@@ -703,6 +729,31 @@ function resolveUrgency(urgency: string): TaskUrgency | undefined {
 function resolveStatus(status: string): TaskStatus | undefined {
   const wanted = status.trim().toLowerCase();
   return isTaskStatus(wanted) ? wanted : undefined;
+}
+
+function resolveDueDate(dueDate: string | null): string | null | undefined {
+  if (dueDate === null) return null;
+  const trimmed = dueDate.trim();
+  if (NO_DUE_DATE_WORDS.has(trimmed.toLowerCase())) return null;
+  return parseIsoDate(trimmed);
+}
+
+function parseIsoDate(value: string): string | undefined {
+  const match = ISO_DATE.exec(value);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+  return value;
 }
 
 function listTasks(): string {

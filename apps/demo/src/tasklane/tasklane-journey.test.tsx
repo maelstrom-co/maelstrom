@@ -372,6 +372,45 @@ describe('Tasklane journey from feedback to my priorities', () => {
     await expectReceipt('? Not confirmed: assign a task', 10_000);
     expect(getProjectTasksSnapshot().tasks[0]?.assigneeId).toBe('alex');
   }, 20_000);
+
+  it('updates a task due date through setDueDate and rejects a malformed date with a readable receipt', async () => {
+    const updateVesselSpy = vi.spyOn(tasklaneM, 'updateVessel');
+    setPlaygroundKey('sk-tasklane-due-date-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    engine.plans.set('Set TL-2 due next Friday', () =>
+      plan([
+        'setDueDate',
+        { task: label('Record launch video'), dueDate: '2026-04-24' },
+      ]),
+    );
+    await ask('Set TL-2 due next Friday');
+    await expectReceipt('✓ Set "Record launch video" due 2026-04-24');
+    expect(task('Record launch video').dueDate).toBe('2026-04-24');
+    expect(taskRow('Record launch video').textContent).toContain(
+      'Due 2026-04-24',
+    );
+    await waitFor(() =>
+      expect(acceptedDescription(updateVesselSpy, 'project-tasks')).toContain(
+        'TL-2 "Record launch video": top level, assignee Sam, urgency normal, status todo, not in priorities, created 2026-04-08, due 2026-04-24',
+      ),
+    );
+
+    engine.plans.set('Set TL-2 due sometime soon', () =>
+      plan([
+        'setDueDate',
+        { task: label('Record launch video'), dueDate: 'next Friday' },
+      ]),
+    );
+    await ask('Set TL-2 due sometime soon');
+    await expectReceipt('✗ Couldn\'t set the due date to "next Friday"');
+    expect(receipt().getAttribute('data-tone')).toBe('problem');
+    expect(task('Record launch video').dueDate).toBe('2026-04-24');
+  });
 });
 
 describe('Tasklane summons Vessels the start screen leaves out', () => {

@@ -67,6 +67,18 @@ export default function TaskDetailComponent({
           <dd>{task.urgency}</dd>
           <dt>Status</dt>
           <dd>{TASK_STATUS_NAMES[task.status]}</dd>
+          <dt>Created</dt>
+          <dd>
+            <time dateTime={task.createdAt}>{task.createdAt}</time>
+          </dd>
+          <dt>Due</dt>
+          <dd>
+            {task.dueDate ? (
+              <time dateTime={task.dueDate}>{task.dueDate}</time>
+            ) : (
+              'None'
+            )}
+          </dd>
           <dt>Parent</dt>
           <dd>
             {parent ? (

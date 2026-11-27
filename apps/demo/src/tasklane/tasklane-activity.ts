@@ -14,6 +14,7 @@ export type ChangeKind =
   | 'unassigned'
   | 'urgency'
   | 'status'
+  | 'dueDate'
   | 'prioritised'
   | 'reprioritised'
   | 'deprioritised'
@@ -56,6 +57,7 @@ export const TASKLANE_DATA_ACTIONS: Readonly<Record<string, string>> = {
   assignTask: 'assign a task',
   setUrgency: 'set urgency',
   setStatus: 'set a task status',
+  setDueDate: 'set a due date',
   addToMyPriorities: 'add to your priorities',
   removeFromMyPriorities: 'remove from your priorities',
   removeTask: 'delete a task',
@@ -341,6 +343,14 @@ function describeGroup(group: readonly ChangeDescription[]): string {
         ? `Marked ${subject} as ${status}`
         : `Marked ${tasks} as ${status}`;
     }
+    case 'dueDate':
+      if (detail === null || detail === undefined)
+        return one
+          ? `Cleared the due date on ${subject}`
+          : `Cleared due dates on ${tasks}`;
+      return one
+        ? `Set ${subject} due ${detail}`
+        : `Set ${tasks} due ${detail}`;
     case 'prioritised':
       return one
         ? `Added ${subject} to your priorities`

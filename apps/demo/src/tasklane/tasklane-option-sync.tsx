@@ -46,6 +46,7 @@ const TASK_PARAMETER_ACTIONS = [
   'assignTask',
   'setUrgency',
   'setStatus',
+  'setDueDate',
   'addToMyPriorities',
   'removeFromMyPriorities',
   'removeTask',
@@ -274,13 +275,14 @@ function summaryLine(task: ProjectTask, priorities: readonly string[]): string {
   const assignee = task.assigneeId
     ? `assignee ${assigneeLabel(task.assigneeId)}`
     : 'unassigned';
+  const due = task.dueDate ? `, due ${task.dueDate}` : ', no due date';
   const description = task.description
     ? `, description "${shorten(task.description)}"`
     : ', no description';
   const source = task.sourceFeedback
     ? `, from feedback "${shorten(task.sourceFeedback)}"`
     : '';
-  return `${task.id} "${shorten(task.title)}": ${parent}, ${assignee}, urgency ${task.urgency}, status ${task.status}, ${priorityLabel(task.id, priorities)}${description}${source}`;
+  return `${task.id} "${shorten(task.title)}": ${parent}, ${assignee}, urgency ${task.urgency}, status ${task.status}, ${priorityLabel(task.id, priorities)}, created ${task.createdAt}${due}${description}${source}`;
 }
 
 function shorten(text: string): string {

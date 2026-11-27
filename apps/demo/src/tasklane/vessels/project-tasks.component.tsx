@@ -18,6 +18,7 @@ import {
 import {
   assigneeLabel,
   descendantIds,
+  NO_DUE_DATE,
   NO_PARENT,
   orderedTaskRows,
   type ProjectTask,
@@ -99,6 +100,11 @@ export default function ProjectTasksComponent({
       ),
     setStatus: async ({ task, status }) =>
       reportTaskChange('setStatus', projectTaskActions.setStatus(task, status)),
+    setDueDate: async ({ task, dueDate }) =>
+      reportTaskChange(
+        'setDueDate',
+        projectTaskActions.setDueDate(task, dueDate),
+      ),
     addToMyPriorities: async ({ task, position }) =>
       reportPriorityChange(
         'addToMyPriorities',
@@ -337,11 +343,24 @@ function TaskRow({
           {task.description ? (
             <p className="tasklane-task-description">{task.description}</p>
           ) : null}
+          <TaskDates task={task} />
         </div>
       )}
 
       <div className="tasklane-task-controls">
         <StatusSelect task={task} executeAction={executeAction} />
+        <input
+          type="date"
+          className="tasklane-select"
+          aria-label={`Due date for ${task.title}`}
+          value={task.dueDate ?? ''}
+          onChange={(event) =>
+            executeAction('setDueDate', {
+              task: task.id,
+              dueDate: event.target.value || NO_DUE_DATE,
+            })
+          }
+        />
         <AssigneeSelect
           task={task}
           label={`Assignee for ${task.title}`}
@@ -538,6 +557,7 @@ function StatusColumn({
               <span className="tasklane-task-title">{task.title}</span>
               <PriorityBadge position={positionIn(myPriorities, task.id)} />
             </div>
+            <TaskDates task={task} />
             <div className="tasklane-card-footer">
               <PersonChip memberId={task.assigneeId} className="truncate" />
               <StatusSelect task={task} executeAction={executeAction} />
@@ -574,6 +594,21 @@ function StatusSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+function TaskDates({ task }: { readonly task: ProjectTask }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-ink-3">
+      <span>
+        Created <time dateTime={task.createdAt}>{task.createdAt}</time>
+      </span>
+      {task.dueDate ? (
+        <span>
+          Due <time dateTime={task.dueDate}>{task.dueDate}</time>
+        </span>
+      ) : null}
+    </div>
   );
 }
 

@@ -146,3 +146,16 @@ describe('status receipts', () => {
     );
   });
 });
+
+describe('due date receipts', () => {
+  it('reports clearing a task due date', () => {
+    projectTaskActions.setDueDate('TL-2', '2026-05-01');
+    reportTaskChange(
+      'setDueDate',
+      projectTaskActions.setDueDate('TL-2', 'none'),
+    );
+    expect(getLatestReceipt()?.text).toBe(
+      '✓ Cleared the due date on "Record launch video"',
+    );
+  });
+});

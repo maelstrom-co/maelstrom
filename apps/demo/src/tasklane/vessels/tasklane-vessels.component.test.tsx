@@ -295,6 +295,34 @@ describe('Tasks Vessel by hand', () => {
     expect(getProjectTasksSnapshot().tasks[0]?.status).toBe('done');
   });
 
+  it('renders created and due dates in the board view and sends setDueDate from the date input', async () => {
+    const vesselProps = props('project-tasks');
+    render(<ProjectTasksComponent {...vesselProps} />);
+
+    const readme = taskRow('Update demo README');
+    expect(readme.textContent).toContain('Created 2026-04-06');
+    expect(readme.textContent).toContain('Due 2026-04-17');
+
+    const video = taskRow('Record launch video');
+    expect(video.textContent).toContain('Created 2026-04-08');
+    expect(video.textContent).not.toContain('Due ');
+
+    await act(async () => {
+      fireEvent.change(
+        within(video).getByLabelText('Due date for Record launch video'),
+        { target: { value: '2026-05-01' } },
+      );
+    });
+    expect(vesselProps.executeAction).toHaveBeenCalledWith('setDueDate', {
+      task: 'TL-2',
+      dueDate: '2026-05-01',
+    });
+    expect(getProjectTasksSnapshot().tasks[1]?.dueDate).toBe('2026-05-01');
+    expect(taskRow('Record launch video').textContent).toContain(
+      'Due 2026-05-01',
+    );
+  });
+
   it('nests a task under a parent and offers no parent that would make a cycle', async () => {
     const vesselProps = props('project-tasks');
     render(<ProjectTasksComponent {...vesselProps} />);
@@ -553,6 +581,9 @@ describe('Tasks board assignee filter', () => {
 
 describe('Tasks board columns variant', () => {
   it('declares a wide columns variant next to the board', () => {
+    expect(projectTasksVessel.description).toContain('created date');
+    expect(projectTasksVessel.description).toContain('due date');
+    expect(projectTasksVessel.description).toContain('setDueDate');
     expect(Object.keys(projectTasksVessel.variants)).toEqual([
       'board',
       'columns',
@@ -621,6 +652,18 @@ describe('Tasks board columns variant', () => {
     expect(
       screen.getByRole('status', { name: 'Board filter' }).textContent,
     ).toContain("Showing Sam's tasks");
+  });
+
+  it('renders created and due dates on column cards', async () => {
+    render(
+      <ProjectTasksComponent
+        {...props('project-tasks', 'tasks-columns', 'columns')}
+      />,
+    );
+    expect(columnCard('TL-1').textContent).toContain('Created 2026-04-06');
+    expect(columnCard('TL-1').textContent).toContain('Due 2026-04-17');
+    expect(columnCard('TL-2').textContent).toContain('Created 2026-04-08');
+    expect(columnCard('TL-2').textContent).not.toContain('Due ');
   });
 });
 

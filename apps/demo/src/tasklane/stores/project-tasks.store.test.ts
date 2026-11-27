@@ -28,6 +28,8 @@ describe('project tasks seed', () => {
         parentId: null,
         urgency: 'normal',
         status: 'todo',
+        createdAt: '2026-04-06',
+        dueDate: '2026-04-17',
         sourceFeedback: null,
       }),
       expect.objectContaining({
@@ -37,6 +39,8 @@ describe('project tasks seed', () => {
         parentId: null,
         urgency: 'normal',
         status: 'todo',
+        createdAt: '2026-04-08',
+        dueDate: null,
         sourceFeedback: null,
       }),
     ]);
@@ -96,6 +100,73 @@ describe('setStatus', () => {
     expect(resolveTaskReference(before)).toMatchObject({
       kind: 'found',
       task: { id: 'TL-1', status: 'done' },
+    });
+  });
+});
+
+describe('setDueDate', () => {
+  it('sets a valid ISO due date, trims spaces, and reports unchanged repeats', () => {
+    expect(projectTaskActions.setDueDate('TL-2', ' 2026-05-01 ')).toMatchObject(
+      {
+        ok: true,
+        changed: true,
+        previous: { dueDate: null },
+        task: { id: 'TL-2', dueDate: '2026-05-01' },
+      },
+    );
+    expect(projectTaskActions.setDueDate('TL-2', '2026-05-01')).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+    expect(getProjectTasksSnapshot().tasks[1]?.dueDate).toBe('2026-05-01');
+  });
+
+  it('clears a due date with none, blank text or null', () => {
+    expect(projectTaskActions.setDueDate('TL-1', 'none')).toMatchObject({
+      ok: true,
+      changed: true,
+      previous: { dueDate: '2026-04-17' },
+      task: { id: 'TL-1', dueDate: null },
+    });
+    expect(projectTaskActions.setDueDate('TL-1', null)).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+    projectTaskActions.setDueDate('TL-1', '2026-05-15');
+    expect(projectTaskActions.setDueDate('TL-1', '  ')).toMatchObject({
+      ok: true,
+      changed: true,
+      task: { dueDate: null },
+    });
+  });
+
+  it('rejects malformed or impossible dates with a readable failure and leaves the store unchanged', () => {
+    for (const bad of [
+      'next Friday',
+      '2026-02-30',
+      '2026-13-01',
+      '04/17/2026',
+      'not-a-date',
+    ]) {
+      const result = projectTaskActions.setDueDate('TL-1', bad);
+      expect(result, bad).toEqual({
+        ok: false,
+        reason: 'invalid_due_date',
+        query: bad,
+      });
+      if (result.ok) throw new Error('expected a failure');
+      expect(describeTaskFailure(result)).toBe(
+        `Due date must be an ISO date (YYYY-MM-DD) or "none", got "${bad}".`,
+      );
+    }
+    expect(getProjectTasksSnapshot().tasks[0]?.dueDate).toBe('2026-04-17');
+  });
+
+  it('refuses an unknown task reference', () => {
+    expect(projectTaskActions.setDueDate('Ghost', '2026-05-01')).toEqual({
+      ok: false,
+      reason: 'task_not_found',
+      query: 'Ghost',
     });
   });
 });
