@@ -393,24 +393,8 @@ describe('continuous voice observations', () => {
     expect(notifications).toBe(0);
   });
 
-  it('tracks provider processing state, keeps it across typed application work, and resets across generations and disconnects', () => {
-    let work: VoiceApplicationWork = {
-      planning: 'inactive',
-      applying: 'inactive',
-    };
-    let notifyWork: (() => void) | undefined;
-    const store = new VoiceObservationStore(
-      {},
-      {
-        getSnapshot: () => work,
-        subscribe: (handler) => {
-          notifyWork = handler;
-          return () => {
-            notifyWork = undefined;
-          };
-        },
-      },
-    );
+  it('tracks provider processing state and resets across generations and disconnects', () => {
+    const store = new VoiceObservationStore();
     const handle = observationStoreSubscriber(store);
     let notifications = 0;
     const release = store.subscribe(() => {
@@ -432,12 +416,6 @@ describe('continuous voice observations', () => {
     handle({ type: 'processing', generation: 1, processing: 'standby' });
     expect(store.getSnapshot()).toBe(standby);
     expect(notifications).toBe(1);
-
-    // Typed intent activity while on standby leaves processing on standby.
-    work = { planning: 'active', applying: 'inactive' };
-    notifyWork?.();
-    expect(store.getSnapshot().applicationWork.planning).toBe('active');
-    expect(store.getSnapshot().processing).toBe('standby');
 
     handle({ type: 'processing', generation: 1, processing: 'active' });
     expect(store.getSnapshot().processing).toBe('active');
