@@ -902,6 +902,106 @@ describe('LiveKitAdapter connect', () => {
     expect(adapter.turnControl).toBeUndefined();
   });
 
+  test('reports browser VAD boundaries as user speech media observations', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+    await options.onSpeechEnd?.();
+    await options.onSpeechStart?.();
+    await options.onVADMisfire?.();
+    expect(speech).toEqual([
+      'active',
+      'inactive',
+      'active',
+      'unknown',
+      'inactive',
+    ]);
+    await options.onSpeechStart?.();
+    await adapter.disconnect();
+    expect(speech.slice(-2)).toEqual(['active', 'unknown']);
+    await options.onSpeechStart?.();
+    expect(speech.at(-1)).toBe('unknown');
+  });
+
+  test('stops delivering user speech that an observer retired by disconnecting', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    const later: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media' && event.media.userSpeech === 'active')
+        disconnecting ??= adapter.disconnect();
+    });
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') later.push(event.media.userSpeech);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+    await disconnecting;
+
+    expect(later).toEqual(['unknown']);
+  });
+
+  test('delivers the terminal unknown when an observer disconnects during it', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    const later: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media' && event.media.userSpeech === 'unknown')
+        disconnecting ??= adapter.disconnect();
+    });
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') later.push(event.media.userSpeech);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+    await options.onVADMisfire?.();
+    await disconnecting;
+
+    expect(later).toEqual(['active', 'unknown']);
+  });
+
+  test('returns user speech to unknown when a VAD callback failure degrades to manual', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw new Error('automatic pre-roll failed');
+    });
+    const { adapter } = makeAdapter();
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+
+    expect(speech).toEqual(['active', 'unknown']);
+  });
+
   test('does not emit connected when disconnect supersedes a delayed misfire drain', async () => {
     const drain = deferred<void>();
     mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);

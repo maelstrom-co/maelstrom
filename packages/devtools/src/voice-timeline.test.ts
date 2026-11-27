@@ -4,6 +4,7 @@ import { panelEvents, voiceTimeline } from './panel-model.js';
 import type { ViewContext } from './panel-views.js';
 import type { VoiceTimelineControls } from './voice-timeline-controls.js';
 import { voiceTimelineView } from './voice-timeline-view.js';
+import { isUserSpeechSpan } from './voice-timeline.js';
 
 function observation(
   kind: string,
@@ -941,4 +942,30 @@ test('voice timeline view renders standby and active processing observations', (
   } finally {
     Object.assign(globalThis, { document: previousDocument });
   }
+});
+
+test('only a timed end of user speech reads as a speech span', () => {
+  const [started, ended, unknown, incoming, untimed] = panelEvents([
+    observation('voice.media', { userSpeech: 'active' }),
+    observation('voice.media', {
+      userSpeech: 'inactive',
+      userSpeechStartedAt: 1_000,
+      durationMs: 750,
+    }),
+    observation('voice.media', { userSpeech: 'unknown', durationMs: 20 }),
+    observation('voice.media', { incomingAudio: 'active', durationMs: -1 }),
+    observation('voice.media', { userSpeech: 'inactive' }),
+  ]);
+  expect(
+    [started, ended, unknown, incoming, untimed].map((event) =>
+      isUserSpeechSpan(event!),
+    ),
+  ).toEqual([false, true, false, false, false]);
+  const lane = voiceTimeline({
+    events: panelEvents([
+      observation('voice.media', { userSpeech: 'active' }),
+      observation('voice.media', { userSpeech: 'inactive', durationMs: 750 }),
+    ]),
+  })[0]!;
+  expect(lane.events.filter(isUserSpeechSpan)).toHaveLength(1);
 });

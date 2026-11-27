@@ -102,7 +102,9 @@ afterEach(() => {
   clock.uninstall();
   Object.assign(globalThis, originals);
 });
-function start() {
+function start(
+  onUserSpeech?: (speech: 'speaking' | 'silent' | 'misfire') => void,
+) {
   const config = resolveBrowserVadConfig(true);
   if (!config.enabled) throw new Error();
   gate = createPlaybackBargeIn({
@@ -111,6 +113,7 @@ function start() {
     onUnavailable: () => {
       failures++;
     },
+    onUserSpeech,
   });
   return gate.ready;
 }
@@ -234,4 +237,19 @@ test('a timed-out detector is retired when its late initialization completes', a
   await clock.tickAsync(1);
   expect(destroyedVad).toBe(1);
   expect(Context.instances[0]!.closed).toBe(1);
+});
+
+test('reports user speech on onset, end, and misfire, and stays quiet after destroy', async () => {
+  const speech: string[] = [];
+  await start((value) => speech.push(value));
+  await boundaries.startTurn();
+  await boundaries.endTurn();
+  await boundaries.startTurn();
+  await boundaries.cancelTurn();
+  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'misfire']);
+  gate.destroy();
+  await boundaries.startTurn();
+  await boundaries.endTurn();
+  await boundaries.cancelTurn();
+  expect(speech).toEqual(['speaking', 'silent', 'speaking', 'misfire']);
 });

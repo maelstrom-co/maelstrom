@@ -214,6 +214,23 @@ function attachDiagnosticSources(
     const releases: Unsubscribe[] = [];
     const initial = session.observations.getSnapshot();
     const fragments = new WeakSet(initial?.fragments ?? []);
+    let speechStartedAt: number | undefined;
+    const userSpeechSpan = (
+      userSpeech: string | undefined,
+    ): DiagnosticMetadata => {
+      if (userSpeech === 'active') {
+        speechStartedAt ??= Date.now();
+        return {};
+      }
+      if (userSpeech === undefined) return {};
+      const startedAt = speechStartedAt;
+      speechStartedAt = undefined;
+      if (userSpeech !== 'inactive' || startedAt === undefined) return {};
+      return {
+        userSpeechStartedAt: startedAt,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    };
     const reportTransport = (final = false) => {
       if (!observed()) return;
       if ((!active || isRetired()) && !final) return;
@@ -251,6 +268,12 @@ function attachDiagnosticSources(
         session.events.subscribe((event) => {
           if (!isActive()) return;
           if (
+            event.type === 'session.disconnecting' ||
+            event.type === 'session.disconnected' ||
+            event.type === 'session.error'
+          )
+            speechStartedAt = undefined;
+          if (
             event.type === 'tool.called' ||
             event.type === 'tool.result' ||
             event.type === 'tool.cancelled' ||
@@ -269,6 +292,7 @@ function attachDiagnosticSources(
                     microphone: event.media.microphone,
                     userSpeech: event.media.userSpeech,
                     incomingAudio: event.media.incomingAudio,
+                    ...userSpeechSpan(event.media.userSpeech),
                   }
                 : {}),
               ...(event.type === 'processing'

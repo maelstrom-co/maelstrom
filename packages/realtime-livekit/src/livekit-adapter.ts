@@ -1,4 +1,8 @@
-import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import type {
+  Unsubscribe,
+  VoiceActivity,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
 import { Logger } from '@maelstrom-co/client';
 import type { MessageId } from '@maelstrom-co/protocol';
 import { ToolCallId } from '@maelstrom-co/protocol';
@@ -7,6 +11,8 @@ import type {
   AdapterConnectOptions,
   AdapterInputControl,
   AdapterTurnControl,
+  AdapterVoiceObservation,
+  AdapterVoiceObservations,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -202,15 +208,29 @@ export class LiveKitAdapter
   readonly #vadConfigError: unknown;
   readonly #greetingReadyWaitMs: number;
   readonly #transcripts = new TranscriptObservationFeed();
+  readonly #mediaHandlers = new Set<(event: AdapterVoiceObservation) => void>();
+  #userSpeech: VoiceActivity = 'unknown';
 
   /**
    * Transcript fragments on a local receipt-time timeline. Each push-to-talk
    * or VAD turn becomes one final user fragment when the worker's final
    * transcript arrives, and the fixed greeting becomes one final assistant
-   * fragment when the worker reports its playout start. Media evidence is not
-   * reported.
+   * fragment when the worker reports its playout start. While browser VAD
+   * runs, its boundaries are reported as media `userSpeech`: active on onset,
+   * inactive on end, and unknown then inactive on a misfire. User speech
+   * returns to unknown when VAD degrades or the connection ends. Other media
+   * evidence is not reported.
    */
-  readonly observations = this.#transcripts;
+  readonly observations: AdapterVoiceObservations = {
+    subscribe: (handler) => {
+      const releaseTranscripts = this.#transcripts.subscribe(handler);
+      this.#mediaHandlers.add(handler);
+      return () => {
+        releaseTranscripts();
+        this.#mediaHandlers.delete(handler);
+      };
+    },
+  };
 
   #room: Room | undefined;
   #userTurnSeq = 0;
@@ -1499,8 +1519,9 @@ export class LiveKitAdapter
       browserVad = await createBrowserVad({
         stream,
         config,
-        startTurn: () =>
-          this.#queueTurnBoundary(
+        startTurn: () => {
+          this.#reportUserSpeech(generation, 'active');
+          return this.#queueTurnBoundary(
             'start',
             (currentGeneration) =>
               this.#startTransportTurn(
@@ -1509,21 +1530,29 @@ export class LiveKitAdapter
                 config.preRollMs,
               ),
             generation,
-          ),
-        endTurn: () =>
-          this.#queueTurnBoundary(
+          );
+        },
+        endTurn: () => {
+          this.#reportUserSpeech(generation, 'inactive');
+          return this.#queueTurnBoundary(
             'end',
             (currentGeneration) =>
               this.#endTransportTurn(currentGeneration, 'automatic'),
             generation,
-          ),
-        cancelTurn: () =>
-          this.#queueTurnBoundary(
+          );
+        },
+        cancelTurn: () => {
+          // A retracted onset clears the open speech span before settling inactive.
+          this.#reportUserSpeech(generation, 'unknown');
+          this.#reportUserSpeech(generation, 'inactive');
+          return this.#queueTurnBoundary(
             'cancel',
             (currentGeneration) => this.#cancelTransportTurn(currentGeneration),
             generation,
-          ),
+          );
+        },
         onFailure: (error, context) => {
+          this.#reportUserSpeech(generation, 'unknown');
           const safelyPausedMisfire = isSafelyPausedMisfireCancellation(error);
           return this.#degradeAutomaticMode({
             generation,
@@ -1880,11 +1909,38 @@ export class LiveKitAdapter
         );
   }
 
+  #reportUserSpeech(generation: number, userSpeech: VoiceActivity): void {
+    if (!this.#isCurrentGeneration(generation)) return;
+    this.#publishUserSpeech(userSpeech);
+  }
+
+  #publishUserSpeech(userSpeech: VoiceActivity): void {
+    if (userSpeech === this.#userSpeech) return;
+    this.#userSpeech = userSpeech;
+    const generation = this.#connectionGeneration;
+    for (const handler of [...this.#mediaHandlers]) {
+      // A handler that published a newer value already notified every
+      // observer. A disconnect retires speech evidence, but the terminal
+      // unknown must still reach the rest.
+      if (
+        userSpeech !== this.#userSpeech ||
+        (userSpeech !== 'unknown' && generation !== this.#connectionGeneration)
+      )
+        return;
+      try {
+        handler({ type: 'media', media: { userSpeech } });
+      } catch {
+        // Observers cannot interrupt provider event handling.
+      }
+    }
+  }
+
   #teardown(): Promise<void> {
     // Invalidate any connect() still mid-handshake so it abandons its own room
     // instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
     this.#connectionGeneration += 1;
+    this.#publishUserSpeech('unknown');
     this.#turnOperationQueue = Promise.resolve();
     this.#lastQueuedTurnBoundary = undefined;
     this.#automaticModeDegradation = undefined;

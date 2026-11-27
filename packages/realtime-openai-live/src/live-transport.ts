@@ -54,6 +54,9 @@ export interface LiveTransportOptions {
    * Speech end plus 200ms of incoming quiet restores exact prior track values;
    * misfires restore immediately. A reply with no quiet gap can be clipped.
    * Unavailable detection falls back to provider-only behavior. preRollMs is unused.
+   * While detection runs, its speech boundaries are reported as media
+   * `userSpeech` observations: active on onset, inactive on end, and unknown
+   * then inactive on a misfire so no completed speech span is recorded.
    */
   readonly playbackBargeIn?: false | true | BrowserVadOptions;
   /**
@@ -576,13 +579,25 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         microphone: run.mic,
         config: this.bargeInConfig,
         onUnavailable: () => {
-          if (this.current(run) && !run.closing)
-            this.emit({
-              type: 'error',
-              error: new LiveTransportError('playback_barge_in_unavailable', {
-                fatal: false,
-              }),
-            });
+          if (!this.current(run) || run.closing) return;
+          this.media({ userSpeech: 'unknown' });
+          this.emit({
+            type: 'error',
+            error: new LiveTransportError('playback_barge_in_unavailable', {
+              fatal: false,
+            }),
+          });
+        },
+        onUserSpeech: (speech) => {
+          if (!this.current(run) || run.closing) return;
+          // A retracted onset clears the open speech span before settling inactive.
+          if (speech === 'misfire') {
+            this.media({ userSpeech: 'unknown' });
+            if (!this.current(run) || run.closing) return;
+          }
+          this.media({
+            userSpeech: speech === 'speaking' ? 'active' : 'inactive',
+          });
         },
       });
       if (run.playback) run.bargeIn.attach(run.playback);

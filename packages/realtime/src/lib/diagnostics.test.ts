@@ -173,6 +173,107 @@ test('live voice diagnostics expose media and fragment facts without reading tra
   detach();
 });
 
+test('user speech ending after it was active reports the speech span duration', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(1_750);
+    h.observe({ type: 'media', media: { incomingAudio: 'active' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const media = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata);
+  expect(media[0]?.durationMs).toBeUndefined();
+  expect(media[1]?.durationMs).toBeUndefined();
+  expect(media[2]).toMatchObject({
+    userSpeech: 'inactive',
+    userSpeechStartedAt: 1_000,
+    durationMs: 750,
+  });
+  expect(media[3]?.durationMs).toBeUndefined();
+  detach();
+});
+
+test('user speech turning unknown or retracted records no speech span', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(1_500);
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+    now.mockReturnValue(2_000);
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(2_100);
+    h.observe({ type: 'media', media: { userSpeech: 'unknown' } });
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const media = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata);
+  expect(media.map((metadata) => metadata.userSpeech)).toEqual([
+    'active',
+    'unknown',
+    'inactive',
+    'active',
+    'unknown',
+    'inactive',
+  ]);
+  for (const metadata of media) {
+    expect(metadata.durationMs).toBeUndefined();
+    expect(metadata.userSpeechStartedAt).toBeUndefined();
+  }
+  detach();
+});
+
+test('a speech span left open at disconnect does not carry into the next connection', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const now = spyOn(Date, 'now').mockReturnValue(1_000);
+  try {
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    await h.session.disconnect();
+    now.mockReturnValue(5_000);
+    await h.session.connect();
+    h.observe({ type: 'media', media: { userSpeech: 'active' } });
+    now.mockReturnValue(5_400);
+    h.observe({ type: 'media', media: { userSpeech: 'inactive' } });
+  } finally {
+    now.mockRestore();
+  }
+
+  const ended = events
+    .filter((event) => event.kind === 'voice.media')
+    .map((event) => event.metadata)
+    .filter((metadata) => metadata.userSpeech === 'inactive')
+    .at(-1);
+  expect(ended).toMatchObject({ userSpeechStartedAt: 5_000, durationMs: 400 });
+  detach();
+});
+
 test('diagnostic attachment projects normalized responses and does not trust native lifecycle metadata', () => {
   const h = harness();
   const events: DiagnosticEvent[] = [];

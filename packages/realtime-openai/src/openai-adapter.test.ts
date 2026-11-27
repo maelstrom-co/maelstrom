@@ -6167,6 +6167,135 @@ describe('OpenAIAdapter — local playback barge-in', () => {
     expect(output.enabled).toBe(true);
   });
 
+  it('reports local detector user speech as media observations and ignores server speech events', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    const connecting = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(speech).toEqual([]);
+
+    await callbacks.onSpeechStart();
+    await callbacks.onSpeechEnd();
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    expect(speech).toEqual([
+      'active',
+      'inactive',
+      'active',
+      'unknown',
+      'inactive',
+    ]);
+    await callbacks.onSpeechStart();
+    await adapter.disconnect();
+    expect(speech.slice(-2)).toEqual(['active', 'unknown']);
+    await callbacks.onSpeechStart();
+    expect(speech.at(-1)).toBe('unknown');
+  });
+
+  it('stops delivering user speech that an observer retired by disconnecting', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const current = adapter;
+    const later: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    current.observations.subscribe((event) => {
+      if (event.type === 'media' && event.media.userSpeech === 'active')
+        disconnecting ??= current.disconnect();
+    });
+    current.observations.subscribe((event) => {
+      if (event.type === 'media') later.push(event.media.userSpeech);
+    });
+    const connecting = current.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+
+    await callbacks.onSpeechStart();
+    await disconnecting;
+
+    expect(later).toEqual(['unknown']);
+  });
+
+  it('settles a misfire once and still delivers its unknown to later observers when an observer disconnects during it', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const current = adapter;
+    const disconnectingObserver: unknown[] = [];
+    const laterObserver: unknown[] = [];
+    let disconnecting: Promise<void> | undefined;
+    current.observations.subscribe((event) => {
+      if (event.type !== 'media') return;
+      disconnectingObserver.push(event.media.userSpeech);
+      if (event.media.userSpeech === 'unknown')
+        disconnecting ??= current.disconnect();
+    });
+    current.observations.subscribe((event) => {
+      if (event.type === 'media') laterObserver.push(event.media.userSpeech);
+    });
+    const connecting = current.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    await disconnecting;
+
+    expect(disconnectingObserver).toEqual(['active', 'unknown']);
+    expect(laterObserver).toEqual(['active', 'unknown']);
+  });
+
+  it('returns user speech to unknown when the local detector becomes unavailable', async () => {
+    const Base = globalThis.AudioContext as unknown as new () => {
+      state: string;
+    };
+    let context: { state: string } | undefined;
+    Object.assign(globalThis, {
+      AudioContext: class extends Base {
+        constructor() {
+          super();
+          context = this;
+        }
+      },
+    });
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    const connecting = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+    await callbacks.onSpeechStart();
+    context!.state = 'suspended';
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(speech).toEqual(['active', 'unknown']);
+    await callbacks.onSpeechEnd();
+    expect(speech).toEqual(['active', 'unknown']);
+  });
+
   it('mutes and restores mic tracks via inputControl without closing the connection or blocking tool results', async () => {
     const enabledTrack = new FakeTrack('audio', true);
     const disabledTrack = new FakeTrack('audio', false);
