@@ -95,6 +95,7 @@ const mockManualReplacementTrack = {
 };
 const mockSetMicrophoneEnabled = mock(async (enabled: boolean) => {
   mockPublishedMicTrack.enabled = enabled;
+  mockMicPublication.track.isMuted = !enabled;
 });
 const mockMicPublication = {
   track: {
@@ -275,6 +276,7 @@ describe('LiveKitAdapter connect', () => {
     mockSetMicrophoneEnabled.mockReset();
     mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
       mockPublishedMicTrack.enabled = enabled;
+      mockMicPublication.track.isMuted = !enabled;
     });
     mockCreateLocalAudioTrack.mockReset();
     mockCreateLocalAudioTrack.mockImplementation(
@@ -2767,6 +2769,7 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
     mockSetMicrophoneEnabled.mockReset();
     mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
       mockPublishedMicTrack.enabled = enabled;
+      mockMicPublication.track.isMuted = !enabled;
     });
     mockPublishedMicTrack.enabled = false;
     mockMicCloneTrack.enabled = false;
@@ -3037,6 +3040,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     mockSetMicrophoneEnabled.mockReset();
     mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
       mockPublishedMicTrack.enabled = enabled;
+      mockMicPublication.track.isMuted = !enabled;
     });
     mockPauseUpstream.mockReset();
     mockPauseUpstream.mockImplementation(async () => {});
@@ -3652,53 +3656,18 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
   });
 
-  test('a mute landing during the barge-in cancel aborts the start and leaves a later barge-in usable', async () => {
-    const { adapter, events } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    await adapter.sendToolResult('call-1' as never, {
-      ok: true,
-      summary: 'Talking.',
-    });
-    mockPublishData.mockClear();
-    mockSetMicrophoneEnabled.mockClear();
-    mockResumeUpstream.mockClear();
-    events.length = 0;
-    let releaseCancel!: () => void;
-    mockPublishData.mockImplementationOnce(
-      () => new Promise<void>((resolve) => (releaseCancel = resolve)),
-    );
-
-    const starting = adapter.turnControl?.startTurn();
-    await Promise.resolve();
-    await adapter.inputControl.setInputEnabled(false);
-    releaseCancel();
-    await starting;
-
-    expect(mockResumeUpstream).not.toHaveBeenCalled();
-    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
-    expect(events.some((event) => event.type === 'speech_started')).toBe(false);
-
-    await adapter.inputControl.setInputEnabled(true);
-    await adapter.turnControl?.startTurn();
-
-    expect(mockSetMicrophoneEnabled.mock.calls.map((call) => call[0])).toEqual([
-      true,
-    ]);
-    expect(events.some((event) => event.type === 'speech_started')).toBe(true);
-  });
-
-  test('a mute landing during microphone activation re-disables the publication before the start returns', async () => {
+  test('a mute landing during native microphone activation keeps the published track disabled', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockClear();
+    mockMuteLocalMic.mockClear();
+    mockPauseUpstream.mockClear();
     events.length = 0;
-    const order: string[] = [];
     let releaseEnable!: () => void;
     mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
       await new Promise<void>((resolve) => (releaseEnable = resolve));
       mockPublishedMicTrack.enabled = true;
       mockMicPublication.track.isMuted = false;
-      order.push('enable');
     });
 
     const starting = adapter.turnControl?.startTurn();
@@ -3707,20 +3676,14 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       await Promise.resolve();
     }
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
-    await adapter.inputControl.setInputEnabled(false);
-    mockMuteLocalMic.mockClear();
-    mockPauseUpstream.mockClear();
-    mockPauseUpstream.mockImplementationOnce(async () => {
-      order.push('pause');
-    });
+    adapter.inputControl.setInputEnabled(false);
     releaseEnable();
     await starting;
 
-    expect(mockMuteLocalMic).toHaveBeenCalledTimes(1);
-    expect(order).toEqual(['enable', 'pause']);
     expect(mockPublishedMicTrack.enabled).toBe(false);
-    expect(mockMicPublication.track.isMuted).toBe(true);
-    expect(events.some((event) => event.type === 'speech_started')).toBe(false);
+    expect(mockMuteLocalMic).not.toHaveBeenCalled();
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === 'speech_started')).toBe(true);
     expect(events.some((event) => event.type === 'error')).toBe(false);
   });
 
@@ -4312,6 +4275,7 @@ describe('LiveKitAdapter misc surface', () => {
     mockSetMicrophoneEnabled.mockReset();
     mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
       mockPublishedMicTrack.enabled = enabled;
+      mockMicPublication.track.isMuted = !enabled;
     });
     mockPublishedMicTrack.enabled = false;
     mockMicCloneTrack.enabled = false;
@@ -5005,156 +4969,150 @@ describe('LiveKitAdapter greeting capability', () => {
 });
 
 describe('LiveKitAdapter inputControl mute', () => {
-  test('a mute withdrawn after it skipped capture activation still opens the microphone for the turn', async () => {
-    const { adapter } = makeAdapter(undefined, { vad: false });
-    await adapter.connect({ tools: [], instructions: '' });
-    mockPauseUpstream.mockClear();
-    mockResumeUpstream.mockClear();
-    mockSetMicrophoneEnabled.mockClear();
-
-    let releaseResume!: () => void;
-    let releasePause!: () => void;
-    mockResumeUpstream.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseResume = resolve;
-        }),
-    );
-    mockPauseUpstream.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releasePause = resolve;
-        }),
-    );
-
-    const starting = adapter.turnControl?.startTurn();
-    await Promise.resolve();
-    const muting = adapter.inputControl.setInputEnabled(false);
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
-    releaseResume();
-    for (let i = 0; i < 20; i += 1) await Promise.resolve();
-    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
-
-    await adapter.inputControl.setInputEnabled(true);
-    releasePause();
-    await muting;
-    await starting;
-
-    expect(mockResumeUpstream).toHaveBeenCalledTimes(2);
-    expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
-    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
-    await adapter.disconnect();
-  });
-
-  test('a withdrawn mute whose pause queued behind a turn start leaves upstream open for that turn', async () => {
-    const { adapter } = makeAdapter(undefined, { vad: false });
-    await adapter.connect({ tools: [], instructions: '' });
-    mockPauseUpstream.mockClear();
-    mockResumeUpstream.mockClear();
-
-    const upstream: string[] = [];
-    let releaseResume!: () => void;
-    let releasePause!: () => void;
-    mockResumeUpstream.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseResume = () => {
-            upstream.push('resume');
-            resolve();
-          };
-        }),
-    );
-    mockResumeUpstream.mockImplementationOnce(async () => {
-      upstream.push('resume');
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
+    mockSetMicrophoneEnabled.mockReset();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+      mockMicPublication.track.isMuted = !enabled;
     });
-    mockPauseUpstream.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releasePause = () => {
-            upstream.push('pause');
-            resolve();
-          };
-        }),
-    );
-
-    const starting = adapter.turnControl?.startTurn();
-    await Promise.resolve();
-    const muting = adapter.inputControl.setInputEnabled(false);
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
-    await adapter.inputControl.setInputEnabled(true);
-
-    releaseResume();
-    for (let i = 0; i < 20; i += 1) await Promise.resolve();
-    releasePause();
-    await muting;
-    await starting;
-
-    expect(upstream).toEqual(['resume', 'pause', 'resume']);
-    await adapter.disconnect();
+    mockCreateLocalAudioPreRoll.mockReset();
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+    mockPauseUpstream.mockReset();
+    mockPauseUpstream.mockImplementation(async () => {});
+    mockResumeUpstream.mockReset();
+    mockResumeUpstream.mockImplementation(async () => {});
+    mockPublishData.mockReset();
+    mockPublishData.mockImplementation(async () => {});
+    mockMicPublication.track.isMuted = false;
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockGeneratedTrack.enabled = true;
   });
 
-  test('a failed mute rolls back so a retry reaches the published track', async () => {
+  test('mutes by disabling the local tracks synchronously, leaving turn control and tool results alone', async () => {
     const { adapter } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });
     mockMuteLocalMic.mockClear();
-    mockPauseUpstream.mockClear();
-    mockMuteLocalMic.mockImplementationOnce(async () => {
-      throw new Error('mute failed');
-    });
-
-    await expect(adapter.inputControl.setInputEnabled(false)).rejects.toThrow(
-      'mute failed',
-    );
-    expect(mockMicCloneTrack.enabled).toBe(true);
-    expect(mockPauseUpstream).not.toHaveBeenCalled();
-
-    await adapter.inputControl.setInputEnabled(false);
-    expect(mockMuteLocalMic).toHaveBeenCalledTimes(2);
-    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
-    expect(mockMicCloneTrack.enabled).toBe(false);
-    await adapter.disconnect();
-  });
-
-  test('mutes the local published track, blocks startTurn while muted, keeps tool results alive, and resets on disconnect', async () => {
-    const { adapter } = makeAdapter(undefined, { vad: false });
-    await adapter.connect({ tools: [], instructions: '' });
-
-    mockMuteLocalMic.mockClear();
+    mockUnmuteLocalMic.mockClear();
     mockPauseUpstream.mockClear();
     mockResumeUpstream.mockClear();
-    mockSetMicrophoneEnabled.mockClear();
     mockSendText.mockClear();
 
-    await adapter.inputControl.setInputEnabled(false);
-    expect(mockMuteLocalMic).toHaveBeenCalledTimes(1);
-    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    const result = adapter.inputControl.setInputEnabled(false);
+    expect(result).toBeUndefined();
     expect(mockMicCloneTrack.enabled).toBe(false);
+    expect(mockPublishedMicTrack.enabled).toBe(false);
 
-    // Manual startTurn is a no-op while muted.
-    await adapter.turnControl?.startTurn();
-    expect(mockResumeUpstream).not.toHaveBeenCalled();
-    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
-
-    // In-flight tool result still speaks over the same room.
     await adapter.sendToolResult(ToolCallId('lk-muted-call'), {
       ok: true,
       userMessage: 'Spoken while muted.',
     });
     expect(mockSendText).toHaveBeenCalledTimes(1);
 
-    // Unmuting re-enables capture and allows manual startTurn again.
-    await adapter.inputControl.setInputEnabled(true);
+    adapter.inputControl.setInputEnabled(true);
     expect(mockMicCloneTrack.enabled).toBe(true);
-    await adapter.turnControl?.startTurn();
-    expect(mockResumeUpstream).toHaveBeenCalledTimes(1);
-
-    // Mute resets on disconnect.
-    await adapter.inputControl.setInputEnabled(false);
+    // Unmuting outside a turn leaves the published track closed.
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(mockMuteLocalMic).not.toHaveBeenCalled();
+    expect(mockUnmuteLocalMic).not.toHaveBeenCalled();
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+    expect(mockResumeUpstream).not.toHaveBeenCalled();
     await adapter.disconnect();
-    currentRoom = makeMockRoom();
+  });
+
+  test('a press while muted runs a silent turn that unmuting reopens', async () => {
+    const { adapter, events } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
     mockResumeUpstream.mockClear();
+    mockSetMicrophoneEnabled.mockClear();
+    events.length = 0;
+
+    adapter.inputControl.setInputEnabled(false);
+    await adapter.turnControl?.startTurn();
+
+    expect(mockResumeUpstream).toHaveBeenCalledTimes(1);
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(events.some((event) => event.type === 'speech_started')).toBe(true);
+
+    adapter.inputControl.setInputEnabled(true);
+    expect(mockPublishedMicTrack.enabled).toBe(true);
+    await adapter.disconnect();
+  });
+
+  test('mute and unmute inside a press reopens the microphone', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl?.startTurn();
+    expect(mockPublishedMicTrack.enabled).toBe(true);
+
+    adapter.inputControl.setInputEnabled(false);
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(mockMicCloneTrack.enabled).toBe(false);
+
+    adapter.inputControl.setInputEnabled(true);
+    expect(mockPublishedMicTrack.enabled).toBe(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    await adapter.disconnect();
+  });
+
+  test('unmuting right at release leaves the microphone closed', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });
     await adapter.turnControl?.startTurn();
-    expect(mockResumeUpstream).toHaveBeenCalledTimes(1);
+    adapter.inputControl.setInputEnabled(false);
+    mockPauseUpstream.mockClear();
+
+    const ending = adapter.turnControl?.endTurn();
+    adapter.inputControl.setInputEnabled(true);
+    await ending;
+
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(mockMicPublication.track.isMuted).toBe(true);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    await adapter.disconnect();
+  });
+
+  test('with the pre-roll bridge, mute disables the clone that feeds it and VAD', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    mockMuteLocalMic.mockClear();
+    mockUnmuteLocalMic.mockClear();
+    mockPauseUpstream.mockClear();
+    mockReplaceTrack.mockClear();
+
+    adapter.inputControl.setInputEnabled(false);
+    expect(mockMicCloneTrack.enabled).toBe(false);
+    expect(mockGeneratedTrack.enabled).toBe(true);
+
+    adapter.inputControl.setInputEnabled(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    expect(mockMuteLocalMic).not.toHaveBeenCalled();
+    expect(mockUnmuteLocalMic).not.toHaveBeenCalled();
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+    expect(mockReplaceTrack).not.toHaveBeenCalled();
+    await adapter.disconnect();
+  });
+
+  test('mute resets on disconnect', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.inputControl.setInputEnabled(false);
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    await adapter.turnControl?.startTurn();
+    expect(mockPublishedMicTrack.enabled).toBe(true);
+    await adapter.disconnect();
   });
 });

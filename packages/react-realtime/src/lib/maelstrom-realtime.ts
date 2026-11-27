@@ -533,7 +533,6 @@ export function maelstromRealtime<
       useEffect(() => {
         const unsubscribe = session.on('input_muted', (muted) => {
           setInputMutedState(muted);
-          setTurnPolicy(readTurnPolicy(session));
         });
         setInputMutedState(session.inputMuted);
         return unsubscribe;

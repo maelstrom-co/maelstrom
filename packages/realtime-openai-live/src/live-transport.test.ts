@@ -1394,6 +1394,18 @@ describe('manualTurns with input mute', () => {
     expect(h.micStates.at(-1)).toBe('inactive');
   });
 
+  test('mute and unmute inside a press reopens the microphone', async () => {
+    const h = await connected();
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+    h.transport.setInputEnabled(false);
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+    expect(h.micStates.at(-1)).toBe('active');
+  });
+
   test('unmuting outside a turn keeps the microphone closed until the next turn', async () => {
     const h = await connected();
 

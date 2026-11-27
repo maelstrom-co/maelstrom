@@ -163,7 +163,9 @@ export interface AdapterTurnControl {
  * Optional microphone input gate owned by an adapter. `setInputEnabled(false)`
  * stops capturing user speech without disconnecting the session, cancelling
  * in-flight tool work, or altering playback. `setInputEnabled(true)` restores
- * capture on the same connection.
+ * capture on the same connection. The gate is independent of
+ * {@link AdapterTurnControl}: a turn started while input is disabled stays
+ * silent until input is enabled again.
  */
 export interface AdapterInputControl {
   /**

@@ -230,9 +230,6 @@ export class LiveKitAdapter
   #browserVad: BrowserVad | undefined;
   #manualTurnControlAvailable = false;
   #inputMuted = false;
-  #inputMuteRequest = 0;
-  // Settles once every mute gate call issued so far has finished. Never rejects.
-  #inputGateSettled: Promise<void> = Promise.resolve();
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -353,12 +350,16 @@ export class LiveKitAdapter
   }
 
   /**
-   * Microphone input gate that mutes the local published track without
-   * disconnecting the room or cancelling in-flight tool work.
+   * Microphone input gate that disables the local microphone track feeding the
+   * publication, so the browser sends silence, without disconnecting the room,
+   * cancelling in-flight tool work, or changing turn control. A manual turn
+   * started while muted stays silent until input is enabled again.
    */
   readonly inputControl: AdapterInputControl = {
-    setInputEnabled: (enabled: boolean): Promise<void> =>
-      this.#setInputEnabled(enabled),
+    setInputEnabled: (enabled: boolean): void => {
+      this.#inputMuted = !enabled;
+      this.#applyInputGate();
+    },
   };
 
   /**
@@ -1100,8 +1101,7 @@ export class LiveKitAdapter
     preRollMs = 0,
   ): Promise<void> {
     const room = this.#roomForGeneration(generation);
-    if (!room || this.#inputMuted) return;
-    const inputMuteRequestAtStart = this.#inputMuteRequest;
+    if (!room) return;
     const bridge = this.#localAudioPreRoll;
     if (mode === 'automatic' && !bridge) {
       throw new Error('Automatic turn pre-roll is unavailable');
@@ -1141,11 +1141,6 @@ export class LiveKitAdapter
         }
       }
       if (!this.#isCurrentRoom(generation, room)) return;
-      if (this.#inputMuted) {
-        if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
-        this.#bargeInInProgress = false;
-        return;
-      }
     }
 
     try {
@@ -1159,42 +1154,14 @@ export class LiveKitAdapter
         );
       }
       if (!this.#isCurrentRoom(generation, room)) return;
-      let captureStarted = false;
-      const startCapture = async (): Promise<void> => {
-        if (!bridge) {
-          await room.localParticipant.setMicrophoneEnabled(true);
-        } else if (!captureStarted) {
-          if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
-          else await bridge.startManualTurn();
-        }
-        captureStarted = true;
-      };
-      if (!this.#inputMuted) {
-        await startCapture();
-        if (!this.#isCurrentRoom(generation, room)) return;
+      if (bridge) {
+        if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
+        else await bridge.startManualTurn();
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(true);
+        this.#applyInputGate();
       }
-      if (this.#inputMuteRequest !== inputMuteRequestAtStart) {
-        // A mute overlapped this start. Its upstream pause may have queued
-        // behind the resume above, and it may have skipped or undone capture.
-        // Wait for it, then reopen upstream and capture if it was withdrawn.
-        await this.#inputGateSettled;
-        if (!this.#isCurrentRoom(generation, room)) return;
-        if (!this.#inputMuted) {
-          await this.#getPublishedMicTrack(room)?.resumeUpstream();
-          if (!this.#isCurrentRoom(generation, room)) return;
-        }
-        if (!this.#inputMuted) {
-          await startCapture();
-          if (!this.#isCurrentRoom(generation, room)) return;
-        }
-      }
-      if (this.#inputMuted) {
-        await this.#closePublicationOpenedDuringMute(generation, room);
-        if (!this.#isCurrentRoom(generation, room)) return;
-        if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
-        this.#bargeInInProgress = false;
-        return;
-      }
+      if (!this.#isCurrentRoom(generation, room)) return;
     } catch (error) {
       if (!this.#isCurrentRoom(generation, room)) return;
       let turnStartError = error;
@@ -1967,64 +1934,20 @@ export class LiveKitAdapter
   }
 
   /**
-   * Re-closes what a turn start opened when input mute landed during one of
-   * its awaits. The mute's own publication calls may have settled before the
-   * start reopened the publication, so they cannot be relied on here.
+   * Mute and turn control gate different points: mute disables the local
+   * source of the publication, turn control pauses upstream and mutes the
+   * LiveKit track. With the pre-roll bridge the clone is that source and also
+   * feeds VAD. Without it the native track is published directly, and LiveKit
+   * re-enables that track whenever it unmutes for a turn.
    */
-  async #closePublicationOpenedDuringMute(
-    generation: number,
-    room: Room,
-  ): Promise<void> {
-    const publishedMicTrack = this.#getPublishedMicTrack(room);
-    await publishedMicTrack?.mute();
-    if (!this.#isCurrentRoom(generation, room)) return;
-    await publishedMicTrack?.pauseUpstream();
-    if (!this.#isCurrentRoom(generation, room)) return;
-    await this.#localAudioPreRoll?.clear().catch(() => {});
-  }
-
-  async #setInputEnabled(enabled: boolean): Promise<void> {
-    const muted = !enabled;
-    if (this.#inputMuted === muted) return;
-    this.#inputMuted = muted;
-    const request = ++this.#inputMuteRequest;
-    const generation = this.#connectionGeneration;
-    const room = this.#room;
+  #applyInputGate(): void {
+    const enabled = !this.#inputMuted;
     if (this.#micClone) this.#micClone.enabled = enabled;
-    if (!room) return;
+    const room = this.#room;
+    if (this.#localAudioPreRoll || !this.#rawMicTrack || !room) return;
     const publishedMicTrack = this.#getPublishedMicTrack(room);
-    if (!publishedMicTrack) return;
-    if (muted) {
-      let gateSettled!: () => void;
-      const earlierGates = this.#inputGateSettled;
-      const thisGate = new Promise<void>((resolve) => {
-        gateSettled = resolve;
-      });
-      this.#inputGateSettled = earlierGates.then(() => thisGate);
-      try {
-        await publishedMicTrack.mute();
-        if (!this.#isCurrentRoom(generation, room)) return;
-        await publishedMicTrack.pauseUpstream();
-      } catch (error) {
-        // A failed gate must not keep the muted flag, or a retry would return
-        // at the equal-value guard without reaching the track. Roll back as an
-        // unmute request would, unless a newer request or room took over.
-        if (
-          request === this.#inputMuteRequest &&
-          this.#isCurrentRoom(generation, room)
-        ) {
-          this.#inputMuted = false;
-          if (this.#micClone) this.#micClone.enabled = true;
-          if (this.#localAudioPreRoll)
-            await publishedMicTrack.unmute().catch(() => {});
-        }
-        throw error;
-      } finally {
-        gateSettled();
-      }
-    } else if (this.#localAudioPreRoll) {
-      await publishedMicTrack.unmute();
-    }
+    this.#rawMicTrack.enabled =
+      enabled && publishedMicTrack !== undefined && !publishedMicTrack.isMuted;
   }
 }
 

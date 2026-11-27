@@ -308,12 +308,6 @@ export class RealtimeSession implements VoiceSession {
   // Identifies the latest mute change, so a late adapter failure cannot undo a
   // newer request or a later connection.
   #inputMuteRequest = 0;
-  #wrappedTurnControl:
-    | {
-        readonly source: AdapterTurnControl;
-        readonly wrapped: AdapterTurnControl;
-      }
-    | undefined;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
@@ -483,31 +477,15 @@ export class RealtimeSession implements VoiceSession {
    * establishes manual mode, or in either mode when the control offers
    * `setTurnMode`, and is read dynamically so adapter degradation or teardown
    * can replace or remove the control safely. Use `turnMode` to tell which
-   * mode is active. While {@link RealtimeSession.inputMuted} is `true`,
-   * `startTurn()` is a no-op.
+   * mode is active. Turn control is independent of
+   * {@link RealtimeSession.inputMuted}: a turn started while muted stays
+   * silent until input is unmuted.
    */
   get turnControl(): AdapterTurnControl | undefined {
     const control = this.#adapter.turnControl;
-    if (!control) return undefined;
-    if (this.#turnMode !== 'manual' && control.setTurnMode === undefined)
-      return undefined;
-    if (!this.#inputMuted) return control;
-    if (this.#wrappedTurnControl?.source !== control) {
-      this.#wrappedTurnControl = {
-        source: control,
-        wrapped: {
-          startTurn: () => Promise.resolve(),
-          endTurn: () => control.endTurn(),
-          ...(control.setTurnMode
-            ? {
-                setTurnMode: (mode: TurnMode) =>
-                  control.setTurnMode?.(mode) ?? Promise.resolve(),
-              }
-            : {}),
-        },
-      };
-    }
-    return this.#wrappedTurnControl.wrapped;
+    return this.#turnMode === 'manual' || control?.setTurnMode !== undefined
+      ? control
+      : undefined;
   }
 
   /**
@@ -522,9 +500,10 @@ export class RealtimeSession implements VoiceSession {
   /**
    * Mutes or unmutes microphone input without disconnecting the voice session
    * or cancelling in-flight intent work. Calls while disconnected (`idle` or
-   * `error`) or matching the current state are no-ops. While muted, manual
-   * `turnControl.startTurn()` is a no-op; mute survives turn-mode switches and
-   * resets on disconnect.
+   * `error`) or matching the current state are no-ops. The microphone is open
+   * only while input is unmuted and either automatic mode is active or a
+   * manual turn is held, so unmuting during a held turn reopens it. Mute
+   * survives turn-mode switches and resets on disconnect.
    *
    * A mute request is ignored when the adapter has no `inputControl`, because
    * the session could not stop capture. `inputMuted` then stays `false`. When

@@ -1892,7 +1892,7 @@ test('manualTurns resolves thinking on output transcript and clears turnControl 
   expect(h.session.turnControl).toBeUndefined();
 });
 
-test('session mute wins over manual turns: a muted press stays closed and unmuting after release does not open the microphone', async () => {
+test('session mute and manual turns gate the microphone independently: a muted press stays closed until unmuted and unmuting after release does not open it', async () => {
   const h = await harness({}, { manualTurns: true, thinkingFallbackMs: 5_000 });
   const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
   expect(micTrack?.enabled).toBe(false);
@@ -1917,11 +1917,11 @@ test('session mute wins over manual turns: a muted press stays closed and unmuti
   await h.session.turnControl?.startTurn();
   expect(micTrack?.enabled).toBe(false);
   h.session.setInputMuted(false);
-  expect(micTrack?.enabled).toBe(false);
-
-  await h.session.turnControl?.startTurn();
   expect(micTrack?.enabled).toBe(true);
   expect(h.session.observations.getSnapshot().media.microphone).toBe('active');
+
+  await h.session.turnControl?.endTurn();
+  expect(micTrack?.enabled).toBe(false);
 });
 
 test('a connect that fails before the transport starts drops a retained mute request', async () => {

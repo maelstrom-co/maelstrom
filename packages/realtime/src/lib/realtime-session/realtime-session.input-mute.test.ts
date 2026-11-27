@@ -208,7 +208,7 @@ describe('RealtimeSession input mute', () => {
     expect(h.disconnectCount).toBe(0);
   });
 
-  it('makes manual startTurn a no-op while muted, survives turn-mode switches, and resets on disconnect', async () => {
+  it('keeps turn control independent of mute, survives turn-mode switches, and resets on disconnect', async () => {
     const startTurn = mock(async () => {});
     const endTurn = mock(async () => {});
     const h = makeHarness({
@@ -231,16 +231,16 @@ describe('RealtimeSession input mute', () => {
     expect(h.session.turnMode).toBe('manual');
     expect(h.session.inputMuted).toBe(true);
 
-    // startTurn is a no-op while muted; endTurn still forwards.
-    await h.session.turnControl?.startTurn();
-    expect(startTurn).not.toHaveBeenCalled();
+    // A press while muted still reaches the adapter, whose mute gate keeps
+    // the turn silent. Unmuting inside the press leaves the turn running.
+    const control = h.session.turnControl;
+    await control?.startTurn();
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    h.session.setInputMuted(false);
+    expect(h.session.turnControl).toBe(control);
     await h.session.turnControl?.endTurn();
     expect(endTurn).toHaveBeenCalledTimes(1);
-
-    // Unmuting restores startTurn.
-    h.session.setInputMuted(false);
-    await h.session.turnControl?.startTurn();
-    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(h.inputEnabledCalls).toEqual([false, true]);
 
     // Re-mute, switch back to automatic, then disconnect: mute resets.
     h.session.setInputMuted(true);
@@ -252,7 +252,7 @@ describe('RealtimeSession input mute', () => {
     expect(muteEvents).toEqual([true, false, true, false]);
   });
 
-  it('keeps setTurnMode on the muted control so the mode can change while muted', async () => {
+  it('lets the turn mode change while muted', async () => {
     const startTurn = mock(async () => {});
     const setTurnMode = mock(async () => {});
     const h = makeHarness({
@@ -267,7 +267,7 @@ describe('RealtimeSession input mute', () => {
 
     h.adapter.emit({ type: 'turn_mode', mode: 'manual' });
     await h.session.turnControl?.startTurn();
-    expect(startTurn).not.toHaveBeenCalled();
+    expect(startTurn).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a mute request when the adapter cannot gate its microphone', async () => {
