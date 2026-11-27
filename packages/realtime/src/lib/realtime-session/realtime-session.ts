@@ -1173,12 +1173,22 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 
+  /**
+   * Subscriber failures stay isolated so one cannot hide a playback change
+   * from later subscribers. Notification stops once a re-entrant subscriber
+   * has replaced the value, because that newer change already notified every
+   * subscriber.
+   */
   #setPlaybackBlocked(next: boolean): void {
     if (next === this.#playbackBlocked) return;
     this.#playbackBlocked = next;
     for (const handler of this.#playbackBlockedHandlers) {
       if (this.#playbackBlocked !== next) return;
-      handler(next);
+      try {
+        handler(next);
+      } catch (error) {
+        this.#logger.warn('playback_blocked subscriber failed', error);
+      }
     }
   }
 

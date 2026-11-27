@@ -3952,6 +3952,51 @@ describe('playback control', () => {
     unsubscribeObserver();
   });
 
+  it('keeps notifying later playback_blocked subscribers when an earlier one throws', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = false;
+    const listeners = new Set<() => void>();
+    const setBlocked = (next: boolean) => {
+      blocked = next;
+      for (const listener of [...listeners]) listener();
+    };
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: (handler: () => void) => {
+          listeners.add(handler);
+          return () => {
+            listeners.delete(handler);
+          };
+        },
+        resume: async () => {
+          setBlocked(false);
+        },
+      },
+    });
+
+    const unsubscribeThrowing = session.on('playback_blocked', () => {
+      throw new Error('subscriber failed');
+    });
+    const observed: boolean[] = [];
+    const unsubscribeObserver = session.on('playback_blocked', (next) => {
+      observed.push(next);
+    });
+
+    await session.connect();
+    expect(() => setBlocked(true)).not.toThrow();
+    expect(session.playbackBlocked).toBe(true);
+    expect(observed).toEqual([true]);
+
+    await session.resumePlayback();
+    expect(session.playbackBlocked).toBe(false);
+    expect(observed).toEqual([true, false]);
+
+    unsubscribeThrowing();
+    unsubscribeObserver();
+    await session.disconnect();
+  });
+
   it('fences stale adapter playback notifications that ignore unsubscribe after disconnect', async () => {
     const { session, adapter } = makeHarness();
     let blocked = false;
