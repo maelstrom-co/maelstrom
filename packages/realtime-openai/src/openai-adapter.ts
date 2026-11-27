@@ -1033,7 +1033,15 @@ export class OpenAIAdapter
   #reportUserSpeech(userSpeech: VoiceActivity): void {
     if (userSpeech === this.#userSpeech) return;
     this.#userSpeech = userSpeech;
+    const generation = this.#connectionGeneration;
     for (const handler of [...this.#mediaHandlers]) {
+      // A handler that disconnected or published a newer value already
+      // notified every observer, so this value is stale for the rest.
+      if (
+        generation !== this.#connectionGeneration ||
+        userSpeech !== this.#userSpeech
+      )
+        return;
       try {
         handler({ type: 'media', media: { userSpeech } });
       } catch {
