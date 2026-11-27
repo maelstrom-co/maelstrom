@@ -89,9 +89,8 @@ describe('calendar action handlers', () => {
   it.each(['removeEvent', 'moveEvent'])(
     '%s reports every matching event with its id when a title is ambiguous',
     async (action) => {
-      const { calendarActions, getCalendarSnapshot } = await import(
-        './calendar.store'
-      );
+      const { calendarActions, getCalendarSnapshot } =
+        await import('./calendar.store');
       calendarActions.addEvent('Standup', '9:00');
       calendarActions.addEvent('Standup', '11:00');
       const [first, second] = getCalendarSnapshot().events.filter(
@@ -121,9 +120,8 @@ describe('calendar action handlers', () => {
   );
 
   it('removeEvent removes one of two same-titled events by its id', async () => {
-    const { calendarActions, getCalendarSnapshot } = await import(
-      './calendar.store'
-    );
+    const { calendarActions, getCalendarSnapshot } =
+      await import('./calendar.store');
     calendarActions.addEvent('Standup', '9:00');
     calendarActions.addEvent('Standup', '11:00');
     const [first, second] = getCalendarSnapshot().events.filter(
