@@ -231,6 +231,8 @@ export class LiveKitAdapter
   #manualTurnControlAvailable = false;
   #inputMuted = false;
   #inputMuteRequest = 0;
+  // Settles once every mute gate call issued so far has finished. Never rejects.
+  #inputGateSettled: Promise<void> = Promise.resolve();
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -1099,6 +1101,7 @@ export class LiveKitAdapter
   ): Promise<void> {
     const room = this.#roomForGeneration(generation);
     if (!room || this.#inputMuted) return;
+    const inputMuteRequestAtStart = this.#inputMuteRequest;
     const bridge = this.#localAudioPreRoll;
     if (mode === 'automatic' && !bridge) {
       throw new Error('Automatic turn pre-roll is unavailable');
@@ -1164,6 +1167,17 @@ export class LiveKitAdapter
           await room.localParticipant.setMicrophoneEnabled(true);
         }
         if (!this.#isCurrentRoom(generation, room)) return;
+      }
+      if (this.#inputMuteRequest !== inputMuteRequestAtStart) {
+        // A mute overlapped this start and was withdrawn. Its upstream pause
+        // may have queued behind the resume above and closed upstream again,
+        // so wait for it and reopen upstream for the accepted turn.
+        await this.#inputGateSettled;
+        if (!this.#isCurrentRoom(generation, room)) return;
+        if (!this.#inputMuted) {
+          await this.#getPublishedMicTrack(room)?.resumeUpstream();
+          if (!this.#isCurrentRoom(generation, room)) return;
+        }
       }
       if (this.#inputMuted) {
         await this.#closePublicationOpenedDuringMute(generation, room);
@@ -1972,6 +1986,12 @@ export class LiveKitAdapter
     const publishedMicTrack = this.#getPublishedMicTrack(room);
     if (!publishedMicTrack) return;
     if (muted) {
+      let gateSettled!: () => void;
+      const earlierGates = this.#inputGateSettled;
+      const thisGate = new Promise<void>((resolve) => {
+        gateSettled = resolve;
+      });
+      this.#inputGateSettled = earlierGates.then(() => thisGate);
       try {
         await publishedMicTrack.mute();
         if (!this.#isCurrentRoom(generation, room)) return;
@@ -1990,6 +2010,8 @@ export class LiveKitAdapter
             await publishedMicTrack.unmute().catch(() => {});
         }
         throw error;
+      } finally {
+        gateSettled();
       }
     } else if (this.#localAudioPreRoll) {
       await publishedMicTrack.unmute();

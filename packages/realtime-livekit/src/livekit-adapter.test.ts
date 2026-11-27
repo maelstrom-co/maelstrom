@@ -5005,6 +5005,53 @@ describe('LiveKitAdapter greeting capability', () => {
 });
 
 describe('LiveKitAdapter inputControl mute', () => {
+  test('a withdrawn mute whose pause queued behind a turn start leaves upstream open for that turn', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPauseUpstream.mockClear();
+    mockResumeUpstream.mockClear();
+
+    const upstream: string[] = [];
+    let releaseResume!: () => void;
+    let releasePause!: () => void;
+    mockResumeUpstream.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseResume = () => {
+            upstream.push('resume');
+            resolve();
+          };
+        }),
+    );
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      upstream.push('resume');
+    });
+    mockPauseUpstream.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePause = () => {
+            upstream.push('pause');
+            resolve();
+          };
+        }),
+    );
+
+    const starting = adapter.turnControl?.startTurn();
+    await Promise.resolve();
+    const muting = adapter.inputControl.setInputEnabled(false);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    await adapter.inputControl.setInputEnabled(true);
+
+    releaseResume();
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    releasePause();
+    await muting;
+    await starting;
+
+    expect(upstream).toEqual(['resume', 'pause', 'resume']);
+    await adapter.disconnect();
+  });
+
   test('a failed mute rolls back so a retry reaches the published track', async () => {
     const { adapter } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });
