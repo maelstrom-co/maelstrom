@@ -1,7 +1,8 @@
+import type { RequestOutcome, RequestOutcomeView } from '@maelstrom-co/client';
 import { err, ok } from '@maelstrom-co/protocol';
 import { useSyncExternalStore } from 'react';
 
-import type { ReceiptPart } from './request-receipt';
+import { isSettledOutcome, type ReceiptPart } from './request-receipt';
 
 export interface ActionSource {
   readonly vesselId: string;
@@ -19,6 +20,7 @@ const DIRECT_MARK_TTL_MS = 5_000;
 let latest: DirectReceipt | null = null;
 let nextOrder = 1;
 let directMarks: { source: ActionSource; expiresAt: number }[] = [];
+const settledOrders = new WeakMap<RequestOutcome, number>();
 const listeners = new Set<() => void>();
 
 /**
@@ -56,6 +58,35 @@ export function failureResult(
 /** Increases with every receipt, so the line can show whichever is newest. */
 export function nextReceiptOrder(): number {
   return nextOrder++;
+}
+
+/**
+ * Gives every request its receipt order when it settles, on the same counter
+ * as direct clicks, so the order never depends on when the line renders.
+ * Returns the cleanup that stops watching the store.
+ */
+export function orderSettledRequests(
+  store: RequestOutcomeView['store'],
+): () => void {
+  const orderSettled = () => {
+    for (const outcome of Object.values(store.state.outcomes))
+      if (isSettledOutcome(outcome)) settledRequestOrder(outcome);
+  };
+  orderSettled();
+  const subscription = store.subscribe(orderSettled);
+  return () => subscription.unsubscribe();
+}
+
+/**
+ * The receipt order of a settled request. A request no store watcher saw
+ * settle takes the next order on first read and keeps it across remounts.
+ */
+export function settledRequestOrder(outcome: RequestOutcome): number {
+  const known = settledOrders.get(outcome);
+  if (known !== undefined) return known;
+  const order = nextReceiptOrder();
+  settledOrders.set(outcome, order);
+  return order;
 }
 
 export function getDirectReceipt(): DirectReceipt | null {

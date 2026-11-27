@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { RequestOutcome } from '@maelstrom-co/client';
+import type { RequestOutcome, RequestOutcomeView } from '@maelstrom-co/client';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,6 +28,7 @@ const {
   markDirectAction,
   failureResult,
   noteResult,
+  orderSettledRequests,
 } = await import('../lib/direct-action-receipt');
 const { ActionReceiptLine } = await import('./action-receipt-line');
 
@@ -151,6 +152,39 @@ describe('ActionReceiptLine', () => {
     expect(band.textContent).toBe('✓ Added "B"');
   });
 
+  it('keeps a newer direct click over the request after a remount', () => {
+    const first = render(<ActionReceiptLine />);
+    act(() => {
+      setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
+    });
+    act(() => {
+      const source = { vesselId: 'tasks', action: 'checkTask' };
+      markDirectAction(source);
+      noteResult('Checked task "Ship this sprint"', source);
+    });
+    first.unmount();
+    render(<ActionReceiptLine />);
+    expect(screen.getByTestId('action-receipt-line').textContent).toBe(
+      '✓ Checked task "Ship this sprint"',
+    );
+  });
+
+  it('orders a request by when it settled, not by when the line first rendered it', () => {
+    const stop = orderSettledRequests(outcomeStore());
+    setLatest(outcome('ticket-1', 'applied', [ran('addTask', 'Added "A"')]));
+    const source = { vesselId: 'tasks', action: 'checkTask' };
+    markDirectAction(source);
+    noteResult('Checked task "Ship this sprint"', source);
+    render(<ActionReceiptLine />);
+    const band = screen.getByTestId('action-receipt-line');
+    expect(band.textContent).toBe('✓ Checked task "Ship this sprint"');
+    act(() => {
+      setLatest(outcome('ticket-2', 'applied', [ran('addTask', 'Added "B"')]));
+    });
+    expect(band.textContent).toBe('✓ Added "B"');
+    stop();
+  });
+
   it('marks a failed direct click with the problem tone', () => {
     render(<ActionReceiptLine />);
     act(() => {
@@ -180,6 +214,18 @@ describe('ActionReceiptLine', () => {
     expect(band.classList.contains('h-6')).toBe(true);
   });
 });
+
+function outcomeStore(): RequestOutcomeView['store'] {
+  return {
+    get state() {
+      return { outcomes: latest.outcomes, latestId: null };
+    },
+    subscribe: (listener: () => void) => {
+      latest.listeners.add(listener);
+      return { unsubscribe: () => latest.listeners.delete(listener) };
+    },
+  } as unknown as RequestOutcomeView['store'];
+}
 
 function setLatest(next: RequestOutcome | undefined): void {
   latest.outcomes = next ? { ...latest.outcomes, [next.id]: next } : {};

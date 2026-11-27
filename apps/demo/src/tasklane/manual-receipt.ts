@@ -64,6 +64,11 @@ export function withManualReceipts<Handlers extends object>(
   ) as Handlers;
 }
 
+/** Increases with every receipt change, so the band can show whichever is newest. */
+export function nextReceiptSequence(): number {
+  return nextSequence++;
+}
+
 export function getManualReceipt(): ManualReceipt | null {
   return latest;
 }
@@ -99,7 +104,7 @@ function publish(action: string, result: ActionResult): void {
     );
     if (text) line = { text: `✗ ${text}`, tone: 'problem' };
   }
-  latest = { sequence: nextSequence++, line };
+  latest = { sequence: nextReceiptSequence(), line };
   for (const listener of listeners) listener();
 }
 

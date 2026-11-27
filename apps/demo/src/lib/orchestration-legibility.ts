@@ -6,6 +6,7 @@ import type {
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useSyncExternalStore } from 'react';
 
+import { orderSettledRequests } from './direct-action-receipt';
 import {
   DEFAULT_CLEAR_AFTER_MS,
   useTouchedInstances,
@@ -31,35 +32,46 @@ export interface OrchestrationLegibility {
 
 export const orchestrationLegibility: MaelstromExtension<
   OrchestrationLegibility
-> = (ctx: MaelstromExtensionContext) => ({
-  useTouchedInstances: () => {
-    const { orchestrator } = ctx.useMaelstromContext();
-    return useTouchedInstances(
-      orchestrator.commandProcessor.store,
-      DEFAULT_CLEAR_AFTER_MS,
-      orchestrator.commandProcessor.events,
-    );
-  },
-  useInstanceCount: () => {
-    const { orchestrator } = ctx.useMaelstromContext();
-    // Stable per orchestrator — a fresh subscribe closure every render would
-    // make useSyncExternalStore resubscribe on each one.
-    const subscribe = useCallback(
-      (onChange: () => void) =>
-        orchestrator.commandProcessor.store.subscribe(onChange).unsubscribe,
-      [orchestrator],
-    );
-    const getSnapshot = useCallback(
-      () => orchestrator.commandProcessor.store.state.instances.size,
-      [orchestrator],
-    );
-    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  },
-  useRequestOutcomes: () => {
-    const { orchestrator } = ctx.useMaelstromContext();
-    return useStore(
-      orchestrator.requestOutcomes.store,
-      (state) => state.outcomes,
-    );
-  },
-});
+> = (ctx: MaelstromExtensionContext) => {
+  ctx.onOrchestrator?.((orchestrator) =>
+    orderSettledRequests(orchestrator.requestOutcomes.store),
+  );
+  return orchestrationLegibilityHooks(ctx);
+};
+
+function orchestrationLegibilityHooks(
+  ctx: MaelstromExtensionContext,
+): OrchestrationLegibility {
+  return {
+    useTouchedInstances: () => {
+      const { orchestrator } = ctx.useMaelstromContext();
+      return useTouchedInstances(
+        orchestrator.commandProcessor.store,
+        DEFAULT_CLEAR_AFTER_MS,
+        orchestrator.commandProcessor.events,
+      );
+    },
+    useInstanceCount: () => {
+      const { orchestrator } = ctx.useMaelstromContext();
+      // Stable per orchestrator — a fresh subscribe closure every render would
+      // make useSyncExternalStore resubscribe on each one.
+      const subscribe = useCallback(
+        (onChange: () => void) =>
+          orchestrator.commandProcessor.store.subscribe(onChange).unsubscribe,
+        [orchestrator],
+      );
+      const getSnapshot = useCallback(
+        () => orchestrator.commandProcessor.store.state.instances.size,
+        [orchestrator],
+      );
+      return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    },
+    useRequestOutcomes: () => {
+      const { orchestrator } = ctx.useMaelstromContext();
+      return useStore(
+        orchestrator.requestOutcomes.store,
+        (state) => state.outcomes,
+      );
+    },
+  };
+}

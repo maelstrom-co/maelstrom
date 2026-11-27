@@ -2,7 +2,7 @@ import type { RequestOutcome } from '@maelstrom-co/client';
 import { Fragment, useRef } from 'react';
 
 import {
-  nextReceiptOrder,
+  settledRequestOrder,
   useDirectReceipt,
 } from '../lib/direct-action-receipt';
 import { m } from '../lib/maelstrom';
@@ -61,7 +61,7 @@ function useLatestReceiptParts(): readonly ReceiptPart[] {
     settled.current = {
       outcome,
       parts: requestReceiptParts(outcome),
-      order: nextReceiptOrder(),
+      order: settledRequestOrder(outcome),
     };
   }
   const request = settled.current;

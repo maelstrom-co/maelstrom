@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { tasklaneM } from './maelstrom';
 import { useManualReceipt } from './manual-receipt';
@@ -11,16 +11,11 @@ export function TasklaneReceiptLine() {
   const outcome = tasklaneM.useRequestOutcome(tasklaneM.useReceiptRequestId());
   const requestReceipt = useMemo(() => summariseReceipt(outcome), [outcome]);
   const manual = useManualReceipt();
-  const [showManual, setShowManual] = useState(false);
-  const requestKey = `${outcome?.id ?? ''}\u0000${requestReceipt?.text ?? ''}\u0000${requestReceipt?.tone ?? ''}`;
+  const requestSequence = tasklaneM.useRequestReceiptSequence();
 
   // Whichever changed last, the latest request or a click, owns the band.
-  useEffect(() => setShowManual(false), [requestKey]);
-  useEffect(() => {
-    if (manual) setShowManual(true);
-  }, [manual]);
-
-  const receipt = showManual && manual ? manual.line : requestReceipt;
+  const receipt =
+    manual && manual.sequence > requestSequence ? manual.line : requestReceipt;
   const text = receipt?.text ?? '';
 
   return (
