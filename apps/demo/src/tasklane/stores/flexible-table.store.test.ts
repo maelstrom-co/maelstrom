@@ -1001,6 +1001,32 @@ describe('flexible-table review regressions', () => {
     });
   });
 
+  it('compares status range filters by workflow order', () => {
+    projectTaskActions.createTask({ title: 'Third' }); // TL-3
+    projectTaskActions.setStatus('TL-2', 'doing');
+    projectTaskActions.setStatus('TL-3', 'done');
+    const ids = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
+
+    flexibleTableActions.filterRows('status', 'gt', 'doing');
+    expect(ids()).toEqual(['TL-3']);
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.filterRows('status', 'lt', 'In progress');
+    expect(ids()).toEqual(['TL-1']);
+    flexibleTableActions.clearFilters();
+
+    const unknown = flexibleTableActions.filterRows('status', 'gt', 'blocked');
+    expect(unknown).toMatchObject({
+      ok: false,
+      reason: 'invalid_filter_value',
+      expected: 'status',
+    });
+    expect(getFlexibleTableSnapshot().filters).toEqual([]);
+    expect(flexibleTableActions.filterRows('status', 'eq', 'blocked').ok).toBe(
+      true,
+    );
+  });
+
   it('compares task titles as text in equality filters', () => {
     projectTaskActions.createTask({ title: '001' }); // TL-3
     projectTaskActions.createTask({ title: '1' }); // TL-4
