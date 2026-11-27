@@ -19,7 +19,6 @@ import type {
   GreetingRunDisposition,
 } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
-import { DEFAULT_CONVERSATION_INSTRUCTIONS } from './default-conversation-instructions.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
   AdapterAudioStreams,
@@ -249,7 +248,7 @@ export class RealtimeSession implements VoiceSession {
   // Intents of submit_intent requests this session submitted, so outcome events
   // carry them without reading memory back.
   readonly #outcomeIntents = new Map<ToolCallId, string>();
-  readonly #conversationInstructions: string;
+  readonly #conversationInstructions: string | undefined;
   #groundingRevision = 0;
   #groundingKey: string | undefined;
   #subscriptions: ConnectionSubscriptions | undefined;
@@ -349,8 +348,7 @@ export class RealtimeSession implements VoiceSession {
     this.#eventSource = {
       subscribe: (handler) => this.#events.subscribe(handler),
     };
-    this.#conversationInstructions =
-      options.conversationInstructions ?? DEFAULT_CONVERSATION_INSTRUCTIONS;
+    this.#conversationInstructions = options.conversationInstructions;
     this.#adapter = options.adapter;
     this.#instance = options.instance;
     this.#sessionId = options.sessionId;
@@ -577,7 +575,9 @@ export class RealtimeSession implements VoiceSession {
         getInitialGrounding: () =>
           this.#describeGrounding(this.#instance.getStructuralSnapshot()),
         prepareGreeting: this.#greetingState === 'preparing',
-        conversationInstructions: this.#conversationInstructions,
+        ...(this.#conversationInstructions === undefined
+          ? {}
+          : { conversationInstructions: this.#conversationInstructions }),
       });
     } catch (error) {
       const errors = [error];

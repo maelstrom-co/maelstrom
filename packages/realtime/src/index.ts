@@ -29,7 +29,6 @@ export type {
   GreetingTerminalReason,
 } from './lib/greeting-coordinator.js';
 export { GreetingCoordinator } from './lib/greeting-coordinator.js';
-export { DEFAULT_CONVERSATION_INSTRUCTIONS } from './lib/realtime-session/default-conversation-instructions.js';
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
   AdapterAudioStreams,

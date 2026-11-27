@@ -168,12 +168,7 @@ export interface RealtimeSessionOptions {
   readonly memory?: RealtimeSessionMemory;
   /** Optional natural introduction. One attempt per memory lifetime; use an explicit language in these trusted instructions. Cannot accompany a fixed greeting. */
   readonly generatedOpening?: { readonly instructions: string };
-  /**
-   * Conversation instructions for the voice model, kept apart from tool routing.
-   * Defaults to `DEFAULT_CONVERSATION_INSTRUCTIONS`, which makes the agent
-   * follow the user's spoken language. A value replaces that default entirely.
-   * The LiveKit adapter ignores this field, because its worker runs no LLM.
-   */
+  /** Conversation-only instructions for adapters with a separate managed tool backend. */
   readonly conversationInstructions?: string;
   /** Bounds and display grouping policy for the continuous transcript channel. */
   readonly transcript?: ContinuousTranscriptOptions;
