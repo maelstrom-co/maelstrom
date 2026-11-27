@@ -526,3 +526,29 @@ stages at production state or resources.
 DNSSEC activation still requires the registrar DS record. `ProductionZone` does
 not manage DNSSEC or DNS records; keep those out of application adoption until
 the out-of-band step is complete.
+
+
+## Production narration delivery
+
+The production narration storage job reconciles the retained delivery Worker
+after it verifies the private cache bucket. The Worker uses a reference to
+that bucket and has no separate storage lifecycle. The website deployment
+can complete with the delivery Worker offline or absent.
+
+The optional production environment secret
+`CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN` needs production Workers Scripts
+and zone Workers Routes read and write access in addition to the existing
+narration storage and state access. The Worker serves only
+`/_blog-narration/*` on `maelstrom-ai.co` and `www.maelstrom-ai.co`. Both
+hosts must stay proxied in the production zone. Its `workers.dev` endpoint
+and preview URLs are disabled.
+
+Reconciliation compares the live Worker, binding, and routes with retained
+Alchemy state before applying and checks them again after applying. If a name
+or route is already in use, or an apply interrupted before state was saved,
+inspect the production Worker, route attachments, and deployment state before
+retrying. Use the original resource identities to restore known state. A
+recording stays available by its versioned URL after the article or voice
+changes. Keep all committed objects and manifests under
+`production-delivery/`. The Worker exposes only manifest and media URL shapes
+from that namespace.

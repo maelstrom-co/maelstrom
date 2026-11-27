@@ -1301,3 +1301,367 @@ describe('preview workflows', () => {
     }
   });
 });
+
+test('preview narration joins the shared narration writer queue from a trusted post-deploy job', () => {
+  const preview = read('deploy-preview.yml');
+  const production = read('deploy-production.yml');
+  const start = preview.indexOf('  publish-blog-narration:');
+  const job = preview.slice(start, preview.indexOf('  benchmark-gate:', start));
+  const deploy = preview.slice(preview.indexOf('  deploy:'), start);
+  expect(job).toContain(
+    'needs: [approve, deploy, narration-storage, render-blog-narration-baseline]',
+  );
+  expect(job).toContain("needs.deploy.result == 'success'");
+  expect(job).toContain(
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+  );
+  const workflow = Bun.YAML.parse(preview) as {
+    jobs: Record<string, { environment?: unknown }>;
+  };
+  expect(workflow.jobs['publish-blog-narration'].environment).toEqual({
+    name: 'production',
+    deployment: false,
+  });
+  expect(job).toContain('group: blog-narration-writers');
+  expect(job).toContain('cancel-in-progress: false');
+  expect(job).toContain('queue: max');
+  const checkout = step(job, 'Checkout trusted preview narration publisher');
+  expect(checkout).toContain('persist-credentials: false');
+  expect(checkout).toContain(`ref: ${expression('github.workflow_sha')}`);
+  expect(job).toContain('bun install --frozen-lockfile --ignore-scripts');
+  expect(job).not.toContain('working-directory: source');
+  for (const name of [
+    'ELEVENLABS_API_KEY',
+    'BLOG_NARRATION_R2_SECRET_ACCESS_KEY',
+    'BLOG_NARRATION_PREVIEW_R2_SECRET_ACCESS_KEY',
+  ]) {
+    expect(deploy).not.toContain(name);
+    expect(
+      step(job, 'Publish narration for the current approved website'),
+    ).toContain(name);
+  }
+  const build = step(deploy, 'Build website preview');
+  expect(build).toContain(
+    "format('{0}/pr-{1}/{2}/', needs.narration-storage.outputs.origin, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha)",
+  );
+  expect(build).not.toContain('github.run_attempt');
+  expect(production).toContain(`group: production-${expression('matrix.app')}`);
+  expect(production).not.toContain('group: blog-narration-writers');
+});
+
+test('optional storage failure does not suppress approved preview and production deployment jobs', () => {
+  const preview = read('deploy-preview.yml');
+  const production = read('deploy-production.yml');
+  const jobs = (source: string) =>
+    (
+      Bun.YAML.parse(source) as {
+        jobs: Record<
+          string,
+          {
+            needs?: string | string[];
+            if?: string;
+            environment?: unknown;
+            outputs?: Record<string, string>;
+          }
+        >;
+      }
+    ).jobs;
+  const previewJobs = jobs(preview);
+  const productionJobs = jobs(production);
+  const discovery = previewJobs['narration-storage'];
+  expect(discovery.needs).toBe('approve');
+  expect(discovery.environment).toEqual({
+    name: 'production',
+    deployment: false,
+  });
+  expect(discovery.if).toContain(
+    "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+  );
+  const canDiscover = new Function(
+    'vars',
+    'needs',
+    'github',
+    'format',
+    `return ${discovery.if?.replaceAll('needs.approve.outputs.pr-number', "needs.approve.outputs['pr-number']")}`,
+  );
+  const current = {
+    ref: 'refs/heads/main',
+    event: { repository: { default_branch: 'main' } },
+  };
+  const approvedHead = {
+    approve: { result: 'success', outputs: { 'pr-number': '42' } },
+  };
+  const format = (pattern: string, replacement: string) =>
+    pattern.replace('{0}', replacement);
+  expect(canDiscover({}, approvedHead, current, format)).toBe(true);
+  expect(
+    canDiscover(
+      { BLOG_NARRATION_PREVIEW_DISABLED: 'true' },
+      approvedHead,
+      current,
+      format,
+    ),
+  ).toBe(false);
+  expect(Object.keys(discovery.outputs ?? {}).sort()).toEqual([
+    'cache-bucket',
+    'delivery-bucket',
+    'origin',
+    'workers-dev-suffix',
+  ]);
+  expect(step(preview, 'Checkout trusted narration infrastructure')).toContain(
+    `ref: ${expression('github.workflow_sha')}`,
+  );
+  const discoveryStep = step(
+    preview,
+    'Inspect trusted preview narration storage',
+  );
+  expect(discoveryStep).toContain('discover all');
+  expect(discoveryStep).toContain(
+    expression('secrets.CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN'),
+  );
+  expect(discoveryStep).not.toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
+
+  const deployJob = previewJobs.deploy;
+  expect(deployJob.needs).toEqual(['approve', 'narration-storage']);
+  expect(deployJob.if).toContain('always() && !cancelled()');
+  const when = new Function(
+    'needs',
+    'always',
+    'cancelled',
+    `return ${deployJob.if?.replaceAll('needs.approve.outputs.pr-number', "needs.approve.outputs['pr-number']")}`,
+  );
+  const approved = { result: 'success', outputs: { 'pr-number': '42' } };
+  for (const result of ['success', 'failure', 'skipped']) {
+    expect(
+      when(
+        { approve: approved, 'narration-storage': { result } },
+        () => true,
+        () => false,
+      ),
+    ).toBe(true);
+  }
+  expect(
+    when(
+      { approve: approved },
+      () => true,
+      () => true,
+    ),
+  ).toBe(false);
+  expect(step(preview, 'Build website preview')).toContain(
+    "needs.narration-storage.result == 'success'",
+  );
+  const prJob = preview.slice(
+    preview.indexOf('  deploy:'),
+    preview.indexOf('  publish-blog-narration:'),
+  );
+  expect(prJob).not.toContain('CLOUDFLARE_NARRATION_MANAGEMENT_API_TOKEN');
+  expect(prJob).not.toContain('cache-bucket');
+  expect(prJob).not.toContain('delivery-bucket');
+  expect(previewJobs['publish-blog-narration'].if).toContain(
+    "needs.narration-storage.result == 'success'",
+  );
+  expect(productionJobs.platform.needs).toBeUndefined();
+  expect(productionJobs.deploy.needs).toBe('platform');
+  expect(productionJobs['narration-storage'].needs).toBeUndefined();
+  const recovery = read('recover-production-narration.yml');
+  expect(production).not.toContain('publish-blog-narration.ts');
+  expect(production).not.toContain('recover-blog-narration.ts');
+  expect(recovery).toContain('workflows: [Deploy Production]');
+  expect(recovery).toContain("cron: '7 * * * *'");
+  expect(
+    recovery.indexOf('name: Check narration bootstrap configuration'),
+  ).toBeLessThan(recovery.indexOf('name: Check out trusted recovery code'));
+  const configured = "steps.configuration.outputs.ready == 'true'";
+  for (const name of [
+    'Check out trusted recovery code',
+    'Install trusted recovery dependencies',
+    'Discover the trusted narration bucket',
+  ]) {
+    expect(step(recovery, name)).toContain(configured);
+  }
+  expect(recovery).toContain('group: blog-narration-writers');
+  const cache = step(recovery, 'Discover the trusted narration bucket');
+  expect(cache).toContain('discover cache');
+  expect(
+    step(recovery, 'Recover currently published production narration'),
+  ).toContain(
+    `BLOG_NARRATION_R2_BUCKET: ${expression('steps.storage.outputs.cache-bucket')}`,
+  );
+  const manual = step(recovery, 'Authorize one held narration attempt');
+  expect(manual).toContain("github.event_name == 'workflow_dispatch'");
+  expect(manual).toContain('recover-blog-narration.ts authorize');
+  expect(manual).not.toContain('ELEVENLABS_API_KEY');
+  expect(production).not.toContain('vars.BLOG_NARRATION_R2_BUCKET');
+  expect(preview).not.toContain('vars.BLOG_NARRATION_PREVIEW_ORIGIN');
+});
+
+test('narration storage only reconciles the trusted workflow revision of a same-repository main push', () => {
+  const workflow = Bun.YAML.parse(read('deploy-production.yml')) as {
+    jobs: Record<
+      string,
+      {
+        if: string;
+        steps: {
+          name?: string;
+          uses?: string;
+          with?: Record<string, string>;
+          env?: Record<string, string>;
+        }[];
+      }
+    >;
+  };
+  const job = workflow.jobs['narration-storage'];
+  const repository = 'maelstrom-co/maelstrom';
+  const sha = 'a'.repeat(40);
+  const run = {
+    conclusion: 'success',
+    event: 'push',
+    head_branch: 'main',
+    head_repository: { full_name: repository },
+    head_sha: sha,
+  };
+  const context = {
+    event_name: 'workflow_run',
+    ref: 'refs/heads/main',
+    repository,
+    workflow_sha: sha,
+    event: { workflow_run: run, repository: { private: false } },
+  };
+  const allowed = new Function('github', 'vars', `return ${job.if}`);
+  expect(allowed(context, { PUBLIC_LAUNCH_READY: 'true' })).toBe(true);
+  for (const workflowRun of [
+    { ...run, conclusion: 'failure' },
+    { ...run, event: 'pull_request' },
+    { ...run, head_branch: 'release' },
+    { ...run, head_repository: { full_name: 'fork/maelstrom' } },
+    { ...run, head_sha: 'b'.repeat(40) },
+  ]) {
+    expect(
+      allowed(
+        { ...context, event: { ...context.event, workflow_run: workflowRun } },
+        { PUBLIC_LAUNCH_READY: 'true' },
+      ),
+    ).toBe(false);
+  }
+  expect(
+    allowed(
+      { ...context, ref: 'refs/heads/release' },
+      { PUBLIC_LAUNCH_READY: 'true' },
+    ),
+  ).toBe(false);
+  expect(
+    allowed(
+      { ...context, event_name: 'workflow_dispatch' },
+      { PUBLIC_LAUNCH_READY: 'true' },
+    ),
+  ).toBe(false);
+  expect(allowed(context, { PUBLIC_LAUNCH_READY: 'false' })).toBe(false);
+
+  const checkout = job.steps.filter((entry) =>
+    entry.uses?.startsWith('actions/checkout@'),
+  );
+  expect(checkout).toHaveLength(1);
+  expect(checkout[0]?.with?.ref).toBe(expression('github.workflow_sha'));
+  const reconcile = job.steps.find(
+    (entry) => entry.name === 'Verify and reconcile retained narration storage',
+  );
+  expect(reconcile?.env?.DEPLOY_SHA).toBe(expression('github.workflow_sha'));
+});
+
+test('preview speech comparison only builds the pinned upstream base on an unprivileged runner', () => {
+  const preview = read('deploy-preview.yml');
+  const start = preview.indexOf('  render-blog-narration-baseline:');
+  const end = preview.indexOf('  publish-blog-narration:', start);
+  const discovery = preview.slice(
+    preview.indexOf('  narration-storage:'),
+    preview.indexOf('  deploy:'),
+  );
+  const suffix = step(discovery, 'Validate the public preview Worker suffix');
+  expect(discovery).toContain(
+    `workers-dev-suffix: ${expression('steps.preview-suffix.outputs.suffix')}`,
+  );
+  expect(suffix).toContain(
+    `PREVIEW_WORKERS_DEV_SUFFIX: ${expression('vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX')}`,
+  );
+  expect(suffix).toContain('isWorkersDevSuffix(suffix)');
+  expect(suffix).not.toContain('secrets.');
+  const baseline = preview.slice(start, end);
+  expect(baseline).toContain("needs.narration-storage.outputs.origin != ''");
+  expect(baseline).toContain(
+    "needs.narration-storage.outputs.workers-dev-suffix != ''",
+  );
+  expect(baseline).not.toContain('vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX');
+  expect(baseline).not.toContain('environment:');
+  expect(baseline).not.toContain('secrets.');
+  expect(baseline).not.toContain('contents: write');
+  expect(baseline).not.toContain('pull-requests: write');
+  expect(baseline).toContain(
+    `inventory: ${expression('steps.baseline.outputs.inventory')}`,
+  );
+  const trusted = step(baseline, 'Checkout trusted baseline tools');
+  expect(trusted).toContain(`ref: ${expression('github.workflow_sha')}`);
+  const source = step(baseline, 'Checkout the exact upstream base');
+  expect(source).toContain(
+    `ref: ${expression('steps.comparison.outputs.merge-base')}`,
+  );
+  expect(source).toContain('persist-credentials: false');
+  const build = step(baseline, 'Build upstream website with its own templates');
+  expect(build).toContain('working-directory: baseline-source');
+  expect(build).toContain(
+    `PUBLIC_PLAYGROUND_URL: https://maelstrom-playground-alchemy-pr-${expression('needs.approve.outputs.pr-number')}.${expression('needs.narration-storage.outputs.workers-dev-suffix')}/`,
+  );
+  expect(build).toContain('PUBLIC_TURNSTILE_ENVIRONMENT: preview');
+  expect(build).toContain(
+    "format('{0}/pr-{1}/{2}/', needs.narration-storage.outputs.origin, needs.approve.outputs.pr-number, needs.approve.outputs.head-sha)",
+  );
+  expect(build).toContain(
+    'bunx nx run @maelstrom-co/www:build --skip-nx-cache',
+  );
+  const extract = step(baseline, 'Hash the complete upstream route inventory');
+  expect(extract).toContain(
+    `BLOG_NARRATION_BASELINE_PATHS: ${expression('steps.comparison.outputs.hash-paths')}`,
+  );
+  expect(extract).not.toContain('working-directory: baseline-source');
+  expect(extract).toContain(
+    'apps/www/tools/render-preview-narration-baseline.ts inventory baseline-source/apps/www/dist/client',
+  );
+  const publication = preview.slice(end, preview.indexOf('  benchmark-gate:'));
+  expect(publication).toContain('always() && !cancelled()');
+  expect(publication).toContain(
+    "needs.render-blog-narration-baseline.result == 'success' && needs.render-blog-narration-baseline.outputs.inventory || ''",
+  );
+});
+
+test('only a validated production-scoped preview suffix enters unprivileged job outputs', () => {
+  const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+    jobs: Record<string, { steps: { id?: string; run?: string }[] }>;
+  };
+  const command = workflow.jobs['narration-storage'].steps.find(
+    ({ id }) => id === 'preview-suffix',
+  )?.run;
+  if (!command) throw new Error('Missing trusted preview suffix exporter');
+  const directory = mkdtempSync(join(tmpdir(), 'preview-suffix-'));
+  try {
+    const output = join(directory, 'output');
+    for (const [suffix, result] of [
+      ['preview-account.workers.dev', 'suffix=preview-account.workers.dev\n'],
+      ['', ''],
+      ['preview-account.workers.dev\ninjected=value', ''],
+      ['preview-account.example', ''],
+    ]) {
+      writeFileSync(output, '');
+      const executed = Bun.spawnSync(['bash', '-c', command], {
+        cwd: root,
+        env: {
+          ...process.env,
+          GITHUB_OUTPUT: output,
+          PREVIEW_WORKERS_DEV_SUFFIX: suffix,
+        },
+      });
+      expect(executed.exitCode, executed.stderr.toString()).toBe(0);
+      expect(readFileSync(output, 'utf8')).toBe(result);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

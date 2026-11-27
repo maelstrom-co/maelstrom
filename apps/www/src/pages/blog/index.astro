@@ -3,10 +3,14 @@ import { getCollection } from 'astro:content';
 
 import Layout from '../../layouts/Layout.astro';
 import { blogPath, productionUrl, sortPosts } from '../../lib/blog';
+import { parsePreviewNarrationBase } from '../../lib/blog-narration-preview';
 
 import '../../styles/blog.css';
 
 const posts = sortPosts(await getCollection('blog'));
+const previewNarration = parsePreviewNarrationBase(
+  import.meta.env.PUBLIC_BLOG_NARRATION_PREVIEW_BASE,
+);
 ---
 
 <Layout
@@ -14,7 +18,12 @@ const posts = sortPosts(await getCollection('blog'));
   description="Engineering notes and updates from Maelstrom."
   canonical={productionUrl(blogPath())}
 >
-  <main class="container blog-page blog-archive">
+  <main
+    class="container blog-page blog-archive"
+    data-narration-preview-base={previewNarration?.href}
+    data-narration-release={import.meta.env.PUBLIC_BLOG_NARRATION_RELEASE}
+    data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
+  >
     <header class="blog-archive-header">
       <div>
         <h1>Blog</h1>

@@ -7,6 +7,17 @@
     "sourceMap": false,
     "rootDir": "."
   },
-  "include": ["e2e/**/*.ts", "e2e/**/*.js", "playwright.config.ts"],
+  "include": [
+    "e2e/**/*.ts",
+    "e2e/**/*.js",
+    "playwright.config.ts",
+    "src/lib/blog-narration.ts",
+    "src/lib/blog-narration-preview.ts",
+    "tools/blog-narration-publication.ts",
+    "tools/blog-narration-attempt.ts",
+    "tools/blog-narration-production-publication.ts",
+    "tools/blog-narration-preview-publication.ts",
+    "tools/preview-narration-baseline.ts"
+  ],
   "exclude": ["out-tsc", "test-output"]
 }

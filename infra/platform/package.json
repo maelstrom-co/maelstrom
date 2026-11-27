@@ -51,6 +51,7 @@
     "namedInputs": {
       "externalValidationSources": [
         "{workspaceRoot}/scripts/**/*",
+        "{workspaceRoot}/patches/*.patch",
         "{workspaceRoot}/apps/*/alchemy*.run.ts",
         "{workspaceRoot}/apps/*/infra/**/*",
         "{workspaceRoot}/apps/*/migrations/**/*",

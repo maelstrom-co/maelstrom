@@ -112,6 +112,8 @@ interface WorkflowJob {
 
 interface PullState {
   readonly state: 'open' | 'closed';
+  readonly base?: { sha: string; ref: string; repository: string };
+  readonly changedFiles?: number;
   readonly headSha: string;
   readonly headRef: string;
   readonly headRepository: string;
@@ -252,6 +254,20 @@ const readPull = async (
   }
   return {
     state: value.state,
+    base:
+      isRecord(value.base) &&
+      typeof value.base.sha === 'string' &&
+      typeof value.base.ref === 'string' &&
+      isRecord(value.base.repo) &&
+      typeof value.base.repo.full_name === 'string'
+        ? {
+            sha: value.base.sha,
+            ref: value.base.ref,
+            repository: value.base.repo.full_name,
+          }
+        : undefined,
+    changedFiles:
+      typeof value.changed_files === 'number' ? value.changed_files : undefined,
     headSha: value.head.sha,
     headRef: value.head.ref,
     headRepository: value.head.repo.full_name,
@@ -434,6 +450,219 @@ export const parsePreviewComment = (body: string): PreviewCommentState => {
   }
   const legacy = LEGACY_DEPLOYED_PATTERN.exec(body)?.[1];
   return { approvedSha: undefined, deployedSha: legacy };
+};
+
+/** Reads the authorized www URL from the bot's completed preview state. */
+export const readApprovedWebsitePreview = async (
+  options: {
+    readonly repository: string;
+    readonly prNumber: string;
+    readonly approvedSha: string;
+    readonly workersDevSuffix: string;
+  },
+  dependencies: PreviewGithubDependencies,
+): Promise<string | undefined> => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  validateSha('Approved preview narration SHA', options.approvedSha);
+  const pull = await readPull(
+    options.repository,
+    options.prNumber,
+    dependencies,
+  );
+  if (
+    pull.state !== 'open' ||
+    !pull.labeled ||
+    pull.headRepository !== options.repository ||
+    pull.headSha !== options.approvedSha
+  )
+    return;
+  const comment = await readPreviewComment(
+    options.repository,
+    options.prNumber,
+    dependencies,
+    COMMENT_MARKER,
+    true,
+  );
+  if (!comment) return;
+  const state = parsePreviewComment(comment.body);
+  if (
+    state.approvedSha !== options.approvedSha ||
+    state.deployedSha !== options.approvedSha
+  )
+    return;
+  const urls = [...comment.body.matchAll(/^\| Website \| ([^|\n]+) \|$/gm)];
+  if (urls.length !== 1 || !urls[0]?.[1]) {
+    throw new Error('Approved preview Website URL is missing or ambiguous');
+  }
+  return validatePreviewWorkerUrl(
+    urls[0][1],
+    `maelstrom-www-alchemy-pr-${options.prNumber}`,
+    options.workersDevSuffix,
+  );
+};
+
+/** A changed post and the route rendered at the merge base, when it existed. */
+export interface PreviewBlogChange {
+  readonly path: string;
+  readonly previousPath: string | null;
+}
+
+/** The verified upstream repository, target branch and exact tip of that branch. */
+export interface PreviewComparisonBase {
+  readonly repository: string;
+  readonly ref: string;
+  readonly sha: string;
+}
+
+interface PreviewComparisonContext {
+  readonly repository: string;
+  readonly prNumber: string;
+  readonly approvedSha: string;
+}
+
+const compareApprovedPull = (
+  pull: PullState,
+  { repository, approvedSha }: PreviewComparisonContext,
+) =>
+  pull.state === 'open' &&
+  pull.labeled &&
+  pull.headRepository === repository &&
+  pull.headSha === approvedSha;
+
+const sameBase = (
+  left: PreviewComparisonBase | undefined,
+  right: PreviewComparisonBase,
+) =>
+  left?.repository === right.repository &&
+  left.ref === right.ref &&
+  left.sha === right.sha;
+
+/** Rechecks the approved head and the comparison's exact base immediately before synthesis. */
+export const isPreviewComparisonCurrent = async (
+  context: PreviewComparisonContext,
+  base: PreviewComparisonBase,
+  dependencies: PreviewGithubDependencies,
+): Promise<boolean> => {
+  validateRepository(context.repository);
+  validatePrNumber(context.prNumber);
+  validateSha('Approved preview narration SHA', context.approvedSha);
+  const pull = await readPull(
+    context.repository,
+    context.prNumber,
+    dependencies,
+  );
+  return compareApprovedPull(pull, context) && sameBase(pull.base, base);
+};
+
+const blogRoute = (filename: string) => {
+  const match =
+    /^apps\/www\/src\/content\/blog\/([a-z0-9]+(?:-[a-z0-9]+)*)\.mdx$/u.exec(
+      filename,
+    );
+  return match?.[0] === filename && match?.[1]
+    ? `/blog/${match[1]}/`
+    : undefined;
+};
+
+/** Resolves complete file provenance using the immutable comparison of the live upstream tip and approved head. */
+export const readPreviewBlogChanges = async (
+  options: PreviewComparisonContext & { readonly defaultBranch: string },
+  dependencies: PreviewGithubDependencies,
+): Promise<
+  | {
+      base: PreviewComparisonBase;
+      mergeBase: string;
+      posts: PreviewBlogChange[];
+      removedPaths: string[];
+    }
+  | undefined
+> => {
+  const { repository, prNumber, approvedSha, defaultBranch } = options;
+  validateRepository(repository);
+  validatePrNumber(prNumber);
+  validateSha('Approved preview narration SHA', approvedSha);
+
+  const readCurrent = async () => {
+    const pull = await readPull(repository, prNumber, dependencies);
+    if (
+      compareApprovedPull(pull, options) &&
+      pull.base?.repository === repository &&
+      pull.base.ref === defaultBranch
+    )
+      return pull;
+    return undefined;
+  };
+
+  const pull = await readCurrent();
+  if (!pull?.base) return;
+  const base = pull.base;
+  const baseTip = base.sha;
+  validateSha('Preview base tip', baseTip);
+  const comparison = await responseJson(
+    await githubRequest(
+      dependencies,
+      repository,
+      `/compare/${baseTip}...${approvedSha}?per_page=1&page=1`,
+    ),
+    'preview comparison',
+  );
+  const current = await readCurrent();
+  if (
+    !current ||
+    !sameBase(current.base, base) ||
+    current.changedFiles !== pull.changedFiles ||
+    !isRecord(comparison) ||
+    !isRecord(comparison.base_commit) ||
+    comparison.base_commit.sha !== baseTip ||
+    !isRecord(comparison.merge_base_commit) ||
+    typeof comparison.merge_base_commit.sha !== 'string' ||
+    !Array.isArray(comparison.files) ||
+    comparison.files.length >= 300 ||
+    comparison.files.length !== pull.changedFiles
+  )
+    return;
+  const mergeBase = comparison.merge_base_commit.sha;
+  validateSha('Preview comparison merge base', mergeBase);
+
+  const filenames = new Set<string>();
+  const renameSources = new Set<string>();
+  const posts: PreviewBlogChange[] = [];
+  const removedPaths: string[] = [];
+  for (const file of comparison.files) {
+    if (
+      !isRecord(file) ||
+      typeof file.filename !== 'string' ||
+      !file.filename ||
+      filenames.has(file.filename)
+    )
+      return;
+    filenames.add(file.filename);
+    const path = blogRoute(file.filename);
+    if (file.status === 'renamed') {
+      if (
+        typeof file.previous_filename !== 'string' ||
+        !file.previous_filename ||
+        file.previous_filename === file.filename ||
+        renameSources.has(file.previous_filename)
+      )
+        return;
+      renameSources.add(file.previous_filename);
+      const previousPath = blogRoute(file.previous_filename);
+      if (path && previousPath) posts.push({ path, previousPath });
+      if (!path && previousPath) removedPaths.push(previousPath);
+    } else if (file.status === 'added') {
+      if (path) posts.push({ path, previousPath: null });
+    } else if (file.status === 'modified' || file.status === 'changed') {
+      if (path) posts.push({ path, previousPath: path });
+    } else if (file.status === 'removed') {
+      if (path) removedPaths.push(path);
+    } else {
+      return;
+    }
+  }
+  if ([...renameSources].some((source) => filenames.has(source))) return;
+  return { base, mergeBase, posts, removedPaths };
 };
 
 export interface VoiceBenchmarkContext {

@@ -12,6 +12,8 @@ import {
   type PreviewApp,
   parsePreviewComment,
   renderDeployedComment,
+  readApprovedWebsitePreview,
+  readPreviewBlogChanges,
   reportPreviewCiFailure,
   reportPreviewDeployOutcome,
   reportPreviewDeployStart,
@@ -37,6 +39,7 @@ interface GithubState {
     body: string;
     user: { login: string; type: string };
   }>;
+  files?: unknown[];
   ciRun?: unknown;
   deployRuns?: unknown[];
   runJobs?: Record<string, unknown>;
@@ -107,6 +110,9 @@ const githubFetch = (
           },
           labels: state.labeled ? [{ name: 'deploy-preview' }] : [],
         });
+      }
+      if (url.includes('/pulls/42/files?') && method === 'GET') {
+        return Response.json(state.files ?? []);
       }
       if (url.includes('/issues/42/comments') && method === 'GET') {
         return Response.json(state.comments);
@@ -2569,4 +2575,127 @@ describe('teardown policy and execution', () => {
       SHA_A,
     );
   });
+});
+
+test('narration trusts only completed www state for the current open and labeled same-repository head', async () => {
+  const state = baseState({
+    comments: [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))],
+  });
+  const options = {
+    repository: REPOSITORY,
+    prNumber: '42',
+    approvedSha: SHA_A,
+    workersDevSuffix: 'preview.workers.dev',
+  };
+  const deps = dependencies(githubFetch(state, []));
+  const read = () => readApprovedWebsitePreview(options, deps);
+  expect(await read()).toBe(
+    'https://maelstrom-www-alchemy-pr-42.preview.workers.dev/',
+  );
+  state.comments = [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_B))];
+  expect(await read()).toBeUndefined();
+  state.comments = [botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A))];
+  state.sha = SHA_B;
+  expect(await read()).toBeUndefined();
+  state.sha = SHA_A;
+  state.state = 'closed';
+  expect(await read()).toBeUndefined();
+  state.state = 'open';
+  state.repository = 'forked/maelstrom';
+  expect(await read()).toBeUndefined();
+  state.repository = REPOSITORY;
+  state.labeled = false;
+  expect(await read()).toBeUndefined();
+  state.labeled = true;
+  state.comments[0].body = state.comments[0].body.replace(
+    'pr-42.preview.workers.dev/',
+    'pr-43.preview.workers.dev/',
+  );
+  await expect(read()).rejects.toThrow('must be exactly');
+  state.comments = [
+    {
+      ...botComment(1, previouslyPostedDeployedBody(SHA_A, SHA_A)),
+      user: { login: 'contributor', type: 'User' },
+    },
+  ];
+  expect(await read()).toBeUndefined();
+});
+
+test('preview comparison pins the live upstream tip and keeps rename provenance for the merge base', async () => {
+  const tip = 'd'.repeat(40);
+  const head = 'e'.repeat(40);
+  const mergeBase = 'f'.repeat(40);
+  const endpoint = `/repos/${REPOSITORY}/compare/${tip}...${head}?per_page=1&page=1`;
+  const prefix = 'apps/www/src/content/blog/';
+  const files = [
+    { status: 'modified', filename: `${prefix}edited.mdx` },
+    { status: 'added', filename: `${prefix}new.mdx` },
+    { status: 'removed', filename: `${prefix}deleted.mdx` },
+    {
+      status: 'renamed',
+      filename: `${prefix}renamed.mdx`,
+      previous_filename: `${prefix}old.mdx`,
+    },
+    { status: 'modified', filename: 'unrelated.css' },
+  ];
+  const pull = () => ({
+    state: 'open',
+    head: { sha: head, ref: 'topic', repo: { full_name: REPOSITORY } },
+    base: { sha: tip, ref: 'main', repo: { full_name: REPOSITORY } },
+    labels: [{ name: 'deploy-preview' }],
+    changed_files: files.length,
+  });
+  const compare = (overrides?: {
+    files?: unknown[];
+    liveTip?: string;
+    stale?: boolean;
+  }) => {
+    let reads = 0;
+    return readPreviewBlogChanges(
+      {
+        repository: REPOSITORY,
+        prNumber: '42',
+        approvedSha: head,
+        defaultBranch: 'main',
+      },
+      {
+        githubToken: 'mock',
+        fetch: (async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith('/pulls/42')) {
+            const value = pull();
+            if (++reads === 2) {
+              if (overrides?.liveTip) value.base.sha = overrides.liveTip;
+              if (overrides?.stale) value.labels = [];
+            }
+            return Response.json(value);
+          }
+          expect(url.pathname + url.search).toBe(endpoint);
+          return Response.json({
+            base_commit: { sha: tip },
+            merge_base_commit: { sha: mergeBase },
+            files: overrides?.files ?? files,
+          });
+        }) as typeof fetch,
+      },
+    );
+  };
+  expect(await compare()).toEqual({
+    base: { sha: tip, ref: 'main', repository: REPOSITORY },
+    mergeBase,
+    removedPaths: ['/blog/deleted/'],
+    posts: [
+      { path: '/blog/edited/', previousPath: '/blog/edited/' },
+      { path: '/blog/new/', previousPath: null },
+      { path: '/blog/renamed/', previousPath: '/blog/old/' },
+    ],
+  });
+  expect(await compare({ files: files.slice(1) })).toBeUndefined();
+  expect(
+    await compare({
+      files: [{ ...files[0], status: 'unknown' }, ...files.slice(1)],
+    }),
+  ).toBeUndefined();
+  expect(await compare({ liveTip: 'a'.repeat(40) })).toBeUndefined();
+  expect(await compare({ stale: true })).toBeUndefined();
 });

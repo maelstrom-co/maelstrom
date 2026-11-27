@@ -62,3 +62,38 @@
 @media (prefers-reduced-motion: reduce) {
   .blog-archive a { transition: none; }
 }
+
+.blog-narration:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  border-block: 1px solid var(--line-strong);
+  padding-block: 0.75rem;
+}
+
+.blog-narration button {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.blog-narration input {
+  flex: 1 1 8rem;
+  accent-color: var(--brand-2);
+}
+
+.blog-narration output {
+  font: 0.875rem var(--font-mono);
+}
+
+.blog-narration :focus-visible {
+  outline: 2px solid var(--brand-2);
+  outline-offset: 3px;
+}
+
+::highlight(narrated-word) {
+  background-color: #ffe28a;
+  color: #211b10;
+}

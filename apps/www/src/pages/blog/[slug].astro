@@ -3,6 +3,7 @@ import { type CollectionEntry, getCollection, render } from 'astro:content';
 
 import Layout from '../../layouts/Layout.astro';
 import { blogPath, productionUrl, sortPosts } from '../../lib/blog';
+import { parsePreviewNarrationBase } from '../../lib/blog-narration-preview';
 
 import '../../styles/blog.css';
 
@@ -20,6 +21,9 @@ const { post } = Astro.props;
 const { Content } = await render(post);
 const { title, description, date, image, keywords, author, authorUrl, labels } =
   post.data;
+const previewNarration = parsePreviewNarrationBase(
+  import.meta.env.PUBLIC_BLOG_NARRATION_PREVIEW_BASE,
+);
 ---
 
 <Layout
@@ -30,12 +34,16 @@ const { title, description, date, image, keywords, author, authorUrl, labels } =
   keywords={keywords}
   article={{ date, author, authorUrl, labels }}
 >
-  <main class="container blog-page">
+  <main
+    class="container blog-page"
+    data-narration-release={import.meta.env.PUBLIC_BLOG_NARRATION_RELEASE}
+    data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
+  >
     <a href={blogPath()}>← All posts</a>
     <article>
       <header>
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <h1 data-narration-text>{title}</h1>
+        <p data-narration-text>{description}</p>
         <p>
           <time datetime={date.toISOString()}>
             {date.toISOString().slice(0, 10)}
@@ -48,9 +56,43 @@ const { title, description, date, image, keywords, author, authorUrl, labels } =
           ))}
         </ul>
       </header>
-      <div class="blog-prose">
+      <section
+        class="blog-narration"
+        aria-label="Article narration"
+        data-narration-player={
+          previewNarration
+            ? new URL(
+                `${blogPath(post.id).slice(1)}narration.json`,
+                previewNarration,
+              ).href
+            : `${blogPath(post.id)}narration.json`
+        }
+        data-narration-assets={previewNarration?.href}
+        data-narration-voice={import.meta.env.PUBLIC_BLOG_NARRATION_VOICE_HASH}
+        hidden
+      >
+        <button type="button">Play narration</button>
+        <label class="sr-only" for="narration-position">
+          Narration position
+        </label>
+        <input
+          type="range"
+          id="narration-position"
+          min="0"
+          value="0"
+          step="any"
+        />
+        <output for="narration-position" aria-hidden="true"></output>
+        <audio preload="metadata"></audio>
+        <span role="status"></span>
+      </section>
+      <div class="blog-prose" data-narration-text>
         <Content />
       </div>
     </article>
   </main>
 </Layout>
+
+<script>
+  import '../../lib/blog-narration-player';
+</script>

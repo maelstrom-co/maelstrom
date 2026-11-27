@@ -34,6 +34,7 @@
     "@types/react-dom": "catalog:",
     "alchemy": "2.0.0-beta.85",
     "effect": "catalog:",
+    "happy-dom": "catalog:",
     "posthog-js": "1.438.21",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
@@ -54,6 +55,15 @@
           },
           {
             "env": "PUBLIC_PLAYGROUND_URL"
+          },
+          {
+            "env": "PUBLIC_BLOG_NARRATION_PREVIEW_BASE"
+          },
+          {
+            "env": "PUBLIC_BLOG_NARRATION_RELEASE"
+          },
+          {
+            "env": "PUBLIC_BLOG_NARRATION_VOICE_HASH"
           },
           {
             "env": "PUBLIC_GITHUB_STAR_COUNT"
@@ -133,6 +143,11 @@
           "default",
           "^default",
           "toolchain",
+          "{workspaceRoot}/scripts/alchemy-version.ts",
+          "{workspaceRoot}/scripts/delete-preview-workers.ts",
+          "{workspaceRoot}/scripts/preview-lifecycle.ts",
+          "{workspaceRoot}/scripts/preview-trust.ts",
+          "{workspaceRoot}/scripts/preview-worker-url.ts",
           "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
           "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts",
           "{workspaceRoot}/apps/docs/tools/skills/published-examples/package.json.template"

@@ -3,12 +3,25 @@ import { join } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
+import type { NarrationManifest } from '../src/lib/blog-narration';
+import { previewNarrationBase } from '../src/lib/blog-narration-preview';
+import { publishPreviewNarration } from '../tools/blog-narration-preview-publication';
+import { recoverProductionNarration } from '../tools/blog-narration-production-publication';
+import {
+  narrationVoiceHash,
+  publishNarration,
+} from '../tools/blog-narration-publication';
 import {
   addExtraPost,
   outputText,
   sourcePosts,
   withBlogBuild,
 } from './fixtures/blog/build';
+import {
+  fixtureSpeech,
+  memoryStore,
+  mockSecret,
+} from './fixtures/blog/narration';
 
 const posts = await sourcePosts();
 
@@ -434,5 +447,497 @@ test('an initially empty glob watches additions, changes, deletion and recovery'
         await expect(page).toHaveURL(`${origin}/blog/fixture-extra/`);
       }
     });
+  });
+});
+
+test('published narration keeps one timeline, highlights the right repeated word, and preserves the article', async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ output, build, inject }) => {
+    await inject();
+    build();
+    const spoken: string[] = [];
+    const manifestPath = 'blog/fixture-alpha/narration.json';
+    const article = 'https://preview.example/blog/fixture-alpha/';
+    await publishNarration(output, {
+      apiKey: mockSecret,
+      voiceId: 'myvoice',
+      voiceRevision: '1',
+      store: memoryStore(),
+      limit: 24,
+      async request(url, init) {
+        spoken.push(JSON.parse(String(init.body)).text);
+        return fixtureSpeech(url, init);
+      },
+    });
+    const html = await outputText(output, 'blog/fixture-alpha/index.html');
+    const manifestText = await outputText(output, manifestPath);
+    const manifest: NarrationManifest = JSON.parse(manifestText);
+    expect(html).not.toContain(mockSecret);
+    expect(manifestText).not.toContain(mockSecret);
+
+    let mediaRequests = 0;
+    await page.route('https://preview.example/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (
+        path === '/blog/fixture-alpha/' ||
+        path === '/blog/fixture-zeta/' ||
+        path === '/blog/'
+      ) {
+        await route.fulfill({
+          contentType: 'text/html',
+          body: await outputText(output, `${path.slice(1)}index.html`),
+        });
+      } else if (path === `/${manifestPath}`) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: manifestText,
+        });
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(path)) {
+        const body = await readFile(join(output, path.slice(1)));
+        expect(body.includes(mockSecret)).toBe(false);
+        await route.fulfill({
+          body,
+          contentType: path.endsWith('.css')
+            ? 'text/css'
+            : 'application/javascript',
+        });
+      } else if (path.startsWith('/_blog-narration/')) {
+        const body = await readFile(join(output, path.slice(1)));
+        const start = Number(
+          route
+            .request()
+            .headers()
+            .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+        );
+        mediaRequests++;
+        expect(body.includes(mockSecret)).toBe(false);
+        await route.fulfill({
+          status: 206,
+          headers: {
+            'accept-ranges': 'bytes',
+            'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+          },
+          contentType: 'audio/wav',
+          body: body.subarray(start),
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+    await page.goto(article);
+    const toggle = page.getByRole('button', { name: 'Play narration' });
+    const seek = page.getByRole('slider', { name: 'Narration position' });
+    await expect(toggle).toBeVisible();
+    expect(mediaRequests).toBe(0);
+    await toggle.focus();
+    await page.keyboard.press('Space');
+    await expect(
+      page.getByRole('button', { name: 'Pause narration' }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .locator('audio')
+          .evaluate((audio: HTMLAudioElement) => audio.currentTime),
+      )
+      .toBeGreaterThan(0);
+    await page.getByRole('button', { name: 'Pause narration' }).click();
+    await expect(page.locator('audio')).toHaveJSProperty('paused', true);
+
+    const renderedSpeech = spoken.join('');
+    const transcript = renderedSpeech.slice(
+      renderedSpeech.indexOf('Fictional Alpha'),
+    );
+    expect(transcript).not.toContain('long line');
+    expect(transcript).not.toContain('Invisible');
+    let offset = 0;
+    const echoes = manifest.chunks.flatMap((chunk) => {
+      const times = chunk.words
+        .filter((word) => transcript.slice(word.from, word.to) === 'Echo')
+        .map((word) => ({
+          time: offset + (word.start + word.end) / 2,
+          offset,
+        }));
+      offset += chunk.duration;
+      return times;
+    });
+    expect(echoes).toHaveLength(2);
+    expect(echoes[1].offset).toBeGreaterThan(echoes[0].offset);
+
+    const highlight = () =>
+      page.evaluate(() => {
+        const selected = CSS.highlights
+          .get('narrated-word')
+          ?.values()
+          .next().value;
+        if (!(selected instanceof Range)) return null;
+        return {
+          word: selected.toString(),
+          linked:
+            selected.startContainer.parentElement
+              ?.closest('a')
+              ?.getAttribute('href') ?? null,
+        };
+      });
+    async function seekTo(time: number) {
+      await seek.evaluate((slider: HTMLInputElement, time) => {
+        slider.valueAsNumber = time;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      }, time);
+    }
+    await seekTo(echoes[1].time);
+    await expect.poll(highlight).toEqual({ word: 'Echo', linked: '/blog/' });
+    await seekTo(echoes[0].time);
+    await expect.poll(highlight).toEqual({ word: 'Echo', linked: null });
+    await seek.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(highlight).toEqual({ word: 'Fictional', linked: null });
+    await page.keyboard.press('End');
+    await expect.poll(highlight).toBeNull();
+    await expect(page.locator('pre')).toContainText('const example');
+    await page.getByRole('link', { name: 'Echo', exact: true }).click();
+    await expect(page).toHaveURL('https://preview.example/blog/');
+
+    await page.goto('https://preview.example/blog/fixture-zeta/');
+    await expect(
+      page.getByRole('heading', { name: 'Fictional Zeta' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Play narration' }),
+    ).toBeHidden();
+
+    const withoutScripts = await browser.newContext({
+      javaScriptEnabled: false,
+    });
+    try {
+      const plain = await withoutScripts.newPage();
+      await plain.route('https://preview.example/**', (route) =>
+        route.fulfill({ contentType: 'text/html', body: html }),
+      );
+      await plain.goto(article);
+      await expect(
+        plain.getByRole('heading', { name: 'Fictional Alpha' }),
+      ).toBeVisible();
+      await expect(
+        plain.getByRole('link', { name: 'Echo', exact: true }),
+      ).toBeVisible();
+      await expect(
+        plain.getByRole('button', { name: 'Play narration' }),
+      ).toBeHidden();
+    } finally {
+      await withoutScripts.close();
+    }
+  });
+});
+
+test('preview narration becomes playable across origins after retrying only the publisher', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, output, build, inject }) => {
+    const site = 'https://preview-reader.example';
+    const delivery = previewNarrationBase(
+      'https://preview-audio.example',
+      '42',
+      'a'.repeat(40),
+    );
+    const locator = new URL('blog/fixture-alpha/narration.json', delivery);
+    const article = `${site}/blog/fixture-alpha/`;
+    await inject();
+    for (const slug of ['fixture-old', 'fixture-zeta']) {
+      await rm(join(root, 'src/content/blog', `${slug}.mdx`));
+    }
+    build(undefined, delivery.href);
+    const assets = new Map<
+      string,
+      { value: string | Uint8Array; type: string }
+    >();
+    let requests = 0;
+    let rejectManifest = true;
+    const options = {
+      deliveryBase: delivery,
+      maySynthesize: (path: string) => path === '/blog/fixture-alpha/',
+      readTarget: async () => site,
+      async requestPage(url: URL) {
+        return new Response(
+          await outputText(output, `${url.pathname.slice(1)}index.html`),
+          {
+            headers: { 'content-type': 'text/html' },
+          },
+        );
+      },
+      async deliver(key: string, value: string | Uint8Array, type: string) {
+        if (rejectManifest && type === 'application/json')
+          throw new Error('Interrupted delivery');
+        assets.set(`/${key}`, { value, type });
+      },
+      publication: {
+        apiKey: mockSecret,
+        voiceId: 'myvoice',
+        voiceRevision: '1',
+        store: memoryStore(),
+        async request(url: string, init: RequestInit) {
+          requests++;
+          return fixtureSpeech(url, init);
+        },
+      },
+    };
+    await page.route(`${site}/**`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/blog/fixture-alpha/') {
+        await route.fulfill({
+          contentType: 'text/html',
+          body: await outputText(output, 'blog/fixture-alpha/index.html'),
+        });
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(path)) {
+        await route.fulfill({
+          path: join(output, path.slice(1)),
+          contentType: path.endsWith('.css')
+            ? 'text/css'
+            : 'application/javascript',
+        });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+    const origins = new Set<string>();
+    await page.route(`${delivery.origin}/**`, async (route) => {
+      const asset = assets.get(new URL(route.request().url()).pathname);
+      const origin = route.request().headers().origin;
+      if (origin) origins.add(origin);
+      const headers = {
+        'access-control-allow-origin': site,
+        'cache-control': 'no-store',
+      };
+      if (!asset) {
+        await route.fulfill({ status: 404, headers });
+      } else if (typeof asset.value === 'string') {
+        await route.fulfill({
+          body: asset.value,
+          headers,
+          contentType: asset.type,
+        });
+      } else {
+        const body = Buffer.from(asset.value);
+        const start = Number(
+          route
+            .request()
+            .headers()
+            .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+        );
+        await route.fulfill({
+          status: 206,
+          contentType: asset.type,
+          headers: {
+            ...headers,
+            'accept-ranges': 'bytes',
+            'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+          },
+          body: body.subarray(start),
+        });
+      }
+    });
+    await expect(publishPreviewNarration(options)).rejects.toThrow(
+      'Interrupted delivery',
+    );
+    const missingManifest = page.waitForResponse(
+      (response) =>
+        response.url() === locator.href && response.status() === 404,
+    );
+    await page.goto(article);
+    await missingManifest;
+    const player = page.locator('[data-narration-player]');
+    await expect(player).toHaveAttribute('data-narration-player', locator.href);
+    await expect(
+      page.getByRole('heading', { name: 'Fictional Alpha' }),
+    ).toBeVisible();
+    await expect(player).toBeHidden();
+
+    const previousRequests = requests;
+    rejectManifest = false;
+    await publishPreviewNarration(options);
+    expect(requests).toBe(previousRequests);
+    await page.reload();
+    await expect(player).toHaveAttribute('data-narration-player', locator.href);
+    await page.getByRole('button', { name: 'Play narration' }).click();
+    const audio = page.locator('audio');
+    await expect
+      .poll(() =>
+        audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+      )
+      .toBeGreaterThan(0);
+    expect(
+      await audio.evaluate(
+        (element: HTMLAudioElement) => new URL(element.currentSrc).origin,
+      ),
+    ).toBe(delivery.origin);
+    await page.getByRole('button', { name: 'Pause narration' }).click();
+    await expect(audio).toHaveJSProperty('paused', true);
+    const slider = page.getByRole('slider', { name: 'Narration position' });
+    const highlighted = () =>
+      page.evaluate(() => {
+        const range = CSS.highlights
+          .get('narrated-word')
+          ?.values()
+          .next().value;
+        return range instanceof Range ? range.toString() : '';
+      });
+    await slider.evaluate((input: HTMLInputElement) => {
+      input.valueAsNumber = 1;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await expect.poll(highlighted).toBe('Alpha');
+    await slider.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(highlighted).toBe('Fictional');
+    expect([...origins]).toEqual([site]);
+  });
+});
+
+test('the same production article becomes playable on reload after independent recovery', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, output, build, inject }) => {
+    const publication = {
+      apiKey: mockSecret,
+      voiceId: 'myvoice',
+      voiceRevision: '1',
+      store: memoryStore(),
+      request: fixtureSpeech,
+    };
+    const voiceHash = await narrationVoiceHash(publication);
+    await inject();
+    for (const slug of ['fixture-old', 'fixture-zeta']) {
+      await rm(join(root, 'src/content/blog', `${slug}.mdx`));
+    }
+    build(undefined, undefined, { voiceHash, release: 'a'.repeat(40) });
+    const origin = 'https://maelstrom-ai.co';
+    const path = '/blog/fixture-alpha/';
+    const location = origin + path;
+    const assets = new Map<
+      string,
+      { value: string | Uint8Array; type: string }
+    >();
+    const html = await outputText(output, 'blog/fixture-alpha/index.html');
+    let article = html;
+    await page.route(`${origin}/**`, async (route) => {
+      const requestPath = new URL(route.request().url()).pathname;
+      if (requestPath === path) {
+        await route.fulfill({ contentType: 'text/html', body: article });
+      } else if (requestPath.startsWith('/_blog-narration/')) {
+        const asset = assets.get(
+          requestPath.replace('/_blog-narration/', 'production-delivery/'),
+        );
+        if (!asset) {
+          await route.fulfill({
+            status: 404,
+            headers: { 'cache-control': 'no-store' },
+          });
+        } else if (typeof asset.value === 'string') {
+          // A large valid JSON envelope must still enable the actual player.
+          await route.fulfill({
+            contentType: asset.type,
+            body: asset.value.padEnd(2 * 1024 * 1024 + 1),
+          });
+        } else {
+          const body = Buffer.from(asset.value);
+          const start = Number(
+            route
+              .request()
+              .headers()
+              .range?.match(/bytes=(\d+)-/)?.[1] ?? 0,
+          );
+          await route.fulfill({
+            status: 206,
+            contentType: asset.type,
+            body: body.subarray(start),
+            headers: {
+              'accept-ranges': 'bytes',
+              'content-range': `bytes ${start}-${body.length - 1}/${body.length}`,
+            },
+          });
+        }
+      } else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(requestPath)) {
+        await route.fulfill({ path: join(output, requestPath.slice(1)) });
+      } else {
+        await route.fulfill({ status: 404 });
+      }
+    });
+
+    const manifestResponse = (status: number) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.startsWith(
+            '/_blog-narration/manifests/',
+          ) && response.status() === status,
+      );
+    const firstMiss = manifestResponse(404);
+    await page.goto(location);
+    await firstMiss;
+    const play = page.getByRole('button', { name: 'Play narration' });
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Fictional Alpha' }),
+    ).toBeVisible();
+    await expect(play).toBeHidden();
+
+    await recoverProductionNarration({
+      publication,
+      requestPage: async (url) =>
+        new Response(
+          await outputText(output, `${url.pathname.slice(1)}index.html`),
+          { headers: { 'content-type': 'text/html' } },
+        ),
+      async readDelivery() {
+        return undefined;
+      },
+      async deliver(key, value, type) {
+        assets.set(key, { value, type });
+      },
+    });
+    const nowReady = manifestResponse(200);
+    await page.reload();
+    await nowReady;
+    await expect(page).toHaveURL(location);
+    await play.click();
+    const audio = page.locator('audio');
+    await expect
+      .poll(() =>
+        audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+      )
+      .toBeGreaterThan(0);
+    const activeUrl = await audio.evaluate(
+      (element: HTMLAudioElement) => element.currentSrc,
+    );
+
+    article = html.replace('Fictional Alpha</h1>', 'Edited Alpha</h1>');
+    const newPage = await page.context().newPage();
+    try {
+      // Keep the first tab playing while a different release has no matching recording.
+      await newPage.route(`${origin}/**`, (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === path)
+          return route.fulfill({ contentType: 'text/html', body: article });
+        if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(url.pathname))
+          return route.fulfill({ path: join(output, url.pathname.slice(1)) });
+        return route.fulfill({ status: 404 });
+      });
+      await newPage.goto(location);
+      await expect(
+        newPage.getByRole('heading', { level: 1, name: 'Edited Alpha' }),
+      ).toBeVisible();
+      await expect(
+        newPage.getByRole('button', { name: 'Play narration' }),
+      ).toBeHidden();
+      expect(
+        await audio.evaluate((element: HTMLAudioElement) => element.currentSrc),
+      ).toBe(activeUrl);
+      await expect(audio).toHaveJSProperty('paused', false);
+    } finally {
+      await newPage.close();
+    }
   });
 });
