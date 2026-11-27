@@ -3,13 +3,17 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Fragment } from 'react';
 
 import { tasklaneM } from '../maelstrom';
+import type { TableColumn } from '../stores/flexible-table-columns';
 import {
   describeTableFailure,
-  flexibleTableActions,
   type FlexibleTableResult,
+} from '../stores/flexible-table-failures';
+import {
   groupProjectedRows,
   projectTableRows,
-  type TableColumn,
+} from '../stores/flexible-table-projection';
+import {
+  flexibleTableActions,
   useFlexibleTableStore,
 } from '../stores/flexible-table.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';

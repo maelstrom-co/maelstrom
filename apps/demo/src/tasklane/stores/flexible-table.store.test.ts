@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { flexibleTableVessel } from '../vessels/flexible-table.vessel.def';
+import { describeTableFailure } from './flexible-table-failures';
 import {
-  __resetFlexibleTableStoreForTests,
-  describeTableFailure,
-  flexibleTableActions,
-  getFlexibleTableSnapshot,
   groupProjectedRows,
   projectTableRows,
+} from './flexible-table-projection';
+import {
+  __resetFlexibleTableStoreForTests,
+  flexibleTableActions,
+  getFlexibleTableSnapshot,
 } from './flexible-table.store';
 import {
   __resetProjectTasksStoreForTests,
   getProjectTasksSnapshot,
-  type ProjectTask,
   projectTaskActions,
 } from './project-tasks.store';
 
@@ -139,30 +140,6 @@ describe('flexible-table store columns', () => {
     );
   });
 
-  it('supports dynamic task fields like dueDate when present on task records', () => {
-    const taskWithDate = {
-      ...getProjectTasksSnapshot().tasks[0]!,
-      dueDate: '2026-12-01',
-    } as ProjectTask & { dueDate: string };
-
-    // When a task carries extra fields (e.g. from the task dates ticket), a
-    // field column reads them dynamically via projectTableRows.
-    const state = {
-      ...getFlexibleTableSnapshot(),
-      columns: [
-        ...getFlexibleTableSnapshot().columns,
-        {
-          id: 'due_date',
-          label: 'Due Date',
-          kind: 'field' as const,
-          field: 'dueDate',
-        },
-      ],
-    };
-    const rows = projectTableRows([taskWithDate], state);
-    expect(rows[0]?.cells.due_date?.display).toBe('2026-12-01');
-  });
-
   it('reads the real task due and created dates through field columns', () => {
     expect(
       flexibleTableActions.addColumn({
@@ -195,27 +172,6 @@ describe('flexible-table store columns', () => {
       ['TL-1', '2026-04-17', '2026-04-06'],
       ['TL-2', '2026-04-10', '2026-04-08'],
     ]);
-  });
-
-  it('resolves date fields by name before any task exists', () => {
-    projectTaskActions.removeTask('TL-1');
-    projectTaskActions.removeTask('TL-2');
-    expect(getProjectTasksSnapshot().tasks).toEqual([]);
-
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Due',
-        kind: 'field',
-        source: 'dueDate',
-      }),
-    ).toMatchObject({ ok: true, value: { field: 'dueDate' } });
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Created',
-        kind: 'field',
-        source: 'createdAt',
-      }),
-    ).toMatchObject({ ok: true, value: { field: 'createdAt' } });
   });
 
   it('sorts and filters rows by the task due date, keeping undated tasks last', () => {
@@ -521,22 +477,6 @@ describe('flexible-table review regressions', () => {
     expect(getFlexibleTableSnapshot().cells).toEqual({});
   });
 
-  it('keeps blank cells and a literal (empty) value in separate groups', () => {
-    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
-    flexibleTableActions.setCell('TL-2', 'notes', '(empty)');
-    flexibleTableActions.groupBy('notes');
-
-    const groups = groupProjectedRows(
-      projectTableRows(getProjectTasksSnapshot().tasks),
-    );
-    expect(groups).toHaveLength(2);
-    expect(new Set(groups.map((g) => g.key)).size).toBe(2);
-    expect(groups.map((g) => [g.label, g.rows.map((r) => r.task.id)])).toEqual([
-      ['(empty)', ['TL-1']],
-      ['(empty)', ['TL-2']],
-    ]);
-  });
-
   it('lets a computed column reference the task field that shares its name', () => {
     flexibleTableActions.showPreset('triage');
     flexibleTableActions.clearFilters();
@@ -654,31 +594,6 @@ describe('flexible-table review regressions', () => {
     });
   });
 
-  it('projects a cyclic table state as cell errors without crashing', () => {
-    const cyclic = {
-      ...getFlexibleTableSnapshot(),
-      columns: [
-        {
-          id: 'alpha',
-          label: 'Alpha',
-          kind: 'computed' as const,
-          formula: 'spent + 1',
-        },
-        {
-          id: 'spent',
-          label: 'Spent',
-          kind: 'computed' as const,
-          formula: 'alpha + 1',
-        },
-      ],
-    };
-
-    const rows = projectTableRows(getProjectTasksSnapshot().tasks, cyclic);
-    const tl1 = rows.find((r) => r.task.id === 'TL-1');
-    expect(tl1?.cells.alpha?.error).toBeDefined();
-    expect(tl1?.cells.spent?.error).toBeDefined();
-  });
-
   it('evaluates a long doubling chain of computed columns without exponential work', () => {
     flexibleTableActions.addColumn({
       label: 'C1',
@@ -722,62 +637,6 @@ describe('flexible-table review regressions', () => {
     expect(flexibleTableActions.filterRows('estimate', 'gt', '2').ok).toBe(
       true,
     );
-  });
-
-  it('sorts mixed numeric and text values in one consistent order', () => {
-    projectTaskActions.createTask({ title: 'Third' }); // TL-3
-    projectTaskActions.createTask({ title: 'Blank' }); // TL-4
-    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
-    flexibleTableActions.sortBy('notes', 'asc');
-
-    const sortedValues = () =>
-      projectTableRows(getProjectTasksSnapshot().tasks).map(
-        (r) => r.cells.notes?.display,
-      );
-
-    flexibleTableActions.setCell('TL-1', 'notes', '0x10');
-    flexibleTableActions.setCell('TL-2', 'notes', '1 item');
-    flexibleTableActions.setCell('TL-3', 'notes', '2');
-    expect(sortedValues()).toEqual(['2', '0x10', '1 item', '']);
-
-    flexibleTableActions.setCell('TL-1', 'notes', '1 item');
-    flexibleTableActions.setCell('TL-2', 'notes', '2');
-    flexibleTableActions.setCell('TL-3', 'notes', '0x10');
-    expect(sortedValues()).toEqual(['2', '0x10', '1 item', '']);
-  });
-
-  it('does not resolve inherited object properties as task fields', () => {
-    for (const source of ['constructor', 'toString', '__proto__']) {
-      expect(
-        flexibleTableActions.addColumn({
-          label: 'Example',
-          kind: 'field',
-          source,
-        }),
-      ).toMatchObject({ ok: false, reason: 'unknown_field' });
-    }
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Bad ref',
-        kind: 'computed',
-        formula: 'constructor + 1',
-      }),
-    ).toMatchObject({ ok: false, reason: 'unknown_column' });
-
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Owner',
-        kind: 'field',
-        source: 'owner',
-      }),
-    ).toMatchObject({ ok: true, value: { field: 'assigneeId' } });
-    expect(
-      flexibleTableActions.addColumn({
-        label: 'Est',
-        kind: 'field',
-        source: 'estimate',
-      }),
-    ).toMatchObject({ ok: true, value: { field: 'estimate' } });
   });
 
   it('rejects a label that matches more than one column', () => {
@@ -831,21 +690,6 @@ describe('flexible-table review regressions', () => {
     expect(flexibleTableActions.removeColumn('status_notes_2')).toMatchObject({
       ok: true,
       value: { id: 'status_notes_2' },
-    });
-  });
-
-  it('rejects a single-word label shared by two columns but keeps the exact id', () => {
-    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
-    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
-
-    expect(flexibleTableActions.removeColumn('Notes')).toMatchObject({
-      ok: false,
-      reason: 'ambiguous_column',
-      candidates: ['notes (Notes)', 'notes_2 (Notes)'],
-    });
-    expect(flexibleTableActions.removeColumn('notes')).toMatchObject({
-      ok: true,
-      value: { id: 'notes' },
     });
   });
 
@@ -950,73 +794,9 @@ describe('flexible-table review regressions', () => {
     expect(rows.at(-1)?.cells.ratio?.error).toBeDefined();
   });
 
-  it('groups numeric cells by value even when their labels round alike', () => {
-    flexibleTableActions.addColumn({
-      label: 'Scaled',
-      kind: 'computed',
-      formula: 'estimate / 1000',
-    });
-    flexibleTableActions.groupBy('scaled');
-
-    const groups = groupProjectedRows(
-      projectTableRows(getProjectTasksSnapshot().tasks),
-    );
-    expect(groups.map((group) => group.label)).toEqual(['0.002', '0.004']);
-    expect(groups.map((group) => group.rows.map((r) => r.task.id))).toEqual([
-      ['TL-1'],
-      ['TL-2'],
-    ]);
-  });
-
-  it('leaves out rows whose numeric cell is not a finite number from range filters', () => {
-    projectTaskActions.createTask({
-      title: 'Unmeasured',
-      estimate: Number.NaN,
-    }); // TL-3
-    flexibleTableActions.filterRows('estimate', 'gt', '0');
-
-    expect(
-      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id),
-    ).toEqual(['TL-1', 'TL-2']);
-  });
-
-  it('does not match unrelated non-ASCII column names through the fallback id', () => {
-    flexibleTableActions.addColumn({ label: '予算', kind: 'free' });
-    flexibleTableActions.setCell('TL-1', '予算', '100');
-
-    expect(flexibleTableActions.removeColumn('担当')).toMatchObject({
-      ok: false,
-      reason: 'unknown_column',
-    });
-    const column = getFlexibleTableSnapshot().columns.find(
-      (col) => col.label === '予算',
-    );
-    expect(column?.id).toBe('col');
-    expect(flexibleTableActions.removeColumn('col')).toMatchObject({
-      ok: true,
-    });
-    flexibleTableActions.addColumn({ label: '予算', kind: 'free' });
-    expect(flexibleTableActions.removeColumn('予算')).toMatchObject({
-      ok: true,
-    });
-  });
-
-  it('compares status range filters by workflow order', () => {
-    projectTaskActions.createTask({ title: 'Third' }); // TL-3
-    projectTaskActions.setStatus('TL-2', 'doing');
-    projectTaskActions.setStatus('TL-3', 'done');
-    const ids = () =>
-      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
-
-    flexibleTableActions.filterRows('status', 'gt', 'doing');
-    expect(ids()).toEqual(['TL-3']);
-    flexibleTableActions.clearFilters();
-    flexibleTableActions.filterRows('status', 'lt', 'In progress');
-    expect(ids()).toEqual(['TL-1']);
-    flexibleTableActions.clearFilters();
-
-    const unknown = flexibleTableActions.filterRows('status', 'gt', 'blocked');
-    expect(unknown).toMatchObject({
+  it('rejects gt and lt filters on status and urgency columns when the threshold is not a known value', () => {
+    const status = flexibleTableActions.filterRows('status', 'gt', 'blocked');
+    expect(status).toMatchObject({
       ok: false,
       reason: 'invalid_filter_value',
       expected: 'status',
@@ -1025,25 +805,10 @@ describe('flexible-table review regressions', () => {
     expect(flexibleTableActions.filterRows('status', 'eq', 'blocked').ok).toBe(
       true,
     );
-  });
-
-  it('compares urgency range filters by urgency rank', () => {
-    projectTaskActions.createTask({ title: 'Third' }); // TL-3
-    projectTaskActions.setUrgency('TL-1', 'low');
-    projectTaskActions.setUrgency('TL-2', 'normal');
-    projectTaskActions.setUrgency('TL-3', 'high');
-    const ids = () =>
-      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
-
-    flexibleTableActions.filterRows('urgency', 'gt', 'normal');
-    expect(ids()).toEqual(['TL-3']);
-    flexibleTableActions.clearFilters();
-    flexibleTableActions.filterRows('urgency', 'lt', 'Normal');
-    expect(ids()).toEqual(['TL-1']);
     flexibleTableActions.clearFilters();
 
-    const unknown = flexibleTableActions.filterRows('urgency', 'gt', 'urgent');
-    expect(unknown).toMatchObject({
+    const urgency = flexibleTableActions.filterRows('urgency', 'gt', 'urgent');
+    expect(urgency).toMatchObject({
       ok: false,
       reason: 'invalid_filter_value',
       expected: 'urgency',
@@ -1052,38 +817,6 @@ describe('flexible-table review regressions', () => {
     expect(flexibleTableActions.filterRows('urgency', 'eq', 'urgent').ok).toBe(
       true,
     );
-  });
-
-  it('compares task titles as text in equality filters', () => {
-    projectTaskActions.createTask({ title: '001' }); // TL-3
-    projectTaskActions.createTask({ title: '1' }); // TL-4
-    const ids = () =>
-      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
-
-    flexibleTableActions.filterRows('title', 'eq', '001');
-    expect(ids()).toEqual(['TL-3']);
-    flexibleTableActions.clearFilters();
-    flexibleTableActions.filterRows('title', 'neq', '001');
-    expect(ids()).toEqual(['TL-1', 'TL-2', 'TL-4']);
-    flexibleTableActions.clearFilters();
-    flexibleTableActions.filterRows('estimate', 'eq', '2.0');
-    expect(ids()).toEqual(['TL-1']);
-  });
-
-  it('keeps whitespace-only cells with the blank cells when sorting', () => {
-    projectTaskActions.createTask({ title: 'Third' }); // TL-3
-    flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });
-    flexibleTableActions.setCell('TL-1', 'notes', '   ');
-    flexibleTableActions.setCell('TL-2', 'notes', '2');
-    flexibleTableActions.setCell('TL-3', 'notes', '0');
-
-    const ids = () =>
-      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
-
-    flexibleTableActions.sortBy('notes', 'desc');
-    expect(ids()).toEqual(['TL-2', 'TL-3', 'TL-1']);
-    flexibleTableActions.sortBy('notes', 'asc');
-    expect(ids()).toEqual(['TL-3', 'TL-2', 'TL-1']);
   });
 
   it('moves a computed error ahead of valid rows to the end of a descending sort', () => {

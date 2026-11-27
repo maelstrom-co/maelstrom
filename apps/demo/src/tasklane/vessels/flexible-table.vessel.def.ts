@@ -3,12 +3,10 @@ import {
   type VesselActionDefinition,
 } from '@maelstrom-co/protocol';
 
-import {
-  FILTER_OPS,
-  SORT_DIRECTIONS,
-  TABLE_COLUMN_KINDS,
-  TABLE_PRESETS,
-} from '../stores/flexible-table.store';
+import { TABLE_COLUMN_KINDS } from '../stores/flexible-table-columns';
+import { TABLE_PRESETS } from '../stores/flexible-table-presets';
+import { FILTER_OPS } from '../stores/flexible-table-values';
+import { SORT_DIRECTIONS } from '../stores/flexible-table.store';
 import { TASK_REFERENCE } from './task-action.defs';
 
 const FLEXIBLE_TABLE_DESCRIPTION: string =
