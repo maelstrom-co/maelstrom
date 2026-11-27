@@ -922,7 +922,11 @@ function matchesFilter(
   }
 
   let equals: boolean;
-  if (leftNum !== undefined && rightNum !== undefined) {
+  if (
+    leftNum !== undefined &&
+    rightNum !== undefined &&
+    !isTextFieldColumn(column)
+  ) {
     equals = leftNum === rightNum;
   } else {
     const rawStr = cellRaw === null ? '' : String(cellRaw).trim().toLowerCase();
@@ -1175,6 +1179,13 @@ function resolveTaskField(
 
 function lookupFieldAlias(key: string): string | undefined {
   return Object.hasOwn(FIELD_ALIASES, key) ? FIELD_ALIASES[key] : undefined;
+}
+
+// Task fields other than the numeric ones hold text, so `001` and `1` differ.
+function isTextFieldColumn(column: TableColumn): boolean {
+  return (
+    column.kind === 'field' && !NUMERIC_TASK_FIELDS.has(column.field ?? '')
+  );
 }
 
 function isDateColumn(column: TableColumn): boolean {

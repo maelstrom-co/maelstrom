@@ -1001,6 +1001,22 @@ describe('flexible-table review regressions', () => {
     });
   });
 
+  it('compares task titles as text in equality filters', () => {
+    projectTaskActions.createTask({ title: '001' }); // TL-3
+    projectTaskActions.createTask({ title: '1' }); // TL-4
+    const ids = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
+
+    flexibleTableActions.filterRows('title', 'eq', '001');
+    expect(ids()).toEqual(['TL-3']);
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.filterRows('title', 'neq', '001');
+    expect(ids()).toEqual(['TL-1', 'TL-2', 'TL-4']);
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.filterRows('estimate', 'eq', '2.0');
+    expect(ids()).toEqual(['TL-1']);
+  });
+
   it('keeps whitespace-only cells with the blank cells when sorting', () => {
     projectTaskActions.createTask({ title: 'Third' }); // TL-3
     flexibleTableActions.addColumn({ label: 'Notes', kind: 'free' });

@@ -60,7 +60,6 @@ const FLEXIBLE_TABLE_ACTIONS = [
   },
   {
     name: 'renameColumn',
-    effect: 'idempotent',
     description: 'Rename an existing column header.',
     parameters: [
       {
