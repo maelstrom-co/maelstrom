@@ -11,6 +11,7 @@ import {
   resolveTaskReference,
   TASK_STATUS_NAMES,
   TASK_STATUSES,
+  TASK_URGENCIES,
   type TaskStatus,
   type TaskUrgency,
 } from './project-tasks.store';
@@ -123,7 +124,7 @@ export type FlexibleTableFailure =
       readonly reason: 'invalid_filter_value';
       readonly op: FilterOp;
       readonly value: string;
-      readonly expected: 'number' | 'date' | 'status';
+      readonly expected: 'number' | 'date' | 'status' | 'urgency';
     }
   | {
       readonly ok: false;
@@ -272,6 +273,7 @@ const EXPECTED_FILTER_VALUE = {
   number: 'a numeric value',
   date: 'an ISO date (YYYY-MM-DD)',
   status: `a status (${TASK_STATUSES.join(', ')})`,
+  urgency: `an urgency (${TASK_URGENCIES.join(', ')})`,
 } as const;
 
 let state: FlexibleTableState = INITIAL_STATE;
@@ -545,6 +547,15 @@ export const flexibleTableActions = {
           op,
           value,
           expected: 'status',
+        };
+      }
+      if (isUrgencyColumn(found) && resolveUrgency(value) === undefined) {
+        return {
+          ok: false,
+          reason: 'invalid_filter_value',
+          op,
+          value,
+          expected: 'urgency',
         };
       }
     }
@@ -912,6 +923,13 @@ function matchesFilter(
     return matchesStatusFilter(row.task.status, rule.op, rule.value);
   }
 
+  if (isUrgencyColumn(column) && (rule.op === 'gt' || rule.op === 'lt')) {
+    const threshold = resolveUrgency(rule.value);
+    if (threshold === undefined) return false;
+    const cmp = URGENCY_RANK[row.task.urgency] - URGENCY_RANK[threshold];
+    return rule.op === 'gt' ? cmp > 0 : cmp < 0;
+  }
+
   const cellRaw = cell.raw;
   const query = rule.value.trim();
 
@@ -999,6 +1017,11 @@ function resolveStatus(value: string): TaskStatus | undefined {
   return TASK_STATUSES.find(
     (status) => TASK_STATUS_NAMES[status].toLowerCase() === query,
   );
+}
+
+function resolveUrgency(value: string): TaskUrgency | undefined {
+  const query = value.trim().toLowerCase();
+  return TASK_URGENCIES.find((urgency) => urgency === query);
 }
 
 function hasSortableValue(
@@ -1214,6 +1237,10 @@ function isTextFieldColumn(column: TableColumn): boolean {
 
 function isStatusColumn(column: TableColumn): boolean {
   return column.kind === 'field' && column.field === 'status';
+}
+
+function isUrgencyColumn(column: TableColumn): boolean {
+  return column.kind === 'field' && column.field === 'urgency';
 }
 
 function isDateColumn(column: TableColumn): boolean {

@@ -1027,6 +1027,33 @@ describe('flexible-table review regressions', () => {
     );
   });
 
+  it('compares urgency range filters by urgency rank', () => {
+    projectTaskActions.createTask({ title: 'Third' }); // TL-3
+    projectTaskActions.setUrgency('TL-1', 'low');
+    projectTaskActions.setUrgency('TL-2', 'normal');
+    projectTaskActions.setUrgency('TL-3', 'high');
+    const ids = () =>
+      projectTableRows(getProjectTasksSnapshot().tasks).map((r) => r.task.id);
+
+    flexibleTableActions.filterRows('urgency', 'gt', 'normal');
+    expect(ids()).toEqual(['TL-3']);
+    flexibleTableActions.clearFilters();
+    flexibleTableActions.filterRows('urgency', 'lt', 'Normal');
+    expect(ids()).toEqual(['TL-1']);
+    flexibleTableActions.clearFilters();
+
+    const unknown = flexibleTableActions.filterRows('urgency', 'gt', 'urgent');
+    expect(unknown).toMatchObject({
+      ok: false,
+      reason: 'invalid_filter_value',
+      expected: 'urgency',
+    });
+    expect(getFlexibleTableSnapshot().filters).toEqual([]);
+    expect(flexibleTableActions.filterRows('urgency', 'eq', 'urgent').ok).toBe(
+      true,
+    );
+  });
+
   it('compares task titles as text in equality filters', () => {
     projectTaskActions.createTask({ title: '001' }); // TL-3
     projectTaskActions.createTask({ title: '1' }); // TL-4
