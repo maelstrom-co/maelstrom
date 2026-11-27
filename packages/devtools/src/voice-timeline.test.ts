@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import { panelEvents, voiceTimeline } from './panel-model.js';
+import type { ViewContext } from './panel-views.js';
+import type { VoiceTimelineControls } from './voice-timeline-controls.js';
+import { voiceTimelineView } from './voice-timeline-view.js';
 
 function observation(
   kind: string,
@@ -838,4 +841,104 @@ test('request provenance cannot hide a readable app and request identity with th
       requestId: 'redacted',
     },
   ]);
+});
+
+test('voice timeline view renders standby and active processing observations', () => {
+  interface FakeNode {
+    tag: string;
+    className: string;
+    textContent: string;
+    type?: string;
+    title?: string;
+    tabIndex?: number;
+    disabled?: boolean;
+    dataset: Record<string, string>;
+    style: Record<string, string>;
+    attributes: Record<string, string>;
+    children: FakeNode[];
+    setAttribute(name: string, value: string): void;
+    addEventListener(): void;
+    append(...nodes: FakeNode[]): void;
+  }
+  const createNode = (tag: string): FakeNode => {
+    const node: FakeNode = {
+      tag,
+      className: '',
+      textContent: '',
+      dataset: {},
+      style: {},
+      attributes: {},
+      children: [],
+      setAttribute(name: string, value: string) {
+        node.attributes[name] = value;
+      },
+      addEventListener() {},
+      append(...nodes: FakeNode[]) {
+        node.children.push(...nodes);
+      },
+    };
+    return node;
+  };
+  const previousDocument = globalThis.document;
+  Object.assign(globalThis, {
+    document: { createElement: (tag: string) => createNode(tag) },
+  });
+  try {
+    const events = panelEvents([
+      observation('voice.observations', {
+        connection: 'connected',
+        processing: 'unknown',
+      }),
+      observation('voice.processing', { processing: 'standby' }),
+      observation('voice.observations', {
+        connection: 'connected',
+        processing: 'standby',
+      }),
+      observation('voice.processing', { processing: 'active' }),
+      observation('voice.observations', {
+        connection: 'connected',
+        processing: 'active',
+      }),
+    ]);
+    const context = {
+      evidence: { events, requestEvents: events },
+      clientId: 'all',
+      pageSize: 50,
+      appLabel: (id: string) => id,
+      more: () => {},
+    } as unknown as ViewContext;
+    const controls: VoiceTimelineControls = {
+      element: createNode('div') as unknown as HTMLElement,
+      update() {},
+      clear() {},
+    };
+    const view = voiceTimelineView(
+      context,
+      { provider: 'all', generation: 'all' },
+      () => {},
+      () => {},
+      controls,
+    );
+    const content = view.content as unknown as FakeNode;
+    const table = content.children.find((child) => child.tag === 'table');
+    const tbody = table?.children.find((child) => child.tag === 'tbody');
+    const rows = (tbody?.children ?? []).map((row) => {
+      const cell = row.children[1];
+      return {
+        button: cell?.children.find((child) => child.tag === 'button')
+          ?.textContent,
+        facts: cell?.children.find((child) => child.tag === 'span')
+          ?.textContent,
+      };
+    });
+    expect(rows).toEqual([
+      { button: 'Session observations', facts: '' },
+      { button: 'Processing on standby', facts: 'Processing standby' },
+      { button: 'Session observations', facts: 'Processing standby' },
+      { button: 'Processing active', facts: 'Processing active' },
+      { button: 'Session observations', facts: 'Processing active' },
+    ]);
+  } finally {
+    Object.assign(globalThis, { document: previousDocument });
+  }
 });

@@ -332,6 +332,12 @@ export type AdapterVoiceObservation =
       readonly type: 'fragment';
       /** New or revised raw fragment on this connection's media timeline. */
       readonly fragment: TimedTranscriptFragment;
+    }
+  | {
+      /** Provider processing state discriminator. */
+      readonly type: 'processing';
+      /** Whether provider processing is active or on standby for the current connection. */
+      readonly processing: 'standby' | 'active';
     };
 
 /** Adapter evidence channel, subscribed before connection setup and released on teardown. */

@@ -1173,3 +1173,38 @@ test('local Live barge-in gates received audio without sending unsupported cance
     });
   }
 });
+
+test('session.paused and session.resumed emit processing observations without dropping native events', async () => {
+  const h = harness();
+  const observations: AdapterVoiceObservation[] = [];
+  const nativeTypes: string[] = [];
+  h.transport.observations.subscribe((event) => observations.push(event));
+  h.transport.onServerEvent((event) => nativeTypes.push(event.type));
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+
+  h.peer.channel.event('session.paused');
+  h.peer.channel.event('session.resumed');
+
+  expect(observations.filter((event) => event.type === 'processing')).toEqual([
+    { type: 'processing', processing: 'standby' },
+    { type: 'processing', processing: 'active' },
+  ]);
+  expect(nativeTypes).toEqual([
+    'session.started',
+    'session.paused',
+    'session.resumed',
+  ]);
+
+  const closing = h.transport.disconnect();
+  h.peer.channel.event('session.paused');
+  h.peer.channel.event('session.resumed');
+  await closing;
+
+  expect(observations.filter((event) => event.type === 'processing')).toEqual([
+    { type: 'processing', processing: 'standby' },
+    { type: 'processing', processing: 'active' },
+  ]);
+});

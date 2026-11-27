@@ -22,6 +22,7 @@ export type SessionEvent =
   | TranscriptFragmentEvent
   | TranscriptEntryEvent
   | MediaEvent
+  | ProcessingEvent
   | ToolCallEvent
   | ToolOutcomeEvent
   | TimingEvent
@@ -101,6 +102,16 @@ export interface MediaEvent {
   readonly generation: number;
   /** Changed media fields only; absent fields keep their previous value. */
   readonly media: Partial<VoiceMediaObservation>;
+}
+
+/** Adapter processing state evidence, relayed only after the session fenced stale connections. */
+export interface ProcessingEvent {
+  /** Discriminant. */
+  readonly type: 'processing';
+  /** Connection generation the evidence belongs to. */
+  readonly generation: number;
+  /** Whether provider processing is active or on standby. */
+  readonly processing: 'standby' | 'active';
 }
 
 /**

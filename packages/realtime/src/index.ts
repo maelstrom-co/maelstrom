@@ -71,6 +71,7 @@ export { RealtimeSessionMemory } from './lib/realtime-session/realtime-session-m
 export type {
   MediaEvent,
   OpeningClaimedEvent,
+  ProcessingEvent,
   SessionEvent,
   SessionEventHandler,
   SessionEventSource,

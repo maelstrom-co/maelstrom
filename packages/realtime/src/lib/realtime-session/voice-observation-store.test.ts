@@ -392,4 +392,42 @@ describe('continuous voice observations', () => {
     expect(store.getSnapshot()).toBe(snapshot);
     expect(notifications).toBe(0);
   });
+
+  it('tracks provider processing state and resets across generations and disconnects', () => {
+    const store = new VoiceObservationStore();
+    const handle = observationStoreSubscriber(store);
+    let notifications = 0;
+    const release = store.subscribe(() => {
+      notifications += 1;
+    });
+
+    expect(store.getSnapshot().processing).toBe('unknown');
+    handle({ type: 'session.started', generation: 1, connectionId: 'c1' });
+    handle({ type: 'session.connected', generation: 1 });
+    expect(store.getSnapshot().processing).toBe('unknown');
+
+    notifications = 0;
+    handle({ type: 'processing', generation: 1, processing: 'standby' });
+    const standby = store.getSnapshot();
+    expect(standby.processing).toBe('standby');
+    expect(notifications).toBe(1);
+
+    // Repeated unchanged processing does not reallocate or notify.
+    handle({ type: 'processing', generation: 1, processing: 'standby' });
+    expect(store.getSnapshot()).toBe(standby);
+    expect(notifications).toBe(1);
+
+    handle({ type: 'processing', generation: 1, processing: 'active' });
+    expect(store.getSnapshot().processing).toBe('active');
+
+    handle({ type: 'session.disconnected', generation: 1 });
+    expect(store.getSnapshot().processing).toBe('unknown');
+
+    handle({ type: 'session.started', generation: 2, connectionId: 'c2' });
+    handle({ type: 'processing', generation: 2, processing: 'standby' });
+    expect(store.getSnapshot().processing).toBe('standby');
+    handle({ type: 'session.started', generation: 3, connectionId: 'c3' });
+    expect(store.getSnapshot().processing).toBe('unknown');
+    release();
+  });
 });

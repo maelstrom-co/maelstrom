@@ -1121,3 +1121,36 @@ test('voice diagnostic events stay out of client metadata subscriptions', async 
     releaseMetadata();
   }
 });
+
+test('processing observations surface standby and active states without typed intents changing them', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  await h.session.connect();
+
+  h.observe({ type: 'processing', processing: 'standby' });
+  expect(h.session.observations.getSnapshot().processing).toBe('standby');
+
+  // Typed intent while voice processing is on standby does not change processing state.
+  await h.client.processIntent('typed intent during pause').catch(() => {});
+  expect(h.session.observations.getSnapshot().processing).toBe('standby');
+
+  h.observe({ type: 'processing', processing: 'active' });
+  expect(h.session.observations.getSnapshot().processing).toBe('active');
+
+  const processingEvents = events.filter(
+    (event) => event.kind === 'voice.processing',
+  );
+  expect(processingEvents.map((event) => event.metadata.processing)).toEqual([
+    'standby',
+    'active',
+  ]);
+  const observationStates = events
+    .filter((event) => event.kind === 'voice.observations')
+    .map((event) => event.metadata.processing);
+  expect(observationStates).toContain('standby');
+  expect(observationStates.at(-1)).toBe('active');
+  detach();
+});

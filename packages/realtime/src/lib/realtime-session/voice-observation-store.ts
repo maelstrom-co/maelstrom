@@ -51,6 +51,9 @@ export function observationStoreSubscriber(
       case 'media':
         store.media(event.media);
         return;
+      case 'processing':
+        store.processing(event.processing);
+        return;
       default:
         return;
     }
@@ -72,6 +75,7 @@ export class VoiceObservationStore implements VoiceObservationSource {
     generation: 0,
     connection: 'disconnected',
     media: UNKNOWN_MEDIA,
+    processing: 'unknown',
     applicationWork: Object.freeze({
       planning: 'unknown',
       applying: 'unknown',
@@ -152,6 +156,7 @@ export class VoiceObservationStore implements VoiceObservationSource {
       generation: this.#snapshot.generation + 1,
       connection: 'connecting',
       media: UNKNOWN_MEDIA,
+      processing: 'unknown',
       fragments: Object.freeze([]),
       captions: Object.freeze([]),
     });
@@ -160,11 +165,21 @@ export class VoiceObservationStore implements VoiceObservationSource {
 
   connection(connection: VoiceConnectionState): void {
     if (connection === this.#snapshot.connection) return;
-    const media =
-      connection === 'connected' || connection === 'connecting'
-        ? this.#snapshot.media
-        : UNKNOWN_MEDIA;
-    this.#snapshot = Object.freeze({ ...this.#snapshot, connection, media });
+    const active = connection === 'connected' || connection === 'connecting';
+    const media = active ? this.#snapshot.media : UNKNOWN_MEDIA;
+    const processing = active ? this.#snapshot.processing : 'unknown';
+    this.#snapshot = Object.freeze({
+      ...this.#snapshot,
+      connection,
+      media,
+      processing,
+    });
+    this.#notify();
+  }
+
+  processing(processing: 'standby' | 'active'): void {
+    if (processing === this.#snapshot.processing) return;
+    this.#snapshot = Object.freeze({ ...this.#snapshot, processing });
     this.#notify();
   }
 

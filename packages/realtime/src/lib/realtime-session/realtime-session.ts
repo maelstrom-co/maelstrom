@@ -548,6 +548,12 @@ export class RealtimeSession implements VoiceSession {
               generation,
               media: event.media,
             });
+          else if (event.type === 'processing')
+            this.#events.publish({
+              type: 'processing',
+              generation,
+              processing: event.processing,
+            });
           else
             this.#events.publish({
               type: 'transcript.fragment',

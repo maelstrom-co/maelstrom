@@ -271,6 +271,9 @@ function attachDiagnosticSources(
                     incomingAudio: event.media.incomingAudio,
                   }
                 : {}),
+              ...(event.type === 'processing'
+                ? { processing: event.processing }
+                : {}),
               ...(event.type === 'transcript.entry'
                 ? { role: event.role, final: event.final }
                 : {}),
@@ -292,6 +295,7 @@ function attachDiagnosticSources(
             generationScope: 'session',
             connection: snapshot.connection,
             microphone: snapshot.media.microphone,
+            ...(snapshot.processing ? { processing: snapshot.processing } : {}),
             planning: snapshot.applicationWork.planning,
             applying: snapshot.applicationWork.applying,
           });
