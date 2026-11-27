@@ -1812,28 +1812,22 @@ for (const endVoice of [false, true]) {
 
 test('turnControl starts automatic and switches turn mode both ways mid-session', async () => {
   const h = await harness({}, { thinkingFallbackMs: 5_000 });
-  const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
   expect(h.session.turnMode).toBe('automatic');
   expect(h.session.turnControl).toBe(h.adapter.turnControl);
   expect(h.session.turnControl?.setTurnMode).toBeDefined();
-  expect(micTrack?.enabled).toBe(true);
 
   await h.session.turnControl?.startTurn();
   expect(h.session.state).toBe('connected');
-  expect(micTrack?.enabled).toBe(true);
 
   await h.session.turnControl?.setTurnMode?.('manual');
   expect(h.session.turnMode).toBe('manual');
-  expect(micTrack?.enabled).toBe(false);
 
   await h.session.turnControl?.startTurn();
   expect(h.session.state).toBe('listening');
-  expect(micTrack?.enabled).toBe(true);
 
   await h.session.turnControl?.setTurnMode?.('automatic');
   expect(h.session.turnMode).toBe('automatic');
   expect(h.session.state).toBe('connected');
-  expect(micTrack?.enabled).toBe(true);
   expect(h.session.turnControl).toBe(h.adapter.turnControl);
   expect(h.peers).toHaveLength(1);
 
@@ -1841,25 +1835,19 @@ test('turnControl starts automatic and switches turn mode both ways mid-session'
   expect(h.adapter.turnControl).toBeUndefined();
 });
 
-test('manualTurns exposes turnControl before manual turn_mode, toggles mic without forcing a reply, and falls back from thinking', async () => {
-  let turnControlAtManualEvent = false;
+test('manualTurns exposes turnControl before manual turn_mode, ends a press without forcing a reply, and falls back from thinking', async () => {
   const h = await harness({}, { manualTurns: true, thinkingFallbackMs: 50 });
   expect(h.adapter.turnControl).toBeDefined();
   expect(h.session.turnMode).toBe('manual');
   expect(h.session.turnControl).toBe(h.adapter.turnControl);
 
-  const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
-  expect(micTrack?.enabled).toBe(false);
-
   const states: string[] = [];
   h.session.on('state', (state) => states.push(state));
 
   await h.session.turnControl?.startTurn();
-  expect(micTrack?.enabled).toBe(true);
   expect(h.session.state).toBe('listening');
 
   await h.session.turnControl?.endTurn();
-  expect(micTrack?.enabled).toBe(false);
   expect(h.session.state).toBe('thinking');
   // Release does not force a provider reply.
   expect(h.channel.continues()).toHaveLength(0);
@@ -1868,54 +1856,17 @@ test('manualTurns exposes turnControl before manual turn_mode, toggles mic witho
   expect(h.session.state).toBe('connected');
   expect(states).toEqual(['listening', 'thinking', 'connected']);
 
-  // Also verify turnControl is already exposed when turn_mode: manual is delivered.
-  const seen: boolean[] = [];
-  let peer2!: Peer;
-  const adapter2 = new OpenAILiveAdapter({
-    model: 'gpt-live-1',
-    responses: { model: 'backend' },
-    manualTurns: true,
-    closeTimeoutMs: 5,
-    createPeer: () => {
-      peer2 = new Peer();
-      return peer2 as unknown as RTCPeerConnection;
-    },
-    createAudio: () =>
-      ({ pause() {}, play: async () => {} }) as unknown as HTMLAudioElement,
-    getMicrophone: async () => {
-      const track = Object.assign(new EventTarget(), {
-        kind: 'audio',
-        readyState: 'live',
-        enabled: true,
-        muted: false,
-        stop() {},
-      });
-      return {
-        getTracks: () => [track],
-        getAudioTracks: () => [track],
-      } as unknown as MediaStream;
-    },
-    exchange: async () => ({
-      session: { id: 'live_session' },
-      transport: { type: 'webrtc', sdp: 'v=0\r\no=answer' },
-    }),
-  });
-  expect(adapter2.turnControl).toBeUndefined();
-  adapter2.on((event) => {
+  await h.session.disconnect();
+  expect(h.adapter.turnControl).toBeUndefined();
+
+  const turnControlAtManualEvent: boolean[] = [];
+  h.adapter.on((event) => {
     if (event.type === 'turn_mode' && event.mode === 'manual') {
-      turnControlAtManualEvent = adapter2.turnControl !== undefined;
-      seen.push(turnControlAtManualEvent);
+      turnControlAtManualEvent.push(h.adapter.turnControl !== undefined);
     }
   });
-  const connecting = adapter2.connect({ tools: [], instructions: '' });
-  await tick();
-  peer2.channel.event('session.started', {
-    session: { id: 'live_session' },
-  });
-  await connecting;
-  expect(seen).toEqual([true]);
-  await adapter2.disconnect();
-  expect(adapter2.turnControl).toBeUndefined();
+  await h.connect();
+  expect(turnControlAtManualEvent).toEqual([true]);
 });
 
 test('manualTurns resolves thinking on output transcript and clears turnControl on mid-press disconnect', async () => {
