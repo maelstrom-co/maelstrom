@@ -1103,4 +1103,3 @@ describe('the seeded first screen', () => {
     );
   });
 });
-

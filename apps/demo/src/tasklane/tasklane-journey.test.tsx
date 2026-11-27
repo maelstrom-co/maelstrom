@@ -827,5 +827,4 @@ describe('Tasklane unified typed and voice routing', () => {
     expect(intents).toContain('typed tasklane intent');
     expect(intents).toContain('spoken tasklane intent');
   });
-
 });
