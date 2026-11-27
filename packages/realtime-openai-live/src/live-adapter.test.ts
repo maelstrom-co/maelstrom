@@ -1924,6 +1924,28 @@ test('session mute wins over manual turns: a muted press stays closed and unmuti
   expect(h.session.observations.getSnapshot().media.microphone).toBe('active');
 });
 
+test('a connect that fails before the transport starts drops a retained mute request', async () => {
+  const h = await harness();
+  await h.session.disconnect();
+
+  h.adapter.inputControl.setInputEnabled(false);
+  await expect(
+    h.adapter.connect({
+      tools: [],
+      instructions: 'test',
+      getRecoveryContext: () => {
+        throw new Error('recovery unavailable');
+      },
+    }),
+  ).rejects.toThrow('recovery unavailable');
+
+  await h.connect();
+  expect(h.session.inputMuted).toBe(false);
+  const micTracks = h.adapter.getAudioStreams().mic?.getAudioTracks() ?? [];
+  expect(micTracks.length).toBeGreaterThan(0);
+  expect(micTracks.every((track) => track.enabled)).toBe(true);
+});
+
 test('muting via inputControl mid-delegation disables mic tracks while keeping the pending batch and continuation alive', async () => {
   const pending = deferred<{ userMessage?: string }>();
   const h = await harness({

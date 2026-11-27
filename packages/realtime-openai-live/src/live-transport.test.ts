@@ -1490,6 +1490,43 @@ test('session.paused and session.resumed emit processing observations without dr
   ]);
 });
 
+test('a mute requested before connect keeps the microphone closed from track attachment onward', async () => {
+  const h = harness();
+  const trackEnabledAtAdd: boolean[] = [];
+  h.peer.addTrack = (track?: Track) => {
+    if (track) trackEnabledAtAdd.push(track.enabled);
+  };
+
+  h.transport.setInputEnabled(false);
+  const ready = h.start();
+  await tick();
+  expect(trackEnabledAtAdd).toEqual([false]);
+  h.started();
+  await ready;
+  expect(h.mic.enabled).toBe(false);
+
+  h.transport.setInputEnabled(true);
+  expect(h.mic.enabled).toBe(true);
+});
+
+test('disconnect without a connection drops a mute requested before connect', async () => {
+  const h = harness();
+  const trackEnabledAtAdd: boolean[] = [];
+  h.peer.addTrack = (track?: Track) => {
+    if (track) trackEnabledAtAdd.push(track.enabled);
+  };
+
+  h.transport.setInputEnabled(false);
+  await h.transport.disconnect();
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+
+  expect(trackEnabledAtAdd).toEqual([true]);
+  expect(h.mic.enabled).toBe(true);
+});
+
 test('setInputEnabled disables mic tracks and marks microphone observation inactive without disconnecting', async () => {
   const h = harness();
   const mediaEvents: AdapterVoiceObservation[] = [];

@@ -162,6 +162,9 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
   /** Optional projected native evidence; subscribing never starts media or transport work. */
   readonly diagnostics: AdapterDiagnosticSource = this.diagnosticFeed;
   private run?: Run;
+  // A mute requested while no run exists. The next run starts with it, so the
+  // microphone never opens between track attachment and the caller's reapply.
+  private pendingInputMuted = false;
   private generation = 0;
   private snapshot: LiveTransportSnapshot = {
     generation: 0,
@@ -260,10 +263,11 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       manualTurns: this.manualTurns,
       turnActive: false,
       micEnabledPrior: new Map(),
-      inputMuted: false,
+      inputMuted: this.pendingInputMuted,
       releases: [],
     };
     this.run = run;
+    this.pendingInputMuted = false;
     this.snapshot = {
       generation: run.id,
       state: 'connecting',
@@ -332,10 +336,14 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       this.emit({ type: 'turn_mode', mode });
   }
 
-  /** Mutes or unmutes local microphone tracks without affecting connection, delegation, or playback. In manual turn mode, enabling input opens the microphone only while a turn is active. */
+  /** Mutes or unmutes local microphone tracks without affecting connection, delegation, or playback. In manual turn mode, enabling input opens the microphone only while a turn is active. A request made while no connection exists applies to the next `connect()` and is dropped by `disconnect()`. */
   setInputEnabled(enabled: boolean): void {
     const run = this.run;
-    if (!run || run.closing) return;
+    if (!run) {
+      this.pendingInputMuted = !enabled;
+      return;
+    }
+    if (run.closing) return;
     run.inputMuted = !enabled;
     this.applyMicrophoneGate(run);
   }
@@ -376,7 +384,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
   /** Stops participation promptly, then drains session.closed for a bounded interval. Never waits for host tool work. */
   disconnect(): Promise<void> {
     const run = this.run;
-    if (!run) return Promise.resolve();
+    if (!run) {
+      this.pendingInputMuted = false;
+      return Promise.resolve();
+    }
     if (run.closing) return run.ended.promise;
     run.closing = true;
     run.bargeIn?.destroy();

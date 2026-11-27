@@ -275,6 +275,17 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
 
   /** Starts managed delegation. Conversation instructions and backend tool instructions use separate configuration fields. */
   async connect(options: AdapterConnectOptions): Promise<void> {
+    try {
+      await this.connectRun(options);
+    } catch (error) {
+      // A failure before the transport started leaves its retained mute
+      // request without an owner. Drop it so a later connection starts open.
+      if (!this.run) await this.transport.disconnect();
+      throw error;
+    }
+  }
+
+  private async connectRun(options: AdapterConnectOptions): Promise<void> {
     if (this.run) throw new LiveTransportError('already_connected');
     const recovery = options.getRecoveryContext?.();
     const initial = this.readInitialGrounding(options);
