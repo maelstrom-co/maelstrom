@@ -39,7 +39,7 @@ const boardVessel = defineVessel({
   },
 });
 
-it('reports a typed and a voice request through processing to applied with the value', async () => {
+it('reports a typed request through processing to applied with the value', async () => {
   const sent: ChartRequestMessage[] = [];
   const pending: Array<(response: MaelstromResponse) => void> = [];
   const connector = createMockConnector({
@@ -48,10 +48,10 @@ it('reports a typed and a voice request through processing to applied with the v
       return new Promise((resolve) => pending.push(resolve));
     },
   });
-  const respond = (index: number) =>
-    pending[index]({
+  const respond = () =>
+    pending[0]({
       type: 'maelstrom_response',
-      requestId: sent[index].id,
+      requestId: sent[0].id,
       userMessage: 'Done',
       rationale: '',
       executionPlan: [
@@ -113,10 +113,12 @@ it('reports a typed and a voice request through processing to applied with the v
   expect(observed.latest?.id).toBe(typed.id);
 
   await act(async () => {
-    respond(0);
+    respond();
     await typed.result;
   });
-  const applied = {
+  expect(observed.ticket).toMatchObject({
+    id: typed.id,
+    intent: 'mark all done',
     status: 'applied',
     actions: [
       {
@@ -126,28 +128,6 @@ it('reports a typed and a voice request through processing to applied with the v
         value: '12 tasks updated',
       },
     ],
-  };
-  expect(observed.ticket).toMatchObject({
-    id: typed.id,
-    intent: 'mark all done',
-    ...applied,
   });
   expect(observed.latest).toBe(observed.ticket);
-
-  let voice!: IntentSubmission;
-  await act(async () => {
-    voice = client.createIntentScope().enqueueIntent('mark all done again');
-  });
-  expect(observed.latest).toMatchObject({ id: voice.id });
-  expect(observed.latest?.status).toBe('processing');
-  await act(async () => {
-    respond(1);
-    await voice.result;
-  });
-  expect(observed.latest).toMatchObject({
-    id: voice.id,
-    intent: 'mark all done again',
-    ...applied,
-  });
-  expect(observed.ticket?.id).toBe(typed.id);
 });

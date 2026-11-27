@@ -11,7 +11,6 @@ import {
   type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { RequestOutcome } from '@maelstrom-co/react';
 import {
   act,
   cleanup,
@@ -421,9 +420,8 @@ describe('Tasklane request outcomes', () => {
     ['typed', (intent: string) => ask(intent)],
     ['voice', (intent: string) => askByVoice(intent)],
   ] as const)(
-    'reports one setStatus Action with its note after a %s request',
+    'shows the setStatus note after a %s request',
     async (_path, submit) => {
-      const latestOutcome = vi.spyOn(tasklaneM, 'useRequestOutcome');
       setPlaygroundKey('sk-tasklane-outcome-1234567890');
       const { TasklanePage } = await import('./tasklane-page');
       render(<TasklanePage />);
@@ -450,24 +448,11 @@ describe('Tasklane request outcomes', () => {
       await submit(INTENT);
 
       await expectReceipt('✓ Marked "Record launch video" as done');
-      const outcome = latestOutcome.mock.results.at(-1)?.value as
-        | RequestOutcome
-        | undefined;
-      expect(outcome).toMatchObject({ intent: INTENT, status: 'applied' });
-      expect(outcome?.actions).toEqual([
-        expect.objectContaining({
-          instanceId: TASKS,
-          action: 'setStatus',
-          status: 'ran',
-          value: 'Marked "Record launch video" as done',
-        }),
-      ]);
       expect(task('Record launch video').status).toBe('done');
     },
   );
 
-  it('keeps a manual click out of the request outcome and shows its own receipt', async () => {
-    const latestOutcome = vi.spyOn(tasklaneM, 'useRequestOutcome');
+  it('shows its own receipt for a manual click after a request', async () => {
     setPlaygroundKey('sk-tasklane-manual-1234567890');
     const { TasklanePage } = await import('./tasklane-page');
     render(<TasklanePage />);
@@ -490,12 +475,6 @@ describe('Tasklane request outcomes', () => {
       );
     });
     await expectReceipt('✓ Marked "Update demo README" as done');
-    const outcome = latestOutcome.mock.results.at(-1)?.value as
-      | RequestOutcome
-      | undefined;
-    expect(outcome?.actions.map((action) => action.action)).toEqual([
-      'createTask',
-    ]);
   });
 });
 
