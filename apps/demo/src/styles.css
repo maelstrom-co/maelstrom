@@ -1017,7 +1017,7 @@ body {
   }
 
   .demo-voice-band {
-    height: 72px;
+    min-height: 72px;
     margin-bottom: 0;
   }
 
