@@ -1,4 +1,7 @@
-import { createReferenceResolver } from '@maelstrom-co/client';
+import {
+  createReferenceResolver,
+  type ReferenceResolution,
+} from '@maelstrom-co/client';
 import { nanoid } from 'nanoid';
 import { useSyncExternalStore } from 'react';
 
@@ -85,11 +88,16 @@ const eventResolver = createReferenceResolver({
   items: () => state.events,
   id: (event) => event.id,
   title: (event) => event.title,
-  label: (event) => event.title,
 });
 
-export function findCalendarEvent(title: string): CalendarEvent | undefined {
-  const match = eventResolver.resolve(title);
+export function resolveCalendarEvent(
+  reference: string,
+): ReferenceResolution<CalendarEvent> {
+  return eventResolver.resolve(reference);
+}
+
+function findCalendarEvent(reference: string): CalendarEvent | undefined {
+  const match = eventResolver.resolve(reference);
   return match.kind === 'found' ? match.item : undefined;
 }
 

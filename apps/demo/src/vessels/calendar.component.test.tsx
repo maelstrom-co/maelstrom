@@ -86,6 +86,58 @@ describe('calendar action handlers', () => {
     }
   });
 
+  it.each(['removeEvent', 'moveEvent'])(
+    '%s reports every matching event with its id when a title is ambiguous',
+    async (action) => {
+      const { calendarActions, getCalendarSnapshot } = await import(
+        './calendar.store'
+      );
+      calendarActions.addEvent('Standup', '9:00');
+      calendarActions.addEvent('Standup', '11:00');
+      const [first, second] = getCalendarSnapshot().events.filter(
+        (event) => event.title === 'Standup',
+      );
+      render(<CalendarComponent {...props()} />);
+      const handlers = latestHandlers();
+      const result = await handlers[action]({
+        title: 'Standup',
+        time: '15:00',
+      });
+      expect(isErr(result)).toBe(true);
+      if (isErr(result)) {
+        expect(result.error.message).toContain(
+          '"Standup" matches multiple choices',
+        );
+        expect(result.error.message).toContain(`${first?.id} Standup`);
+        expect(result.error.message).toContain(`${second?.id} Standup`);
+        expect(result.error.message).not.toContain('No event matches');
+      }
+      expect(
+        getCalendarSnapshot().events.filter(
+          (event) => event.title === 'Standup',
+        ),
+      ).toEqual([first, second]);
+    },
+  );
+
+  it('removeEvent removes one of two same-titled events by its id', async () => {
+    const { calendarActions, getCalendarSnapshot } = await import(
+      './calendar.store'
+    );
+    calendarActions.addEvent('Standup', '9:00');
+    calendarActions.addEvent('Standup', '11:00');
+    const [first, second] = getCalendarSnapshot().events.filter(
+      (event) => event.title === 'Standup',
+    );
+    render(<CalendarComponent {...props()} />);
+    const handlers = latestHandlers();
+    const result = await handlers.removeEvent({ title: first?.id ?? '' });
+    expect(isOk(result)).toBe(true);
+    expect(
+      getCalendarSnapshot().events.filter((event) => event.title === 'Standup'),
+    ).toEqual([second]);
+  });
+
   it('moveEvent fuzzy-matches a title and returns ok', async () => {
     render(<CalendarComponent {...props()} />);
     const handlers = latestHandlers();
