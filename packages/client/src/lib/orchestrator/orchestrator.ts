@@ -168,7 +168,7 @@ export class Orchestrator {
   readonly #agent: OrchestratorAgent;
 
   readonly #intentScheduler: IntentScheduler;
-  readonly #requestOutcomes = new RequestOutcomeRecorder();
+  readonly #requestOutcomes: RequestOutcomeRecorder;
   #automaticPending = false;
   // Immediate responses settle flush waiters before actions finish. New waiters
   // in that interval belong to buffered work, not the delivered response.
@@ -194,6 +194,7 @@ export class Orchestrator {
     this.#config = resolveOrchestratorOptions(options);
     this.diagnostics = new DiagnosticChannel(this.#config.sessionId);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
+    this.#requestOutcomes = new RequestOutcomeRecorder(this.#logger);
     this.#intentScheduler = new IntentScheduler(options.intentQueue ?? {}, {
       ready: () =>
         this.#localActions === 0 &&

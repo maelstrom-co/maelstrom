@@ -108,7 +108,11 @@ export interface RequestOutcomesState {
 
 /** Read-only-by-contract observation surface for per-request outcomes. */
 export interface RequestOutcomeView {
-  /** Subscribe before reading state; consumers must not mutate this store. */
+  /**
+   * Subscribe before reading state; consumers must not mutate this store. A
+   * subscriber that throws is reported to the Orchestrator logger and does not
+   * keep other subscribers from the same change.
+   */
   readonly store: Store<RequestOutcomesState>;
 }
 

@@ -1,7 +1,8 @@
 import type { ActionExecution } from '@maelstrom-co/protocol';
-import { Store } from '@tanstack/store';
 
 import type { ActionRecord } from '../command-processor/action-runner.types.js';
+import type { Logger } from '../utils/logger.js';
+import { GuardedStore } from './guarded-store.js';
 import type {
   IntentSnapshot,
   IntentSubmission,
@@ -26,14 +27,22 @@ type Tracked = {
 /**
  * Builds each request's outcome from its own ticket and its own response batch.
  * Callers report the plan and Action records of the request's execute_actions
- * command only, so unrelated execution never reaches an outcome.
+ * command only, so unrelated execution never reaches an outcome. A store
+ * subscriber that throws is reported to the logger and never reaches
+ * admission or scheduling.
  */
 export class RequestOutcomeRecorder implements RequestOutcomeView {
-  readonly store = new Store<RequestOutcomesState>({
-    outcomes: {},
-    latestId: null,
-  });
+  readonly store: GuardedStore<RequestOutcomesState>;
   readonly #tracked = new Map<string, Tracked>();
+  readonly #logger: Pick<Logger, 'error'>;
+
+  constructor(logger: Pick<Logger, 'error'>) {
+    this.#logger = logger;
+    this.store = new GuardedStore<RequestOutcomesState>(
+      { outcomes: {}, latestId: null },
+      (error) => this.#reportSubscriberError(error),
+    );
+  }
 
   admit(ticket: IntentSubmission, intent: string): void {
     const tracked: Tracked = {
@@ -80,16 +89,26 @@ export class RequestOutcomeRecorder implements RequestOutcomeView {
     const tracked = this.#tracked.get(id);
     if (!tracked) return;
     const outcome = toOutcome(id, tracked);
-    this.store.setState((state) => {
-      const outcomes = { ...state.outcomes };
-      for (const evictedId of evicted) delete outcomes[evictedId];
-      outcomes[id] = outcome;
-      const previous =
-        state.latestId !== null && evicted.includes(state.latestId)
-          ? null
-          : state.latestId;
-      return { outcomes, latestId: becomesLatest ? id : previous };
-    });
+    // Subscribers are guarded one by one. This catch is the fallback for a
+    // throw the store raises itself, which arrives after the state is applied.
+    try {
+      this.store.setState((state) => {
+        const outcomes = { ...state.outcomes };
+        for (const evictedId of evicted) delete outcomes[evictedId];
+        outcomes[id] = outcome;
+        const previous =
+          state.latestId !== null && evicted.includes(state.latestId)
+            ? null
+            : state.latestId;
+        return { outcomes, latestId: becomesLatest ? id : previous };
+      });
+    } catch (error) {
+      this.#reportSubscriberError(error);
+    }
+  }
+
+  #reportSubscriberError(error: unknown): void {
+    this.#logger.error('Request outcome store subscriber threw', error);
   }
 
   #evictOldest(): string[] {
