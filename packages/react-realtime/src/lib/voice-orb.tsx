@@ -28,6 +28,8 @@ const STATE_COLORS: Record<VoiceSessionState, string> = {
   error: '#ef4444',
 };
 
+const MUTED_COLOR = '#64748b';
+
 /**
  * Builds the `VoiceOrb` component bound to a specific `useVoice` hook.
  * Created inside the `maelstromRealtime()` factory closure (it needs the
@@ -37,20 +39,22 @@ const STATE_COLORS: Record<VoiceSessionState, string> = {
 export function createVoiceOrb(
   useVoice: () => Pick<
     UseVoiceResult<unknown>,
-    'state' | 'session' | 'connect' | 'disconnect' | 'switching'
+    'state' | 'session' | 'connect' | 'disconnect' | 'switching' | 'inputMuted'
   >,
 ) {
   return function VoiceOrb({
     size = 64,
     className,
   }: VoiceOrbProps): ReactElement {
-    const { state, session, connect, disconnect, switching } = useVoice();
+    const { state, session, connect, disconnect, switching, inputMuted } =
+      useVoice();
     const orbRef = useRef<HTMLButtonElement>(null);
     const disconnectPendingRef = useRef(false);
     const [disconnectPending, setDisconnectPending] = useState(false);
 
     useEffect(() => {
       if (state !== 'listening' && state !== 'speaking') return;
+      if (state === 'listening' && inputMuted) return;
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
       const streams = session.getAudioStreams();
@@ -73,10 +77,11 @@ export function createVoiceOrb(
         const el = orbRef.current;
         if (el) el.style.transform = '';
       };
-    }, [state, session]);
+    }, [state, session, inputMuted]);
 
     const live = state !== 'idle' && state !== 'error';
-    const color = STATE_COLORS[state];
+    const muted = live && inputMuted;
+    const color = muted ? MUTED_COLOR : STATE_COLORS[state];
     const style: CSSProperties & { '--maelstrom-orb-color'?: string } = {
       width: size,
       height: size,
@@ -93,6 +98,7 @@ export function createVoiceOrb(
         ref={orbRef}
         type="button"
         data-state={state}
+        data-muted={muted ? 'true' : undefined}
         aria-label={live ? 'Stop voice' : 'Start voice'}
         className={className}
         style={style}

@@ -145,6 +145,20 @@ the microphone gate, and emits `turn_mode` without reconnecting. OpenAI Realtime
 omits `turnControl`. LiveKit's manual control has no `setTurnMode`, so manual
 stays the only mode once it degrades or runs with `vad: false`.
 
+Input mute and turn control are independent gates. The microphone is open only
+while input is unmuted and either automatic mode is active or a manual turn is
+held, so a press while muted is a silent turn and unmuting during the press
+reopens the microphone. `inputControl.setInputEnabled` is a local gate. The
+bundled adapters apply it synchronously by setting `enabled` on the local track
+that feeds the provider, so the browser sends silence. The contract also allows
+a promise, which `RealtimeSession` does not await, so a custom adapter that
+returns one closes the microphone only once that promise settles. LiveKit gates
+the clone that feeds the pre-roll bridge and VAD, or the natively published
+track when there is no bridge, and follows a native track that LiveKit restarts
+after a device change. Turn
+control keeps its own asynchronous upstream pause and signalling, so the two
+need no shared state.
+
 ## Two channels, deliberately unequal
 
 The Engine and the model both need to know what is on screen, and they are given

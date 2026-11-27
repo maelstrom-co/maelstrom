@@ -9,7 +9,9 @@ import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterInputControl,
   AdapterTurnControl,
+  AdapterVoiceObservation,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
@@ -39,6 +41,22 @@ export function makeHarness(
 
 export function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+export interface MockAdapterOptions {
+  /**
+   * Gives the adapter an input control. Connecting and each gate change then
+   * report microphone media, and the hook runs on every gate change.
+   */
+  inputControl?: (enabled: boolean) => void | Promise<void>;
 }
 
 export interface MockAdapter extends RealtimeProviderAdapter {
@@ -72,14 +90,20 @@ export interface MockAdapter extends RealtimeProviderAdapter {
   }): void;
   emitTurnMode(mode: 'automatic' | 'manual', error?: unknown): void;
   setTurnControl(turnControl: AdapterTurnControl | undefined): void;
+  /** Gate values passed to `inputControl.setInputEnabled()`, in call order. */
+  readonly inputEnabledCalls: readonly boolean[];
   /** Sentinel returned by `getAudioStreams()` — identity-compared by tests. */
   readonly lastAudioStreams: AdapterAudioStreams;
 }
 
-export function makeMockAdapter(): MockAdapter {
+export function makeMockAdapter(options: MockAdapterOptions = {}): MockAdapter {
   const toolResults: Array<{ callId: string; output: unknown }> = [];
   const groundingCalls: string[] = [];
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+  const observationHandlers = new Set<
+    (event: AdapterVoiceObservation) => void
+  >();
+  const inputEnabledCalls: boolean[] = [];
   const connectOptions: AdapterConnectOptions[] = [];
   let connectCalls = 0;
   let disconnectCalls = 0;
@@ -92,9 +116,34 @@ export function makeMockAdapter(): MockAdapter {
   let disconnectGate: Promise<void> | undefined;
   let turnControl: AdapterTurnControl | undefined;
   const lastAudioStreams: AdapterAudioStreams = {};
+  const reportMicrophone = (active: boolean) => {
+    for (const handler of observationHandlers) {
+      handler({
+        type: 'media',
+        media: { microphone: active ? 'active' : 'inactive' },
+      });
+    }
+  };
+  const hook = options.inputControl;
+  const inputControl: AdapterInputControl | undefined = hook && {
+    setInputEnabled(enabled) {
+      inputEnabledCalls.push(enabled);
+      reportMicrophone(enabled);
+      return hook(enabled);
+    },
+  };
 
   return {
-    observations: { subscribe: () => () => {} },
+    observations: {
+      subscribe(handler) {
+        observationHandlers.add(handler);
+        return () => {
+          observationHandlers.delete(handler);
+        };
+      },
+    },
+    inputControl,
+    inputEnabledCalls,
     toolResults,
     groundingCalls,
     connectOptions,
@@ -147,6 +196,7 @@ export function makeMockAdapter(): MockAdapter {
         shouldFailNextConnect = false;
         throw new Error('adapter connect failed');
       }
+      if (inputControl) reportMicrophone(true);
     },
     disconnect: async () => {
       disconnectCalls += 1;

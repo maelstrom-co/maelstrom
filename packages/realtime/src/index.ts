@@ -37,6 +37,7 @@ export type {
   AdapterDiagnosticResponse,
   AdapterDiagnosticSource,
   AdapterGeneratedOpening,
+  AdapterInputControl,
   AdapterTransportSnapshot,
   AdapterTurnControl,
   AdapterVoiceObservation,

@@ -88,12 +88,20 @@ export class FakeRealtimeSession {
   greetingEmitted = false;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
   readonly #otherHandlers = new Set<unknown>();
   greetingState = 'not_configured' as const;
   turnMode = 'automatic' as const;
   turnModeError: unknown = undefined;
   turnControl = undefined;
+  inputMuted = false;
   skipGreeting(): void {}
+  setInputMuted(muted: boolean): void {
+    if (this.state === 'idle' || this.state === 'error') return;
+    if (this.inputMuted === muted) return;
+    this.inputMuted = muted;
+    for (const handler of this.#inputMutedHandlers) handler(muted);
+  }
   get memory() {
     return {
       sessionId: (this.options as { sessionId?: string } | undefined)
@@ -129,11 +137,20 @@ export class FakeRealtimeSession {
 
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
+    if (this.inputMuted) {
+      this.inputMuted = false;
+      for (const handler of this.#inputMutedHandlers) handler(false);
+    }
     this.emitState('idle');
   }
 
   on(
-    event: 'state' | 'transcript' | 'greeting_state' | 'turn_mode',
+    event:
+      | 'state'
+      | 'transcript'
+      | 'greeting_state'
+      | 'turn_mode'
+      | 'input_muted',
     handler: never,
   ): () => void {
     const set =
@@ -141,7 +158,9 @@ export class FakeRealtimeSession {
         ? this.#stateHandlers
         : event === 'transcript'
           ? this.#transcriptHandlers
-          : this.#otherHandlers;
+          : event === 'input_muted'
+            ? this.#inputMutedHandlers
+            : this.#otherHandlers;
     set.add(handler);
     return () => set.delete(handler);
   }

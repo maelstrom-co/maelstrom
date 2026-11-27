@@ -5,6 +5,7 @@ import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterInputControl,
   AdapterTurnControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
@@ -46,6 +47,7 @@ import {
   RoomEvent,
   setLogLevel,
   Track,
+  TrackEvent,
 } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
@@ -225,9 +227,11 @@ export class LiveKitAdapter
   // unsupported browsers the native publication retains manual mute semantics.
   #micClone: MediaStreamTrack | undefined;
   #rawMicTrack: MediaStreamTrack | undefined;
+  #restartWatchedMicTrack: LocalAudioTrack | undefined;
   #localAudioPreRoll: LocalAudioPreRoll | undefined;
   #browserVad: BrowserVad | undefined;
   #manualTurnControlAvailable = false;
+  #inputMuted = false;
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -348,6 +352,19 @@ export class LiveKitAdapter
   }
 
   /**
+   * Microphone input gate that disables the local microphone track feeding the
+   * publication, so the browser sends silence, without disconnecting the room,
+   * cancelling in-flight tool work, or changing turn control. A manual turn
+   * started while muted stays silent until input is enabled again.
+   */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): void => {
+      this.#inputMuted = !enabled;
+      this.#applyInputGate();
+    },
+  };
+
+  /**
    * Joins the LiveKit room and wires the transcript/TTS relay.
    *
    * Microphone capture requests browser AEC, noise suppression, and automatic
@@ -434,7 +451,7 @@ export class LiveKitAdapter
         }
         const clone = rawMicTrack.clone();
         unpublishedClone = clone;
-        clone.enabled = true;
+        clone.enabled = !this.#inputMuted;
         const stream = new MediaStream([clone]);
         microphone = { micTrack, rawMicTrack, clone, stream };
         await micTrack.mute();
@@ -443,6 +460,9 @@ export class LiveKitAdapter
         attempt.assertCurrent();
         unpublishedMicTrack = undefined;
         this.#rawMicTrack = rawMicTrack;
+        micTrack.on(TrackEvent.Restarted, this.#onMicTrackRestarted);
+        this.#restartWatchedMicTrack = micTrack;
+        clone.enabled = !this.#inputMuted;
         this.#micClone = clone;
         this.#micStream = stream;
         unpublishedClone = undefined;
@@ -1143,6 +1163,7 @@ export class LiveKitAdapter
         else await bridge.startManualTurn();
       } else {
         await room.localParticipant.setMicrophoneEnabled(true);
+        this.#applyInputGate();
       }
       if (!this.#isCurrentRoom(generation, room)) return;
     } catch (error) {
@@ -1876,6 +1897,12 @@ export class LiveKitAdapter
     const bridge = this.#localAudioPreRoll;
     const browserVad = this.#browserVad;
     this.#manualTurnControlAvailable = false;
+    this.#inputMuted = false;
+    this.#restartWatchedMicTrack?.off(
+      TrackEvent.Restarted,
+      this.#onMicTrackRestarted,
+    );
+    this.#restartWatchedMicTrack = undefined;
     this.#localAudioPreRoll = undefined;
     this.#browserVad = undefined;
     this.#micClone = undefined;
@@ -1913,6 +1940,31 @@ export class LiveKitAdapter
       browserVad?.destroy().catch(() => {}),
       bridge?.destroy().catch(() => {}),
     ]).then(() => {});
+  }
+
+  /**
+   * Mute and turn control gate different points: mute disables the local
+   * source of the publication, turn control pauses upstream and mutes the
+   * LiveKit track. With the pre-roll bridge the clone is that source and also
+   * feeds VAD. Without it the native track is published directly, and LiveKit
+   * re-enables that track whenever it unmutes for a turn.
+   */
+  // LiveKit replaces and re-enables the native track on a device switch or
+  // reacquire, so the gate and teardown must follow the replacement.
+  readonly #onMicTrackRestarted = (track: LocalAudioTrack): void => {
+    if (this.#localAudioPreRoll || !this.#rawMicTrack) return;
+    this.#rawMicTrack = track.mediaStreamTrack;
+    this.#applyInputGate();
+  };
+
+  #applyInputGate(): void {
+    const enabled = !this.#inputMuted;
+    if (this.#micClone) this.#micClone.enabled = enabled;
+    const room = this.#room;
+    if (this.#localAudioPreRoll || !this.#rawMicTrack || !room) return;
+    const publishedMicTrack = this.#getPublishedMicTrack(room);
+    this.#rawMicTrack.enabled =
+      enabled && publishedMicTrack !== undefined && !publishedMicTrack.isMuted;
   }
 }
 

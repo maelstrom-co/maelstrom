@@ -141,6 +141,11 @@ export class SharedRealtimeSessionRegistry<Provider> {
     this.#slots.get(orchestrator)?.entry?.session.skipGreeting();
   }
 
+  /** Mutes or unmutes microphone input on the current entry without recreating a retired session. */
+  setInputMuted(orchestrator: Orchestrator, muted: boolean): void {
+    this.#slots.get(orchestrator)?.entry?.session.setInputMuted(muted);
+  }
+
   /**
    * Replaces the current session with one for `provider`, keeping memory and
    * coordinator. A newer target supersedes this one, which then resolves

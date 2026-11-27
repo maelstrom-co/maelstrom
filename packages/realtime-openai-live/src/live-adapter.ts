@@ -1,6 +1,7 @@
 import type {
   AdapterConnectOptions,
   AdapterDiagnosticSource,
+  AdapterInputControl,
   AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
@@ -183,6 +184,11 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     update: (snapshot: VoiceRecoverySnapshot): void =>
       this.updateRecovery(snapshot),
   };
+  /** Microphone input gate that mutes local capture without affecting connection, delegation, batches, or continuation. */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): void =>
+      this.transport.setInputEnabled(enabled),
+  };
   private readonly transport: OpenAILiveTransport;
   /** Projected native diagnostics, separate from provider commands and continuous voice observations. */
   readonly diagnostics: AdapterDiagnosticSource;
@@ -269,6 +275,17 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
 
   /** Starts managed delegation. Conversation instructions and backend tool instructions use separate configuration fields. */
   async connect(options: AdapterConnectOptions): Promise<void> {
+    try {
+      await this.connectRun(options);
+    } catch (error) {
+      // A failure before the transport started leaves its retained mute
+      // request without an owner. Drop it so a later connection starts open.
+      if (!this.run) await this.transport.disconnect();
+      throw error;
+    }
+  }
+
+  private async connectRun(options: AdapterConnectOptions): Promise<void> {
     if (this.run) throw new LiveTransportError('already_connected');
     const recovery = options.getRecoveryContext?.();
     const initial = this.readInitialGrounding(options);

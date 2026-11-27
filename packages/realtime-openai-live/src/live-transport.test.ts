@@ -1362,6 +1362,90 @@ describe('manualTurns', () => {
   });
 });
 
+describe('manualTurns with input mute', () => {
+  async function connected(options: { manualTurns?: boolean } = {}) {
+    const h = harness({ manualTurns: true, ...options });
+    const micStates: Array<string | undefined> = [];
+    h.transport.observations.subscribe((obs) => {
+      if (obs.type === 'media' && obs.media.microphone !== undefined)
+        micStates.push(obs.media.microphone);
+    });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    return { ...h, micStates };
+  }
+
+  test('mute and unmute inside a press reopens the microphone', async () => {
+    const h = await connected();
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+    h.transport.setInputEnabled(false);
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+    expect(h.micStates.at(-1)).toBe('active');
+  });
+
+  test('a mute set while connecting holds through track setup and a turn start', async () => {
+    const h = harness({ manualTurns: true });
+    const trackEnabledAtAdd: boolean[] = [];
+    h.peer.addTrack = (track?: Track) => {
+      if (track) trackEnabledAtAdd.push(track.enabled);
+    };
+    const ready = h.start();
+    h.transport.setInputEnabled(false);
+    await tick();
+    expect(trackEnabledAtAdd).toEqual([false]);
+    h.started();
+    await ready;
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(false);
+    h.transport.endTurn();
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(false);
+  });
+
+  test('mute still wins after switching turn mode either way', async () => {
+    const h = await connected({ manualTurns: true });
+    h.transport.setInputEnabled(false);
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(false);
+
+    h.transport.setTurnMode('automatic');
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setInputEnabled(false);
+    h.transport.setTurnMode('manual');
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(false);
+    h.transport.setInputEnabled(true);
+    expect(h.mic.enabled).toBe(true);
+  });
+
+  for (const manualTurns of [true, false]) {
+    test(`a muted microphone stays closed while a graceful close drains (manualTurns: ${manualTurns})`, async () => {
+      const h = await connected({ manualTurns });
+      if (manualTurns) h.transport.startTurn();
+      expect(h.mic.enabled).toBe(true);
+
+      h.transport.setInputEnabled(false);
+      expect(h.mic.enabled).toBe(false);
+
+      const closing = h.transport.disconnect();
+      expect(h.mic.enabled).toBe(false);
+      await closing;
+      expect(h.mic.enabled).toBe(false);
+      expect(h.mic.stopped).toBeGreaterThan(0);
+    });
+  }
+});
+
 test('session.paused and session.resumed emit processing observations without dropping native events', async () => {
   const h = harness();
   const observations: AdapterVoiceObservation[] = [];
@@ -1395,4 +1479,41 @@ test('session.paused and session.resumed emit processing observations without dr
     { type: 'processing', processing: 'standby' },
     { type: 'processing', processing: 'active' },
   ]);
+});
+
+test('a mute requested before connect keeps the microphone closed from track attachment onward', async () => {
+  const h = harness();
+  const trackEnabledAtAdd: boolean[] = [];
+  h.peer.addTrack = (track?: Track) => {
+    if (track) trackEnabledAtAdd.push(track.enabled);
+  };
+
+  h.transport.setInputEnabled(false);
+  const ready = h.start();
+  await tick();
+  expect(trackEnabledAtAdd).toEqual([false]);
+  h.started();
+  await ready;
+  expect(h.mic.enabled).toBe(false);
+
+  h.transport.setInputEnabled(true);
+  expect(h.mic.enabled).toBe(true);
+});
+
+test('disconnect without a connection drops a mute requested before connect', async () => {
+  const h = harness();
+  const trackEnabledAtAdd: boolean[] = [];
+  h.peer.addTrack = (track?: Track) => {
+    if (track) trackEnabledAtAdd.push(track.enabled);
+  };
+
+  h.transport.setInputEnabled(false);
+  await h.transport.disconnect();
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+
+  expect(trackEnabledAtAdd).toEqual([true]);
+  expect(h.mic.enabled).toBe(true);
 });

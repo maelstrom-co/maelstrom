@@ -4,6 +4,7 @@ import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterInputControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -34,7 +35,11 @@ import {
   type ReplacePublicationArgs,
 } from './greeting-interruption.js';
 import { GreetingPresentation } from './greeting-presentation.js';
-import { MicrophonePublicationGate } from './microphone-publication-gate.js';
+import {
+  MicrophonePublicationGate,
+  type MicrophonePublicationLease,
+  MicrophoneTrackHolds,
+} from './microphone-publication-gate.js';
 import type {
   OpenAIAdapterOptions,
   SynthesizeGreeting,
@@ -202,6 +207,9 @@ export class OpenAIAdapter
   readonly #playbackBargeInConfig: ResolvedBrowserVadConfig;
   #playbackBargeIn: PlaybackBargeIn | undefined;
   readonly #greetingGate: MicrophonePublicationGate;
+  readonly #inputMuteGate: MicrophonePublicationGate;
+  #inputMuteLease: MicrophonePublicationLease | undefined;
+  #inputMuted = false;
   readonly #greetingPresentation: GreetingPresentation;
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -215,6 +223,16 @@ export class OpenAIAdapter
    * its playback starts. Media evidence is not reported.
    */
   readonly observations = this.#transcripts;
+
+  /**
+   * Microphone input gate that mutes user capture on the active connection
+   * without disconnecting or cancelling in-flight tool work.
+   */
+  readonly inputControl: AdapterInputControl = {
+    setInputEnabled: (enabled: boolean): void => {
+      this.#setInputEnabled(enabled);
+    },
+  };
 
   #pc: RTCPeerConnection | undefined;
   #dc: RTCDataChannel | undefined;
@@ -277,8 +295,14 @@ export class OpenAIAdapter
           this.#logger.debug('audio playout', diagnostic),
         )
       : undefined;
+    const microphoneHolds = new MicrophoneTrackHolds();
     this.#greetingGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
+      microphoneHolds,
+    );
+    this.#inputMuteGate = new MicrophonePublicationGate(
+      () => this.#connectionGeneration,
+      microphoneHolds,
     );
     this.#greetingPresentation = new GreetingPresentation({
       synthesize: this.#synthesizeGreeting,
@@ -401,6 +425,7 @@ export class OpenAIAdapter
       }
       this.#pc = connection;
       this.#micStream = micStream;
+      this.#applyInputMute();
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
       if (this.#playbackBargeInConfig.enabled) {
@@ -979,8 +1004,35 @@ export class OpenAIAdapter
     this.#voiceActivity = 'connected';
     this.#unexpectedEvents = createUnexpectedEventTracker();
     this.#playoutDiagnostics?.clear();
+    this.#inputMuted = false;
+    this.#inputMuteLease = undefined;
     this.#startConnectionGeneration();
     this.#remotePlayback.clear();
+  }
+
+  #setInputEnabled(enabled: boolean): void {
+    const muted = !enabled;
+    if (this.#inputMuted === muted) return;
+    this.#inputMuted = muted;
+    this.#applyInputMute();
+  }
+
+  /**
+   * Holds the input-mute lease exactly while mute is requested and a
+   * microphone stream exists, so a mute requested before capture takes effect
+   * when the stream is assigned.
+   */
+  #applyInputMute(): void {
+    if (!this.#inputMuted) {
+      this.#inputMuteLease?.release();
+      this.#inputMuteLease = undefined;
+      return;
+    }
+    if (this.#inputMuteLease || !this.#micStream) return;
+    this.#inputMuteLease = this.#inputMuteGate.acquire(
+      this.#micStream,
+      this.#connectionGeneration,
+    );
   }
 
   #handleDataChannelMessage(raw: unknown, generation: number): void {

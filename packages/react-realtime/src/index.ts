@@ -19,4 +19,5 @@ export type {
   UseVoiceCaptionsOptions,
   UseVoiceCaptionsResult,
 } from './lib/voice-captions.js';
+export type { VoiceMuteToggleProps } from './lib/voice-mute-toggle.js';
 export type { VoiceOrbProps } from './lib/voice-orb.js';

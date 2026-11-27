@@ -60,6 +60,7 @@ export function TasklaneVoiceCorner({
             {voicePillLabel(state, holdToTalk)}
           </span>
         )}
+        <tasklaneM.VoiceMuteToggle className="tasklane-voice-pill status-pill" />
         {holdToTalk && (
           <tasklaneM.HoldToTalkControl
             className="tasklane-voice-pill tasklane-voice-control status-pill select-none touch-none"

@@ -5,15 +5,48 @@ export interface MicrophonePublicationLease {
 }
 
 /**
+ * Counts publication holds per track. Gates that share one instance agree on a
+ * single restore value: the first hold records it, and only the last release
+ * applies it, whatever order the overlapping gates release in.
+ */
+export class MicrophoneTrackHolds {
+  readonly #held = new WeakMap<
+    MediaStreamTrack,
+    { readonly enabled: boolean; count: number }
+  >();
+
+  hold(track: MediaStreamTrack): void {
+    const held = this.#held.get(track);
+    if (held) held.count += 1;
+    else this.#held.set(track, { enabled: track.enabled, count: 1 });
+    track.enabled = false;
+  }
+
+  release(track: MediaStreamTrack): void {
+    const held = this.#held.get(track);
+    if (!held) return;
+    held.count -= 1;
+    if (held.count > 0) return;
+    this.#held.delete(track);
+    track.enabled = held.enabled;
+  }
+}
+
+/**
  * Owns the one current microphone-publication lease. Its small interface keeps
  * track snapshots and replacement/staleness rules out of presentation callers.
  */
 export class MicrophonePublicationGate {
   #current: Lease | undefined;
   readonly #currentGeneration: () => number;
+  readonly #holds: MicrophoneTrackHolds;
 
-  constructor(currentGeneration: () => number = () => 0) {
+  constructor(
+    currentGeneration: () => number = () => 0,
+    holds: MicrophoneTrackHolds = new MicrophoneTrackHolds(),
+  ) {
     this.#currentGeneration = currentGeneration;
+    this.#holds = holds;
   }
 
   acquire(
@@ -21,13 +54,8 @@ export class MicrophonePublicationGate {
     generation: number,
   ): MicrophonePublicationLease {
     if (this.#current) this.release(this.#current, true);
-    const tracks = [...new Set(stream?.getAudioTracks() ?? [])].map(
-      (track) => ({
-        track,
-        enabled: track.enabled,
-      }),
-    );
-    for (const { track } of tracks) track.enabled = false;
+    const tracks = [...new Set(stream?.getAudioTracks() ?? [])];
+    for (const track of tracks) this.#holds.hold(track);
     const lease = new Lease(this, generation, tracks);
     this.#current = lease;
     return lease;
@@ -48,7 +76,7 @@ export class MicrophonePublicationGate {
     // still needs this lease's original snapshot to restore before it mutes.
     if (!replacing && lease.generation !== this.#currentGeneration()) return;
     this.#current = undefined;
-    for (const { track, enabled } of lease.tracks) track.enabled = enabled;
+    for (const track of lease.tracks) this.#holds.release(track);
   }
 }
 
@@ -57,10 +85,7 @@ class Lease implements MicrophonePublicationLease {
   constructor(
     readonly owner: MicrophonePublicationGate,
     readonly generation: number,
-    readonly tracks: readonly {
-      readonly track: MediaStreamTrack;
-      readonly enabled: boolean;
-    }[],
+    readonly tracks: readonly MediaStreamTrack[],
   ) {}
 
   release(): void {

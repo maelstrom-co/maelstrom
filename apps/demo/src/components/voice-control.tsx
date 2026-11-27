@@ -144,6 +144,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
           Skip greeting
         </button>
       )}
+      <m.VoiceMuteToggle className="status-pill inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-xs" />
       <m.HoldToTalkControl
         className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
         guidanceClassName="min-w-0 text-xs text-amber-300"

@@ -160,6 +160,22 @@ export interface AdapterTurnControl {
 }
 
 /**
+ * Optional microphone input gate owned by an adapter. `setInputEnabled(false)`
+ * stops capturing user speech without disconnecting the session, cancelling
+ * in-flight tool work, or altering playback. `setInputEnabled(true)` restores
+ * capture on the same connection. The gate is independent of
+ * {@link AdapterTurnControl}: a turn started while input is disabled stays
+ * silent until input is enabled again.
+ */
+export interface AdapterInputControl {
+  /**
+   * Enables or disables microphone input on the current connection. Calls while
+   * disconnected or matching the current state may be no-ops.
+   */
+  setInputEnabled(enabled: boolean): void | Promise<void>;
+}
+
+/**
  * Result of a settled `submit_intent` tool call, as `RealtimeSession` hands it to
  * {@link RealtimeProviderAdapter.sendToolResult}. Both speak-worthy fields are
  * carried separately rather than pre-collapsed to one string, because each
@@ -274,6 +290,13 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
    * either mode when the control offers `setTurnMode`.
    */
   readonly turnControl?: AdapterTurnControl;
+  /**
+   * Optional microphone input gate for muting user capture while keeping the
+   * voice connection, in-flight tool work, and playback alive. Without it
+   * `RealtimeSession.setInputMuted(true)` is ignored and `inputMuted` stays
+   * `false`.
+   */
+  readonly inputControl?: AdapterInputControl;
 }
 
 /** Provider-reported response identity and lifecycle, independent of native event names. */

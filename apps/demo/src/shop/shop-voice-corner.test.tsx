@@ -7,6 +7,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
+import { createVoiceMuteToggleStub } from '../lib/__tests__/voice-mute-toggle-stub';
 import type { DemoVoiceProvider } from '../lib/voice-provider';
 
 type ShopVoiceResult = UseVoiceResult<DemoVoiceProvider>;
@@ -37,6 +38,7 @@ vi.doMock('./maelstrom', () => ({
         Hold to talk
       </button>
     ),
+    VoiceMuteToggle: createVoiceMuteToggleStub(() => voiceResult),
   },
 }));
 
@@ -89,6 +91,8 @@ function makeVoiceResult(
     provider: 'realtime',
     switching: false,
     turnMode: 'automatic',
+    inputMuted: false,
+    setInputMuted: vi.fn(),
     ...overrides,
   } as ShopVoiceResult;
 }

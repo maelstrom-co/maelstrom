@@ -6,6 +6,7 @@ import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 
+import { FakeInputMute } from './__tests__/fake-input-mute.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 
 // Same fake as use-voice.test.tsx (Task 9) — the module boundary
@@ -17,10 +18,12 @@ class FakeRealtimeSession {
 
   state: VoiceSessionState = 'idle';
   lastError: unknown = undefined;
+  readonly #inputMute = new FakeInputMute();
   connectCalls = 0;
   disconnectCalls = 0;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  readonly #otherHandlers = new Set<unknown>();
   #resolveConnect: (() => void) | undefined;
   #resolveDisconnect: (() => void) | undefined;
   #holdDisconnect = false;
@@ -54,7 +57,16 @@ class FakeRealtimeSession {
         this.#resolveDisconnect = resolve;
       });
     }
+    this.#inputMute.clear();
     this.emitState('idle');
+  }
+
+  get inputMuted(): boolean {
+    return this.#inputMute.muted;
+  }
+
+  setInputMuted(muted: boolean): void {
+    this.#inputMute.set(this.state, muted);
   }
 
   holdDisconnect(): void {
@@ -67,9 +79,23 @@ class FakeRealtimeSession {
     this.#resolveDisconnect = undefined;
   }
 
-  on(event: 'state' | 'transcript', handler: never): () => void {
+  on(
+    event:
+      | 'state'
+      | 'transcript'
+      | 'greeting_state'
+      | 'turn_mode'
+      | 'input_muted',
+    handler: never,
+  ): () => void {
     const set =
-      event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
+      event === 'state'
+        ? this.#stateHandlers
+        : event === 'transcript'
+          ? this.#transcriptHandlers
+          : event === 'input_muted'
+            ? this.#inputMute.handlers
+            : this.#otherHandlers;
     set.add(handler);
     return () => set.delete(handler);
   }

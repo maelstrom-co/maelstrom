@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { MicrophonePublicationGate } from './microphone-publication-gate.js';
+import {
+  MicrophonePublicationGate,
+  MicrophoneTrackHolds,
+} from './microphone-publication-gate.js';
 
 test('MicrophonePublicationGate restores unique tracks to exact prior state', () => {
   const enabled = { enabled: true } as MediaStreamTrack;
@@ -41,4 +44,29 @@ test('replacement lease prevents stale release from restoring over the current g
   expect(track.enabled).toBe(false);
   second.release();
   expect(track.enabled).toBe(true);
+});
+
+test('gates sharing track holds restore one prior value in either release order', () => {
+  const enabled = { enabled: true } as MediaStreamTrack;
+  const disabled = { enabled: false } as MediaStreamTrack;
+  const stream = {
+    getAudioTracks: () => [enabled, disabled],
+  } as unknown as MediaStream;
+  const holds = new MicrophoneTrackHolds();
+  const first = new MicrophonePublicationGate(() => 1, holds);
+  const second = new MicrophonePublicationGate(() => 1, holds);
+
+  const outer = first.acquire(stream, 1);
+  const inner = second.acquire(stream, 1);
+  outer.release();
+  expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+  inner.release();
+  expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+
+  const again = first.acquire(stream, 1);
+  const replacement = first.acquire(stream, 1);
+  again.release();
+  expect(enabled.enabled).toBe(false);
+  replacement.release();
+  expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
 });

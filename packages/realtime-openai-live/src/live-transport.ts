@@ -137,6 +137,7 @@ type Run = {
   closing: boolean;
   manualTurns: boolean;
   turnActive: boolean;
+  inputMuted: boolean;
   peer?: RTCPeerConnection;
   channel?: RTCDataChannel;
   mic?: MediaStream;
@@ -161,6 +162,9 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
   /** Optional projected native evidence; subscribing never starts media or transport work. */
   readonly diagnostics: AdapterDiagnosticSource = this.diagnosticFeed;
   private run?: Run;
+  // A mute requested while no run exists. The next run starts with it, so the
+  // microphone never opens between track attachment and the caller's reapply.
+  private pendingInputMuted = false;
   private generation = 0;
   private snapshot: LiveTransportSnapshot = {
     generation: 0,
@@ -259,9 +263,11 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       manualTurns: this.manualTurns,
       turnActive: false,
       micEnabledPrior: new Map(),
+      inputMuted: this.pendingInputMuted,
       releases: [],
     };
     this.run = run;
+    this.pendingInputMuted = false;
     this.snapshot = {
       generation: run.id,
       state: 'connecting',
@@ -294,7 +300,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     return this.play(run);
   }
 
-  /** Unmutes the microphone for a manual turn. No-op unless connected in manual turn mode. */
+  /** Opens the microphone for a manual turn unless input is muted, in which case it opens when input is re-enabled during the turn. No-op unless connected in manual turn mode. */
   startTurn(): void {
     const run = this.run;
     if (!run?.manualTurns || !run.connected || run.closing) return;
@@ -302,7 +308,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     this.applyMicrophoneGate(run);
   }
 
-  /** Mutes the microphone to end a manual turn. No-op unless connected in manual turn mode. */
+  /** Closes the microphone to end a manual turn. No-op unless connected in manual turn mode. */
   endTurn(): void {
     const run = this.run;
     if (!run?.manualTurns || !run.connected || run.closing) return;
@@ -314,8 +320,9 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
    * Switches the established connection between manual and automatic turns
    * without reconnecting, then emits `turn_mode`. Manual mode closes the
    * microphone until the next {@link OpenAILiveTransport.startTurn}, and
-   * automatic mode reopens it. No-op while disconnected, closing, or already
-   * in the requested mode. The next connection starts in the configured mode.
+   * automatic mode reopens it unless input is muted. No-op while
+   * disconnected, closing, or already in the requested mode. The next
+   * connection starts in the configured mode.
    */
   setTurnMode(mode: TurnMode): void {
     const run = this.run;
@@ -327,6 +334,18 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     this.applyMicrophoneGate(run);
     if (this.current(run) && !run.closing && run.manualTurns === manualTurns)
       this.emit({ type: 'turn_mode', mode });
+  }
+
+  /** Mutes or unmutes local microphone tracks without affecting connection, delegation, or playback. In manual turn mode, enabling input opens the microphone only while a turn is active. A request made while no connection exists applies to the next `connect()` and is dropped by `disconnect()`. */
+  setInputEnabled(enabled: boolean): void {
+    const run = this.run;
+    if (!run) {
+      this.pendingInputMuted = !enabled;
+      return;
+    }
+    if (run.closing) return;
+    run.inputMuted = !enabled;
+    this.applyMicrophoneGate(run);
   }
 
   /** Submits one command only to the supplied generation. There is no queue, retry, or success acknowledgment. */
@@ -365,7 +384,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
   /** Stops participation promptly, then drains session.closed for a bounded interval. Never waits for host tool work. */
   disconnect(): Promise<void> {
     const run = this.run;
-    if (!run) return Promise.resolve();
+    if (!run) {
+      this.pendingInputMuted = false;
+      return Promise.resolve();
+    }
     if (run.closing) return run.ended.promise;
     run.closing = true;
     run.bargeIn?.destroy();
@@ -551,7 +573,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       await this.wait(run, run.bargeIn.ready);
       this.assert(run);
     }
-    if (run.manualTurns) this.applyMicrophoneGate(run);
+    if (run.manualTurns || run.inputMuted) this.applyMicrophoneGate(run);
     for (const track of run.mic.getAudioTracks()) {
       peer.addTrack(track, run.mic);
       this.listen(run, track, 'ended', () => {
@@ -853,20 +875,27 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       .some((track) => track.enabled && !track.muted);
     this.media({ microphone: active ? 'active' : 'inactive' });
   }
+  // A user mute wins over an active manual turn, and manual mode keeps the
+  // microphone closed outside a turn even when input is not muted.
   private applyMicrophoneGate(run: Run): void {
-    const enabled = !run.manualTurns || run.turnActive;
-    for (const track of run.mic?.getAudioTracks() ?? []) {
+    const tracks = run.mic?.getAudioTracks() ?? [];
+    const enabled = !run.inputMuted && (!run.manualTurns || run.turnActive);
+    for (const track of tracks) {
       if (!run.micEnabledPrior.has(track))
         run.micEnabledPrior.set(track, track.enabled);
       track.enabled = enabled;
     }
-    if (this.current(run) && !run.closing) this.observeMicrophone(run);
+    if (tracks.length > 0 && this.current(run) && !run.closing)
+      this.observeMicrophone(run);
   }
+  // A muted microphone stays closed through teardown until its tracks stop.
   private restoreMicrophoneEnabled(run: Run): void {
-    for (const [track, prior] of run.micEnabledPrior) {
-      attempt(() => {
-        track.enabled = prior;
-      });
+    if (!run.inputMuted) {
+      for (const [track, prior] of run.micEnabledPrior) {
+        attempt(() => {
+          track.enabled = prior;
+        });
+      }
     }
     run.micEnabledPrior.clear();
   }
