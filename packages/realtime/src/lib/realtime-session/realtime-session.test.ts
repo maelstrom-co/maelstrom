@@ -4054,6 +4054,37 @@ describe('playback control', () => {
     expect(session.playbackBlocked).toBe(false);
   });
 
+  it('ignores a resume result that settles after the connect attempt failed', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = true;
+    let finishResume!: () => void;
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: () => () => {},
+        resume: () =>
+          new Promise<void>((resolve) => {
+            finishResume = resolve;
+          }),
+      },
+    });
+    const releaseConnect = adapter.gateConnect();
+    adapter.failNextConnect();
+    const connecting = session.connect().catch(() => {});
+    expect(session.playbackBlocked).toBe(true);
+
+    const resuming = session.resumePlayback();
+    releaseConnect();
+    await connecting;
+    expect(session.state).toBe('error');
+    expect(session.playbackBlocked).toBe(false);
+
+    blocked = true;
+    finishResume();
+    await resuming;
+    expect(session.playbackBlocked).toBe(false);
+  });
+
   it('fences stale adapter playback notifications that ignore unsubscribe after a failed connect', async () => {
     const { session, adapter } = makeHarness();
     let blocked = false;
