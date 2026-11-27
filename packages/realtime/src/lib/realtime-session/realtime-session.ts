@@ -139,7 +139,7 @@ function groundingPrefix(revision: number): string {
 }
 
 // Reserves room for a six-digit revision so the default summary can shed
-// detail before the hard clamp cuts region names off.
+// variants before the hard clamp cuts region names off.
 const GROUNDING_SUMMARY_MAX_CHARS =
   GROUNDING_MAX_CHARS - groundingPrefix(999_999).length;
 
@@ -202,11 +202,7 @@ function defaultSummarize(
   };
   const full = render(includeInstanceIds, true);
   if (full.length <= maxChars) return full;
-  const withoutVariants = render(includeInstanceIds, false);
-  if (withoutVariants.length <= maxChars || !includeInstanceIds) {
-    return withoutVariants;
-  }
-  return render(false, false);
+  return render(includeInstanceIds, false);
 }
 
 /**

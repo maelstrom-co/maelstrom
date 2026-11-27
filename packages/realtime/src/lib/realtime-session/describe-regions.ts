@@ -11,10 +11,12 @@ import {
 
 /**
  * Names the screen region of every rendered Instance in a layout as a phrase
- * such as "on the left", "at the top left" or "filling the screen". Tiling `H`
- * splits stack children top to bottom and `V` splits place them left to
- * right; grid positions are measured against the Chart dimensions. Instances
- * without a known position are absent from the map.
+ * such as "on the left", "at the top left" or "filling the screen". A band
+ * that touches neither edge of an axis and sits off its centre is "inner", as
+ * in "on the inner left", so four-way splits stay distinct. Tiling `H` splits
+ * stack children top to bottom and `V` splits place them left to right; grid
+ * positions are measured against the Chart dimensions. Instances without a
+ * known position are absent from the map.
  */
 export function describeRegions(
   layout: GridLayout | TilingLayout | null,
@@ -142,7 +144,7 @@ function axisTerm(
   if (touchesStart) return startName;
   if (touchesEnd) return endName;
   const center = (start + end) / 2;
-  if (center < 0.4) return startName;
-  if (center > 0.6) return endName;
+  if (center < 0.4) return `inner ${startName}`;
+  if (center > 0.6) return `inner ${endName}`;
   return 'middle';
 }

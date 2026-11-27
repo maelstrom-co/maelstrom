@@ -1634,16 +1634,17 @@ describe('RealtimeSession — grounding screen regions', () => {
     expect(text).toContain('panel-5: vessel-5 at the bottom right');
   });
 
-  it('then drops instance ids so every region still fits the budget', async () => {
+  it('keeps instance ids when the grounding is still over budget without variants', async () => {
     const text = await initialGrounding(
       sixPanelSnapshot('instance-number', 'vessel-number'),
     );
-    expect(text.length).toBeLessThanOrEqual(400);
+    expect(text).toHaveLength(400);
     expect(text).not.toContain('a-long-variant-name');
-    expect(text).not.toContain('instance-number');
-    expect(text).not.toEndWith('…');
-    expect(text).toContain('vessel-number-0 at the top left');
-    expect(text).toContain('vessel-number-5 at the bottom right');
+    expect(text).toContain(
+      'instance-number-0: vessel-number-0 at the top left',
+    );
+    expect(text).toContain('instance-number-4: vessel-number-4');
+    expect(text).toEndWith('…');
   });
 });
 
