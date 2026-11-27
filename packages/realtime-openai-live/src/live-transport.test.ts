@@ -1086,51 +1086,8 @@ describe('continuous evidence and finalization', () => {
 });
 
 test('local Live barge-in gates received audio without sending unsupported cancellation or mutating capture', async () => {
-  const originalContext = globalThis.AudioContext;
-  const originalStream = globalThis.MediaStream;
-  let callbacks!: {
-    onSpeechStart(): Promise<void>;
-    onSpeechEnd(): Promise<void>;
-    onVADMisfire(): Promise<void>;
-  };
-  let vadStream: MediaStream | undefined;
+  const vad = installLocalVad();
   let probeStopped = 0;
-  mock.module('@ricky0123/vad-web', () => ({
-    MicVAD: {
-      new: async (
-        options: typeof callbacks & { getStream(): Promise<MediaStream> },
-      ) => {
-        callbacks = options;
-        vadStream = await options.getStream();
-        return {
-          start: async () => {},
-          pause: async () => {},
-          destroy: async () => {},
-        };
-      },
-    },
-  }));
-  Object.assign(globalThis, {
-    MediaStream: Stream,
-    AudioContext: class {
-      state = 'running';
-      currentTime = 0;
-      async resume() {}
-      async close() {}
-      createMediaStreamSource() {
-        return { connect() {}, disconnect() {} };
-      }
-      createAnalyser() {
-        return {
-          fftSize: 1024,
-          disconnect() {},
-          getFloatTimeDomainData(samples: Float32Array) {
-            samples.fill(0.2);
-          },
-        };
-      }
-    },
-  });
   const h = harness({ playbackBargeIn: true });
   try {
     const ready = h.start();
@@ -1147,32 +1104,29 @@ test('local Live barge-in gates received audio without sending unsupported cance
       }),
     });
     h.peer.dispatchEvent(Object.assign(new Event('track'), { track: output }));
-    expect(vadStream).toBe(h.transport.getAudioStreams().mic);
-    await callbacks.onSpeechStart();
+    expect(vad.stream).toBe(h.transport.getAudioStreams().mic);
+    await vad.callbacks.onSpeechStart();
     expect(output.enabled).toBe(false);
     expect(h.mic.enabled).toBe(true);
     expect(h.peer.channel.sent).toEqual([]);
-    await callbacks.onVADMisfire();
+    await vad.callbacks.onVADMisfire();
     expect(output.enabled).toBe(true);
-    await callbacks.onSpeechStart();
+    await vad.callbacks.onSpeechStart();
     h.peer.channel.event('session.output_transcript.delta', {
       delta: 'old tail',
       start_ms: 0,
       end_ms: 100,
     });
-    await callbacks.onSpeechEnd();
+    await vad.callbacks.onSpeechEnd();
     expect(output.enabled).toBe(false);
     await h.transport.disconnect();
     expect(probeStopped).toBe(1);
     expect(output.enabled).toBe(true);
-    await callbacks.onSpeechStart();
+    await vad.callbacks.onSpeechStart();
     expect(output.enabled).toBe(true);
   } finally {
     await h.transport.disconnect();
-    Object.assign(globalThis, {
-      AudioContext: originalContext,
-      MediaStream: originalStream,
-    });
+    vad.restore();
   }
 });
 
@@ -1572,34 +1526,7 @@ test('playbackControl maps blocked playback, notifies only on blocked transition
 });
 
 test('local Live barge-in reports browser VAD user speech as media observations', async () => {
-  const originalContext = globalThis.AudioContext;
-  const originalStream = globalThis.MediaStream;
-  let callbacks!: {
-    onSpeechStart(): Promise<void>;
-    onSpeechEnd(): Promise<void>;
-    onVADMisfire(): Promise<void>;
-  };
-  mock.module('@ricky0123/vad-web', () => ({
-    MicVAD: {
-      new: async (options: typeof callbacks) => {
-        callbacks = options;
-        return {
-          start: async () => {},
-          pause: async () => {},
-          destroy: async () => {},
-        };
-      },
-    },
-  }));
-  Object.assign(globalThis, {
-    MediaStream: Stream,
-    AudioContext: class {
-      state = 'running';
-      currentTime = 0;
-      async resume() {}
-      async close() {}
-    },
-  });
+  const vad = installLocalVad();
   const h = harness({ playbackBargeIn: true });
   const speech: unknown[] = [];
   h.transport.observations.subscribe((event) => {
@@ -1611,10 +1538,10 @@ test('local Live barge-in reports browser VAD user speech as media observations'
     await tick();
     h.started();
     await ready;
-    await callbacks.onSpeechStart();
-    await callbacks.onSpeechEnd();
-    await callbacks.onSpeechStart();
-    await callbacks.onVADMisfire();
+    await vad.callbacks.onSpeechStart();
+    await vad.callbacks.onSpeechEnd();
+    await vad.callbacks.onSpeechStart();
+    await vad.callbacks.onVADMisfire();
     expect(speech).toEqual([
       'active',
       'inactive',
@@ -1623,7 +1550,7 @@ test('local Live barge-in reports browser VAD user speech as media observations'
       'inactive',
     ]);
     await h.transport.disconnect();
-    await callbacks.onSpeechStart();
+    await vad.callbacks.onSpeechStart();
     expect(speech.filter((value) => value !== 'unknown')).toEqual([
       'active',
       'inactive',
@@ -1632,42 +1559,12 @@ test('local Live barge-in reports browser VAD user speech as media observations'
     ]);
   } finally {
     await h.transport.disconnect();
-    Object.assign(globalThis, {
-      AudioContext: originalContext,
-      MediaStream: originalStream,
-    });
+    vad.restore();
   }
 });
 
 test('local Live barge-in does not settle a misfire after an observer disconnects', async () => {
-  const originalContext = globalThis.AudioContext;
-  const originalStream = globalThis.MediaStream;
-  let callbacks!: {
-    onSpeechStart(): Promise<void>;
-    onSpeechEnd(): Promise<void>;
-    onVADMisfire(): Promise<void>;
-  };
-  mock.module('@ricky0123/vad-web', () => ({
-    MicVAD: {
-      new: async (options: typeof callbacks) => {
-        callbacks = options;
-        return {
-          start: async () => {},
-          pause: async () => {},
-          destroy: async () => {},
-        };
-      },
-    },
-  }));
-  Object.assign(globalThis, {
-    MediaStream: Stream,
-    AudioContext: class {
-      state = 'running';
-      currentTime = 0;
-      async resume() {}
-      async close() {}
-    },
-  });
+  const vad = installLocalVad();
   const h = harness({ playbackBargeIn: true });
   const speech: unknown[] = [];
   let disconnecting: Promise<void> | undefined;
@@ -1682,17 +1579,14 @@ test('local Live barge-in does not settle a misfire after an observer disconnect
     await tick();
     h.started();
     await ready;
-    await callbacks.onSpeechStart();
-    await callbacks.onVADMisfire();
+    await vad.callbacks.onSpeechStart();
+    await vad.callbacks.onVADMisfire();
     await disconnecting;
     expect(speech.at(-1)).toBe('unknown');
     expect(speech.filter((value) => value !== 'unknown')).toEqual(['active']);
   } finally {
     await h.transport.disconnect();
-    Object.assign(globalThis, {
-      AudioContext: originalContext,
-      MediaStream: originalStream,
-    });
+    vad.restore();
   }
 });
 
@@ -1717,3 +1611,71 @@ test('without barge-in the transport reports no browser user speech', async () =
   await h.transport.disconnect();
   expect(speech.filter((value) => value !== 'unknown')).toEqual([]);
 });
+
+interface LocalVad {
+  readonly callbacks: {
+    onSpeechStart(): Promise<void>;
+    onSpeechEnd(): Promise<void>;
+    onVADMisfire(): Promise<void>;
+  };
+  readonly stream: MediaStream | undefined;
+  restore(): void;
+}
+
+function installLocalVad(): LocalVad {
+  const originalContext = globalThis.AudioContext;
+  const originalStream = globalThis.MediaStream;
+  let callbacks: LocalVad['callbacks'] | undefined;
+  let stream: MediaStream | undefined;
+  mock.module('@ricky0123/vad-web', () => ({
+    MicVAD: {
+      new: async (
+        options: LocalVad['callbacks'] & { getStream(): Promise<MediaStream> },
+      ) => {
+        callbacks = options;
+        stream = await options.getStream();
+        return {
+          start: async () => {},
+          pause: async () => {},
+          destroy: async () => {},
+        };
+      },
+    },
+  }));
+  Object.assign(globalThis, {
+    MediaStream: Stream,
+    AudioContext: class {
+      state = 'running';
+      currentTime = 0;
+      async resume() {}
+      async close() {}
+      createMediaStreamSource() {
+        return { connect() {}, disconnect() {} };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 1024,
+          disconnect() {},
+          getFloatTimeDomainData(samples: Float32Array) {
+            samples.fill(0.2);
+          },
+        };
+      }
+    },
+  });
+  return {
+    get callbacks() {
+      if (!callbacks) throw new Error('MicVAD was not created');
+      return callbacks;
+    },
+    get stream() {
+      return stream;
+    },
+    restore() {
+      Object.assign(globalThis, {
+        AudioContext: originalContext,
+        MediaStream: originalStream,
+      });
+    },
+  };
+}
