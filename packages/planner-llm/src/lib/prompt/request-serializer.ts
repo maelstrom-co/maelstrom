@@ -11,7 +11,11 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
+import {
+  getVisibleInstanceIds,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
+} from '@maelstrom-co/protocol';
 
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -174,11 +178,12 @@ function serializeParameter(
   const values = parameter.enum ?? [];
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
-  const serialized = enumSnapshot
-    .get(parameter)
-    .map((value) => value.serialized);
+  const candidates = enumSnapshot.get(parameter);
+  // Counted and listed once per distinct literal, as the voice capability
+  // catalog does, so one declaration is bounded the same way on both paths.
+  const serialized = [...new Set(candidates.map((value) => value.serialized))];
 
-  const dropped = values.length - serialized.length;
+  const dropped = values.length - candidates.length;
   if (dropped > 0) {
     logger?.warn(
       `Dropped ${dropped} enum value(s) that cannot be rendered as JSON matching the declared type for parameter "${parameter.name}" on action "${actionName}"`,
@@ -186,7 +191,23 @@ function serializeParameter(
   }
 
   if (serialized.length === 0) return `${parameter.name}: ${parameter.type}`;
+
+  if (exceedsOptionBudget(serialized)) {
+    logger?.warn(
+      `Omitted all ${serialized.length} enum value(s) for parameter "${parameter.name}" on action "${actionName}" because the list exceeds ${MAX_CAPABILITY_OPTION_COUNT} values or ${MAX_CAPABILITY_OPTIONS_TOTAL_CHARS} characters`,
+    );
+    return `${parameter.name}: ${parameter.type} (${serialized.length} options omitted)`;
+  }
   return `${parameter.name}: ${serialized.join('|')}`;
+}
+
+// Same per-parameter bound as the voice capability catalog, which also omits
+// an over-budget list wholesale: a truncated list would read as the complete
+// set of valid values.
+function exceedsOptionBudget(serialized: readonly string[]): boolean {
+  if (serialized.length > MAX_CAPABILITY_OPTION_COUNT) return true;
+  const totalChars = serialized.reduce((sum, value) => sum + value.length, 0);
+  return totalChars > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS;
 }
 
 function formatActions(

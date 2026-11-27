@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { Logger } from '@maelstrom-co/engine';
+import type { ActionParameterEnumSnapshot, Logger } from '@maelstrom-co/engine';
 import { buildActionParameterEnumSnapshot } from '@maelstrom-co/engine';
 import type { AuthorVessel } from '@maelstrom-co/engine/_testing';
 import {
@@ -8,10 +8,15 @@ import {
   makeTilingRequest,
 } from '@maelstrom-co/engine/_testing';
 import type { ChartRequest } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
+} from '@maelstrom-co/protocol';
 
 import {
   buildDefaultUserSections,
+  buildDefaultUserSectionsWithSnapshot,
   buildGridChartState,
   buildTilingChartState,
   buildUpdateTriggersSection,
@@ -567,7 +572,137 @@ describe('buildVesselsSection', () => {
     ).toBe(false);
     expect(normalized?.value).toEqual({ nested: { id: 1 } });
   });
+
+  // The prompt renders each value as a JSON string literal, so its quotes
+  // count toward the character budget.
+  test('lists enum values whose rendered length totals exactly MAX_CAPABILITY_OPTIONS_TOTAL_CHARS', () => {
+    const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
+    const values = ['a'.repeat(half), 'b'.repeat(half)];
+    const request = makeGridRequest({ vessels: [makeEnumVessel(values)] });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain(`checkTask(title: "${values[0]}"|"${values[1]}")`);
+    expect(warns).toHaveLength(0);
+  });
+
+  test('omits the whole enum list when its rendered length exceeds MAX_CAPABILITY_OPTIONS_TOTAL_CHARS', () => {
+    const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
+    const values = ['a'.repeat(half), 'b'.repeat(half + 1)];
+    const request = makeGridRequest({ vessels: [makeEnumVessel(values)] });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain('checkTask(title: string (2 options omitted))');
+    expect(output).not.toContain('aaaa');
+    expect(output).not.toContain('bbbb');
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('title');
+    expect(warns[0]).toContain('checkTask');
+  });
+
+  test('applies the character budget per parameter, not across the vessel', () => {
+    const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
+    const values = ['a'.repeat(half), 'b'.repeat(half)];
+    const vessel = makeEnumVessel(values);
+    const action = vessel.variants.list.actions[0];
+    const twoActions = {
+      ...vessel,
+      variants: {
+        list: {
+          ...vessel.variants.list,
+          actions: [action, { ...action, name: 'uncheckTask' }],
+        },
+      },
+    } satisfies AuthorVessel;
+    const request = makeGridRequest({ vessels: [twoActions] });
+    const output = buildVesselsSection(request.vessels);
+    expect(output).not.toContain('options omitted');
+  });
+
+  test('renders a duplicated enum value once without reporting it as unrenderable', () => {
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel(['a', 'b', 'a'])],
+    });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain('checkTask(title: "a"|"b")');
+    expect(warns).toHaveLength(0);
+  });
+
+  test('counts distinct enum values toward the character budget', () => {
+    const half = MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 2 - 2;
+    const value = 'a'.repeat(half);
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel([value, value, value])],
+    });
+    const { logger, warns } = createSpyLogger();
+    const output = buildVesselsSection(request.vessels, logger);
+    expect(output).toContain(`checkTask(title: "${value}")`);
+    expect(output).not.toContain('options omitted');
+    expect(warns).toHaveLength(0);
+  });
+
+  test('counts distinct enum values toward MAX_CAPABILITY_OPTION_COUNT', () => {
+    const values = [
+      ...Array.from({ length: MAX_CAPABILITY_OPTION_COUNT }, (_, i) => i),
+      0,
+    ];
+    const output = vesselsSectionForOptionValues(values);
+    expect(output).toContain('checkTask(title: 0|1|');
+    expect(output).not.toContain('options omitted');
+  });
+
+  test('lists exactly MAX_CAPABILITY_OPTION_COUNT enum values', () => {
+    const output = vesselsSectionForOptionValues(
+      Array.from({ length: MAX_CAPABILITY_OPTION_COUNT }, (_, i) => i),
+    );
+    expect(output).toContain('checkTask(title: 0|1|');
+    expect(output).not.toContain('options omitted');
+  });
+
+  test('omits the whole enum list above MAX_CAPABILITY_OPTION_COUNT values', () => {
+    const count = MAX_CAPABILITY_OPTION_COUNT + 1;
+    const output = vesselsSectionForOptionValues(
+      Array.from({ length: count }, (_, i) => i),
+    );
+    expect(output).toContain(
+      `checkTask(title: number (${count} options omitted))`,
+    );
+    expect(output).not.toContain('0|1|');
+  });
 });
+
+// The protocol schema caps declared enums below MAX_CAPABILITY_OPTION_COUNT,
+// so the count bound is exercised through an injected snapshot.
+function vesselsSectionForOptionValues(values: number[]): string {
+  const vessel = makeEnumVessel(values);
+  const parameter = vessel.variants.list.actions[0]!.parameters[0]!;
+  const numericParameter = { ...parameter, type: 'number' as const };
+  const numericVessel = {
+    ...vessel,
+    variants: {
+      list: {
+        ...vessel.variants.list,
+        actions: [
+          {
+            ...vessel.variants.list.actions[0]!,
+            parameters: [numericParameter],
+          },
+        ],
+      },
+    },
+  };
+  const request = makeGridRequest({ vessels: [numericVessel] });
+  const declared = Object.values(request.vessels[0]!.variants)[0]!.actions[0]!
+    .parameters![0]!;
+  const rendered = values.map((value) =>
+    Object.freeze({ serialized: String(value), value }),
+  );
+  const snapshot: ActionParameterEnumSnapshot = {
+    get: (candidate) => (candidate === declared ? rendered : []),
+  };
+  const sections = buildDefaultUserSectionsWithSnapshot(request, snapshot);
+  return sections[0]!.content;
+}
 
 function makeCyclicValue(): unknown {
   // oxlint-disable-next-line typescript/no-explicit-any -- constructing a deliberately cyclic object for the test.
