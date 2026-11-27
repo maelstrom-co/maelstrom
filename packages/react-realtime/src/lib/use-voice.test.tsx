@@ -34,6 +34,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
 
 import { createMockConnector } from './__tests__/mock-connector.js';
+import { FakeInputMute } from './__tests__/fake-input-mute.js';
 import type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,
@@ -103,7 +104,7 @@ class FakeRealtimeSession {
   turnModeError: unknown;
   turnControl: AdapterTurnControl | undefined;
   greetingState: GreetingState;
-  inputMuted = false;
+  readonly #inputMute = new FakeInputMute();
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
@@ -116,7 +117,6 @@ class FakeRealtimeSession {
   readonly #greetingStateHandlers = new Set<
     (state: FakeRealtimeSession['greetingState']) => void
   >();
-  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
 
   constructor(options: {
     instance: RealtimeInstance;
@@ -150,21 +150,19 @@ class FakeRealtimeSession {
     if (coordinator?.skip()) this.emitGreetingState('skipped');
   }
 
+  get inputMuted(): boolean {
+    return this.#inputMute.muted;
+  }
+
   setInputMuted(muted: boolean): void {
-    if (this.state === 'idle' || this.state === 'error') return;
-    if (this.inputMuted === muted) return;
-    this.inputMuted = muted;
-    for (const handler of this.#inputMutedHandlers) handler(muted);
+    this.#inputMute.set(this.state, muted);
   }
 
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
     if (sessionDisconnectGate) await sessionDisconnectGate;
     this.turnControl = undefined;
-    if (this.inputMuted) {
-      this.inputMuted = false;
-      for (const handler of this.#inputMutedHandlers) handler(false);
-    }
+    this.#inputMute.clear();
     this.emitState('idle');
   }
 
@@ -188,7 +186,7 @@ class FakeRealtimeSession {
           : event === 'turn_mode'
             ? this.#turnModeHandlers
             : event === 'input_muted'
-              ? this.#inputMutedHandlers
+              ? this.#inputMute.handlers
               : this.#greetingStateHandlers;
     handlers.add(handler as never);
     return () => handlers.delete(handler as never);

@@ -7,6 +7,7 @@ import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 
 import { createMockConnector } from './__tests__/mock-connector.js';
+import { FakeInputMute } from './__tests__/fake-input-mute.js';
 
 // Same fake as use-voice.test.tsx (Task 9) — the module boundary
 // maelstrom-realtime.ts constructs against is faked here too, so these
@@ -17,12 +18,11 @@ class FakeRealtimeSession {
 
   state: VoiceSessionState = 'idle';
   lastError: unknown = undefined;
-  inputMuted = false;
+  readonly #inputMute = new FakeInputMute();
   connectCalls = 0;
   disconnectCalls = 0;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
-  readonly #inputMutedHandlers = new Set<(muted: boolean) => void>();
   readonly #otherHandlers = new Set<unknown>();
   #resolveConnect: (() => void) | undefined;
   #resolveDisconnect: (() => void) | undefined;
@@ -57,18 +57,16 @@ class FakeRealtimeSession {
         this.#resolveDisconnect = resolve;
       });
     }
-    if (this.inputMuted) {
-      this.inputMuted = false;
-      for (const handler of this.#inputMutedHandlers) handler(false);
-    }
+    this.#inputMute.clear();
     this.emitState('idle');
   }
 
+  get inputMuted(): boolean {
+    return this.#inputMute.muted;
+  }
+
   setInputMuted(muted: boolean): void {
-    if (this.state === 'idle' || this.state === 'error') return;
-    if (this.inputMuted === muted) return;
-    this.inputMuted = muted;
-    for (const handler of this.#inputMutedHandlers) handler(muted);
+    this.#inputMute.set(this.state, muted);
   }
 
   holdDisconnect(): void {
@@ -96,7 +94,7 @@ class FakeRealtimeSession {
         : event === 'transcript'
           ? this.#transcriptHandlers
           : event === 'input_muted'
-            ? this.#inputMutedHandlers
+            ? this.#inputMute.handlers
             : this.#otherHandlers;
     set.add(handler);
     return () => set.delete(handler);
