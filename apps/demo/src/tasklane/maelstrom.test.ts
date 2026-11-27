@@ -129,6 +129,17 @@ describe('Tasklane instance', () => {
     ).toBeLessThanOrEqual(500);
   });
 
+  it('offers both data actions and screen changes in the opening and the greeting', () => {
+    expect(TASKLANE_OPENING_INSTRUCTIONS).toBe(
+      "Greet in English, briefly introducing yourself as Tasklane, powered by Maelstrom, and offer to turn the feedback into tasks. Mention that the user can also change the screen, for example by asking to show team load. After that, follow the user's language.",
+    );
+    for (const text of [TASKLANE_OPENING_INSTRUCTIONS, TASKLANE_GREETING]) {
+      expect(text).toContain('feedback into tasks');
+      expect(text).toContain('change the screen');
+      expect(text).toContain('team load');
+    }
+  });
+
   it('starts on GPT-Live when the stored choice is LiveKit', () => {
     const initialProvider = state.realtimeOptions[0]?.initialProvider as
       | (() => string)

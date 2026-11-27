@@ -9,7 +9,7 @@ export const DEMO_GREETING =
 
 /** Tasklane's one-time spoken greeting, spoken by the same fixed-text route. */
 export const TASKLANE_GREETING =
-  "Hi, I'm Tasklane, powered by Maelstrom. Paste some feedback or ask me to turn it into tasks.";
+  "Hi, I'm Tasklane, powered by Maelstrom. Ask me to turn the feedback into tasks, or change the screen, like showing team load.";
 
 /** Shared Realtime + TTS recommended built-in voice for the demo. */
 export const DEMO_OPENAI_VOICE = 'cedar' as const satisfies OpenAIBuiltInVoice;

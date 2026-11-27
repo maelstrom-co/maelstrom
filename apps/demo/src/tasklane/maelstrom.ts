@@ -31,7 +31,7 @@ import {
 } from './voice-providers';
 
 export const TASKLANE_OPENING_INSTRUCTIONS =
-  "Greet in English, briefly introducing yourself as Tasklane, powered by Maelstrom, and offer to turn the feedback into tasks. After that, follow the user's language.";
+  "Greet in English, briefly introducing yourself as Tasklane, powered by Maelstrom, and offer to turn the feedback into tasks. Mention that the user can also change the screen, for example by asking to show team load. After that, follow the user's language.";
 
 const tasklaneTelemetry = createDemoTelemetry();
 if (import.meta.hot) import.meta.hot.dispose(() => tasklaneTelemetry.dispose());

@@ -120,7 +120,10 @@ export function TasklaneKeylessPreview({
           <TasklaneIntentForm
             intent={intent}
             onIntentChange={onIntentChange}
-            onSubmit={onBlockedSubmit}
+            onSubmit={(example) => {
+              if (example !== undefined) onIntentChange(example);
+              onBlockedSubmit();
+            }}
             submitLabel="Add key"
             allowEmptySubmit
           />

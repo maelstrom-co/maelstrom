@@ -149,7 +149,7 @@
    the dock keeps that corner empty instead of placing controls under it. */
 .tasklane-app .tasklane-dock {
   display: flex;
-  height: 96px;
+  height: 144px;
   align-items: center;
   gap: 24px;
   padding: 12px var(--tasklane-devtools-clearance) 12px 24px;
@@ -192,6 +192,38 @@
 
 .tasklane-app .tasklane-receipt[data-tone='problem'] {
   color: var(--color-pink);
+}
+
+/* One scrolling row keeps the examples visible without growing the dock. The
+   row is 16px taller than a chip so a layout scrollbar never clips the chips. */
+.tasklane-app .tasklane-intent-examples {
+  display: flex;
+  height: 44px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  gap: 6px;
+  overflow-x: auto;
+  list-style: none;
+  contain: inline-size;
+}
+
+.tasklane-app .tasklane-intent-example {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tasklane-app .tasklane-intent-example:hover,
+.tasklane-app .tasklane-intent-example:focus-visible {
+  border-color: var(--line-strong);
+  color: var(--color-ink);
 }
 
 .tasklane-app .keyless-input {
@@ -307,7 +339,7 @@
    the left of the band the launcher covers. */
 @media (max-width: 819px) {
   .tasklane-app .tasklane-dock {
-    height: 196px;
+    height: 244px;
     flex-direction: column;
     align-items: stretch;
     gap: 8px;

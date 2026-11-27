@@ -116,7 +116,7 @@ describe('DEMO_GREETING_TTS_PAYLOAD', () => {
 describe('TASKLANE_GREETING_TTS_PAYLOAD', () => {
   it('differs from the home payload only by its exact input text', () => {
     expect(TASKLANE_GREETING).toBe(
-      "Hi, I'm Tasklane, powered by Maelstrom. Paste some feedback or ask me to turn it into tasks.",
+      "Hi, I'm Tasklane, powered by Maelstrom. Ask me to turn the feedback into tasks, or change the screen, like showing team load.",
     );
     expect(TASKLANE_GREETING_TTS_PAYLOAD).toEqual({
       ...DEMO_GREETING_TTS_PAYLOAD,

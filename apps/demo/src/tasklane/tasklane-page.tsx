@@ -282,17 +282,19 @@ function TasklaneWorkspace({
     onIntentChange(value);
   };
 
-  const submit = (): boolean => {
-    const text = intent.trim();
+  const submit = (example?: string): boolean => {
+    const submitted = example ?? intent;
+    const text = submitted.trim();
     if (!text) return false;
     if (needsKey) {
+      if (example !== undefined) changeDraft(example);
       onBlockedSubmit();
       return false;
     }
     const ticket = enqueueIntent(text);
     const owner = lifetime.current;
     latestSubmission.current = ticket;
-    if (ticket.accepted) changeDraft('');
+    if (ticket.accepted && example === undefined) changeDraft('');
     const revision = draftRevision.current;
     void ticket.result.then((result) => {
       if (!owner.active) return;
@@ -306,7 +308,7 @@ function TasklaneWorkspace({
           draftRevision.current === revision &&
           !current.current.intent
         )
-          current.current.onIntentChange(intent);
+          current.current.onIntentChange(submitted);
         current.current.onMintError('Invalid API key.');
       }
     });

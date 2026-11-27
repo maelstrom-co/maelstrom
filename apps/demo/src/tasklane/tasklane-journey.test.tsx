@@ -44,6 +44,7 @@ import {
   __resetTaskDetailStoreForTests,
   getTaskDetailSnapshot,
 } from './stores/task-detail.store';
+import { TASKLANE_INTENT_EXAMPLES } from './tasklane-intent-form';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
@@ -581,6 +582,82 @@ describe('Tasklane summons Vessels the start screen leaves out', () => {
     ).toEqual(['1Record launch video', '2Update demo README']);
   });
 });
+
+describe('Tasklane example chips', () => {
+  it('shows every example as a visible chip on first load, including view and layout examples', async () => {
+    setPlaygroundKey('sk-tasklane-chips-visible-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    const { container } = render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    const chips = within(
+      screen.getByRole('list', { name: 'Example requests' }),
+    ).getAllByRole('button');
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      ...TASKLANE_INTENT_EXAMPLES,
+    ]);
+    expect(TASKLANE_INTENT_EXAMPLES).toEqual(
+      expect.arrayContaining([
+        'Show the task columns',
+        'Show the triage inbox next to the tasks',
+        'Show team load',
+        'Make the feedback panel bigger',
+      ]),
+    );
+    expect(container.querySelector('datalist')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('sends the same intent from a chip click as from the typed form', async () => {
+    setPlaygroundKey('sk-tasklane-chip-submit-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    engine.layouts.set(
+      'Show team load',
+      layoutBesideBoard('V', TEAM_LOAD, 'team-load', 'bars'),
+    );
+    const draft = screen.getByLabelText<HTMLInputElement>('Ask Tasklane');
+    const draftBeforeChip = draft.value;
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Show team load' }));
+    });
+    await screen.findByRole('list', { name: 'Team load' }, { timeout: 3000 });
+    expect(draft.value).toBe(draftBeforeChip);
+
+    await ask('Show team load');
+    await waitFor(() =>
+      expect(
+        userIntents().filter((intent) => intent === 'Show team load'),
+      ).toHaveLength(2),
+    );
+  });
+
+  it('keeps a chip clicked without a key as the draft and asks for the key', async () => {
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show team load' }));
+
+    expect(
+      (screen.getByLabelText('Ask Tasklane') as HTMLInputElement).value,
+    ).toBe('Show team load');
+    expect(engine.requests).toEqual([]);
+  });
+});
+
+function userIntents(): string[] {
+  return engine.requests.flatMap((message) =>
+    message.request.context.updateReasons.flatMap((reason) =>
+      reason.type === 'user_intent' ? [reason.intent] : [],
+    ),
+  );
+}
 
 function cannedResponse(message: ChartRequestMessage): MaelstromResponse {
   const intent = message.request.context.updateReasons.find(
