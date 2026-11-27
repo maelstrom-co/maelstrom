@@ -566,7 +566,53 @@ describe('useIntentSubmit', () => {
     expect(api.busy).toBe(false);
   });
 
-  it('tracks open agent runs in busy, restores on send_failed, and keeps lost runs unknown without replay', async () => {
+  it('keeps the draft cleared when the transport refuses an agent input frame', async () => {
+    const agent = createMockAgentConnector({
+      sendInput: () => Promise.reject(new Error('frame refused')),
+    });
+    const m = createMaelstrom({ vessels: [], intentRoute: 'agent' });
+    const failures: IntentSubmitFailure[] = [];
+    let api!: UseIntentSubmitResult;
+
+    function Probe() {
+      api = m.useIntentSubmit({
+        onFailure: (failure) => failures.push(failure),
+      });
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={agent.connector}>
+          <Probe />
+        </m.Provider>,
+      );
+    });
+
+    act(() => {
+      api.setDraft('show orders');
+    });
+    await act(async () => {
+      expect(api.submit()?.accepted).toBe(true);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(api.lastOutcome).toMatchObject({
+      route: 'agent',
+      status: 'lost',
+      result: { lostReason: 'send_failed' },
+    });
+    expect(failures).toHaveLength(1);
+    expect(defaultShouldRestoreDraft(failures[0] as IntentSubmitFailure)).toBe(
+      false,
+    );
+    expect(api.draft).toBe('');
+    expect(agent.inputs).toHaveLength(1);
+  });
+
+  it('tracks open agent runs in busy and keeps lost runs unknown without replay', async () => {
     const agent = createMockAgentConnector();
     const m = createMaelstrom({ vessels: [], intentRoute: 'agent' });
     let api!: UseIntentSubmitResult;

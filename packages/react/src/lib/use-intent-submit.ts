@@ -82,10 +82,11 @@ export type IntentSubmitFailureClassifier = (
 /**
  * Default classifier for {@link UseIntentSubmitOptions.shouldRestoreDraft}.
  *
- * Restores the draft for refusals that never reached the engine (`not_submitted`
- * on either route, or `lost` with `lostReason: 'send_failed'` on the agent
- * route). Leaves unknown outcomes (`'unknown'` on `'single-request'`, `'lost'`
- * with other reasons on `'agent'`) and other failures unrestored.
+ * Restores the draft only for refusals that never reached the engine
+ * (`not_submitted` on either route). Leaves unknown outcomes (`'unknown'` on
+ * `'single-request'`, `'lost'` for any reason on `'agent'`, including
+ * `send_failed`, where the agent may still have seen the input) and other
+ * failures unrestored.
  */
 export function defaultShouldRestoreDraft(
   failure: IntentSubmitFailure,
@@ -93,11 +94,7 @@ export function defaultShouldRestoreDraft(
   if (failure.route === 'single-request') {
     return failure.status === 'not_submitted';
   }
-  return (
-    failure.result.status === 'not_submitted' ||
-    (failure.result.status === 'lost' &&
-      failure.result.lostReason === 'send_failed')
-  );
+  return failure.result.status === 'not_submitted';
 }
 
 /** Options for `m.useIntentSubmit()`. */
