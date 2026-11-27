@@ -519,10 +519,19 @@ export class RealtimeSession implements VoiceSession {
    * `error`) or matching the current state are no-ops. While muted, manual
    * `turnControl.startTurn()` is a no-op; mute survives turn-mode switches and
    * resets on disconnect.
+   *
+   * A mute request is ignored when the adapter has no `inputControl`, because
+   * the session could not stop capture. `inputMuted` then stays `false`.
    */
   setInputMuted(muted: boolean): void {
     if (this.#state === 'idle' || this.#state === 'error') return;
     if (this.#inputMuted === muted) return;
+    if (muted && !this.#adapter.inputControl) {
+      this.#logger.warn(
+        'setInputMuted(true) ignored: the adapter has no inputControl',
+      );
+      return;
+    }
     this.#inputMuted = muted;
     this.#applyAdapterInputMute(muted);
     this.#notifyInputMuted(muted);

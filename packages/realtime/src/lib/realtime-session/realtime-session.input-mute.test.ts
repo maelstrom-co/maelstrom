@@ -48,6 +48,7 @@ function makeHarness(
   options: {
     submitIntent?: (intent: string) => Promise<SubmitIntentResult>;
     turnControl?: AdapterTurnControl;
+    omitInputControl?: boolean;
   } = {},
 ) {
   const eventHandlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -83,7 +84,7 @@ function makeHarness(
         };
       },
     },
-    inputControl,
+    inputControl: options.omitInputControl ? undefined : inputControl,
     turnControl: options.turnControl,
     async connect() {
       connectCount += 1;
@@ -245,6 +246,23 @@ describe('RealtimeSession input mute', () => {
     await h.session.disconnect();
     expect(h.session.inputMuted).toBe(false);
     expect(muteEvents).toEqual([true, false, true, false]);
+  });
+
+  it('ignores a mute request when the adapter cannot gate its microphone', async () => {
+    const h = makeHarness({ omitInputControl: true });
+    const observed: boolean[] = [];
+    h.session.on('input_muted', (muted) => {
+      observed.push(muted);
+    });
+    await h.session.connect();
+
+    h.session.setInputMuted(true);
+
+    expect(h.session.inputMuted).toBe(false);
+    expect(observed).toEqual([]);
+    expect(h.inputEnabledCalls).toEqual([]);
+    expect(h.session.state).not.toBe('error');
+    await h.session.disconnect();
   });
 
   it('resets mute on fatal adapter error', async () => {

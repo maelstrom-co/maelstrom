@@ -358,7 +358,8 @@ export interface UseVoiceResult<Provider = undefined> {
   /**
    * Mutes or unmutes microphone input on the shared session without
    * disconnecting voice or cancelling in-flight intent work. Resets on
-   * disconnect.
+   * disconnect. A mute request is ignored, and `inputMuted` stays `false`,
+   * when the provider adapter cannot gate its microphone.
    */
   readonly setInputMuted: (muted: boolean) => void;
 }

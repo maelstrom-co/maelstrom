@@ -290,7 +290,9 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   readonly turnControl?: AdapterTurnControl;
   /**
    * Optional microphone input gate for muting user capture while keeping the
-   * voice connection, in-flight tool work, and playback alive.
+   * voice connection, in-flight tool work, and playback alive. Without it
+   * `RealtimeSession.setInputMuted(true)` is ignored and `inputMuted` stays
+   * `false`.
    */
   readonly inputControl?: AdapterInputControl;
 }
