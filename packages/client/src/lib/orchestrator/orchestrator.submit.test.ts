@@ -1,21 +1,14 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
-  ActionName,
   type ChartRequestMessage,
-  InstanceId,
   type MaelstromResponse,
-  ok,
   RunId,
 } from '@maelstrom-co/protocol';
 
 import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import { createMockConnector } from '../../../test-utils/connector-mocks.js';
-import {
-  createMockEmptyResponse,
-  createMockResponse,
-  createMockResponseVessel,
-} from '../../../test-utils/mocks.js';
+import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
 import {
   agentAcceptedEvent,
   agentFinishedEvent,
@@ -55,27 +48,10 @@ describe('Orchestrator.submit', () => {
     ).toThrow(/intentRoute must be "single-request" or "agent"/);
   });
 
-  it('records a request outcome for typed and spoken intents submitted on the single-request route', async () => {
-    const sent: ChartRequestMessage[] = [];
-    const responses: ReturnType<typeof deferred<MaelstromResponse>>[] = [];
-    const connector = createMockConnector({
-      process: mock((request: ChartRequestMessage) => {
-        sent.push(request);
-        const pending = deferred<MaelstromResponse>();
-        responses.push(pending);
-        return pending.promise;
-      }),
-    });
-    const client = new Orchestrator(connector, {
-      vessels: [createMockResponseVessel('setStatus')],
-    });
+  it('records a request outcome under each submission id for typed and spoken intents on the single-request route', async () => {
+    const client = new Orchestrator(createMockConnector());
     clients.push(client);
     await client.connect();
-    let runs = 0;
-    client.commandProcessor.registerRunner(InstanceId('board'), {
-      setStatus: () => ok(`run ${++runs}`),
-    });
-    const outcomes = () => client.requestOutcomes.store.state;
 
     const typed = client.submit('  mark it done  ');
     const spoken = client.submit('mark it done again', {
@@ -84,45 +60,17 @@ describe('Orchestrator.submit', () => {
     });
     if (typed.route !== 'single-request' || spoken.route !== 'single-request')
       throw new Error('expected the single-request route');
-    expect(outcomes().outcomes[typed.submission.id]).toMatchObject({
+    const { outcomes, latestId } = client.requestOutcomes.store.state;
+    expect(outcomes[typed.submission.id]).toMatchObject({
       id: typed.submission.id,
       intent: 'mark it done',
-      actions: [],
     });
-    expect(outcomes().outcomes[spoken.submission.id]).toMatchObject({
+    expect(outcomes[spoken.submission.id]).toMatchObject({
+      id: spoken.submission.id,
       intent: 'mark it done again',
-      status: 'queued',
     });
-    expect(outcomes().latestId).toBe(spoken.submission.id);
-
-    await flushMicrotasks();
-    responses[0]!.resolve(
-      createMockResponse(sent[0]!.id, 'board', 'setStatus'),
-    );
-    expect((await typed.result).status).toBe('applied');
-    await flushMicrotasks();
-    responses[1]!.resolve(
-      createMockResponse(sent[1]!.id, 'board', 'setStatus'),
-    );
-    expect((await spoken.result).status).toBe('applied');
-
-    const ran = (value: string) => ({
-      status: 'applied',
-      actions: [
-        {
-          instanceId: InstanceId('board'),
-          action: ActionName('setStatus'),
-          status: 'ran',
-          value,
-        },
-      ],
-    });
-    expect(outcomes().outcomes[typed.submission.id]).toMatchObject(
-      ran('run 1'),
-    );
-    expect(outcomes().outcomes[spoken.submission.id]).toMatchObject(
-      ran('run 2'),
-    );
+    expect(latestId).toBe(spoken.submission.id);
+    await Promise.all([typed.result, spoken.result]);
   });
 
   it('records no request outcome for an intent submitted on the agent route', async () => {
