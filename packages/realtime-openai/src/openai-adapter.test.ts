@@ -6167,6 +6167,76 @@ describe('OpenAIAdapter — local playback barge-in', () => {
     expect(output.enabled).toBe(true);
   });
 
+  it('reports local detector user speech as media observations and ignores server speech events', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    const connecting = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(speech).toEqual([]);
+
+    await callbacks.onSpeechStart();
+    await callbacks.onSpeechEnd();
+    await callbacks.onSpeechStart();
+    await callbacks.onVADMisfire();
+    expect(speech).toEqual([
+      'active',
+      'inactive',
+      'active',
+      'unknown',
+      'inactive',
+    ]);
+    await callbacks.onSpeechStart();
+    await adapter.disconnect();
+    expect(speech.slice(-2)).toEqual(['active', 'unknown']);
+    await callbacks.onSpeechStart();
+    expect(speech.at(-1)).toBe('unknown');
+  });
+
+  it('returns user speech to unknown when the local detector becomes unavailable', async () => {
+    const Base = globalThis.AudioContext as unknown as new () => {
+      state: string;
+    };
+    let context: { state: string } | undefined;
+    Object.assign(globalThis, {
+      AudioContext: class extends Base {
+        constructor() {
+          super();
+          context = this;
+        }
+      },
+    });
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+    });
+    const speech: unknown[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'media') speech.push(event.media.userSpeech);
+    });
+    const connecting = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    const channel = FakeRTCPeerConnection.instances.at(-1)!.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+    await callbacks.onSpeechStart();
+    context!.state = 'suspended';
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(speech).toEqual(['active', 'unknown']);
+    await callbacks.onSpeechEnd();
+    expect(speech).toEqual(['active', 'unknown']);
+  });
+
   it('mutes and restores mic tracks via inputControl without closing the connection or blocking tool results', async () => {
     const enabledTrack = new FakeTrack('audio', true);
     const disabledTrack = new FakeTrack('audio', false);

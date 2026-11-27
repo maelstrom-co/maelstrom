@@ -1,4 +1,8 @@
-import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import type {
+  Unsubscribe,
+  VoiceActivity,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
 import { Logger } from '@maelstrom-co/client';
 import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
@@ -6,6 +10,8 @@ import type {
   AdapterConnectOptions,
   AdapterInputControl,
   AdapterPlaybackControl,
+  AdapterVoiceObservation,
+  AdapterVoiceObservations,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -215,15 +221,30 @@ export class OpenAIAdapter
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   readonly #transcripts = new TranscriptObservationFeed();
+  readonly #mediaHandlers = new Set<(event: AdapterVoiceObservation) => void>();
+  #userSpeech: VoiceActivity = 'unknown';
   readonly #remotePlayback = new RemoteAudioPlayback();
 
   /**
    * Transcript fragments on a local receipt-time timeline, one per provider
    * conversation item. The item's final event revises its fragment with the
    * full text. The fixed greeting appears as one final assistant fragment when
-   * its playback starts. Media evidence is not reported.
+   * its playback starts. While local playback barge-in runs, its microphone
+   * detector reports media `userSpeech`: active on onset, inactive on end, and
+   * unknown then inactive on a misfire. User speech returns to unknown when the
+   * detector becomes unavailable or the connection ends. Other media evidence
+   * is not reported.
    */
-  readonly observations = this.#transcripts;
+  readonly observations: AdapterVoiceObservations = {
+    subscribe: (handler) => {
+      const releaseTranscripts = this.#transcripts.subscribe(handler);
+      this.#mediaHandlers.add(handler);
+      return () => {
+        releaseTranscripts();
+        this.#mediaHandlers.delete(handler);
+      };
+    },
+  };
 
   /**
    * Microphone input gate that mutes user capture on the active connection
@@ -449,11 +470,23 @@ export class OpenAIAdapter
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
       if (this.#playbackBargeInConfig.enabled) {
+        const generation = this.#connectionGeneration;
         const playbackBargeIn = createPlaybackBargeIn({
           microphone: micStream,
           config: this.#playbackBargeInConfig,
-          onUnavailable: () =>
-            this.#logger.warn('local playback interruption unavailable'),
+          onUnavailable: () => {
+            if (generation === this.#connectionGeneration)
+              this.#reportUserSpeech('unknown');
+            this.#logger.warn('local playback interruption unavailable');
+          },
+          onUserSpeech: (speech) => {
+            if (generation !== this.#connectionGeneration) return;
+            // A retracted onset clears the open speech span before settling inactive.
+            if (speech === 'misfire') this.#reportUserSpeech('unknown');
+            this.#reportUserSpeech(
+              speech === 'speaking' ? 'active' : 'inactive',
+            );
+          },
         });
         this.#playbackBargeIn = playbackBargeIn;
         await playbackBargeIn.ready;
@@ -997,6 +1030,18 @@ export class OpenAIAdapter
     this.#arbiter = this.#newArbiter();
   }
 
+  #reportUserSpeech(userSpeech: VoiceActivity): void {
+    if (userSpeech === this.#userSpeech) return;
+    this.#userSpeech = userSpeech;
+    for (const handler of [...this.#mediaHandlers]) {
+      try {
+        handler({ type: 'media', media: { userSpeech } });
+      } catch {
+        // Observers cannot interrupt provider event handling.
+      }
+    }
+  }
+
   #teardown(): void {
     // Invalidate any connect() still mid-handshake so it abandons its own
     // attempt instead of clobbering shared state when its awaits resume.
@@ -1006,6 +1051,7 @@ export class OpenAIAdapter
     // Fresh lifecycle state for a later reconnect; player context is retained.
     this.#playbackBargeIn?.destroy();
     this.#playbackBargeIn = undefined;
+    this.#reportUserSpeech('unknown');
     this.#greetingPresentation.disconnect();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
