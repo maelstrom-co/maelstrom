@@ -1919,11 +1919,12 @@ export class LiveKitAdapter
     this.#userSpeech = userSpeech;
     const generation = this.#connectionGeneration;
     for (const handler of [...this.#mediaHandlers]) {
-      // A handler that disconnected or published a newer value already
-      // notified every observer, so this value is stale for the rest.
+      // A handler that published a newer value already notified every
+      // observer. A disconnect retires speech evidence, but the terminal
+      // unknown must still reach the rest.
       if (
-        generation !== this.#connectionGeneration ||
-        userSpeech !== this.#userSpeech
+        userSpeech !== this.#userSpeech ||
+        (userSpeech !== 'unknown' && generation !== this.#connectionGeneration)
       )
         return;
       try {
