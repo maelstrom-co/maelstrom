@@ -28,6 +28,15 @@ vi.doMock('./maelstrom', () => ({
         onClick={orbClick}
       />
     ),
+    HoldToTalkControl: (props: { className?: string }) => (
+      <button
+        type="button"
+        data-testid="hold-to-talk"
+        className={props.className}
+      >
+        Hold to talk
+      </button>
+    ),
   },
 }));
 
@@ -280,18 +289,50 @@ describe('ShopVoiceCorner playback recovery', () => {
 });
 
 describe('ShopVoiceCorner turn controls', () => {
-  it('never shows hold-to-talk, even in manual turn mode', () => {
+  it('mounts the SDK hold-to-talk control and the hold mode switch', () => {
     voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
       turnMode: 'manual',
-      turnControl: makeTurnControl(),
-      turnModeError: new Error('vad failed'),
+      turnControl: { ...makeTurnControl(), setTurnMode: vi.fn(async () => {}) },
     });
-    const { queryByRole, queryByText } = render(
+    const { getByRole } = render(
       <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
     );
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-    expect(
-      queryByText('Automatic voice detection unavailable; hold to talk.'),
-    ).toBeNull();
+    expect(getByRole('button', { name: 'Hold to talk' })).toBeTruthy();
+    expect(getByRole('switch', { name: 'Hold mode' })).toBeTruthy();
+  });
+
+  it.each([
+    ['connected', 'Ready'],
+    ['listening', 'Listening'],
+  ] as const)(
+    'labels a manual %s session %s while hold-to-talk is shown',
+    (state, label) => {
+      voiceResult = makeVoiceResult(state, {
+        provider: 'live',
+        turnMode: 'manual',
+        turnControl: makeTurnControl(),
+      });
+      const { getByRole } = render(
+        <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+      );
+      expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+        label,
+      );
+    },
+  );
+
+  it('keeps Listening for a connected manual session without turnControl', () => {
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      turnMode: 'manual',
+      turnControl: undefined,
+    });
+    const { getByRole } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      'Listening',
+    );
   });
 });

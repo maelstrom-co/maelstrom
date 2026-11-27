@@ -1,9 +1,11 @@
 import type {
   AdapterConnectOptions,
   AdapterDiagnosticSource,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   ToolResult,
+  TurnMode,
   VoiceRecoverySnapshot,
 } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
@@ -21,7 +23,9 @@ import {
 } from './live-transport.js';
 
 type CallId = Extract<RealtimeAdapterEvent, { type: 'tool_call' }>['callId'];
+type SessionState = Extract<RealtimeAdapterEvent, { type: 'state' }>['state'];
 type RecordValue = Record<string, unknown>;
+const THINKING_FALLBACK_MS = 10_000;
 function record(value: unknown): value is RecordValue {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -48,6 +52,12 @@ export interface OpenAILiveAdapterOptions extends LiveTransportOptions {
   readonly batchTimeoutMs?: number;
   /** Bound for each opening, recovery, or grounding acknowledgment, default 30 seconds. Expiry reports unknown delivery, never speech completion. */
   readonly contextTimeoutMs?: number;
+  /**
+   * Milliseconds before a manual turn stuck in `thinking` collapses back to
+   * `connected` when no reply arrives, default 10 seconds. Zero disables the
+   * fallback timer.
+   */
+  readonly thinkingFallbackMs?: number;
 }
 
 type Call = {
@@ -182,6 +192,26 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
   private readonly maxCalls: number;
   private readonly batchMs: number;
   private readonly contextMs: number;
+  private readonly thinkingFallbackMs: number;
+  private establishedTurnMode?: TurnMode;
+  private lastState?: SessionState;
+  private thinkingFallbackTimer?: ReturnType<typeof setTimeout>;
+  private readonly manualTurnControl: AdapterTurnControl = {
+    startTurn: () => this.startManualTurn(),
+    endTurn: () => this.endManualTurn(),
+    setTurnMode: (mode) => this.setTurnMode(mode),
+  };
+
+  /**
+   * Present, with `setTurnMode`, once a connection establishes its turn mode,
+   * in either mode, until it closes. `turnMode` on the session says which
+   * mode is active; `startTurn` and `endTurn` are no-ops in automatic mode.
+   */
+  get turnControl(): AdapterTurnControl | undefined {
+    return this.establishedTurnMode === undefined
+      ? undefined
+      : this.manualTurnControl;
+  }
 
   /** Creates an inert adapter. Invalid bounds throw before any media acquisition. */
   constructor(private readonly options: OpenAILiveAdapterOptions) {
@@ -189,17 +219,23 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     this.maxCalls = options.maxCalls ?? 1024;
     this.batchMs = options.batchTimeoutMs ?? 120_000;
     this.contextMs = options.contextTimeoutMs ?? 30_000;
+    this.thinkingFallbackMs =
+      options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
     if (
       ![this.maxResponses, this.maxCalls, this.batchMs, this.contextMs].every(
         (value) =>
           Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647,
-      )
+      ) ||
+      !Number.isSafeInteger(this.thinkingFallbackMs) ||
+      this.thinkingFallbackMs < 0 ||
+      this.thinkingFallbackMs > 2_147_483_647
     )
       throw new LiveTransportError('invalid_bound');
     this.transport = new OpenAILiveTransport(options);
     this.diagnostics = this.transport.diagnostics;
     this.observations = this.transport.observations;
     this.transport.on((event) => {
+      if (event.type === 'turn_mode') this.establishedTurnMode = event.mode;
       if (
         event.type === 'state' &&
         (event.state === 'idle' || event.state === 'error')
@@ -550,6 +586,14 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
       return;
     }
     if (
+      envelope.type === 'session.output_transcript.delta' &&
+      this.lastState === 'thinking'
+    ) {
+      this.clearThinkingFallback();
+      this.emit({ type: 'state', state: 'connected' });
+      return;
+    }
+    if (
       envelope.type === 'session.thinking.appended' ||
       envelope.type === 'session.instructions.appended'
     ) {
@@ -860,7 +904,57 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
       ),
     });
   }
+  private startManualTurn(): Promise<void> {
+    if (this.establishedTurnMode !== 'manual' || !this.run)
+      return Promise.resolve();
+    this.clearThinkingFallback();
+    this.transport.startTurn();
+    this.emit({ type: 'state', state: 'listening' });
+    return Promise.resolve();
+  }
+  private endManualTurn(): Promise<void> {
+    if (this.establishedTurnMode !== 'manual' || !this.run)
+      return Promise.resolve();
+    this.transport.endTurn();
+    this.emit({ type: 'state', state: 'thinking' });
+    this.startThinkingFallback();
+    return Promise.resolve();
+  }
+  private setTurnMode(mode: TurnMode): Promise<void> {
+    if (
+      this.establishedTurnMode === undefined ||
+      this.establishedTurnMode === mode ||
+      !this.run
+    )
+      return Promise.resolve();
+    const endsManualTurn =
+      mode === 'automatic' &&
+      (this.lastState === 'listening' || this.lastState === 'thinking');
+    this.transport.setTurnMode(mode);
+    if (endsManualTurn && this.establishedTurnMode === 'automatic')
+      this.emit({ type: 'state', state: 'connected' });
+    return Promise.resolve();
+  }
+  private startThinkingFallback(): void {
+    this.clearThinkingFallback();
+    if (this.thinkingFallbackMs <= 0) return;
+    const run = this.run;
+    this.thinkingFallbackTimer = setTimeout(() => {
+      this.thinkingFallbackTimer = undefined;
+      if (this.run === run && this.lastState === 'thinking') {
+        this.emit({ type: 'state', state: 'connected' });
+      }
+    }, this.thinkingFallbackMs);
+  }
+  private clearThinkingFallback(): void {
+    if (this.thinkingFallbackTimer !== undefined) {
+      clearTimeout(this.thinkingFallbackTimer);
+      this.thinkingFallbackTimer = undefined;
+    }
+  }
   private clear(): void {
+    this.establishedTurnMode = undefined;
+    this.clearThinkingFallback();
     const run = this.run;
     this.run = undefined;
     if (!run) return;
@@ -873,6 +967,10 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     if (run.context) clearTimeout(run.context.timer);
   }
   private emit(event: RealtimeAdapterEvent): void {
+    if (event.type === 'state') {
+      this.lastState = event.state;
+      if (event.state !== 'thinking') this.clearThinkingFallback();
+    }
     const run = this.run;
     for (const handler of [...this.listeners]) {
       if (this.run !== run) break;

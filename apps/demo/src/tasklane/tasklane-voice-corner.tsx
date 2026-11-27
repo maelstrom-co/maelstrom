@@ -2,6 +2,7 @@ import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { MouseEvent } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
+import { TurnModeToggle } from '../components/turn-mode-toggle';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { isVoiceConnected } from '../lib/voice-session-state';
@@ -15,7 +16,9 @@ export function TasklaneVoiceCorner({
   readonly needsKey: boolean;
   readonly onRequireKey: () => void;
 }) {
-  const { state, provider, session, switching } = tasklaneM.useVoice();
+  const { state, provider, session, switching, turnMode, turnControl } =
+    tasklaneM.useVoice();
+  const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -54,9 +57,21 @@ export function TasklaneVoiceCorner({
             role="status"
             aria-label="Voice status"
           >
-            {voicePillLabel(state)}
+            {voicePillLabel(state, holdToTalk)}
           </span>
         )}
+        {holdToTalk && (
+          <tasklaneM.HoldToTalkControl
+            className="tasklane-voice-pill tasklane-voice-control status-pill select-none touch-none"
+            guidanceClassName="min-w-0 text-xs text-amber-300"
+          />
+        )}
+        <TurnModeToggle
+          turnControl={turnControl}
+          turnMode={turnMode}
+          switching={switching}
+          className="tasklane-voice-pill tasklane-voice-control status-pill"
+        />
         <span
           className="tasklane-voice-disclosure"
           data-testid="ai-voice-disclosure"
@@ -74,13 +89,14 @@ export function TasklaneVoiceCorner({
   );
 }
 
-function voicePillLabel(state: VoiceSessionState): string {
+function voicePillLabel(state: VoiceSessionState, holdToTalk = false): string {
   switch (state) {
     case 'idle':
       return 'Tap to talk';
     case 'connecting':
       return 'Connecting';
     case 'connected':
+      return holdToTalk ? 'Ready' : 'Listening';
     case 'listening':
       return 'Listening';
     case 'thinking':

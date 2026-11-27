@@ -1,3 +1,4 @@
+export type { HoldToTalkControlProps } from './lib/hold-to-talk-control.js';
 export type { LevelMeter } from './lib/level-meter.js';
 export { createLevelMeter } from './lib/level-meter.js';
 export type {

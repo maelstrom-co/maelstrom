@@ -5,6 +5,7 @@ import type {
   AdapterVoiceObservations,
   RealtimeAdapterEvent,
   RealtimeTransportAdapter,
+  TurnMode,
 } from '@maelstrom-co/realtime';
 import {
   type LiveCommand,
@@ -54,6 +55,15 @@ export interface LiveTransportOptions {
    * Unavailable detection falls back to provider-only behavior. preRollMs is unused.
    */
   readonly playbackBargeIn?: false | true | BrowserVadOptions;
+  /**
+   * Turn mode each connection starts in, default false (automatic). When true,
+   * microphone tracks are muted at connect, `turn_mode` is emitted as `manual`,
+   * and callers unmute and mute with {@link OpenAILiveTransport.startTurn} and
+   * {@link OpenAILiveTransport.endTurn}. {@link OpenAILiveTransport.setTurnMode}
+   * switches mode on a live connection. Prior track `enabled` values are
+   * restored on close.
+   */
+  readonly manualTurns?: boolean;
 }
 
 /**
@@ -125,9 +135,12 @@ type Run = {
   answered: boolean;
   connected: boolean;
   closing: boolean;
+  manualTurns: boolean;
+  turnActive: boolean;
   peer?: RTCPeerConnection;
   channel?: RTCDataChannel;
   mic?: MediaStream;
+  micEnabledPrior: Map<MediaStreamTrack, boolean>;
   playback?: MediaStream;
   audio?: HTMLAudioElement;
   bargeIn?: PlaybackBargeIn;
@@ -166,6 +179,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
   private readonly handshakeMs: number;
   private readonly closeMs: number;
   private readonly bargeInConfig: ResolvedBrowserVadConfig;
+  private readonly manualTurns: boolean;
 
   /** Optional continuous evidence channel; transcript fragments never imply final turns. */
   readonly observations: AdapterVoiceObservations = {
@@ -182,6 +196,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     this.bargeInConfig = resolveBrowserVadConfig(
       options.playbackBargeIn ?? false,
     );
+    this.manualTurns = options.manualTurns ?? false;
     this.handshakeMs = options.handshakeTimeoutMs ?? 45_000;
     this.closeMs = options.closeTimeoutMs ?? 15_000;
     if (
@@ -241,6 +256,9 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       answered: false,
       connected: false,
       closing: false,
+      manualTurns: this.manualTurns,
+      turnActive: false,
+      micEnabledPrior: new Map(),
       releases: [],
     };
     this.run = run;
@@ -274,6 +292,41 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         new LiveTransportError('output_unavailable', { fatal: false }),
       );
     return this.play(run);
+  }
+
+  /** Unmutes the microphone for a manual turn. No-op unless connected in manual turn mode. */
+  startTurn(): void {
+    const run = this.run;
+    if (!run?.manualTurns || !run.connected || run.closing) return;
+    run.turnActive = true;
+    this.applyMicrophoneGate(run);
+  }
+
+  /** Mutes the microphone to end a manual turn. No-op unless connected in manual turn mode. */
+  endTurn(): void {
+    const run = this.run;
+    if (!run?.manualTurns || !run.connected || run.closing) return;
+    run.turnActive = false;
+    this.applyMicrophoneGate(run);
+  }
+
+  /**
+   * Switches the established connection between manual and automatic turns
+   * without reconnecting, then emits `turn_mode`. Manual mode closes the
+   * microphone until the next {@link OpenAILiveTransport.startTurn}, and
+   * automatic mode reopens it. No-op while disconnected, closing, or already
+   * in the requested mode. The next connection starts in the configured mode.
+   */
+  setTurnMode(mode: TurnMode): void {
+    const run = this.run;
+    const manualTurns = mode === 'manual';
+    if (!run?.connected || run.closing || run.manualTurns === manualTurns)
+      return;
+    run.manualTurns = manualTurns;
+    run.turnActive = false;
+    this.applyMicrophoneGate(run);
+    if (this.current(run) && !run.closing && run.manualTurns === manualTurns)
+      this.emit({ type: 'turn_mode', mode });
   }
 
   /** Submits one command only to the supplied generation. There is no queue, retry, or success acknowledgment. */
@@ -317,6 +370,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     run.closing = true;
     run.bargeIn?.destroy();
     clearTimeout(run.disconnectedTimer);
+    this.restoreMicrophoneEnabled(run);
     stop(run.mic);
     attempt(() => run.audio?.pause());
     this.media({
@@ -497,6 +551,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       await this.wait(run, run.bargeIn.ready);
       this.assert(run);
     }
+    if (run.manualTurns) this.applyMicrophoneGate(run);
     for (const track of run.mic.getAudioTracks()) {
       peer.addTrack(track, run.mic);
       this.listen(run, track, 'ended', () => {
@@ -504,10 +559,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
           this.fail(run, new LiveTransportError('microphone_ended'));
       });
       const observe = () => {
-        if (this.current(run) && !run.closing)
-          this.media({
-            microphone: track.enabled && !track.muted ? 'active' : 'inactive',
-          });
+        if (this.current(run) && !run.closing) this.observeMicrophone(run);
       };
       this.listen(run, track, 'mute', observe);
       this.listen(run, track, 'unmute', observe);
@@ -569,7 +621,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     if (!this.current(run) || run.closing) return;
     this.emit({ type: 'state', state: 'connected' });
     if (!this.current(run) || run.closing) return;
-    this.emit({ type: 'turn_mode', mode: 'automatic' });
+    this.emit({
+      type: 'turn_mode',
+      mode: run.manualTurns ? 'manual' : 'automatic',
+    });
     if (this.current(run) && !run.closing) run.ready.resolve();
   }
   private receive(run: Run, event: LiveServerEvent): void {
@@ -709,6 +764,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     clearTimeout(run.disconnectedTimer);
     for (const release of run.releases) attempt(release);
     run.bargeIn?.destroy();
+    this.restoreMicrophoneEnabled(run);
     stop(run.mic);
     stop(run.playback);
     attempt(() => run.audio?.pause());
@@ -778,7 +834,10 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
       if (
         generation !== this.generation ||
         run !== this.run ||
-        closing !== run?.closing
+        closing !== run?.closing ||
+        (event.type === 'turn_mode' &&
+          run !== undefined &&
+          run.manualTurns !== (event.mode === 'manual'))
       )
         break;
       try {
@@ -787,6 +846,29 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
         this.callbackFailure(generation, run, closing);
       }
     }
+  }
+  private observeMicrophone(run: Run): void {
+    const active = run.mic
+      ?.getAudioTracks()
+      .some((track) => track.enabled && !track.muted);
+    this.media({ microphone: active ? 'active' : 'inactive' });
+  }
+  private applyMicrophoneGate(run: Run): void {
+    const enabled = !run.manualTurns || run.turnActive;
+    for (const track of run.mic?.getAudioTracks() ?? []) {
+      if (!run.micEnabledPrior.has(track))
+        run.micEnabledPrior.set(track, track.enabled);
+      track.enabled = enabled;
+    }
+    if (this.current(run) && !run.closing) this.observeMicrophone(run);
+  }
+  private restoreMicrophoneEnabled(run: Run): void {
+    for (const [track, prior] of run.micEnabledPrior) {
+      attempt(() => {
+        track.enabled = prior;
+      });
+    }
+    run.micEnabledPrior.clear();
   }
   private media(
     media: Extract<AdapterVoiceObservation, { type: 'media' }>['media'],

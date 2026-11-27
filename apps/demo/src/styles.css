@@ -1016,8 +1016,12 @@ body {
     padding: 4px;
   }
 
+  /* Short viewports cannot spare Chart rows for wrapped pills, so the band
+     stays fixed and scrolls its own overflow instead of growing. */
   .demo-voice-band {
     height: 72px;
+    overflow-y: auto;
+    align-items: safe center;
     margin-bottom: 0;
   }
 

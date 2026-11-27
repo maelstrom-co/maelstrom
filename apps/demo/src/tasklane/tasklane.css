@@ -143,22 +143,29 @@
   border-radius: 10px;
 }
 
-/* Every size in the dock is fixed: a dock that grows with a caption or a
+/* Every height in the dock is fixed: a dock that grows with a caption or a
    status word would resize the Chart host and start a chart_resize request.
    The devtools launcher is fixed over the viewport's bottom-right corner, so
-   the dock keeps that corner empty instead of placing controls under it. */
+   the dock keeps that corner empty instead of placing controls under it.
+   Equal flexible side tracks centre the intent column in the dock. The right
+   track stays empty and at least as wide as the launcher clearance. The
+   voice corner never gets less than room for its status row on two lines,
+   so a full row of voice controls wraps instead of overflowing. */
 .tasklane-app .tasklane-dock {
-  display: flex;
+  display: grid;
   height: 144px;
+  grid-template-columns:
+    minmax(368px, 1fr) minmax(0, 560px)
+    minmax(calc(var(--tasklane-devtools-clearance) - 48px), 1fr);
   align-items: center;
-  gap: 24px;
-  padding: 12px var(--tasklane-devtools-clearance) 12px 24px;
+  column-gap: 24px;
+  padding: 12px 24px;
 }
 
 .tasklane-app .tasklane-intent-column {
   display: flex;
   min-width: 0;
-  flex: 0 1 560px;
+  grid-column: 2;
   flex-direction: column;
   gap: 4px;
 }
@@ -237,20 +244,22 @@
 
 .tasklane-app .tasklane-voice-corner {
   display: grid;
-  width: 300px;
-  height: 72px;
-  flex: 0 0 auto;
+  min-width: 0;
+  height: 104px;
+  grid-column: 1;
   grid-template-columns: 56px minmax(0, 1fr);
-  grid-template-rows: 36px 28px;
+  grid-template-rows: 36px 60px;
   column-gap: 12px;
   row-gap: 8px;
   align-items: center;
 }
 
+/* Inline-size containment keeps a long caption from widening the corner. */
 .tasklane-app .tasklane-caption {
   display: flex;
   height: 36px;
   overflow: hidden;
+  contain: inline-size;
   grid-column: 2;
   grid-row: 1;
   align-items: flex-end;
@@ -275,14 +284,20 @@
   opacity: 0;
 }
 
+/* The row holds its 60px track and scrolls a third wrapped line instead of
+   spilling into the caption band above it. */
 .tasklane-app .tasklane-voice-status {
   display: flex;
   min-width: 0;
   grid-column: 2;
   grid-row: 2;
+  flex-wrap: wrap;
+  align-self: stretch;
+  overflow-y: auto;
+  align-content: safe center;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
 .tasklane-app .tasklane-voice-pill {
@@ -296,6 +311,23 @@
   color: var(--color-ink-2);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.tasklane-app .tasklane-voice-control {
+  width: auto;
+  gap: 6px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.tasklane-app .tasklane-voice-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tasklane-app .tasklane-voice-control[aria-checked='true'],
+.tasklane-app .tasklane-voice-control[aria-pressed='true'] {
+  color: var(--tasklane-accent);
 }
 
 .tasklane-app .tasklane-voice-playback {
@@ -339,24 +371,25 @@
    the left of the band the launcher covers. */
 @media (max-width: 819px) {
   .tasklane-app .tasklane-dock {
-    height: 244px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    height: 264px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 104px;
+    align-content: center;
+    row-gap: 8px;
     padding: 12px 16px;
   }
 
   .tasklane-app .tasklane-intent-column {
     width: 100%;
     max-width: 560px;
-    flex: 0 0 auto;
-    order: -1;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
   }
 
   .tasklane-app .tasklane-voice-corner {
-    width: 100%;
-    height: 88px;
-    grid-template-rows: 36px 44px;
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .tasklane-app .tasklane-caption {
@@ -367,11 +400,9 @@
     grid-row: 2;
   }
 
+  /* The status row stops short of the launcher below it. */
   .tasklane-app .tasklane-voice-status {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 2px;
+    margin-right: calc(var(--tasklane-devtools-clearance) - 16px);
   }
 }
 

@@ -77,7 +77,7 @@ class Peer extends EventTarget {
   offerGate?: Promise<void>;
   localGate?: Promise<void>;
   answerGate?: Promise<void>;
-  addTrack() {}
+  addTrack(_track?: Track) {}
   createDataChannel() {
     return this.channel;
   }
@@ -107,6 +107,7 @@ function harness(
     handshake?: number;
     close?: number;
     playbackBargeIn?: boolean;
+    manualTurns?: boolean;
   } = {},
 ) {
   const peer = new Peer();
@@ -125,6 +126,7 @@ function harness(
   const transport = new OpenAILiveTransport({
     handshakeTimeoutMs: options.handshake ?? 1000,
     playbackBargeIn: options.playbackBargeIn,
+    manualTurns: options.manualTurns,
     closeTimeoutMs: options.close ?? 5,
     createPeer: () => peer as unknown as RTCPeerConnection,
     createAudio: () => audio as unknown as HTMLAudioElement,
@@ -1172,6 +1174,192 @@ test('local Live barge-in gates received audio without sending unsupported cance
       MediaStream: originalStream,
     });
   }
+});
+
+describe('manualTurns', () => {
+  test('mutes mic at connect, emits manual turn_mode, toggles on press/release, and restores on close', async () => {
+    const h = harness({ manualTurns: true });
+    const events: string[] = [];
+    const micStates: Array<string | undefined> = [];
+    const trackEnabledAtAdd: boolean[] = [];
+    h.peer.addTrack = (track?: Track) => {
+      if (track) trackEnabledAtAdd.push(track.enabled);
+    };
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') events.push(`turn_mode:${event.mode}`);
+      if (event.type === 'state') events.push(`state:${event.state}`);
+    });
+    h.transport.observations.subscribe((obs) => {
+      if (obs.type === 'media' && obs.media.microphone !== undefined)
+        micStates.push(obs.media.microphone);
+    });
+
+    // Calls while disconnected are no-ops.
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    const ready = h.start();
+    await tick();
+    expect(trackEnabledAtAdd).toEqual([false]);
+    expect(h.mic.enabled).toBe(false);
+    h.started();
+    await ready;
+
+    expect(events).toContain('turn_mode:manual');
+    expect(events).not.toContain('turn_mode:automatic');
+    expect(h.mic.enabled).toBe(false);
+    expect(micStates.at(-1)).toBe('inactive');
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+    expect(micStates.at(-1)).toBe('active');
+
+    h.transport.endTurn();
+    expect(h.mic.enabled).toBe(false);
+    expect(micStates.at(-1)).toBe('inactive');
+
+    // Graceful close restores the track's prior enabled value (true).
+    const closing = h.transport.disconnect();
+    expect(h.mic.enabled).toBe(true);
+    await closing;
+    expect(h.mic.enabled).toBe(true);
+  });
+
+  test('restores prior mic enabled state when closed abruptly mid-press', async () => {
+    const h = harness({ manualTurns: true });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    // Mid-press abrupt provider close still restores prior enabled state.
+    h.peer.channel.event('session.closed', {
+      reason: 'normal',
+      usage: { seconds: 1 },
+      session: { id: 'live_opaque' },
+    });
+    expect(h.mic.enabled).toBe(true);
+    expect(h.mic.stopped).toBe(1);
+  });
+
+  test('automatic mode leaves mic enabled, emits automatic turn_mode, and ignores turn methods', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+
+    const ready = h.start();
+    await tick();
+    expect(h.mic.enabled).toBe(true);
+    h.started();
+    await ready;
+
+    expect(modes).toEqual(['automatic']);
+    h.transport.endTurn();
+    expect(h.mic.enabled).toBe(true);
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+  });
+
+  test('setTurnMode switches both ways mid-session without reconnecting', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    h.transport.setTurnMode('manual');
+    expect(modes).toEqual(['automatic', 'manual']);
+    expect(h.mic.enabled).toBe(false);
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setTurnMode('automatic');
+    expect(modes).toEqual(['automatic', 'manual', 'automatic']);
+    expect(h.mic.enabled).toBe(true);
+    h.transport.endTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setTurnMode('automatic');
+    expect(modes).toEqual(['automatic', 'manual', 'automatic']);
+
+    h.transport.setTurnMode('manual');
+    expect(h.mic.enabled).toBe(false);
+    expect(modes.at(-1)).toBe('manual');
+    expect(h.mic.stopped).toBe(0);
+  });
+
+  test('setTurnMode does not emit a mode that a nested switch replaced', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    let nested = false;
+    h.transport.observations.subscribe((event) => {
+      if (event.type !== 'media' || nested) return;
+      nested = true;
+      h.transport.setTurnMode('automatic');
+    });
+    h.transport.setTurnMode('manual');
+
+    expect(nested).toBe(true);
+    expect(modes).toEqual(['automatic', 'automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
+
+  test('setTurnMode stops dispatching a mode that a subscriber replaced', async () => {
+    const h = harness();
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    const seen: string[] = [];
+    h.transport.on((event) => {
+      if (event.type !== 'turn_mode') return;
+      if (event.mode === 'manual') h.transport.setTurnMode('automatic');
+    });
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') seen.push(event.mode);
+    });
+    h.transport.setTurnMode('manual');
+
+    expect(seen).toEqual(['automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
+
+  test('setTurnMode is a no-op while disconnected and each connection starts in the configured mode', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    h.transport.setTurnMode('manual');
+    expect(modes).toEqual([]);
+    expect(h.mic.enabled).toBe(true);
+
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    expect(modes).toEqual(['automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
 });
 
 test('session.paused and session.resumed emit processing observations without dropping native events', async () => {

@@ -1809,3 +1809,85 @@ for (const endVoice of [false, true]) {
       });
   });
 }
+
+test('turnControl starts automatic and switches turn mode both ways mid-session', async () => {
+  const h = await harness({}, { thinkingFallbackMs: 5_000 });
+  expect(h.session.turnMode).toBe('automatic');
+  expect(h.session.turnControl).toBe(h.adapter.turnControl);
+  expect(h.session.turnControl?.setTurnMode).toBeDefined();
+
+  await h.session.turnControl?.startTurn();
+  expect(h.session.state).toBe('connected');
+
+  await h.session.turnControl?.setTurnMode?.('manual');
+  expect(h.session.turnMode).toBe('manual');
+
+  await h.session.turnControl?.startTurn();
+  expect(h.session.state).toBe('listening');
+
+  await h.session.turnControl?.setTurnMode?.('automatic');
+  expect(h.session.turnMode).toBe('automatic');
+  expect(h.session.state).toBe('connected');
+  expect(h.session.turnControl).toBe(h.adapter.turnControl);
+  expect(h.peers).toHaveLength(1);
+
+  await h.session.disconnect();
+  expect(h.adapter.turnControl).toBeUndefined();
+});
+
+test('manualTurns exposes turnControl before manual turn_mode, ends a press without forcing a reply, and falls back from thinking', async () => {
+  const h = await harness({}, { manualTurns: true, thinkingFallbackMs: 50 });
+  expect(h.adapter.turnControl).toBeDefined();
+  expect(h.session.turnMode).toBe('manual');
+  expect(h.session.turnControl).toBe(h.adapter.turnControl);
+
+  const states: string[] = [];
+  h.session.on('state', (state) => states.push(state));
+
+  await h.session.turnControl?.startTurn();
+  expect(h.session.state).toBe('listening');
+
+  await h.session.turnControl?.endTurn();
+  expect(h.session.state).toBe('thinking');
+  // Release does not force a provider reply.
+  expect(h.channel.continues()).toHaveLength(0);
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(h.session.state).toBe('connected');
+  expect(states).toEqual(['listening', 'thinking', 'connected']);
+
+  await h.session.disconnect();
+  expect(h.adapter.turnControl).toBeUndefined();
+
+  const turnControlAtManualEvent: boolean[] = [];
+  h.adapter.on((event) => {
+    if (event.type === 'turn_mode' && event.mode === 'manual') {
+      turnControlAtManualEvent.push(h.adapter.turnControl !== undefined);
+    }
+  });
+  await h.connect();
+  expect(turnControlAtManualEvent).toEqual([true]);
+});
+
+test('manualTurns resolves thinking on output transcript and clears turnControl on mid-press disconnect', async () => {
+  const h = await harness({}, { manualTurns: true, thinkingFallbackMs: 5_000 });
+  const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
+
+  await h.session.turnControl?.startTurn();
+  await h.session.turnControl?.endTurn();
+  expect(h.session.state).toBe('thinking');
+
+  h.channel.event('session.output_transcript.delta', {
+    delta: 'Sure',
+    start_ms: 0,
+    end_ms: 100,
+  });
+  expect(h.session.state).toBe('connected');
+
+  await h.session.turnControl?.startTurn();
+  expect(micTrack?.enabled).toBe(true);
+  await h.session.disconnect();
+  expect(micTrack?.enabled).toBe(true);
+  expect(h.adapter.turnControl).toBeUndefined();
+  expect(h.session.turnControl).toBeUndefined();
+});

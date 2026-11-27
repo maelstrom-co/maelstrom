@@ -4,7 +4,7 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
 import { EnablePlaybackButton } from './enable-playback-button';
-import { HoldToTalkControl } from './hold-to-talk-control';
+import { TurnModeToggle } from './turn-mode-toggle';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
@@ -35,7 +35,8 @@ interface VoiceControlProps {
 /**
  * Provider-agnostic voice control. The orb toggles the shared session; the
  * hold-to-talk button renders only in established manual mode when the adapter
- * exposes `turnControl`. An active manual turn is ended before a mode change or
+ * exposes `turnControl`, and a hold mode switch renders while the adapter can
+ * change turn mode. An active manual turn is ended before a mode change or
  * disconnect hides the control. Automatic-mode degradation shows generic
  * recovery guidance based only on diagnostic presence; the diagnostic itself
  * is never rendered or serialized. A configured greeting shows preparation
@@ -47,15 +48,14 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     greetingState,
     state,
     error,
-    turnControl,
-    turnMode,
-    turnModeError,
     skipGreeting,
     session,
     provider,
     connect,
     disconnect,
     switching,
+    turnControl,
+    turnMode,
   } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
   const isPreparing =
@@ -144,11 +144,15 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
           Skip greeting
         </button>
       )}
-      <HoldToTalkControl
-        state={state}
+      <m.HoldToTalkControl
+        className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
+        guidanceClassName="min-w-0 text-xs text-amber-300"
+      />
+      <TurnModeToggle
         turnControl={turnControl}
         turnMode={turnMode}
-        turnModeError={turnModeError}
+        switching={switching}
+        className="status-pill min-h-11 rounded-full px-3 text-xs aria-checked:text-brand-2"
       />
     </div>
   );

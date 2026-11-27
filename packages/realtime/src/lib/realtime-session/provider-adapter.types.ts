@@ -67,6 +67,8 @@ export interface TurnModeEvent {
   /**
    * Mode ready for consumers when this event is delivered. Before emitting
    * `manual`, an adapter must expose its current {@link AdapterTurnControl}.
+   * An adapter whose control offers `setTurnMode` also exposes it before
+   * emitting `automatic`.
    */
   readonly mode: TurnMode;
   /** Automatic-mode degradation cause; omitted for a clean mode transition. */
@@ -118,11 +120,12 @@ export interface AdapterAudioStreams {
 }
 
 /**
- * Manual turn-boundary control for adapters that establish manual mode.
- * `startTurn` opens the mic / STT stream, while `endTurn` flushes it and
- * triggers the provider's turn-final transcript. An adapter may expose or
- * replace this control dynamically when automatic detection degrades; speech-
- * native providers detect turns themselves and omit it.
+ * Manual turn-boundary control. An adapter exposes it whenever it can do
+ * manual turns on the current connection, in either mode; the retained
+ * `turnMode` alone says which mode is active. `startTurn` opens the mic / STT
+ * stream, while `endTurn` flushes or mutes it. An adapter may expose or replace
+ * this control dynamically, for example when automatic detection degrades;
+ * adapters that cannot do manual turns on a connection omit it.
  *
  * An implementation decides what starting and ending a turn means; for example,
  * it may unmute a microphone, open an STT stream, or flush buffered audio.
@@ -132,7 +135,9 @@ export interface AdapterAudioStreams {
  * resolve. For a fatal {@link RealtimeVoiceError}, `RealtimeSession` exposes
  * `state === 'error'` and preserves the cause in `lastError`, so consumers must
  * observe both values.
- * {@link OpenAIAdapter} omits `turnControl` because OpenAI owns turn detection.
+ * {@link OpenAIAdapter} omits `turnControl` because OpenAI Realtime owns turn
+ * detection. `OpenAILiveAdapter` exposes it with `setTurnMode` on every
+ * established connection, gating microphone capture without forcing a reply.
  *
  * Invariant: `RealtimeSession` NEVER calls these methods — they exist purely
  * for the binding/UI layer to drive. The session stays agnostic to whether a
@@ -144,6 +149,14 @@ export interface AdapterTurnControl {
   startTurn(): Promise<void>;
   /** Request the provider-defined end of a turn; an empty turn may produce no transcript. */
   endTurn(): Promise<void>;
+  /**
+   * Switches the current connection between manual and automatic turns
+   * without reconnecting. Present only while the connection can change mode;
+   * absent means the current mode is the only one available. The adapter
+   * reports the new mode with a `turn_mode` event, and a request for the
+   * active mode is a no-op.
+   */
+  setTurnMode?(mode: TurnMode): Promise<void>;
 }
 
 /**
@@ -252,12 +265,13 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   injectGrounding(text: string): void;
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe;
   /**
-   * Manual control for the current connection generation. It may appear,
-   * change, or disappear as the adapter establishes or leaves manual mode;
-   * speech-native adapters omit it.
+   * Turn control for the current connection generation. It may appear,
+   * change, or disappear as the adapter establishes or leaves a mode in which
+   * it can do manual turns; adapters that cannot do manual turns omit it.
    *
    * Invariant: `RealtimeSession` never invokes this. It delegates the current
-   * value to binding/UI code only while retained `turnMode` is `manual`.
+   * value to binding/UI code while retained `turnMode` is `manual`, or in
+   * either mode when the control offers `setTurnMode`.
    */
   readonly turnControl?: AdapterTurnControl;
 }

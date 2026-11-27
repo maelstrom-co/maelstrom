@@ -2,19 +2,24 @@ import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { MouseEvent, ReactNode } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
+import { TurnModeToggle } from '../components/turn-mode-toggle';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { isVoiceConnected } from '../lib/voice-session-state';
 import { shopM } from './maelstrom';
 import { ShopCaption } from './shop-caption';
 
-export function voicePillLabel(state: VoiceSessionState): string {
+export function voicePillLabel(
+  state: VoiceSessionState,
+  holdToTalk = false,
+): string {
   switch (state) {
     case 'idle':
       return 'Tap to talk';
     case 'connecting':
       return 'Connecting';
     case 'connected':
+      return holdToTalk ? 'Ready' : 'Listening';
     case 'listening':
       return 'Listening';
     case 'thinking':
@@ -35,7 +40,9 @@ export function ShopVoiceCorner({
   readonly onRequireKey: () => void;
   readonly reply?: ReactNode;
 }) {
-  const { state, provider, session, switching } = shopM.useVoice();
+  const { state, provider, session, switching, turnMode, turnControl } =
+    shopM.useVoice();
+  const holdToTalk = turnMode === 'manual' && turnControl !== undefined;
   const playbackBlocked = useLivePlaybackBlocked(session);
 
   // The orb owns its click handler, so the capture phase runs first: it
@@ -77,9 +84,21 @@ export function ShopVoiceCorner({
             role="status"
             aria-label="Voice status"
           >
-            {voicePillLabel(state)}
+            {voicePillLabel(state, holdToTalk)}
           </span>
         )}
+        {holdToTalk && (
+          <shopM.HoldToTalkControl
+            className="shop-voice-pill shop-voice-control status-pill select-none touch-none"
+            guidanceClassName="min-w-0 text-xs text-amber-300"
+          />
+        )}
+        <TurnModeToggle
+          turnControl={turnControl}
+          turnMode={turnMode}
+          switching={switching}
+          className="shop-voice-pill shop-voice-control status-pill"
+        />
         <span
           className="shop-voice-disclosure"
           data-testid="ai-voice-disclosure"
