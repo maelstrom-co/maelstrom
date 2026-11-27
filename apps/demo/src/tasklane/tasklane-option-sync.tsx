@@ -16,6 +16,11 @@ import {
   useFeedbackStore,
 } from './stores/feedback.store';
 import {
+  type FlexibleTableState,
+  getFlexibleTableSnapshot,
+  useFlexibleTableStore,
+} from './stores/flexible-table.store';
+import {
   assigneeLabel,
   getProjectTasksSnapshot,
   type ProjectTask,
@@ -25,6 +30,7 @@ import {
   taskReferenceLabel,
   useProjectTasksStore,
 } from './stores/project-tasks.store';
+import { flexibleTableVessel } from './vessels/flexible-table.vessel.def';
 import { myPrioritiesVessel } from './vessels/my-priorities.vessel.def';
 import { projectTasksVessel } from './vessels/project-tasks.vessel.def';
 import { sourceFeedbackVessel } from './vessels/source-feedback.vessel.def';
@@ -119,6 +125,27 @@ export function triageInboxDefinition(
   });
 }
 
+/** The Flexible table definition with live task references on setCell and current columns. */
+export function flexibleTableDefinition(
+  state: ProjectTasksState,
+  table: FlexibleTableState = getFlexibleTableSnapshot(),
+): typeof flexibleTableVessel {
+  const withReferences = withActionOptions(flexibleTableVessel, {
+    setCell: { task: taskReferences(state, 'flexible-table') },
+  });
+  const columnSummary = table.columns
+    .map((col) =>
+      col.kind === 'computed' && col.formula
+        ? `${col.id} ("${col.label}", computed: ${col.formula})`
+        : `${col.id} ("${col.label}", ${col.kind})`,
+    )
+    .join(', ');
+  return {
+    ...withReferences,
+    description: `${flexibleTableVessel.description}\n\nCurrent table columns: ${columnSummary}.`,
+  };
+}
+
 /** The Feedback definition with the current snapshot, which the Planner cannot read from the page. */
 export function sourceFeedbackDefinition(
   state: FeedbackState,
@@ -138,6 +165,7 @@ export function TasklaneOptionSync() {
   useProjectTasksStore();
   useFeedbackStore();
   useBoardFilterStore();
+  useFlexibleTableStore();
   const published = useRef(new Map<string, string>());
   const publishChanged = () => publishChangedDefinitions(published.current);
 
@@ -162,6 +190,7 @@ function publishChangedDefinitions(published: Map<string, string>): void {
   const priorities = myPrioritiesDefinition(tasksState);
   const detail = taskDetailDefinition(tasksState);
   const triage = triageInboxDefinition(tasksState);
+  const table = flexibleTableDefinition(tasksState, getFlexibleTableSnapshot());
   const feedback = sourceFeedbackDefinition(getFeedbackSnapshot());
 
   publishIfChanged(published, tasks, () => tasklaneM.updateVessel(tasks), {
@@ -181,6 +210,10 @@ function publishChangedDefinitions(published: Map<string, string>): void {
   publishIfChanged(published, triage, () => tasklaneM.updateVessel(triage), {
     description: false,
     taskActions: ['assignTask'],
+  });
+  publishIfChanged(published, table, () => tasklaneM.updateVessel(table), {
+    description: true,
+    taskActions: ['setCell'],
   });
   publishIfChanged(
     published,

@@ -16,6 +16,7 @@ import { TASKLANE_CELL_SIZE_PX } from './default-layout';
 import { tasklaneInstanceLifetime } from './instance-lifetime';
 import { tasklaneRequestActivity } from './request-activity';
 import { tasklaneSettleSignal } from './settle-signal';
+import { flexibleTableEntry } from './vessels/flexible-table.vessel';
 import { myPrioritiesEntry } from './vessels/my-priorities.vessel';
 import { projectPulseEntry } from './vessels/project-pulse.vessel';
 import { projectTasksEntry } from './vessels/project-tasks.vessel';
@@ -59,6 +60,7 @@ export const tasklaneM = createMaelstrom({
     teamLoadEntry,
     triageInboxEntry,
     projectPulseEntry,
+    flexibleTableEntry,
   ] as const,
   cellSizePx: TASKLANE_CELL_SIZE_PX,
 })
