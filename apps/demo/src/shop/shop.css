@@ -2,19 +2,23 @@
    status word would resize the Chart host and start a chart_resize request.
    The devtools launcher is fixed over the viewport's bottom-right corner, so
    the dock keeps that corner empty instead of placing controls under it.
-   The voice corner sizes to its controls, and the two flexible side tracks
-   keep the intent form centred until the corner outgrows its side. */
+   Equal flexible side tracks centre the intent form in the dock. The right
+   track stays empty and at least as wide as the launcher clearance. The
+   voice corner never gets less than room for its status row on two lines,
+   so a full row of voice controls wraps instead of overflowing. */
 .shop-app {
   --shop-devtools-clearance: 184px;
 }
 
 .shop-app .shop-dock {
   display: grid;
-  height: 96px;
-  grid-template-columns: minmax(max-content, 1fr) minmax(0, 520px) 1fr;
+  height: 128px;
+  grid-template-columns:
+    minmax(368px, 1fr) minmax(0, 520px)
+    minmax(calc(var(--shop-devtools-clearance) - 48px), 1fr);
   align-items: center;
   column-gap: 24px;
-  padding: 12px var(--shop-devtools-clearance) 12px 24px;
+  padding: 12px 24px;
   border-color: var(--line);
 }
 
@@ -36,13 +40,11 @@
 
 .shop-app .shop-voice-corner {
   display: grid;
-  width: max-content;
-  min-width: 300px;
-  height: 72px;
+  min-width: 0;
+  height: 104px;
   grid-column: 1;
-  justify-self: start;
-  grid-template-columns: 56px max-content;
-  grid-template-rows: 36px 28px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: 36px 60px;
   column-gap: 12px;
   row-gap: 8px;
   align-items: center;
@@ -106,9 +108,11 @@
   min-width: 0;
   grid-column: 2;
   grid-row: 2;
+  flex-wrap: wrap;
+  align-content: center;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
 .shop-app .shop-voice-pill {
@@ -199,13 +203,8 @@
   }
 
   .shop-app .shop-voice-corner {
-    width: 100%;
-    min-width: 0;
-    height: 104px;
     grid-column: 1;
     grid-row: 2;
-    grid-template-columns: 56px minmax(0, 1fr);
-    grid-template-rows: 36px 60px;
   }
 
   .shop-app .shop-voice-text {
@@ -216,13 +215,9 @@
     grid-row: 2;
   }
 
-  /* The status row stops short of the launcher and wraps onto a second
-     line when every voice control is showing. */
+  /* The status row stops short of the launcher below it. */
   .shop-app .shop-voice-status {
     margin-right: calc(var(--shop-devtools-clearance) - 16px);
-    flex-wrap: wrap;
-    align-content: center;
-    gap: 4px 8px;
   }
 }
 
