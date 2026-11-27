@@ -325,7 +325,7 @@ export class OpenAILiveTransport implements RealtimeTransportAdapter<LiveSession
     run.manualTurns = manualTurns;
     run.turnActive = false;
     this.applyMicrophoneGate(run);
-    if (this.current(run) && !run.closing)
+    if (this.current(run) && !run.closing && run.manualTurns === manualTurns)
       this.emit({ type: 'turn_mode', mode });
   }
 

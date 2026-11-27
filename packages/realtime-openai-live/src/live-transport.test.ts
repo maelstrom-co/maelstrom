@@ -1298,6 +1298,30 @@ describe('manualTurns', () => {
     expect(h.mic.stopped).toBe(0);
   });
 
+  test('setTurnMode does not emit a mode that a nested switch replaced', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    let nested = false;
+    h.transport.observations.subscribe((event) => {
+      if (event.type !== 'media' || nested) return;
+      nested = true;
+      h.transport.setTurnMode('automatic');
+    });
+    h.transport.setTurnMode('manual');
+
+    expect(nested).toBe(true);
+    expect(modes).toEqual(['automatic', 'automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
+
   test('setTurnMode is a no-op while disconnected and each connection starts in the configured mode', async () => {
     const h = harness();
     const modes: string[] = [];
