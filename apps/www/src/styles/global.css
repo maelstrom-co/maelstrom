@@ -1627,6 +1627,14 @@ section {
 .faq-item[open] .faq-a {
   padding-top: 16px;
 }
+.faq-a a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.faq-a a:hover {
+  color: var(--brand-2);
+}
 
 /* Footer */
 .footer {

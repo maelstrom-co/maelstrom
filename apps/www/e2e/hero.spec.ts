@@ -132,6 +132,20 @@ test('lower demo describes scripted planner responses honestly', async ({
   expect(text).not.toContain('experience the engine');
 });
 
+test('hero subcopy states the closed-world bet and keeps voice and text together', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const subcopy = page.locator('.hero-sub');
+  await expect(subcopy).toBeVisible();
+  await expect(subcopy).toContainText('Maelstrom never generates UI.');
+  await expect(subcopy).toContainText(
+    'It arranges and drives the components you ship.',
+  );
+  await expect(subcopy).toContainText('voice or text');
+});
+
 test('meta description calls voice optional and has no semicolon', async ({
   page,
 }) => {

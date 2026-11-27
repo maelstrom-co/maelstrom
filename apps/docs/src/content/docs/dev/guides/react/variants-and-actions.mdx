@@ -195,6 +195,15 @@ The `type` union maps to TypeScript as you'd expect: `'string'` → `string`, `'
 
 These Engine checks do not validate Actions invoked locally through `executeAction`; validating those values and applying any `defaultValue` remain the app's responsibility in its [Action runner](#the-app-handles-actions). See [Three rules](#three-rules) for the full `enum` behavior.
 
+#### When to use `enum`
+
+Use `enum` only for closed sets that stay under the caps:
+
+- **64 values per parameter declaration** (`MAX_ACTION_PARAMETER_ENUM_CANDIDATES`): hard-validated by `ActionParameterSchema` at Vessel registration and again by the Engine before planning. Declaring more than 64 values throws an error.
+- **2000 characters total** (`MAX_CAPABILITY_OPTIONS_TOTAL_CHARS`) and **100 unioned values** (`MAX_CAPABILITY_OPTION_COUNT`) in the capability catalog: when a parameter's values exceed either budget, the catalog omits the list as a whole rather than truncating it and flags the parameter `optionsOmitted`.
+
+Omit `enum` for open-ended entity references such as tasks, notes, or records from a growing list. Instead, describe the accepted forms (for example, a task ID or title) in the parameter `description`, resolve the reference in your Action handler, and return `err(...)` with a clear message when no match exists or more than one item matches. This rule applies to voice and text intents alike, because both submit through the same Engine and read the same Vessel definitions.
+
 ## transitionsTo wiring
 
 When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, which an `effect: 'none'` action may omit, and it moves the instance into the named target variant. `defineVessel` only preserves literal types for downstream inference. It performs no validation itself. Rejection happens at registration: `registerVessel()` runs `VesselSchema` (via `validateVessel`) and throws if a `transitionsTo` names a variant that doesn't exist, so a typo fails fast rather than at runtime.
