@@ -1,15 +1,11 @@
-import type { IntentSubmission } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
+import {
+  defaultShouldRestoreDraft,
+  type IntentSubmitFailure,
+} from '@maelstrom-co/react';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
@@ -26,6 +22,7 @@ import { preloadHostedVadAssets } from '../lib/hosted-vad';
 import {
   isInvalidKeyError,
   isLiveInvalidKeyError,
+  isProviderFailure,
 } from '../lib/invalid-key-error';
 import { liveErrorMessage } from '../lib/live-exchange';
 import {
@@ -219,14 +216,12 @@ function TasklaneWorkspace({
   autoStartVoice,
   onAutoStartVoiceHandled,
 }: TasklaneWorkspaceProps) {
-  const { enqueueIntent, connectionStatus, isProcessing } =
-    tasklaneM.useMaelstrom();
+  const { connectionStatus, isProcessing } = tasklaneM.useMaelstrom();
   const {
     state: voiceState,
     error: voiceError,
     connect: connectVoice,
   } = tasklaneM.useVoice();
-  const thinking = isProcessing || voiceState === 'thinking';
   const browserKeyMode = usesBrowserKey();
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -261,57 +256,28 @@ function TasklaneWorkspace({
     );
   }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
-  const draftRevision = useRef(0);
-  const latestSubmission = useRef<IntentSubmission | null>(null);
-  const current = useRef({ intent, onIntentChange, onMintError });
-  useLayoutEffect(() => {
-    current.current = { intent, onIntentChange, onMintError };
-  });
-  const lifetime = useRef({ active: true });
-
-  useEffect(() => {
-    const owner = { active: true };
-    lifetime.current = owner;
-    return () => {
-      owner.active = false;
-    };
-  }, [enqueueIntent]);
-
-  const changeDraft = (value: string) => {
-    draftRevision.current++;
-    onIntentChange(value);
-  };
-
-  const submit = (): boolean => {
-    const text = intent.trim();
-    if (!text) return false;
-    if (needsKey) {
+  const {
+    setDraft: changeDraft,
+    submit,
+    busy: thinking,
+  } = tasklaneM.useIntentSubmit({
+    draft: intent,
+    onDraftChange: onIntentChange,
+    voiceState,
+    beforeSubmit: () => {
+      if (!needsKey) return true;
       onBlockedSubmit();
       return false;
-    }
-    const ticket = enqueueIntent(text);
-    const owner = lifetime.current;
-    latestSubmission.current = ticket;
-    if (ticket.accepted) changeDraft('');
-    const revision = draftRevision.current;
-    void ticket.result.then((result) => {
-      if (!owner.active) return;
-      if (
-        browserKeyMode &&
-        (result.status === 'failed' || result.status === 'unknown') &&
-        isInvalidKeyError(result.error)
-      ) {
-        if (
-          latestSubmission.current === ticket &&
-          draftRevision.current === revision &&
-          !current.current.intent
-        )
-          current.current.onIntentChange(intent);
-        current.current.onMintError('Invalid API key.');
+    },
+    shouldRestoreDraft: (failure) =>
+      defaultShouldRestoreDraft(failure) ||
+      isTasklaneKeyFailure(browserKeyMode, failure),
+    onFailure: (failure) => {
+      if (isTasklaneKeyFailure(browserKeyMode, failure)) {
+        onMintError('Invalid API key.');
       }
-    });
-    return ticket.accepted;
-  };
+    },
+  });
 
   // A refused resume stays pending and retries only when processing changes,
   // so a full queue is retried as it drains rather than in a tight loop.
@@ -320,7 +286,7 @@ function TasklaneWorkspace({
     let live = true;
     queueMicrotask(() => {
       if (!live) return;
-      if (!intent.trim() || submit()) onResumeIntentHandled();
+      if (!intent.trim() || submit()?.accepted) onResumeIntentHandled();
     });
     return () => {
       live = false;
@@ -370,6 +336,24 @@ function TasklaneWorkspace({
         />
       </footer>
     </div>
+  );
+}
+
+function isTasklaneKeyFailure(
+  browserKeyMode: boolean,
+  failure: IntentSubmitFailure,
+): boolean {
+  if (!browserKeyMode) return false;
+  if (failure.route === 'single-request') {
+    return (
+      (failure.result.status === 'failed' ||
+        failure.result.status === 'unknown') &&
+      isInvalidKeyError(failure.result.error)
+    );
+  }
+  return (
+    failure.result.status === 'failed' &&
+    isProviderFailure(failure.result.error)
   );
 }
 

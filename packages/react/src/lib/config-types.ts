@@ -1,4 +1,4 @@
-import type { IntentQueueOptions } from '@maelstrom-co/client';
+import type { IntentQueueOptions, IntentRoute } from '@maelstrom-co/client';
 
 import type {
   ChartMotionConfig,
@@ -11,6 +11,8 @@ import {
 
 /** Resolved config after merging factory defaults + Provider overrides */
 export interface ResolvedMaelstromConfig {
+  /** Route for typed and spoken intents captured when the Provider mounts; later changes are ignored. */
+  intentRoute?: IntentRoute;
   /** Client queue policy captured when the Provider mounts; later changes are ignored. */
   intentQueue?: IntentQueueOptions;
   cellSizePx: number;
@@ -60,6 +62,7 @@ export function resolveConfig(
   }
 
   return {
+    intentRoute: provider.intentRoute ?? factory.intentRoute,
     intentQueue: provider.intentQueue ?? factory.intentQueue,
     cellSizePx,
     tilingPaddingPx,

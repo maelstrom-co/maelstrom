@@ -1,4 +1,4 @@
-import type { IntentQueueOptions } from '@maelstrom-co/client';
+import type { IntentQueueOptions, IntentRoute } from '@maelstrom-co/client';
 
 import { createChart } from './chart/chart.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
@@ -21,6 +21,7 @@ import { createUseActions } from './use-actions.js';
 import { createUseAgentEvent } from './use-agent-event.js';
 import { createUseAgentRun } from './use-agent-run.js';
 import { createUseInstance } from './use-instance.js';
+import { createUseIntentSubmit } from './use-intent-submit.js';
 import { createUseMaelstrom } from './use-maelstrom.js';
 import {
   createUseLatestRequestOutcome,
@@ -58,6 +59,13 @@ export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
    */
   motion?: ChartMotionConfig;
   /**
+   * Route used by `useIntentSubmit()` and default voice submissions.
+   * Defaults to `'single-request'`. Set `'agent'` to route typed and spoken
+   * intents together through the Agent Session conversation. Provider
+   * overrides replace this value at mount; remount to change it.
+   */
+  intentRoute?: IntentRoute;
+  /**
    * Mount-time shared FIFO policy. Defaults: 8 pending, 30s queue wait,
    * 10s disconnected grace, 60s active result deadline. The deadline does not
    * cancel work. Provider overrides replace this object; remount to change it.
@@ -76,6 +84,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     tilingPaddingPx: config.tilingPaddingPx,
     debug: config.debug,
     motion: config.motion,
+    intentRoute: config.intentRoute,
     intentQueue: config.intentQueue,
   };
 
@@ -87,6 +96,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     useVessel: createUseVessel<T>(contextPair),
     useActions: createUseActions<T>(contextPair),
     useInstance: createUseInstance(contextPair),
+    useIntentSubmit: createUseIntentSubmit(contextPair),
     useAgentRun: createUseAgentRun(contextPair),
     useAgentEvent: createUseAgentEvent(contextPair),
     useRequestOutcome: createUseRequestOutcome(contextPair),

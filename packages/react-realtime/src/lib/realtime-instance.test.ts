@@ -281,6 +281,111 @@ describe('createRealtimeInstance sendAgentMessage', () => {
     }
   });
 
+  test('uses the configured agent route by default with no sendAgentMessage option', async () => {
+    await withAgentOrchestrator(
+      async ({ orchestrator, agent }) => {
+        const instance = createRealtimeInstance(orchestrator);
+
+        const outcome = requireSendAgentMessage(instance)('  show the board  ');
+        await flush();
+        expect(agent.inputs).toMatchObject([
+          { type: 'utterance', text: 'show the board', source: 'voice' },
+        ]);
+        const firstInput = agent.inputs[0];
+        if (!firstInput || firstInput.type !== 'utterance') {
+          throw new Error('expected utterance input');
+        }
+        const inputId = firstInput.inputId;
+
+        agent.emit(agentAcceptedEvent(inputId, runA, 'ui_only'));
+        agent.emit(agentFinishedEvent(runA, { reply: 'Board is up' }));
+
+        expect(await outcome).toMatchObject({
+          inputId,
+          status: 'finished',
+          disposition: 'ui_only',
+          reply: 'Board is up',
+        });
+      },
+      { intentRoute: 'agent' },
+    );
+  });
+
+  test('routes voice through orchestrator.submit on the configured single-request route', async () => {
+    const sent: ChartRequestMessage[] = [];
+    const release: Array<(response: MaelstromResponse) => void> = [];
+    const client = new Orchestrator(
+      createMockConnector({
+        process: (request) => {
+          sent.push(request);
+          return new Promise((resolve) => {
+            release.push(resolve);
+          });
+        },
+      }),
+      { intentRoute: 'single-request' },
+    );
+    try {
+      await client.connect();
+      const instance = createRealtimeInstance(client);
+      expect('sendAgentMessage' in instance).toBe(false);
+      const scope = instance.createIntentScope?.();
+      if (!scope) throw new Error('missing scoped admission');
+
+      const typed = client.submit('typed first', { source: 'text' });
+      await flush();
+      const spoken = scope.enqueueIntent('  spoken second  ');
+      expect(spoken.store.state).toMatchObject({
+        status: 'queued',
+        queuePosition: 1,
+      });
+
+      release[0]({
+        type: 'maelstrom_response',
+        requestId: sent[0].id,
+        userMessage: 'Applied',
+        rationale: '',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      });
+      expect((await typed.result).status).toBe('applied');
+      await flush();
+      expect(sent[1].request.context.updateReasons).toContainEqual({
+        type: 'user_intent',
+        intent: 'spoken second',
+      });
+      release[1]({
+        type: 'maelstrom_response',
+        requestId: sent[1].id,
+        userMessage: 'Applied',
+        rationale: '',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      });
+      expect((await spoken.result).status).toBe('applied');
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  test('throws from a scoped enqueue on an agent-routed orchestrator without starting any agent submission', async () => {
+    await withAgentOrchestrator(
+      async ({ orchestrator, agent }) => {
+        const scope =
+          createRealtimeInstance(orchestrator).createIntentScope?.();
+        if (!scope) throw new Error('expected createIntentScope');
+
+        expect(() => scope.enqueueIntent('show the board')).toThrow(
+          'Cannot enqueue single-request intent on an agent-routed orchestrator',
+        );
+        await flush();
+        expect(agent.inputs).toEqual([]);
+        expect(orchestrator.agent.store.state.runs).toEqual([]);
+      },
+      { intentRoute: 'agent' },
+    );
+  });
+
   test('rejects when the option throws, so the session reports the outcome as unconfirmed', async () => {
     await withAgentOrchestrator(async ({ orchestrator }) => {
       const failure = new Error('submit path broke');

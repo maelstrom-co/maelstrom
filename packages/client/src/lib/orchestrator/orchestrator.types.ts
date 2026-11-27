@@ -7,6 +7,10 @@ import {
 
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 import type { IntentQueueOptions } from './intent-scheduler.types.js';
+import {
+  DEFAULT_INTENT_ROUTE,
+  type IntentRoute,
+} from './submit-intent.types.js';
 
 /**
  * Options that apply under every layout mode.
@@ -15,6 +19,12 @@ import type { IntentQueueOptions } from './intent-scheduler.types.js';
  * `layoutMode` / `initialLayout` fields.
  */
 export interface OrchestratorOptionsBase {
+  /**
+   * Route used by {@link Orchestrator.submit} and default voice submissions.
+   * Defaults to `'single-request'`. Set `'agent'` to route typed and spoken
+   * intents together through the Agent Session conversation.
+   */
+  intentRoute?: IntentRoute;
   /** Mount-time bounded FIFO policy; invalid positive bounds throw at construction. */
   intentQueue?: IntentQueueOptions;
   /** Session ID for conversation continuity. Auto-generated if omitted. */
@@ -128,6 +138,7 @@ export type OrchestratorOptions =
 export interface ResolvedOrchestratorOptions {
   readonly sessionId: SessionId;
   readonly layoutMode: LayoutMode;
+  readonly intentRoute: IntentRoute;
   readonly debug: boolean;
   readonly debounceDelayMs: number;
   readonly maxWaitMs: number;
@@ -166,9 +177,16 @@ export function resolveOrchestratorOptions(
       `agentRunStaleTimeoutMs must not exceed ${MAX_TIMER_DELAY_MS} (the largest timer delay), received ${agentRunStaleTimeoutMs}. Pass Infinity to disable the safety net`,
     );
   }
+  const intentRoute = options.intentRoute ?? DEFAULT_INTENT_ROUTE;
+  if (intentRoute !== 'single-request' && intentRoute !== 'agent') {
+    throw new Error(
+      `intentRoute must be "single-request" or "agent", received "${String(intentRoute)}"`,
+    );
+  }
   return {
     sessionId: options.sessionId ?? SessionId(),
     layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
+    intentRoute,
     debug: options.debug ?? false,
     debounceDelayMs: options.debounceDelayMs ?? 300,
     maxWaitMs: options.maxWaitMs ?? 1000,

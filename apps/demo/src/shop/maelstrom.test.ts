@@ -1,5 +1,4 @@
-import type { Orchestrator } from '@maelstrom-co/client';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerDemoVoice } from '../lib/demo-voice';
@@ -9,6 +8,7 @@ import { SHOP_VOICE_PROVIDERS } from './voice-providers';
 
 const state = vi.hoisted(() => ({
   vesselIds: [] as string[],
+  intentRoute: undefined as unknown,
   installedExtensions: [] as unknown[],
   realtimeExtension: { name: 'realtime' },
   realtimeOptions: [] as Record<string, unknown>[],
@@ -28,8 +28,10 @@ vi.mock('@maelstrom-co/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/react')>()),
   createMaelstrom: (options: {
     vessels: readonly { vessel: { id: string } }[];
+    intentRoute?: unknown;
   }) => {
     state.vesselIds = options.vessels.map((entry) => entry.vessel.id);
+    state.intentRoute = options.intentRoute;
     const maelstrom = {
       with: (extension: unknown) => {
         state.installedExtensions.push(extension);
@@ -159,36 +161,23 @@ describe('shop voice route', () => {
     ['a local', undefined],
     ['a hosted', '1'],
   ])(
-    'sends a voice intent through sendMessage with the voice source on %s build',
+    'configures intentRoute=agent with no manual sendAgentMessage wiring on %s build',
     async (_build, hosted) => {
       vi.stubEnv('VITE_HOSTED', hosted);
       vi.resetModules();
       state.realtimeOptions.splice(0, Infinity);
+      state.intentRoute = undefined;
       await import('./maelstrom');
+      expect(state.intentRoute).toBe('agent');
       expect(state.realtimeOptions).toHaveLength(1);
-      const orchestrator = fakeOrchestrator();
-      const sendAgentMessage = shopSendAgentMessage(state.realtimeOptions[0]);
-
-      await expect(
-        sendAgentMessage(orchestrator.instance, '  show my last order '),
-      ).resolves.toBe(MessageId('voice-message'));
-
-      expect(orchestrator.sendMessage).toHaveBeenCalledTimes(1);
-      expect(orchestrator.sendMessage).toHaveBeenCalledWith(
-        'show my last order',
-        { source: 'voice' },
-      );
-      expect(orchestrator.sendMessageReceivers).toEqual([
-        orchestrator.instance,
-      ]);
-      expect(orchestrator.enqueueIntent).not.toHaveBeenCalled();
-      expect(orchestrator.createIntentScope).not.toHaveBeenCalled();
+      expect(state.realtimeOptions[0]).not.toHaveProperty('sendAgentMessage');
     },
   );
 });
 
 type RecordedInstance = {
   readonly vesselIds: string[];
+  readonly intentRoute: unknown;
   readonly installedExtensions: unknown[];
   readonly realtimeOptions: Record<string, unknown>[];
   readonly telemetryOwners: number;
@@ -200,6 +189,7 @@ type RecordedInstance = {
 function recordInstance(): RecordedInstance {
   return {
     vesselIds: [...state.vesselIds],
+    intentRoute: state.intentRoute,
     installedExtensions: [...state.installedExtensions],
     realtimeOptions: [...state.realtimeOptions],
     telemetryOwners: state.telemetryOwners,
@@ -209,6 +199,7 @@ function recordInstance(): RecordedInstance {
 
 function restoreInstance(recorded: RecordedInstance): void {
   state.vesselIds = [...recorded.vesselIds];
+  state.intentRoute = recorded.intentRoute;
   state.installedExtensions.splice(
     0,
     Infinity,
@@ -217,39 +208,4 @@ function restoreInstance(recorded: RecordedInstance): void {
   state.realtimeOptions.splice(0, Infinity, ...recorded.realtimeOptions);
   state.telemetryOwners = recorded.telemetryOwners;
   state.devtoolsOptions.splice(0, Infinity, ...recorded.devtoolsOptions);
-}
-
-type ShopSendAgentMessage = (
-  orchestrator: Orchestrator,
-  text: string,
-) => Promise<MessageId>;
-
-function shopSendAgentMessage(
-  options: Record<string, unknown> | undefined,
-): ShopSendAgentMessage {
-  const sendAgentMessage = options?.sendAgentMessage;
-  expect(sendAgentMessage).toBeTypeOf('function');
-  return sendAgentMessage as ShopSendAgentMessage;
-}
-
-function fakeOrchestrator() {
-  const sendMessageReceivers: unknown[] = [];
-  const enqueueIntent = vi.fn();
-  const createIntentScope = vi.fn(() => ({ enqueueIntent }));
-  const sendMessage = vi.fn(function (this: unknown) {
-    sendMessageReceivers.push(this);
-    return Promise.resolve(MessageId('voice-message'));
-  });
-  const instance = {
-    sendMessage,
-    enqueueIntent,
-    createIntentScope,
-  } as unknown as Orchestrator;
-  return {
-    instance,
-    sendMessage,
-    sendMessageReceivers,
-    enqueueIntent,
-    createIntentScope,
-  };
 }

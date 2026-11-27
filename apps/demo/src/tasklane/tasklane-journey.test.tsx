@@ -11,6 +11,7 @@ import {
   type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
+import type { RealtimeInstance } from '@maelstrom-co/realtime';
 import {
   act,
   cleanup,
@@ -76,16 +77,18 @@ const engine = vi.hoisted(() => ({
   requests: [] as ChartRequestMessage[],
   plans: new Map<string, () => ExecutionPlan>(),
   layouts: new Map<string, TilingLayout>(),
+  connectorOverride: null as ReturnType<typeof createMockConnector> | null,
 }));
 
 vi.mock('../lib/connector', () => ({
-  createDemoConnector: () => ({
-    ...createMockConnector(),
-    process: async (message: ChartRequestMessage) => {
-      engine.requests.push(message);
-      return cannedResponse(message);
+  createDemoConnector: () =>
+    engine.connectorOverride ?? {
+      ...createMockConnector(),
+      process: async (message: ChartRequestMessage) => {
+        engine.requests.push(message);
+        return cannedResponse(message);
+      },
     },
-  }),
 }));
 
 type ExecutionPlan = MaelstromResponse['executionPlan'];
@@ -130,6 +133,7 @@ beforeEach(() => {
   engine.requests = [];
   engine.plans = new Map();
   engine.layouts = new Map();
+  engine.connectorOverride = null;
   clearPlaygroundKey();
   resetTasklane();
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
@@ -788,3 +792,39 @@ function resetTasklane(): void {
   __resetTaskDetailStoreForTests();
   __resetClickReceiptsForTests();
 }
+
+function realtimeInstance(session: FakeRealtimeSession): RealtimeInstance {
+  const instance = (session.options as { instance?: RealtimeInstance })
+    .instance;
+  if (!instance) throw new Error('expected realtime instance');
+  return instance;
+}
+
+describe('Tasklane unified typed and voice routing', () => {
+  it('routes both typed and spoken intents to the configured single-request route', async () => {
+    setPlaygroundKey('sk-tasklane-routes-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    const voice = realtimeInstance(FakeRealtimeSession.instances.at(-1)!);
+    expect('sendAgentMessage' in voice).toBe(false);
+
+    await ask('typed tasklane intent');
+    const scope = voice.createIntentScope?.();
+    if (!scope) throw new Error('expected createIntentScope');
+    await act(async () => {
+      await scope.enqueueIntent('spoken tasklane intent').result;
+    });
+
+    const intents = engine.requests.flatMap((req) =>
+      req.request.context.updateReasons
+        .filter((r) => r.type === 'user_intent')
+        .map((r) => r.intent),
+    );
+    expect(intents).toContain('typed tasklane intent');
+    expect(intents).toContain('spoken tasklane intent');
+  });
+});
