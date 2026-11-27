@@ -6,8 +6,8 @@ import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 
-import { createMockConnector } from './__tests__/mock-connector.js';
 import { FakeInputMute } from './__tests__/fake-input-mute.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
 
 // Same fake as use-voice.test.tsx (Task 9) — the module boundary
 // maelstrom-realtime.ts constructs against is faked here too, so these

@@ -33,8 +33,8 @@ import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, render } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
 
-import { createMockConnector } from './__tests__/mock-connector.js';
 import { FakeInputMute } from './__tests__/fake-input-mute.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
 import type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,

@@ -1517,4 +1517,3 @@ test('disconnect without a connection drops a mute requested before connect', as
   expect(trackEnabledAtAdd).toEqual([true]);
   expect(h.mic.enabled).toBe(true);
 });
-
