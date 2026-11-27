@@ -1,5 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
 import { plural } from '../plural';
@@ -10,6 +11,7 @@ import {
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
 import { reportPriorityChange } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { myPrioritiesVessel } from './my-priorities.vessel';
 
@@ -20,22 +22,31 @@ type ExecuteAction = TypedVesselProps<
 export default function MyPrioritiesComponent({
   instanceId,
   variantProps,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof myPrioritiesVessel>) {
+  const executeAction = withClickMarks('my-priorities', executeVesselAction);
   const prioritised = prioritisedTasks(useProjectTasksStore());
 
-  tasklaneM.useActions('my-priorities', instanceId, {
-    addToMyPriorities: async ({ task, position }) =>
-      reportPriorityChange(
-        'addToMyPriorities',
-        projectTaskActions.addToMyPriorities(task, position),
-      ),
-    removeFromMyPriorities: async ({ task }) =>
-      reportPriorityChange(
-        'removeFromMyPriorities',
-        projectTaskActions.removeFromMyPriorities(task),
-      ),
-  });
+  tasklaneM.useActions(
+    'my-priorities',
+    instanceId,
+    withClickReceipts(
+      'my-priorities',
+      {
+        addToMyPriorities: async ({ task, position }) =>
+          reportPriorityChange(
+            'addToMyPriorities',
+            projectTaskActions.addToMyPriorities(task, position),
+          ),
+        removeFromMyPriorities: async ({ task }) =>
+          reportPriorityChange(
+            'removeFromMyPriorities',
+            projectTaskActions.removeFromMyPriorities(task),
+          ),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   if (variantProps.variant === 'strip')
     return <PriorityStrip prioritised={prioritised} />;

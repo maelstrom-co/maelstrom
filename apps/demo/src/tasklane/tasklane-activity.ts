@@ -1,5 +1,16 @@
-import { useSyncExternalStore } from 'react';
+import type {
+  ActionResult,
+  RequestActionOutcome,
+  RequestOutcome,
+} from '@maelstrom-co/react';
 
+import {
+  failureReceipt,
+  problemPart,
+  readActionReceipt,
+  type ReceiptPart,
+  resultReceiptPart,
+} from '../lib/request-receipt';
 import { FEEDBACK_CHARACTER_LIMIT } from './stores/feedback.store';
 import { isTaskStatus, TASK_STATUS_NAMES } from './stores/project-tasks.store';
 
@@ -25,28 +36,8 @@ export interface ChangeDescription {
   readonly kind: ChangeKind;
   /** The task title, or "feedback". */
   readonly subject: string;
-  /** The task id, or "feedback". Receipts count distinct subjects, not entries. */
-  readonly subjectId: string;
   /** Kind-specific detail: parent title (null for top level), assignee name, urgency, status, priority position, or "truncated". */
   readonly detail?: string | null;
-}
-
-export type ActivityEntry =
-  | {
-      readonly outcome: 'changed';
-      readonly action: string;
-      readonly change: ChangeDescription;
-    }
-  | { readonly outcome: 'unchanged'; readonly action: string }
-  | {
-      readonly outcome: 'failed';
-      readonly action: string;
-      readonly text: string;
-    };
-
-export interface ReceiptLine {
-  readonly text: string;
-  readonly tone: 'success' | 'problem';
 }
 
 /** Data Actions with the phrase a receipt uses when a planned one is skipped. */
@@ -64,312 +55,295 @@ export const TASKLANE_DATA_ACTIONS: Readonly<Record<string, string>> = {
   replaceFeedback: 'replace the feedback',
 };
 
-interface ActivityWindow {
-  readonly id: number;
-  readonly requestId: string | null;
-  readonly entries: readonly ActivityEntry[];
-  readonly skippedActions: readonly string[];
-  readonly closed: boolean;
+const SEPARATOR = ' · ';
+const TASK_ID = /^(TL-\d+)\b/i;
+
+interface ChangeForm {
+  readonly kind: ChangeKind;
+  readonly pattern: RegExp;
+  readonly hasDetail: boolean;
+  readonly one: (subject: string, detail: string | null) => string;
+  readonly many: (count: number, detail: string | null) => string;
 }
 
-interface ActivityState {
-  readonly windows: readonly ActivityWindow[];
-  readonly openWindowId: number | null;
-  readonly nextWindowId: number;
-}
+// Each form writes the receipt a handler returns for one change and reads it
+// back, so a receipt can group same-kind changes of one request.
+const CHANGE_FORMS: readonly ChangeForm[] = [
+  {
+    kind: 'created',
+    pattern: /^Created "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Created ${s}`,
+    many: (n) => `Created ${n} tasks`,
+  },
+  {
+    kind: 'reprioritised',
+    pattern: /^Moved "(.+)" to priority #(\d+)$/,
+    hasDetail: true,
+    one: (s, d) => `Moved ${s} to priority #${d}`,
+    many: () => 'Reordered your priorities',
+  },
+  {
+    kind: 'moved',
+    pattern: /^Moved "(.+)" to the top level$/,
+    hasDetail: false,
+    one: (s) => `Moved ${s} to the top level`,
+    many: (n) => `Moved ${n} tasks to the top level`,
+  },
+  {
+    kind: 'moved',
+    pattern: /^Moved "(.+)" under "(.+)"$/,
+    hasDetail: true,
+    one: (s, d) => `Moved ${s} under "${d}"`,
+    many: (n, d) => `Grouped ${n} tasks under "${d}"`,
+  },
+  {
+    kind: 'described',
+    pattern: /^Updated the description of "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Updated the description of ${s}`,
+    many: (n) => `Updated ${n} descriptions`,
+  },
+  {
+    kind: 'renamed',
+    pattern: /^Renamed "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Renamed ${s}`,
+    many: (n) => `Renamed ${n} tasks`,
+  },
+  {
+    kind: 'edited',
+    pattern: /^Updated "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Updated ${s}`,
+    many: (n) => `Updated ${n} tasks`,
+  },
+  {
+    kind: 'assigned',
+    pattern: /^Assigned "(.+)" to (.+)$/,
+    hasDetail: true,
+    one: (s, d) => `Assigned ${s} to ${d}`,
+    many: (n, d) => `Assigned ${n} tasks to ${d}`,
+  },
+  {
+    kind: 'reassigned',
+    pattern: /^Reassigned "(.+)" to (.+)$/,
+    hasDetail: true,
+    one: (s, d) => `Reassigned ${s} to ${d}`,
+    many: (n, d) => `Reassigned ${n} tasks to ${d}`,
+  },
+  {
+    kind: 'unassigned',
+    pattern: /^Unassigned "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Unassigned ${s}`,
+    many: (n) => `Unassigned ${n} tasks`,
+  },
+  {
+    kind: 'urgency',
+    pattern: /^Set "(.+)" to (.+) urgency$/,
+    hasDetail: true,
+    one: (s, d) => `Set ${s} to ${d} urgency`,
+    many: (n, d) => `Set ${n} tasks to ${d} urgency`,
+  },
+  {
+    kind: 'status',
+    pattern: /^Marked "(.+)" as (.+)$/,
+    hasDetail: true,
+    one: (s, d) => `Marked ${s} as ${d}`,
+    many: (n, d) => `Marked ${n} tasks as ${d}`,
+  },
+  {
+    kind: 'dueDate',
+    pattern: /^Set "(.+)" due (\d{4}-\d{2}-\d{2})$/,
+    hasDetail: true,
+    one: (s, d) => `Set ${s} due ${d}`,
+    many: (n, d) => `Set ${n} tasks due ${d}`,
+  },
+  {
+    kind: 'dueDate',
+    pattern: /^Cleared the due date on "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Cleared the due date on ${s}`,
+    many: (n) => `Cleared due dates on ${n} tasks`,
+  },
+  {
+    kind: 'prioritised',
+    pattern: /^Added "(.+)" to your priorities$/,
+    hasDetail: false,
+    one: (s) => `Added ${s} to your priorities`,
+    many: (n) => `Added ${n} tasks to your priorities`,
+  },
+  {
+    kind: 'deprioritised',
+    pattern: /^Removed "(.+)" from your priorities$/,
+    hasDetail: false,
+    one: (s) => `Removed ${s} from your priorities`,
+    many: (n) => `Removed ${n} tasks from your priorities`,
+  },
+  {
+    kind: 'removed',
+    pattern: /^Deleted "(.+)"$/,
+    hasDetail: false,
+    one: (s) => `Deleted ${s}`,
+    many: (n) => `Deleted ${n} tasks`,
+  },
+];
 
-const KEPT_WINDOWS = 20;
-const INITIAL_STATE: ActivityState = {
-  windows: [],
-  openWindowId: null,
-  nextWindowId: 1,
-};
+// Kinds with one form that names a detail and one that does not.
+const DETAIL_OPTIONAL_KINDS: ReadonlySet<ChangeKind> = new Set([
+  'moved',
+  'dueDate',
+]);
 
-let state: ActivityState = INITIAL_STATE;
-let latestReceipt: ReceiptLine | null = null;
-
-const listeners = new Set<() => void>();
-
-export function recordChange(action: string, change: ChangeDescription): void {
-  record({ outcome: 'changed', action, change });
-}
-
-/** An Action that ran but found nothing to change: it confirms the plan step without a receipt part. */
-export function recordUnchanged(action: string): void {
-  record({ outcome: 'unchanged', action });
-}
-
-/** `text` starts with "Couldn't" and names what went wrong for the user. */
-export function recordFailure(action: string, text: string): void {
-  record({ outcome: 'failed', action, text });
-}
-
-/** Opens the window that collects every entry recorded while this request settles. */
-export function openRequestWindow(requestId: string): void {
-  const closedPrevious = closeOpenWindow(state.windows, state.openWindowId);
-  const window: ActivityWindow = {
-    id: state.nextWindowId,
-    requestId,
-    entries: [],
-    skippedActions: [],
-    closed: false,
-  };
-  setState({
-    windows: keepRecent([...closedPrevious, window]),
-    openWindowId: window.id,
-    nextWindowId: state.nextWindowId + 1,
-  });
+/** The receipt a handler returns as its value for one change, read back by {@link summariseReceipt}. */
+export function describeChange(change: ChangeDescription): string {
+  if (change.kind === 'feedback') {
+    return change.detail === 'truncated'
+      ? `Replaced the feedback (truncated to ${FEEDBACK_CHARACTER_LIMIT} characters)`
+      : 'Replaced the feedback';
+  }
+  const detail =
+    change.kind === 'status'
+      ? statusPhrase(change.detail)
+      : (change.detail ?? null);
+  const form = CHANGE_FORMS.find(
+    (candidate) =>
+      candidate.kind === change.kind &&
+      (!DETAIL_OPTIONAL_KINDS.has(change.kind) ||
+        candidate.hasDetail === (detail !== null)),
+  );
+  if (!form) return change.subject;
+  return form.one(`"${change.subject}"`, detail);
 }
 
 /**
- * Records the outcome of this request's Action batch: the planned Actions the
- * orchestrator skipped, for example because their Instance was missing, and
- * those that failed. A failed Action that recorded no failure of its own, as
- * when its handler threw or timed out, is reported as a failure. Manual edits
- * never appear here, because they run outside the request's Action batch.
+ * One line for a request: failures first, then planned data Actions that were
+ * skipped or whose outcome is unknown, then successes, joined by " · ".
+ * Same-kind successes are grouped. A request with nothing to report has no line.
  */
-export function settleRequestActions(
-  requestId: string,
-  skippedActions: readonly string[],
-  failedActions: readonly string[] = [],
-): void {
-  updateRequestWindow(requestId, (window) => ({
-    ...window,
-    entries: [...window.entries, ...unrecordedFailures(window, failedActions)],
-    skippedActions: [...window.skippedActions, ...skippedActions],
-  }));
-}
-
-export function failRequestWindow(requestId: string, text: string): void {
-  updateRequestWindow(requestId, (window) => ({
-    ...window,
-    entries: [
-      ...window.entries,
-      { outcome: 'failed', action: 'request', text },
-    ],
-  }));
-}
-
-export function closeRequestWindow(): void {
-  if (state.openWindowId === null) return;
-  setState({
-    ...state,
-    windows: closeOpenWindow(state.windows, state.openWindowId),
-    openWindowId: null,
-  });
-}
-
-export function getLatestReceipt(): ReceiptLine | null {
-  return latestReceipt;
-}
-
-export function useLatestReceipt(): ReceiptLine | null {
-  return useSyncExternalStore(subscribe, getLatestReceipt, getLatestReceipt);
-}
-
-export function __resetTasklaneActivityForTests(): void {
-  setState(INITIAL_STATE);
-}
-
-/**
- * One line for a window: failures and skipped planned Actions first, then
- * successes, joined by " · ". A window with nothing to report has no line.
- */
-export function summariseReceipt(window: {
-  readonly entries: readonly ActivityEntry[];
-  readonly skippedActions: readonly string[];
-}): ReceiptLine | null {
-  const failures = window.entries.flatMap((entry) =>
-    entry.outcome === 'failed' ? [`✗ ${entry.text}`] : [],
-  );
-  const unconfirmed = skippedPhrases(window.skippedActions);
-  const successes = summariseChanges(
-    window.entries.flatMap((entry) =>
-      entry.outcome === 'changed' ? [entry.change] : [],
-    ),
-  );
+export function summariseReceipt(
+  outcome: RequestOutcome | null | undefined,
+): ReceiptPart | null {
+  if (!outcome) return null;
+  const failures: string[] = [];
+  const unconfirmed: string[] = [];
+  const receipts: { action: RequestActionOutcome; text: string }[] = [];
+  for (const action of outcome.actions) {
+    const phrase = TASKLANE_DATA_ACTIONS[action.action];
+    const receipt = readActionReceipt(action);
+    if (receipt.kind === 'done') receipts.push({ action, text: receipt.text });
+    else if (receipt.kind === 'failed') {
+      const text = receipt.text ?? phraseFailure(phrase);
+      if (text) failures.push(`✗ ${text}`);
+    } else if (
+      receipt.kind === 'unconfirmed' &&
+      phrase &&
+      !unconfirmed.includes(phrase)
+    )
+      unconfirmed.push(phrase);
+  }
+  // An unknown outcome may have taken effect, so it is never shown as failed.
+  if (outcome.actions.length === 0) {
+    if (outcome.status === 'failed')
+      failures.push("✗ Couldn't complete the request");
+    else if (outcome.status === 'unknown') unconfirmed.push('the request');
+  }
 
   const parts = [
     ...failures,
     ...(unconfirmed.length > 0
       ? [`? Not confirmed: ${unconfirmed.join(', ')}`]
       : []),
-    ...successes.map((text) => `✓ ${text}`),
+    ...groupReceipts(receipts).map((text) => `✓ ${text}`),
   ];
   if (parts.length === 0) return null;
   return {
-    text: parts.join(' · '),
+    text: parts.join(SEPARATOR),
     tone: failures.length > 0 || unconfirmed.length > 0 ? 'problem' : 'success',
   };
 }
 
-function record(entry: ActivityEntry): void {
-  if (state.openWindowId !== null) {
-    setState({
-      ...state,
-      windows: state.windows.map((window) =>
-        window.id === state.openWindowId
-          ? { ...window, entries: [...window.entries, entry] }
-          : window,
-      ),
-    });
-    return;
-  }
-  const window: ActivityWindow = {
-    id: state.nextWindowId,
-    requestId: null,
-    entries: [entry],
-    skippedActions: [],
-    closed: true,
-  };
-  setState({
-    ...state,
-    windows: keepRecent([...state.windows, window]),
-    nextWindowId: state.nextWindowId + 1,
-  });
+/**
+ * The receipt part of a clicked Tasklane Action. A data Action that failed
+ * without a reason for the person is named by its phrase.
+ */
+export function tasklaneClickReceipt(
+  action: string,
+  result: ActionResult,
+): ReceiptPart | null {
+  if (result.ok) return resultReceiptPart(result);
+  const text =
+    failureReceipt(result.error.message) ??
+    phraseFailure(TASKLANE_DATA_ACTIONS[action]);
+  return text ? problemPart(text) : null;
 }
 
-function updateRequestWindow(
-  requestId: string,
-  update: (window: ActivityWindow) => ActivityWindow,
-): void {
-  if (!state.windows.some((window) => window.requestId === requestId)) return;
-  setState({
-    ...state,
-    windows: state.windows.map((window) =>
-      window.requestId === requestId ? update(window) : window,
-    ),
-  });
-}
-
-function unrecordedFailures(
-  window: ActivityWindow,
-  failedActions: readonly string[],
-): ActivityEntry[] {
-  const recorded = new Map<string, number>();
-  for (const entry of window.entries)
-    if (entry.outcome === 'failed')
-      recorded.set(entry.action, (recorded.get(entry.action) ?? 0) + 1);
-  const failures: ActivityEntry[] = [];
-  for (const action of failedActions) {
-    const phrase = TASKLANE_DATA_ACTIONS[action];
-    if (!phrase) continue;
-    const remaining = recorded.get(action) ?? 0;
-    if (remaining > 0) {
-      recorded.set(action, remaining - 1);
-      continue;
+function groupReceipts(
+  receipts: readonly { action: RequestActionOutcome; text: string }[],
+): string[] {
+  const groups = new Map<
+    string,
+    {
+      form: ChangeForm | null;
+      detail: string | null;
+      subjects: string[];
+      first: string;
     }
-    failures.push({ outcome: 'failed', action, text: `Couldn't ${phrase}` });
-  }
-  return failures;
-}
-
-function closeOpenWindow(
-  windows: readonly ActivityWindow[],
-  openWindowId: number | null,
-): ActivityWindow[] {
-  return windows.map((window) =>
-    window.id === openWindowId ? { ...window, closed: true } : window,
+  >();
+  receipts.forEach(({ action, text }, index) => {
+    const parsed = parseReceipt(text);
+    const key = parsed
+      ? `${CHANGE_FORMS.indexOf(parsed.form)}\u0000${parsed.detail ?? ''}`
+      : `text\u0000${text}`;
+    const subject = parsed ? subjectKey(action, parsed.subject, index) : text;
+    const group = groups.get(key);
+    if (group) {
+      if (!group.subjects.includes(subject)) group.subjects.push(subject);
+    } else {
+      groups.set(key, {
+        form: parsed?.form ?? null,
+        detail: parsed?.detail ?? null,
+        subjects: [subject],
+        first: text,
+      });
+    }
+  });
+  return [...groups.values()].map((group) =>
+    group.form && group.subjects.length > 1
+      ? group.form.many(group.subjects.length, group.detail)
+      : group.first,
   );
 }
 
-function keepRecent(windows: ActivityWindow[]): ActivityWindow[] {
-  return windows.slice(-KEPT_WINDOWS);
+function parseReceipt(
+  text: string,
+): { form: ChangeForm; subject: string; detail: string | null } | null {
+  for (const form of CHANGE_FORMS) {
+    const match = form.pattern.exec(text);
+    if (!match?.[1]) continue;
+    return {
+      form,
+      subject: match[1],
+      detail: form.hasDetail ? (match[2] ?? null) : null,
+    };
+  }
+  return null;
 }
 
-function skippedPhrases(skipped: readonly string[]): string[] {
-  const phrases: string[] = [];
-  for (const action of skipped) {
-    const phrase = TASKLANE_DATA_ACTIONS[action];
-    if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
-  }
-  return phrases;
-}
-
-function summariseChanges(changes: readonly ChangeDescription[]): string[] {
-  const groups = new Map<string, ChangeDescription[]>();
-  for (const change of changes) {
-    const key = `${change.kind}\u0000${change.detail ?? ''}`;
-    const group = groups.get(key);
-    if (group) group.push(change);
-    else groups.set(key, [change]);
-  }
-  return [...groups.values()].map(describeGroup);
-}
-
-function describeGroup(group: readonly ChangeDescription[]): string {
-  const [first] = group as [ChangeDescription, ...ChangeDescription[]];
-  const count = new Set(group.map((change) => change.subjectId)).size;
-  const one = count === 1;
-  const subject = `"${first.subject}"`;
-  const tasks = `${count} tasks`;
-  const detail = first.detail;
-  switch (first.kind) {
-    case 'created':
-      return one ? `Created ${subject}` : `Created ${tasks}`;
-    case 'moved':
-      if (detail === null || detail === undefined)
-        return one
-          ? `Moved ${subject} to the top level`
-          : `Moved ${tasks} to the top level`;
-      return one
-        ? `Moved ${subject} under "${detail}"`
-        : `Grouped ${tasks} under "${detail}"`;
-    case 'described':
-      return one
-        ? `Updated the description of ${subject}`
-        : `Updated ${count} descriptions`;
-    case 'renamed':
-      return one ? `Renamed ${subject}` : `Renamed ${tasks}`;
-    case 'edited':
-      return one ? `Updated ${subject}` : `Updated ${tasks}`;
-    case 'assigned':
-      return one
-        ? `Assigned ${subject} to ${detail}`
-        : `Assigned ${tasks} to ${detail}`;
-    case 'reassigned':
-      return one
-        ? `Reassigned ${subject} to ${detail}`
-        : `Reassigned ${tasks} to ${detail}`;
-    case 'unassigned':
-      return one ? `Unassigned ${subject}` : `Unassigned ${tasks}`;
-    case 'urgency':
-      return one
-        ? `Set ${subject} to ${detail} urgency`
-        : `Set ${tasks} to ${detail} urgency`;
-    case 'status': {
-      const status = statusPhrase(detail);
-      return one
-        ? `Marked ${subject} as ${status}`
-        : `Marked ${tasks} as ${status}`;
-    }
-    case 'dueDate':
-      if (detail === null || detail === undefined)
-        return one
-          ? `Cleared the due date on ${subject}`
-          : `Cleared due dates on ${tasks}`;
-      return one
-        ? `Set ${subject} due ${detail}`
-        : `Set ${tasks} due ${detail}`;
-    case 'prioritised':
-      return one
-        ? `Added ${subject} to your priorities`
-        : `Added ${tasks} to your priorities`;
-    case 'reprioritised':
-      return one
-        ? `Moved ${subject} to priority #${detail}`
-        : 'Reordered your priorities';
-    case 'deprioritised':
-      return one
-        ? `Removed ${subject} from your priorities`
-        : `Removed ${tasks} from your priorities`;
-    case 'removed':
-      return one ? `Deleted ${subject}` : `Deleted ${tasks}`;
-    case 'feedback':
-      return detail === 'truncated'
-        ? `Replaced the feedback (truncated to ${FEEDBACK_CHARACTER_LIMIT} characters)`
-        : 'Replaced the feedback';
-  }
+// Each created task is new. Other changes count the task they target, by its
+// id when the Planner referenced one, so a task changed twice counts once and
+// two tasks sharing a title count twice.
+function subjectKey(
+  action: RequestActionOutcome,
+  subject: string,
+  index: number,
+): string {
+  if (action.action === 'createTask') return `created#${index}`;
+  const reference = action.params?.['task'];
+  const id =
+    typeof reference === 'string' ? TASK_ID.exec(reference.trim())?.[1] : null;
+  return id ? id.toUpperCase() : `title:${subject}`;
 }
 
 function statusPhrase(status: string | null | undefined): string {
@@ -378,19 +352,6 @@ function statusPhrase(status: string | null | undefined): string {
     : String(status);
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-function setState(next: ActivityState): void {
-  state = next;
-  const latest = state.windows.at(-1);
-  const receipt = latest ? summariseReceipt(latest) : null;
-  if (
-    receipt?.text !== latestReceipt?.text ||
-    receipt?.tone !== latestReceipt?.tone
-  )
-    latestReceipt = receipt;
-  for (const listener of listeners) listener();
+function phraseFailure(phrase: string | undefined): string | null {
+  return phrase ? `Couldn't ${phrase}` : null;
 }

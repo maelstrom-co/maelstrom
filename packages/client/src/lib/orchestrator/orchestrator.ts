@@ -82,6 +82,8 @@ import type {
 import { resolveOrchestratorOptions } from './orchestrator.types.js';
 import { RequestCoordinator } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
+import { RequestOutcomeRecorder } from './request-outcome-recorder.js';
+import type { RequestOutcomeView } from './request-outcome.types.js';
 
 // Disposal and a connector swap both fence, but they are not the same event to
 // a caller: teardown is expected and its response is still the caller's own,
@@ -166,6 +168,7 @@ export class Orchestrator {
   readonly #agent: OrchestratorAgent;
 
   readonly #intentScheduler: IntentScheduler;
+  readonly #requestOutcomes: RequestOutcomeRecorder;
   #automaticPending = false;
   // Immediate responses settle flush waiters before actions finish. New waiters
   // in that interval belong to buffered work, not the delivered response.
@@ -191,12 +194,15 @@ export class Orchestrator {
     this.#config = resolveOrchestratorOptions(options);
     this.diagnostics = new DiagnosticChannel(this.#config.sessionId);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
+    this.#requestOutcomes = new RequestOutcomeRecorder(this.#logger);
     this.#intentScheduler = new IntentScheduler(options.intentQueue ?? {}, {
       ready: () =>
         this.#localActions === 0 &&
         this.#commandProcessor.store.state.status === 'idle' &&
         this.#commandProcessor.queueLength === 0,
-      run: (intent, live) => this.#runQueuedIntent(intent, live),
+      run: (intent, live, ticketId) =>
+        this.#runQueuedIntent(intent, live, ticketId),
+      onAdmit: (ticket, intent) => this.#requestOutcomes.admit(ticket, intent),
       onActiveDeadline: () =>
         this.#requestCoordinator.resolveFlushPromises(null),
       automatic: () => {
@@ -731,6 +737,15 @@ export class Orchestrator {
   }
 
   /**
+   * Per-request outcomes for submitted intents, keyed by ticket id. Each
+   * outcome describes only its own request's settled response batch, so
+   * Actions invoked directly by the application never appear in it.
+   */
+  get requestOutcomes(): RequestOutcomeView {
+    return this.#requestOutcomes;
+  }
+
+  /**
    * Accept into the bounded FIFO synchronously. Request snapshots are built at
    * dispatch, after earlier response application settles. Operational failures
    * resolve the ticket result; unknown outcomes must not be automatically retried.
@@ -751,6 +766,7 @@ export class Orchestrator {
   async #runQueuedIntent(
     intent: string,
     live: () => boolean,
+    ticketId: string,
   ): Promise<IntentResult> {
     if (!live())
       return {
@@ -790,9 +806,20 @@ export class Orchestrator {
           error: new Error('Intent response fenced'),
         };
       }
+      this.#requestOutcomes.planned(ticketId, outcome.response.executionPlan);
+      const plannedReason = isFenced('request outcome notification completed');
+      if (plannedReason || !live()) {
+        this.#discardResponse(request.id, plannedReason ?? 'retired');
+        this.#recoverFencedRequest(pendingUpdates);
+        return {
+          status: 'unknown',
+          error: new Error('Intent response fenced'),
+        };
+      }
       const settlement = await this.#dispatchSettledResponse(
         outcome.response,
         request.id,
+        (result) => this.#requestOutcomes.settled(ticketId, result.actions),
       );
       this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return settlement.status === 'applied'

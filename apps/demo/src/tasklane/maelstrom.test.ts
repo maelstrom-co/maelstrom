@@ -59,7 +59,7 @@ vi.mock('../shop/maelstrom', () => {
 });
 
 const { TASKLANE_OPENING_INSTRUCTIONS } = await import('./maelstrom');
-const { tasklaneRequestActivity } = await import('./request-activity');
+const { tasklaneRequestReferences } = await import('./request-references');
 const { tasklaneSettleSignal } = await import('./settle-signal');
 const { tasklaneInstanceLifetime } = await import('./instance-lifetime');
 
@@ -79,10 +79,10 @@ describe('Tasklane instance', () => {
     ]);
   });
 
-  it('installs realtime, request activity, the settle signal, Instance lifetime, its own telemetry, then devtools', () => {
+  it('installs realtime, request references, the settle signal, Instance lifetime, its own telemetry, then devtools', () => {
     expect(state.installedExtensions).toEqual([
       state.realtimeExtension,
-      tasklaneRequestActivity,
+      tasklaneRequestReferences,
       tasklaneSettleSignal,
       tasklaneInstanceLifetime,
       state.telemetryOwner.extension,

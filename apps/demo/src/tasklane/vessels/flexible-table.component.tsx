@@ -2,6 +2,7 @@ import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Fragment } from 'react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
 import type { TableColumn } from '../stores/flexible-table-columns';
 import {
@@ -17,62 +18,54 @@ import {
   useFlexibleTableStore,
 } from '../stores/flexible-table.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
-import { recordFailure, recordUnchanged } from '../tasklane-activity';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { flexibleTableVessel } from './flexible-table.vessel';
 
 export default function FlexibleTableComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof flexibleTableVessel>) {
+  const executeAction = withClickMarks('flexible-table', executeVesselAction);
   const { tasks } = useProjectTasksStore();
   const table = useFlexibleTableStore();
 
-  tasklaneM.useActions('flexible-table', instanceId, {
-    addColumn: async ({ label, kind, source, formula }) =>
-      reportTableResult(
-        'addColumn',
-        flexibleTableActions.addColumn({ label, kind, source, formula }),
-      ),
-    removeColumn: async ({ column }) =>
-      reportTableResult(
-        'removeColumn',
-        flexibleTableActions.removeColumn(column),
-      ),
-    renameColumn: async ({ column, label }) =>
-      reportTableResult(
-        'renameColumn',
-        flexibleTableActions.renameColumn(column, label),
-      ),
-    moveColumn: async ({ column, position }) =>
-      reportTableResult(
-        'moveColumn',
-        flexibleTableActions.moveColumn(column, position),
-      ),
-    setCell: async ({ task, column, value }) =>
-      reportTableResult(
-        'setCell',
-        flexibleTableActions.setCell(task, column, value),
-      ),
-    sortBy: async ({ column, direction, add }) =>
-      reportTableResult(
-        'sortBy',
-        flexibleTableActions.sortBy(column, direction, add),
-      ),
-    clearSort: async () =>
-      reportTableResult('clearSort', flexibleTableActions.clearSort()),
-    filterRows: async ({ column, op, value }) =>
-      reportTableResult(
-        'filterRows',
-        flexibleTableActions.filterRows(column, op, value),
-      ),
-    clearFilters: async () =>
-      reportTableResult('clearFilters', flexibleTableActions.clearFilters()),
-    groupBy: async ({ column }) =>
-      reportTableResult('groupBy', flexibleTableActions.groupBy(column)),
-    showPreset: async ({ preset }) =>
-      reportTableResult('showPreset', flexibleTableActions.showPreset(preset)),
-  });
+  tasklaneM.useActions(
+    'flexible-table',
+    instanceId,
+    withClickReceipts(
+      'flexible-table',
+      {
+        addColumn: async ({ label, kind, source, formula }) =>
+          reportTableResult(
+            flexibleTableActions.addColumn({ label, kind, source, formula }),
+          ),
+        removeColumn: async ({ column }) =>
+          reportTableResult(flexibleTableActions.removeColumn(column)),
+        renameColumn: async ({ column, label }) =>
+          reportTableResult(flexibleTableActions.renameColumn(column, label)),
+        moveColumn: async ({ column, position }) =>
+          reportTableResult(flexibleTableActions.moveColumn(column, position)),
+        setCell: async ({ task, column, value }) =>
+          reportTableResult(flexibleTableActions.setCell(task, column, value)),
+        sortBy: async ({ column, direction, add }) =>
+          reportTableResult(
+            flexibleTableActions.sortBy(column, direction, add),
+          ),
+        clearSort: async () =>
+          reportTableResult(flexibleTableActions.clearSort()),
+        filterRows: async ({ column, op, value }) =>
+          reportTableResult(flexibleTableActions.filterRows(column, op, value)),
+        clearFilters: async () =>
+          reportTableResult(flexibleTableActions.clearFilters()),
+        groupBy: async ({ column }) =>
+          reportTableResult(flexibleTableActions.groupBy(column)),
+        showPreset: async ({ preset }) =>
+          reportTableResult(flexibleTableActions.showPreset(preset)),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   const rows = projectTableRows(tasks, table);
   const groups = groupProjectedRows(rows, table);
@@ -302,14 +295,12 @@ function TableCell({
   );
 }
 
-function reportTableResult<T>(action: string, result: FlexibleTableResult<T>) {
-  if (!result.ok) {
-    const message = describeTableFailure(result);
-    recordFailure(action, `Couldn't update the table: ${message}`);
-    return err(new Error(message));
-  }
-  if (!result.changed) {
-    recordUnchanged(action);
-  }
+// The message starts with the receipt reason and stays on one line, so the
+// receipt line and the Planner read the same text.
+function reportTableResult<T>(result: FlexibleTableResult<T>) {
+  if (!result.ok)
+    return err(
+      new Error(`Couldn't update the table: ${describeTableFailure(result)}`),
+    );
   return ok(undefined);
 }

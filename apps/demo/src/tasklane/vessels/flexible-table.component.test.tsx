@@ -35,8 +35,8 @@ const { __resetProjectTasksStoreForTests, projectTaskActions } =
   await import('../stores/project-tasks.store');
 const { __resetFlexibleTableStoreForTests } =
   await import('../stores/flexible-table.store');
-const { __resetTasklaneActivityForTests } =
-  await import('../tasklane-activity');
+const { __resetClickReceiptsForTests, getClickReceipt } =
+  await import('../../lib/click-receipt');
 const FlexibleTableComponent = (await import('./flexible-table.component'))
   .default;
 
@@ -44,7 +44,7 @@ beforeEach(() => {
   handlers.clear();
   __resetProjectTasksStoreForTests();
   __resetFlexibleTableStoreForTests();
-  __resetTasklaneActivityForTests();
+  __resetClickReceiptsForTests();
 });
 
 afterEach(cleanup);
@@ -83,6 +83,21 @@ describe('FlexibleTableComponent', () => {
       fireEvent.change(input, { target: { value: 'ready' } });
     });
     expect(input.value).toBe('ready');
+  });
+
+  it("returns a Planner table failure as a Couldn't error without a manual receipt", async () => {
+    render(<FlexibleTableComponent {...tableProps()} />);
+
+    const unknownCol = await invoke('sortBy', {
+      column: 'nonexistent',
+      direction: 'desc',
+    });
+    expect(unknownCol.ok).toBe(false);
+    expect(unknownCol.error?.message).toBe(
+      'Couldn\'t update the table: Unknown column "nonexistent". Current columns: id (ID), title (Title), assignee (Assignee), status (Status), urgency (Urgency), estimate (Estimate), spent (Spent).',
+    );
+    expect(getClickReceipt()).toBeNull();
+    expect(screen.getByRole('table', { name: 'Flexible table' })).toBeTruthy();
   });
 
   it('exposes sort direction and priority to assistive technology', async () => {

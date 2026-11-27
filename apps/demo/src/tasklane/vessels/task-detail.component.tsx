@@ -1,5 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
 import { PersonChip } from '../person-chip';
 import {
@@ -10,6 +11,7 @@ import {
 } from '../stores/project-tasks.store';
 import { openTaskDetail, useSelectedTaskId } from '../stores/task-detail.store';
 import { reportShowTask } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { taskDetailVessel } from './task-detail.vessel';
 
@@ -17,15 +19,24 @@ type ExecuteAction = TypedVesselProps<typeof taskDetailVessel>['executeAction'];
 
 export default function TaskDetailComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof taskDetailVessel>) {
+  const executeAction = withClickMarks('task-detail', executeVesselAction);
   const { tasks, myPriorities } = useProjectTasksStore();
   const selectedId = useSelectedTaskId(instanceId);
 
-  tasklaneM.useActions('task-detail', instanceId, {
-    showTask: async ({ task }) =>
-      reportShowTask(openTaskDetail(instanceId, task)),
-  });
+  tasklaneM.useActions(
+    'task-detail',
+    instanceId,
+    withClickReceipts(
+      'task-detail',
+      {
+        showTask: async ({ task }) =>
+          reportShowTask(openTaskDetail(instanceId, task)),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   const task = selectedId
     ? tasks.find((candidate) => candidate.id === selectedId)

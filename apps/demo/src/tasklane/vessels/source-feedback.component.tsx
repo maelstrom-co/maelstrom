@@ -1,6 +1,7 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import { plural } from '../plural';
@@ -18,23 +19,33 @@ import {
 } from '../stores/feedback.store';
 import { useProjectTasksStore } from '../stores/project-tasks.store';
 import { reportReplaceFeedback } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { sourceFeedbackVessel } from './source-feedback.vessel';
 
 export default function SourceFeedbackComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof sourceFeedbackVessel>) {
+  const executeAction = withClickMarks('source-feedback', executeVesselAction);
   const { text, truncated } = useFeedbackStore();
   const { tasks, removedSourceFeedback } = useProjectTasksStore();
   const [draft, setDraft] = useState<string | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
 
-  tasklaneM.useActions('source-feedback', instanceId, {
-    replaceFeedback: async ({ text: next }) =>
-      reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
-  });
+  tasklaneM.useActions(
+    'source-feedback',
+    instanceId,
+    withClickReceipts(
+      'source-feedback',
+      {
+        replaceFeedback: async ({ text: next }) =>
+          reportReplaceFeedback(feedbackActions.replaceFeedback(next)),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   useEffect(() => {
     if (draft !== null || !restoreFocus.current) return;

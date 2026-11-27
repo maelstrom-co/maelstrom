@@ -1,5 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { tasklaneM } from '../maelstrom';
 import { AssigneeSelect } from '../person-chip';
 import {
@@ -9,6 +10,7 @@ import {
   useProjectTasksStore,
 } from '../stores/project-tasks.store';
 import { reportTaskChange } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { triageInboxVessel } from './triage-inbox.vessel';
 
@@ -25,17 +27,26 @@ interface TriageItem {
 
 export default function TriageInboxComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof triageInboxVessel>) {
+  const executeAction = withClickMarks('triage-inbox', executeVesselAction);
   const { tasks } = useProjectTasksStore();
 
-  tasklaneM.useActions('triage-inbox', instanceId, {
-    assignTask: async ({ task, assignee }) =>
-      reportTaskChange(
-        'assignTask',
-        projectTaskActions.assignTask(task, assignee),
-      ),
-  });
+  tasklaneM.useActions(
+    'triage-inbox',
+    instanceId,
+    withClickReceipts(
+      'triage-inbox',
+      {
+        assignTask: async ({ task, assignee }) =>
+          reportTaskChange(
+            'assignTask',
+            projectTaskActions.assignTask(task, assignee),
+          ),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   const items = triageItems(tasks);
 

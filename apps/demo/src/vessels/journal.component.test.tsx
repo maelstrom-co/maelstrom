@@ -11,15 +11,16 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  __resetActionActivityForTests,
-  getActivitySnapshot,
-  latestReceiptParts,
-} from '../lib/action-activity';
+  latestReceiptText,
+  recordRequestResult,
+  resetHandlerReceipts,
+} from '../lib/__tests__/handler-receipts';
 import { ACCENT_HEX, accentAlpha } from '../lib/design-tokens';
 import { journalVessel } from './journal.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
+  value?: unknown;
   error?: Error;
 }>;
 
@@ -58,9 +59,7 @@ function props(
 }
 
 function receipt(): string {
-  return latestReceiptParts(getActivitySnapshot())
-    .map((part) => part.text)
-    .join(' · ');
+  return latestReceiptText();
 }
 
 function contentOf(id: string): string | undefined {
@@ -74,6 +73,7 @@ async function invoke(action: string, params?: Record<string, unknown>) {
   await act(async () => {
     result = await handler(params);
   });
+  recordRequestResult(result);
   return result;
 }
 
@@ -89,7 +89,7 @@ beforeEach(() => {
   handlers.clear();
   executeAction.mockClear();
   __resetJournalStoreForTests();
-  __resetActionActivityForTests();
+  resetHandlerReceipts();
 });
 
 afterEach(cleanup);
@@ -540,12 +540,13 @@ describe('Journal Action handlers', () => {
 
   it('records the create and write receipts for a dictated entry', async () => {
     render(<JournalComponent {...props('list')} />);
-    await invoke('createEntry', { title: 'Design review prep' });
-    await invoke('writeContent', {
+    const created = await invoke('createEntry', {
+      title: 'Design review prep',
+    });
+    const written = await invoke('writeContent', {
       text: 'Prototype checked; questions still to prepare.',
     });
-    const texts = getActivitySnapshot().entries.map((entry) => entry.text);
-    expect(texts).toEqual([
+    expect([created?.value, written?.value]).toEqual([
       'Created journal entry "Design review prep"',
       'Wrote to "Design review prep"',
     ]);
@@ -576,6 +577,7 @@ describe('Journal Action handlers', () => {
     });
     expect(result?.ok).toBe(true);
     expect(getJournalSnapshot().activeEntryId).toBe('J-2');
-    expect(getActivitySnapshot().entries).toEqual([]);
+    expect(result?.value).toBeUndefined();
+    expect(receipt()).toBe('');
   });
 });

@@ -27,7 +27,12 @@ export class IntentScheduler {
   readonly store: Store<IntentSchedulerState>;
   readonly #policy: Required<IntentQueueOptions>;
   readonly #ready: () => boolean;
-  readonly #run: (intent: string, live: () => boolean) => Promise<IntentResult>;
+  readonly #run: (
+    intent: string,
+    live: () => boolean,
+    ticketId: string,
+  ) => Promise<IntentResult>;
+  readonly #onAdmit: (ticket: IntentSubmission, intent: string) => void;
   readonly #automatic: () => void;
   readonly #onActiveDeadline: () => void;
   #owners = new WeakMap<IntentScope, Owner>();
@@ -45,8 +50,13 @@ export class IntentScheduler {
     options: IntentQueueOptions,
     hooks: {
       ready: () => boolean;
-      run: (intent: string, live: () => boolean) => Promise<IntentResult>;
+      run: (
+        intent: string,
+        live: () => boolean,
+        ticketId: string,
+      ) => Promise<IntentResult>;
       automatic: () => void;
+      onAdmit?: (ticket: IntentSubmission, intent: string) => void;
       onActiveDeadline?: () => void;
     },
   ) {
@@ -73,6 +83,7 @@ export class IntentScheduler {
     this.#run = hooks.run;
     this.#automatic = hooks.automatic;
     this.#onActiveDeadline = hooks.onActiveDeadline ?? (() => {});
+    this.#onAdmit = hooks.onAdmit ?? (() => {});
     this.store = new Store<IntentSchedulerState>({
       phase: 'idle',
       pendingCount: 0,
@@ -142,6 +153,7 @@ export class IntentScheduler {
     };
     if (reason) this.#finish(entry, { status: 'not_submitted', reason });
     else this.#pending.push(entry);
+    this.#onAdmit(ticket, intent);
     this.#publish();
     this.wake();
     return ticket;
@@ -242,7 +254,7 @@ export class IntentScheduler {
         status: 'processing',
         queuePosition: null,
       }));
-    void this.#run(entry.intent, () => !entry.done)
+    void this.#run(entry.intent, () => !entry.done, entry.ticket.id)
       .then(
         (result) => this.#finish(entry, result),
         (error) =>

@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { __resetClickReceiptsForTests } from '../lib/click-receipt';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -36,7 +37,6 @@ import {
   projectTaskActions,
 } from './stores/project-tasks.store';
 import { __resetTaskDetailStoreForTests } from './stores/task-detail.store';
-import { __resetTasklaneActivityForTests } from './tasklane-activity';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
@@ -191,6 +191,38 @@ describe('Flexible table journey and voice path', () => {
     });
   }, 15_000);
 
+  it('reports a failed table Action on the receipt line through the request outcome', async () => {
+    setPlaygroundKey('sk-tasklane-table-receipt-1234567890');
+    const { TasklanePage } = await import('./tasklane-page');
+    render(<TasklanePage />);
+    await screen.findByRole('status', {
+      name: 'Connection status: connected',
+    });
+
+    const intent = 'Sort the table by a column that does not exist';
+    engine.layouts.set(intent, layoutWithTable());
+    engine.plans.set(intent, () => [
+      {
+        instanceId: TABLE,
+        action: ActionName('sortBy'),
+        params: { column: 'Nope', direction: 'desc', add: false },
+      },
+    ]);
+
+    await askTyped(intent);
+
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('tasklane-receipt').textContent).toBe(
+          '✗ Couldn\'t update the table: Unknown column "Nope". Current columns: id (ID), title (Title), assignee (Assignee), status (Status), urgency (Urgency), estimate (Estimate), spent (Spent).',
+        ),
+      { timeout: 10_000 },
+    );
+    expect(
+      screen.getByTestId('tasklane-receipt').getAttribute('data-tone'),
+    ).toBe('problem');
+  }, 15_000);
+
   it('reaches the same flexible-table Action handlers through the voice realtime session', async () => {
     projectTaskActions.createTask({
       title: 'Wire voice table',
@@ -293,5 +325,5 @@ function resetStores(): void {
   __resetFlexibleTableStoreForTests();
   __resetProjectTasksStoreForTests();
   __resetTaskDetailStoreForTests();
-  __resetTasklaneActivityForTests();
+  __resetClickReceiptsForTests();
 }

@@ -14,7 +14,7 @@ import { createAdapter } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { TASKLANE_CELL_SIZE_PX } from './default-layout';
 import { tasklaneInstanceLifetime } from './instance-lifetime';
-import { tasklaneRequestActivity } from './request-activity';
+import { tasklaneRequestReferences } from './request-references';
 import { tasklaneSettleSignal } from './settle-signal';
 import { flexibleTableEntry } from './vessels/flexible-table.vessel';
 import { myPrioritiesEntry } from './vessels/my-priorities.vessel';
@@ -75,7 +75,7 @@ export const tasklaneM = createMaelstrom({
       onSession: registerDemoVoice,
     }),
   )
-  .with(tasklaneRequestActivity)
+  .with(tasklaneRequestReferences)
   .with(tasklaneSettleSignal)
   .with(tasklaneInstanceLifetime)
   .with(tasklaneTelemetry.extension)

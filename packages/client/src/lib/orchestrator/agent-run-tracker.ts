@@ -1,5 +1,5 @@
 import type { MessageId } from '@maelstrom-co/protocol';
-import { type Observer, Store, type Subscription } from '@tanstack/store';
+import type { Store } from '@tanstack/store';
 
 import type { Logger } from '../utils/logger.js';
 import type { EventSubscriber } from '../utils/typed-emitter.js';
@@ -17,6 +17,7 @@ import {
   type SettledAgentRun,
 } from './agent-run-state.js';
 import type { AgentConversationEvents } from './conversation-event.types.js';
+import { GuardedStore } from './guarded-store.js';
 
 /**
  * Folds the agent events of one conversation into Agent Run state, published
@@ -133,37 +134,6 @@ export class AgentRunTracker {
 
   #reportSubscriberError(error: unknown): void {
     this.#logger.error('Agent run store subscriber threw', error);
-  }
-}
-
-// TanStack stops notifying at the first subscriber that throws, so each
-// subscriber is guarded before the store sees it.
-class GuardedStore<T> extends Store<T> {
-  readonly #onSubscriberError: (error: unknown) => void;
-
-  constructor(initialValue: T, onSubscriberError: (error: unknown) => void) {
-    super(initialValue);
-    this.#onSubscriberError = onSubscriberError;
-  }
-
-  override subscribe(
-    observerOrFn: Observer<T> | ((value: T) => void),
-  ): Subscription {
-    const observer =
-      typeof observerOrFn === 'function'
-        ? { next: observerOrFn }
-        : observerOrFn;
-    return super.subscribe({
-      error: (error) => observer.error?.(error),
-      complete: () => observer.complete?.(),
-      next: (value) => {
-        try {
-          observer.next?.(value);
-        } catch (error) {
-          this.#onSubscriberError(error);
-        }
-      },
-    });
   }
 }
 

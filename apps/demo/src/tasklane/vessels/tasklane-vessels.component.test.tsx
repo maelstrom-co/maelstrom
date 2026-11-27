@@ -8,6 +8,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,8 +71,8 @@ const TeamLoadComponent = (await import('./team-load.component')).default;
 const TriageInboxComponent = (await import('./triage-inbox.component')).default;
 const ProjectPulseComponent = (await import('./project-pulse.component'))
   .default;
-const { __resetTasklaneActivityForTests, getLatestReceipt } =
-  await import('../tasklane-activity');
+const { __resetClickReceiptsForTests, getClickReceipt } =
+  await import('../../lib/click-receipt');
 const {
   __resetBoardFilterStoreForTests,
   boardFilterActions,
@@ -89,7 +90,7 @@ beforeEach(() => {
   __resetFeedbackStoreForTests();
   __resetTaskDetailStoreForTests();
   __resetBoardFilterStoreForTests();
-  __resetTasklaneActivityForTests();
+  __resetClickReceiptsForTests();
 });
 
 afterEach(cleanup);
@@ -368,6 +369,11 @@ describe('Tasks Vessel by hand', () => {
     expect(taskRow('Record launch video').textContent).toContain(
       'Due 2026-05-01',
     );
+    await waitFor(() =>
+      expect(getClickReceipt()?.part?.text).toBe(
+        '✓ Set "Record launch video" due 2026-05-01',
+      ),
+    );
   });
 
   it('nests a task under a parent and offers no parent that would make a cycle', async () => {
@@ -621,7 +627,7 @@ describe('Tasks board assignee filter', () => {
     });
     expect(result?.ok).toBe(false);
     expect(result?.error?.message).toBe(
-      'No team member matches "robin". Use chris (Chris, me), alex (Alex), sam (Sam), or everyone to clear the filter.',
+      'Couldn\'t find a team member called "robin"\nNo team member matches "robin". Use chris (Chris, me), alex (Alex), sam (Sam), or everyone to clear the filter.',
     );
   });
 });
@@ -954,7 +960,11 @@ describe('Triage inbox Vessel', () => {
       assignee: 'sam',
     });
     expect(getProjectTasksSnapshot().tasks.at(-1)?.assigneeId).toBe('sam');
-    expect(getLatestReceipt()?.text).toBe('✓ Assigned "Unowned child" to Sam');
+    await waitFor(() =>
+      expect(getClickReceipt()?.part?.text).toBe(
+        '✓ Assigned "Unowned child" to Sam',
+      ),
+    );
     expect(triageRows().map((row) => row.id)).toEqual(['TL-2']);
   });
 

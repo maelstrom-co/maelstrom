@@ -149,6 +149,15 @@ export type {
   IntentSubmission,
 } from './lib/orchestrator/intent-scheduler.types.js';
 export type {
+  RequestActionOutcome,
+  RequestActionTarget,
+  RequestOutcome,
+  RequestOutcomesState,
+  RequestOutcomeStatus,
+  RequestOutcomeView,
+} from './lib/orchestrator/request-outcome.types.js';
+export { REQUEST_OUTCOME_RETENTION } from './lib/orchestrator/request-outcome.types.js';
+export type {
   AgentRunAccepted,
   AgentRunBase,
   AgentRunChange,

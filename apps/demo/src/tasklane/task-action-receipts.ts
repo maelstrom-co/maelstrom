@@ -1,5 +1,6 @@
-import { err, ok } from '@maelstrom-co/protocol';
+import { ok } from '@maelstrom-co/protocol';
 
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import { type BoardFilterResult, EVERYONE } from './stores/board-filter.store';
 import type { FeedbackMutationResult } from './stores/feedback.store';
 import {
@@ -16,12 +17,7 @@ import {
 } from './stores/project-tasks.store';
 import type { OpenTaskDetailResult } from './stores/task-detail.store';
 import { describeTeamMembers } from './stores/team';
-import {
-  type ChangeDescription,
-  recordChange,
-  recordFailure,
-  recordUnchanged,
-} from './tasklane-activity';
+import { type ChangeDescription, describeChange } from './tasklane-activity';
 
 type TaskChangeAction =
   | 'updateTask'
@@ -47,31 +43,19 @@ const VERBS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Each report records what really happened in the activity log and returns
- * the Action result: the Planner gets a message naming valid choices, the
- * receipt gets a short reason for the person.
+ * Each report returns the Action result. A change returns its receipt as the value.
+ * A failure's message starts with a short reason for the person, then gives
+ * the Planner a message naming valid choices on the following lines.
  */
 export function reportCreateTask(result: CreateTaskResult) {
   if (!result.ok) return fail('createTask', result);
-  recordChange('createTask', {
-    kind: 'created',
-    subject: result.task.title,
-    subjectId: result.task.id,
-  });
-  return ok(undefined);
+  return changed({ kind: 'created', subject: result.task.title });
 }
 
 export function reportTaskChange(action: TaskChangeAction, result: TaskChange) {
   if (!result.ok) return fail(action, result);
-  if (!result.changed) {
-    recordUnchanged(action);
-    return ok(undefined);
-  }
-  recordChange(
-    action,
-    describeTaskChange(action, result.previous, result.task),
-  );
-  return ok(undefined);
+  if (!result.changed) return ok(undefined);
+  return changed(describeTaskChange(action, result.previous, result.task));
 }
 
 export function reportPriorityChange(
@@ -79,86 +63,51 @@ export function reportPriorityChange(
   result: PriorityChange,
 ) {
   if (!result.ok) return fail(action, result);
-  if (!result.changed) {
-    recordUnchanged(action);
-    return ok(undefined);
-  }
+  if (!result.changed) return ok(undefined);
   const subject = result.task.title;
-  const subjectId = result.task.id;
-  if (action === 'removeFromMyPriorities') {
-    recordChange(action, { kind: 'deprioritised', subject, subjectId });
-  } else if (result.previousPosition === null) {
-    recordChange(action, { kind: 'prioritised', subject, subjectId });
-  } else {
-    recordChange(action, {
-      kind: 'reprioritised',
-      subject,
-      subjectId,
-      detail: String(result.position),
-    });
-  }
-  return ok(undefined);
+  if (action === 'removeFromMyPriorities')
+    return changed({ kind: 'deprioritised', subject });
+  if (result.previousPosition === null)
+    return changed({ kind: 'prioritised', subject });
+  return changed({
+    kind: 'reprioritised',
+    subject,
+    detail: String(result.position),
+  });
 }
 
 export function reportRemoveTask(result: RemoveTaskResult) {
   if (!result.ok) return fail('removeTask', result);
-  recordChange('removeTask', {
-    kind: 'removed',
-    subject: result.task.title,
-    subjectId: result.task.id,
-  });
-  return ok(undefined);
+  return changed({ kind: 'removed', subject: result.task.title });
 }
 
-/**
- * Opening a task changes no data, so only a failure reaches the receipt line.
- * Reopening the task already open still confirms the command.
- */
+/** Opening a task changes no data, so only a failure reaches the receipt line. */
 export function reportShowTask(result: OpenTaskDetailResult) {
   if (!result.ok) return fail('showTask', result);
-  if (!result.changed) recordUnchanged('showTask');
   return ok(undefined);
 }
 
-/**
- * Filtering changes no data, so only a failure reaches the receipt line.
- * Repeating the active filter still confirms the command.
- */
+/** Filtering changes no data, so only a failure reaches the receipt line. */
 export function reportBoardFilter(result: BoardFilterResult) {
-  if (result.ok) {
-    if (!result.changed) recordUnchanged('filterByAssignee');
-    return ok(undefined);
-  }
-  recordFailure(
-    'filterByAssignee',
+  if (result.ok) return ok(undefined);
+  return failureResult(
     `Couldn't find a team member called "${result.query}"`,
-  );
-  return err(
-    new Error(
-      `No team member matches "${result.query}". Use ${describeTeamMembers()}, or ${EVERYONE} to clear the filter.`,
-    ),
+    `No team member matches "${result.query}". Use ${describeTeamMembers()}, or ${EVERYONE} to clear the filter.`,
   );
 }
 
 export function reportReplaceFeedback(result: FeedbackMutationResult) {
-  if (!result.ok) {
-    recordFailure(
-      'replaceFeedback',
+  if (!result.ok)
+    return failureResult(
       "Couldn't replace the feedback with empty text",
+      'Feedback text cannot be empty.',
     );
-    return err(new Error('Feedback text cannot be empty.'));
-  }
-  if (!result.changed) {
-    recordUnchanged('replaceFeedback');
-    return ok(undefined);
-  }
-  recordChange('replaceFeedback', {
+  if (!result.changed) return ok(undefined);
+  return changed({
     kind: 'feedback',
     subject: 'feedback',
-    subjectId: 'feedback',
     detail: result.truncated ? 'truncated' : null,
   });
-  return ok(undefined);
 }
 
 /** A short reason for the receipt line, starting with "Couldn't". */
@@ -198,8 +147,14 @@ export function failureReceipt(action: string, failure: TaskFailure): string {
 }
 
 function fail(action: string, failure: TaskFailure) {
-  recordFailure(action, failureReceipt(action, failure));
-  return err(new Error(describeTaskFailure(failure)));
+  return failureResult(
+    failureReceipt(action, failure),
+    describeTaskFailure(failure),
+  );
+}
+
+function changed(change: ChangeDescription) {
+  return receiptResult(describeChange(change));
 }
 
 function describeTaskChange(
@@ -208,15 +163,14 @@ function describeTaskChange(
   task: ProjectTask,
 ): ChangeDescription {
   const subject = task.title;
-  const subjectId = task.id;
   switch (action) {
     case 'updateTask': {
       const renamed = previous.title !== task.title;
       const described = previous.description !== task.description;
-      if (renamed && described) return { kind: 'edited', subject, subjectId };
+      if (renamed && described) return { kind: 'edited', subject };
       return renamed
-        ? { kind: 'renamed', subject: previous.title, subjectId }
-        : { kind: 'described', subject, subjectId };
+        ? { kind: 'renamed', subject: previous.title }
+        : { kind: 'described', subject };
     }
     case 'setParent': {
       const parent = task.parentId
@@ -227,24 +181,21 @@ function describeTaskChange(
       return {
         kind: 'moved',
         subject,
-        subjectId,
         detail: parent?.title ?? null,
       };
     }
     case 'assignTask':
-      if (task.assigneeId === null)
-        return { kind: 'unassigned', subject, subjectId };
+      if (task.assigneeId === null) return { kind: 'unassigned', subject };
       return {
         kind: previous.assigneeId === null ? 'assigned' : 'reassigned',
         subject,
-        subjectId,
         detail: assigneeLabel(task.assigneeId),
       };
     case 'setUrgency':
-      return { kind: 'urgency', subject, subjectId, detail: task.urgency };
+      return { kind: 'urgency', subject, detail: task.urgency };
     case 'setStatus':
-      return { kind: 'status', subject, subjectId, detail: task.status };
+      return { kind: 'status', subject, detail: task.status };
     case 'setDueDate':
-      return { kind: 'dueDate', subject, subjectId, detail: task.dueDate };
+      return { kind: 'dueDate', subject, detail: task.dueDate };
   }
 }

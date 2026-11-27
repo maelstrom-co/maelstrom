@@ -1,8 +1,6 @@
-import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
 import { VesselCard } from '../components/vessel-card';
-import { recordChange, recordFailure } from '../lib/action-activity';
 import {
   ACCENT_HEX,
   type AccentToken,
@@ -10,6 +8,7 @@ import {
   VESSEL_ACCENTS,
 } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
+import { failureResult, receiptResult } from '../lib/request-receipt';
 import {
   type CalendarEvent,
   calendarActions,
@@ -53,27 +52,22 @@ const DAY_HOURS = [
   '17:00',
 ];
 
-function noMatchError(title: string): Error {
+function noMatchMessage(title: string): string {
   const available = getCalendarSnapshot()
     .events.map((e) => `"${e.title}"`)
     .join(', ');
-  return new Error(`No event matches "${title}". Available: ${available}`);
+  return `No event matches "${title}". Available: ${available}`;
 }
 
-function eventNotFound(action: string, title: string) {
-  recordFailure(`Couldn't find event "${title}"`, {
-    vesselId: 'calendar',
-    action,
-  });
-  return err(noMatchError(title));
+function eventNotFound(title: string) {
+  return failureResult(`Couldn't find event "${title}"`, noMatchMessage(title));
 }
 
-function eventAmbiguous(action: string, title: string, message: string) {
-  recordFailure(`"${title}" matches more than one event`, {
-    vesselId: 'calendar',
-    action,
-  });
-  return err(new Error(message));
+function eventAmbiguous(title: string, message: string) {
+  return failureResult(
+    `Couldn't pick event "${title}": more than one event matches`,
+    message,
+  );
 }
 
 function eventLabel(event: CalendarEvent): string {
@@ -127,47 +121,37 @@ export default function CalendarComponent({
     addEvent: async ({ title, time }) => {
       calendarActions.addEvent(title, time);
       const added = getCalendarSnapshot().events.at(-1);
-      recordChange(
+      return receiptResult(
         `Added event "${added?.title ?? title}" at ${added?.time ?? time}`,
-        { vesselId: 'calendar', action: 'addEvent' },
       );
-      return ok(undefined);
     },
     removeEvent: async ({ title }) => {
       const match = resolveCalendarEvent(title);
       if (match.kind === 'ambiguous') {
-        return eventAmbiguous('removeEvent', title, match.message);
+        return eventAmbiguous(title, match.message);
       }
       if (
         match.kind !== 'found' ||
         !calendarActions.removeEvent(match.item.id)
       ) {
-        return eventNotFound('removeEvent', title);
+        return eventNotFound(title);
       }
-      recordChange(`Removed event "${match.item.title}"`, {
-        vesselId: 'calendar',
-        action: 'removeEvent',
-      });
-      return ok(undefined);
+      return receiptResult(`Removed event "${match.item.title}"`);
     },
     moveEvent: async ({ title, time }) => {
       const match = resolveCalendarEvent(title);
       if (match.kind === 'ambiguous') {
-        return eventAmbiguous('moveEvent', title, match.message);
+        return eventAmbiguous(title, match.message);
       }
       if (
         match.kind !== 'found' ||
         !calendarActions.moveEvent(match.item.id, time)
       ) {
-        return eventNotFound('moveEvent', title);
+        return eventNotFound(title);
       }
       const { item } = match;
       const moved = getCalendarSnapshot().events.find((e) => e.id === item.id);
-      recordChange(`Moved "${item.title}" to ${moved?.time ?? time}`, {
-        vesselId: 'calendar',
-        action: 'moveEvent',
-      });
-      return ok(undefined);
+      return receiptResult(`Moved "${item.title}" to ${moved?.time ?? time}`);
     },
   });
 

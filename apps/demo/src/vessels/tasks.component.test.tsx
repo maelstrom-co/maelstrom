@@ -11,15 +11,16 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  __resetActionActivityForTests,
-  beginRequestWindow,
-  getActivitySnapshot,
-  latestReceiptParts,
-} from '../lib/action-activity';
+  latestReceiptText,
+  recordRequestResult,
+  resetHandlerReceipts,
+} from '../lib/__tests__/handler-receipts';
+import { getClickReceipt } from '../lib/click-receipt';
 import { tasksVessel } from './tasks.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
+  value?: unknown;
   error?: Error;
 }>;
 
@@ -60,9 +61,7 @@ function clearTasks(): void {
 }
 
 function receipt(): string {
-  return latestReceiptParts(getActivitySnapshot())
-    .map((part) => part.text)
-    .join(' · ');
+  return latestReceiptText();
 }
 
 async function invoke(action: string, params?: Record<string, unknown>) {
@@ -72,6 +71,7 @@ async function invoke(action: string, params?: Record<string, unknown>) {
   await act(async () => {
     result = await handler(params);
   });
+  recordRequestResult(result);
   return result;
 }
 
@@ -79,7 +79,7 @@ beforeEach(() => {
   handlers.clear();
   executeAction.mockClear();
   __resetTasksStoreForTests();
-  __resetActionActivityForTests();
+  resetHandlerReceipts();
 });
 
 afterEach(cleanup);
@@ -191,17 +191,22 @@ describe('TasksComponent checkboxes', () => {
   });
 
   it('gives a click during an open request its own receipt', async () => {
-    const request = beginRequestWindow('ticket-1');
     render(<TasksComponent {...props()} />);
+    await invoke('addTask', { title: 'Book a room' });
     await act(async () => {
       fireEvent.click(
         screen.getByRole('checkbox', { name: 'Check prototype' }),
       );
     });
-    const { entries, openWindowId } = getActivitySnapshot();
-    expect(openWindowId).toBe(request);
-    expect(entries.at(-1)?.windowId).not.toBe(request);
+    expect(getClickReceipt()?.part?.text).toBe(
+      '✓ Checked subtask "Check prototype"',
+    );
     expect(receipt()).toBe('✓ Checked subtask "Check prototype"');
+
+    const direct = getClickReceipt();
+    await invoke('uncheckSubtask', { subtask: 'T-4.1' });
+    expect(getClickReceipt()).toBe(direct);
+    expect(receipt()).toBe('✓ Unchecked subtask "Check prototype"');
   });
 
   it('unchecks a done subtask', async () => {

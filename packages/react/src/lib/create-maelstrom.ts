@@ -22,6 +22,10 @@ import { createUseAgentEvent } from './use-agent-event.js';
 import { createUseAgentRun } from './use-agent-run.js';
 import { createUseInstance } from './use-instance.js';
 import { createUseMaelstrom } from './use-maelstrom.js';
+import {
+  createUseLatestRequestOutcome,
+  createUseRequestOutcome,
+} from './use-request-outcome.js';
 import { createUseVessel } from './use-vessel.js';
 import type { AnyVesselEntry } from './vessel-entry-types.js';
 import { warnOnce } from './warn-once.js';
@@ -85,6 +89,8 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     useInstance: createUseInstance(contextPair),
     useAgentRun: createUseAgentRun(contextPair),
     useAgentEvent: createUseAgentEvent(contextPair),
+    useRequestOutcome: createUseRequestOutcome(contextPair),
+    useLatestRequestOutcome: createUseLatestRequestOutcome(contextPair),
     registerVessel: createRegisterVessel(contextPair),
     updateVessel: createUpdateVessel<T>(contextPair),
   };

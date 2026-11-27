@@ -9,10 +9,15 @@ import { createTestConnector } from '@maelstrom-co/client/_testing';
 import {
   ActionName,
   type ChartRequestMessage,
+  defineVessel,
+  err,
   InstanceId,
   type MaelstromResponse,
+  ok,
+  VariantName,
+  VesselId,
 } from '@maelstrom-co/protocol';
-import { createMaelstrom } from '@maelstrom-co/react';
+import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import {
   act,
   cleanup,
@@ -23,20 +28,36 @@ import {
 import { StrictMode, useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
-import {
-  __resetActionActivityForTests,
-  recordChange,
-  recordFailure,
-} from '../lib/action-activity';
+import { __resetClickReceiptsForTests } from '../lib/click-receipt';
+import { orchestrationLegibility } from '../lib/orchestration-legibility';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 
 let voiceState = 'idle';
-const m = createMaelstrom({ vessels: [] }).with((context) => ({
-  useContext: context.useMaelstromContext,
-}));
+const TASKS_INSTANCE = InstanceId('tasks-main');
+const testTasksVessel = defineVessel({
+  id: 'tasks',
+  name: 'Tasks',
+  description: 'Task list',
+  defaultVariant: 'list',
+  variants: {
+    list: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: [
+        { name: 'addTask', description: 'Add a task' },
+        { name: 'checkTask', description: 'Check a task' },
+      ],
+    },
+  },
+});
+const m = createMaelstrom({ vessels: [vessel(testTasksVessel, () => null)] })
+  .with(orchestrationLegibility)
+  .with((context) => ({
+    useContext: context.useMaelstromContext,
+  }));
 vi.doMock('../lib/maelstrom', () => ({
   m: {
     ...m,
@@ -52,7 +73,7 @@ const { IntentInput } = await import('./intent-input');
 
 afterEach(() => {
   cleanup();
-  __resetActionActivityForTests();
+  __resetClickReceiptsForTests();
   voiceState = 'idle';
   clearPlaygroundKey();
   vi.useRealTimers();
@@ -135,6 +156,28 @@ async function setup(
       rationale: '',
       userMessage: `Reply ${index}`,
     });
+  const finishWithTasks = (
+    index: number,
+    executionPlan: MaelstromResponse['executionPlan'],
+  ) =>
+    pending[index].resolve({
+      type: 'maelstrom_response',
+      requestId: sent[index].id,
+      layout: {
+        type: 'tiling',
+        tree: [],
+        instances: [
+          {
+            instanceId: TASKS_INSTANCE,
+            vesselId: VesselId('tasks'),
+            variant: VariantName('list'),
+          },
+        ],
+      },
+      executionPlan,
+      rationale: '',
+      userMessage: `Reply ${index}`,
+    });
   const receipt = () =>
     view.getByTestId('action-receipt-line').textContent ?? '';
   return {
@@ -145,6 +188,7 @@ async function setup(
     sent,
     pending,
     finish,
+    finishWithTasks,
     receipt,
     client,
     onMintError,
@@ -536,19 +580,18 @@ it('resumes exactly once through StrictMode effect replay', async () => {
 
 it('shows a factual receipt for an applied request that changed data', async () => {
   const h = await setup();
+  h.client.commandProcessor.registerRunner(TASKS_INSTANCE, {
+    addTask: () => ok('Added "Prepare design review" with 2 subtasks'),
+  });
   h.type('add the design review task');
   await h.send();
-  act(() => {
-    recordChange('Added "Prepare design review" with 2 subtasks', {
-      vesselId: 'tasks',
-      action: 'addTask',
-    });
-  });
   expect(h.receipt()).toBe('');
   await act(async () => {
-    h.finish(0);
+    h.finishWithTasks(0, [step('addTask')]);
   });
-  expect(h.receipt()).toBe('✓ Added "Prepare design review" with 2 subtasks');
+  await waitFor(() =>
+    expect(h.receipt()).toBe('✓ Added "Prepare design review" with 2 subtasks'),
+  );
   expect(h.view.getByRole('status').textContent).toContain(
     '“add the design review task”: Applied — Reply 0',
   );
@@ -556,43 +599,49 @@ it('shows a factual receipt for an applied request that changed data', async () 
 
 it('shows the model message and no receipt for a layout-only request', async () => {
   const h = await setup();
-  act(() => {
-    recordChange('Checked task "Ship this sprint"', {
-      vesselId: 'tasks',
-      action: 'checkTask',
-    });
+  h.client.commandProcessor.registerRunner(TASKS_INSTANCE, {
+    checkTask: () => ok('Checked task "Ship this sprint"'),
   });
-  expect(h.receipt()).toBe('✓ Checked task "Ship this sprint"');
+  h.type('check the sprint task');
+  await h.send();
+  await act(async () => {
+    h.finishWithTasks(0, [step('checkTask')]);
+  });
+  await waitFor(() =>
+    expect(h.receipt()).toBe('✓ Checked task "Ship this sprint"'),
+  );
   h.type('make the calendar bigger');
   await h.send();
   await act(async () => {
-    h.finish(0);
+    h.finish(1);
   });
   expect(h.receipt()).toBe('');
   expect(h.view.getByRole('status').textContent).toContain(
-    '“make the calendar bigger”: Applied — Reply 0',
+    '“make the calendar bigger”: Applied — Reply 1',
   );
 });
 
 it('replaces the model message with the failure when a handler fails', async () => {
   const h = await setup();
+  h.client.commandProcessor.registerRunner(TASKS_INSTANCE, {
+    checkTask: () =>
+      err(
+        new Error(
+          'Couldn\'t find task "gym"\nNo task matches "gym". Available: none',
+        ),
+      ),
+  });
   h.type('check off the gym task');
   await h.send();
-  act(() => {
-    recordFailure('Couldn\'t find task "gym"', {
-      vesselId: 'tasks',
-      action: 'checkTask',
-    });
-  });
   await act(async () => {
-    h.finish(0);
+    h.finishWithTasks(0, [step('checkTask')]);
   });
+  await waitFor(() => expect(h.receipt()).toBe('✗ Couldn\'t find task "gym"'));
   const status = h.view.getByRole('status').textContent;
   expect(status).toContain(
     '“check off the gym task”: ✗ Couldn\'t find task "gym"',
   );
   expect(status).not.toContain('Reply 0');
-  expect(h.receipt()).toBe('✗ Couldn\'t find task "gym"');
 });
 
 it('never reports a planned data Action that did not run as a success', async () => {
@@ -622,3 +671,7 @@ it('never reports a planned data Action that did not run as a success', async ()
   expect(status).toContain('“add a task”: Outcome unknown');
   expect(h.receipt()).not.toContain('✓');
 });
+
+function step(action: string): MaelstromResponse['executionPlan'][number] {
+  return { instanceId: TASKS_INSTANCE, action: ActionName(action) };
+}

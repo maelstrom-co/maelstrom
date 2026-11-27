@@ -1,5 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import { withClickMarks, withClickReceipts } from '../../lib/click-receipt';
 import { cn } from '../../lib/cn';
 import { tasklaneM } from '../maelstrom';
 import { plural } from '../plural';
@@ -17,20 +18,30 @@ import {
 } from '../stores/project-tasks.store';
 import { TEAM, type TeamMember } from '../stores/team';
 import { reportBoardFilter } from '../task-action-receipts';
+import { tasklaneClickReceipt } from '../tasklane-activity';
 import { TasklaneCard } from '../tasklane-card';
 import type { teamLoadVessel } from './team-load.vessel';
 
 export default function TeamLoadComponent({
   instanceId,
-  executeAction,
+  executeAction: executeVesselAction,
 }: TypedVesselProps<typeof teamLoadVessel>) {
+  const executeAction = withClickMarks('team-load', executeVesselAction);
   const { tasks } = useProjectTasksStore();
   const { assigneeFilter } = useBoardFilterStore();
 
-  tasklaneM.useActions('team-load', instanceId, {
-    filterByAssignee: async ({ assignee }) =>
-      reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
-  });
+  tasklaneM.useActions(
+    'team-load',
+    instanceId,
+    withClickReceipts(
+      'team-load',
+      {
+        filterByAssignee: async ({ assignee }) =>
+          reportBoardFilter(boardFilterActions.filterByAssignee(assignee)),
+      },
+      tasklaneClickReceipt,
+    ),
+  );
 
   const open = tasks.filter(isOpenTask);
   const rows = TEAM.map((member) => memberLoad(member, open));
