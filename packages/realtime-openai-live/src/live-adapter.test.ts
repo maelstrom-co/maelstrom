@@ -1810,11 +1810,35 @@ for (const endVoice of [false, true]) {
   });
 }
 
-test('turnControl is omitted in automatic mode', async () => {
-  const h = await harness();
-  expect(h.adapter.turnControl).toBeUndefined();
+test('turnControl starts automatic and switches turn mode both ways mid-session', async () => {
+  const h = await harness({}, { thinkingFallbackMs: 5_000 });
+  const micTrack = h.adapter.getAudioStreams().mic?.getAudioTracks()[0];
   expect(h.session.turnMode).toBe('automatic');
-  expect(h.session.turnControl).toBeUndefined();
+  expect(h.session.turnControl).toBe(h.adapter.turnControl);
+  expect(h.session.turnControl?.setTurnMode).toBeDefined();
+  expect(micTrack?.enabled).toBe(true);
+
+  await h.session.turnControl?.startTurn();
+  expect(h.session.state).toBe('connected');
+  expect(micTrack?.enabled).toBe(true);
+
+  await h.session.turnControl?.setTurnMode?.('manual');
+  expect(h.session.turnMode).toBe('manual');
+  expect(micTrack?.enabled).toBe(false);
+
+  await h.session.turnControl?.startTurn();
+  expect(h.session.state).toBe('listening');
+  expect(micTrack?.enabled).toBe(true);
+
+  await h.session.turnControl?.setTurnMode?.('automatic');
+  expect(h.session.turnMode).toBe('automatic');
+  expect(h.session.state).toBe('connected');
+  expect(micTrack?.enabled).toBe(true);
+  expect(h.session.turnControl).toBe(h.adapter.turnControl);
+  expect(h.peers).toHaveLength(1);
+
+  await h.session.disconnect();
+  expect(h.adapter.turnControl).toBeUndefined();
 });
 
 test('manualTurns exposes turnControl before manual turn_mode, toggles mic without forcing a reply, and falls back from thinking', async () => {

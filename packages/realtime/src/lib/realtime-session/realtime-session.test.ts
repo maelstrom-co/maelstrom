@@ -2601,6 +2601,29 @@ describe('RealtimeSession — turn mode', () => {
     expect(session.turnControl).toBe(replacementControl);
   });
 
+  it('delegates a switchable control in either mode so the UI can change mode', async () => {
+    const { session, adapter } = makeHarness();
+    const switchable: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+      setTurnMode: async () => {},
+    };
+    adapter.setTurnControl(switchable);
+    await session.connect();
+
+    expect(session.turnMode).toBe('automatic');
+    expect(session.turnControl).toBe(switchable);
+
+    adapter.emitTurnMode('manual');
+    expect(session.turnControl).toBe(switchable);
+
+    adapter.emitTurnMode('automatic');
+    expect(session.turnControl).toBe(switchable);
+
+    adapter.setTurnControl(undefined);
+    expect(session.turnControl).toBeUndefined();
+  });
+
   it('clears a prior diagnostic when the adapter establishes a clean mode', async () => {
     const { session, adapter } = makeHarness();
     await session.connect();

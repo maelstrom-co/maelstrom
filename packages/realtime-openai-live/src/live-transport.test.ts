@@ -1264,6 +1264,57 @@ describe('manualTurns', () => {
     h.transport.startTurn();
     expect(h.mic.enabled).toBe(true);
   });
+
+  test('setTurnMode switches both ways mid-session without reconnecting', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+
+    h.transport.setTurnMode('manual');
+    expect(modes).toEqual(['automatic', 'manual']);
+    expect(h.mic.enabled).toBe(false);
+
+    h.transport.startTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setTurnMode('automatic');
+    expect(modes).toEqual(['automatic', 'manual', 'automatic']);
+    expect(h.mic.enabled).toBe(true);
+    h.transport.endTurn();
+    expect(h.mic.enabled).toBe(true);
+
+    h.transport.setTurnMode('automatic');
+    expect(modes).toEqual(['automatic', 'manual', 'automatic']);
+
+    h.transport.setTurnMode('manual');
+    expect(h.mic.enabled).toBe(false);
+    expect(modes.at(-1)).toBe('manual');
+    expect(h.mic.stopped).toBe(0);
+  });
+
+  test('setTurnMode is a no-op while disconnected and each connection starts in the configured mode', async () => {
+    const h = harness();
+    const modes: string[] = [];
+    h.transport.on((event) => {
+      if (event.type === 'turn_mode') modes.push(event.mode);
+    });
+    h.transport.setTurnMode('manual');
+    expect(modes).toEqual([]);
+    expect(h.mic.enabled).toBe(true);
+
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    expect(modes).toEqual(['automatic']);
+    expect(h.mic.enabled).toBe(true);
+  });
 });
 
 test('session.paused and session.resumed emit processing observations without dropping native events', async () => {

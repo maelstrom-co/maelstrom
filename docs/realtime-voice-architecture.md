@@ -120,8 +120,13 @@ and each adapter owns its transport's reaction to a speech boundary.
 
 Adapters report usable turn mode through `TurnModeEvent`. Browser VAD can fail
 at startup or during a session and degrade to manual control, so turn mode is a
-runtime event. `RealtimeSession` exposes manual controls while the retained mode
-is `manual`; a fixed provider capability cannot represent that transition.
+runtime event. `turnControl` is present whenever the adapter can do manual turns
+on the current connection, in either mode, and the retained `turnMode` alone
+says which mode is active. `RealtimeSession` exposes the control while the
+retained mode is `manual`, and in automatic mode too when the control offers
+`setTurnMode`. That optional method is present only while the connection can
+change mode; absent means the current mode is the only one available. A fixed
+provider capability cannot represent these transitions.
 
 LiveKit uses browser detection for ordinary turns. OpenAI Realtime's optional,
 default-off `greetingInterruption` uses it for one bounded interruption during
@@ -129,12 +134,16 @@ fixed-greeting playback. OpenAI server VAD still owns ordinary turns afterward.
 This option does not add general browser endpointing or manual `turnControl`.
 Real-device acoustic effectiveness requires a live check.
 
-OpenAI Live defaults to automatic provider turn detection and omits
-`turnControl`. Opting into `manualTurns` mutes the microphone tracks on connect,
-emits `turn_mode: 'manual'`, and exposes `turnControl` to unmute and mute the
+OpenAI Live exposes `turnControl` with `setTurnMode` on every established
+connection. Each connection starts in automatic provider turn detection unless
+`manualTurns` sets manual as the starting mode. Manual mode mutes the
+microphone tracks, emits `turn_mode: 'manual'`, and unmutes and mutes the
 microphone per press while restoring prior track `enabled` values on close.
 Release ends the local turn and arms a `thinking` fallback timer without forcing
-a provider reply.
+a provider reply. `setTurnMode` flips the mode on the live connection, reapplies
+the microphone gate, and emits `turn_mode` without reconnecting. OpenAI Realtime
+omits `turnControl`. LiveKit's manual control has no `setTurnMode`, so manual
+stays the only mode once it degrades or runs with `vad: false`.
 
 ## Two channels, deliberately unequal
 

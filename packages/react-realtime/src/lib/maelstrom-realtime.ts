@@ -312,9 +312,11 @@ export interface UseVoiceResult<Provider = undefined> {
    */
   readonly switchProvider: (provider: Provider) => Promise<void>;
   /**
-   * Adapter-owned manual controls, available only after the session establishes
-   * manual mode. Automatic mode and lifecycle teardown never expose controls,
-   * even while the last manual mode and its diagnostic remain retained.
+   * Adapter-owned turn controls, available after the session establishes
+   * manual mode, or in either mode when the adapter can switch modes on this
+   * connection (`setTurnMode` is then present). Read `turnMode` for the active
+   * mode. Lifecycle teardown removes the controls, even while the last mode
+   * and its diagnostic remain retained.
    */
   readonly turnControl?: AdapterTurnControl;
   /** Current provider-neutral turn-boundary mode retained by the session. */

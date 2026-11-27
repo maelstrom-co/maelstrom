@@ -5,6 +5,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   ToolResult,
+  TurnMode,
   VoiceRecoverySnapshot,
 } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
@@ -192,17 +193,24 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
   private readonly batchMs: number;
   private readonly contextMs: number;
   private readonly thinkingFallbackMs: number;
-  private manualTurnControlAvailable = false;
+  private establishedTurnMode?: TurnMode;
   private lastState?: SessionState;
   private thinkingFallbackTimer?: ReturnType<typeof setTimeout>;
   private readonly manualTurnControl: AdapterTurnControl = {
     startTurn: () => this.startManualTurn(),
     endTurn: () => this.endManualTurn(),
+    setTurnMode: (mode) => this.setTurnMode(mode),
   };
 
-  /** Present only while this connection is established in manual turn mode. */
+  /**
+   * Present, with `setTurnMode`, once a connection establishes its turn mode,
+   * in either mode, until it closes. `turnMode` on the session says which
+   * mode is active; `startTurn` and `endTurn` are no-ops in automatic mode.
+   */
   get turnControl(): AdapterTurnControl | undefined {
-    return this.manualTurnControlAvailable ? this.manualTurnControl : undefined;
+    return this.establishedTurnMode === undefined
+      ? undefined
+      : this.manualTurnControl;
   }
 
   /** Creates an inert adapter. Invalid bounds throw before any media acquisition. */
@@ -227,9 +235,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     this.diagnostics = this.transport.diagnostics;
     this.observations = this.transport.observations;
     this.transport.on((event) => {
-      if (event.type === 'turn_mode') {
-        this.manualTurnControlAvailable = event.mode === 'manual';
-      }
+      if (event.type === 'turn_mode') this.establishedTurnMode = event.mode;
       if (
         event.type === 'state' &&
         (event.state === 'idle' || event.state === 'error')
@@ -899,17 +905,34 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     });
   }
   private startManualTurn(): Promise<void> {
-    if (!this.manualTurnControlAvailable || !this.run) return Promise.resolve();
+    if (this.establishedTurnMode !== 'manual' || !this.run)
+      return Promise.resolve();
     this.clearThinkingFallback();
     this.transport.startTurn();
     this.emit({ type: 'state', state: 'listening' });
     return Promise.resolve();
   }
   private endManualTurn(): Promise<void> {
-    if (!this.manualTurnControlAvailable || !this.run) return Promise.resolve();
+    if (this.establishedTurnMode !== 'manual' || !this.run)
+      return Promise.resolve();
     this.transport.endTurn();
     this.emit({ type: 'state', state: 'thinking' });
     this.startThinkingFallback();
+    return Promise.resolve();
+  }
+  private setTurnMode(mode: TurnMode): Promise<void> {
+    if (
+      this.establishedTurnMode === undefined ||
+      this.establishedTurnMode === mode ||
+      !this.run
+    )
+      return Promise.resolve();
+    const endsManualTurn =
+      mode === 'automatic' &&
+      (this.lastState === 'listening' || this.lastState === 'thinking');
+    this.transport.setTurnMode(mode);
+    if (endsManualTurn && this.establishedTurnMode === 'automatic')
+      this.emit({ type: 'state', state: 'connected' });
     return Promise.resolve();
   }
   private startThinkingFallback(): void {
@@ -930,7 +953,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     }
   }
   private clear(): void {
-    this.manualTurnControlAvailable = false;
+    this.establishedTurnMode = undefined;
     this.clearThinkingFallback();
     const run = this.run;
     this.run = undefined;

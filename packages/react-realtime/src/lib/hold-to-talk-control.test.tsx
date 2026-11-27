@@ -66,7 +66,10 @@ class FakeRealtimeSession {
     error?: unknown,
   ): void {
     this.turnMode = mode;
-    this.turnControl = mode === 'manual' ? turnControl : undefined;
+    this.turnControl =
+      mode === 'manual' || turnControl?.setTurnMode !== undefined
+        ? turnControl
+        : undefined;
     this.turnModeError = error;
     for (const handler of this.#turnModeHandlers)
       handler({
@@ -190,6 +193,38 @@ describe('HoldToTalkControl', () => {
       session.emitTurnMode('manual', undefined);
     });
     expect(container.children.length).toBe(0);
+  });
+
+  it('hides in automatic mode even while a switchable turnControl stays present', async () => {
+    const { m, connector } = setup();
+    const turnControl = {
+      ...makeTurnControl(),
+      setTurnMode: async () => {},
+    };
+    const { container } = await act(async () =>
+      render(
+        <m.Provider connector={connector}>
+          <m.HoldToTalkControl />
+        </m.Provider>,
+      ),
+    );
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitState('connected');
+      session.emitTurnMode('automatic', turnControl);
+    });
+    expect(session.turnControl).toBe(turnControl);
+    expect(container.querySelector('button')).toBeNull();
+
+    await act(async () => {
+      session.emitTurnMode('manual', turnControl);
+    });
+    expect(container.querySelector('button')).not.toBeNull();
+
+    await act(async () => {
+      session.emitTurnMode('automatic', turnControl);
+    });
+    expect(container.querySelector('button')).toBeNull();
   });
 
   it('handles pointer press/release, leave, cancel, and ignores stray releases', async () => {

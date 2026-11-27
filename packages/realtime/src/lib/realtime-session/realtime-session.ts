@@ -465,12 +465,17 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /**
-   * Current adapter-owned manual turn control. It is exposed only after the
-   * adapter establishes manual mode and is read dynamically so adapter
-   * degradation or teardown can replace or remove the control safely.
+   * Current adapter-owned turn control. It is exposed after the adapter
+   * establishes manual mode, or in either mode when the control offers
+   * `setTurnMode`, and is read dynamically so adapter degradation or teardown
+   * can replace or remove the control safely. Use `turnMode` to tell which
+   * mode is active.
    */
   get turnControl(): AdapterTurnControl | undefined {
-    return this.#turnMode === 'manual' ? this.#adapter.turnControl : undefined;
+    const control = this.#adapter.turnControl;
+    return this.#turnMode === 'manual' || control?.setTurnMode !== undefined
+      ? control
+      : undefined;
   }
 
   /**
