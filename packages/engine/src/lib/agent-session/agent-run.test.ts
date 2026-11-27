@@ -2866,6 +2866,7 @@ describe('runAgent change_screen', () => {
       ...tools.registry.entries().map((entry) => entry.tool.name),
       'change_screen',
       'describe_capabilities',
+      'fetch_tool_result',
     ]);
   });
 

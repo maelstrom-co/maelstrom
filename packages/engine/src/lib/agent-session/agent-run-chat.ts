@@ -56,6 +56,12 @@ import {
 } from './change-screen-tool.js';
 import { createDescribeCapabilitiesToolEntry } from './describe-capabilities-tool.js';
 import {
+  createFetchToolResultToolEntry,
+  FETCH_TOOL_RESULT_TOOL_NAME,
+  INLINE_TOOL_RESULT_MAX_CHARS,
+  serializedLength,
+} from './fetch-tool-result-tool.js';
+import {
   createScreenChangeBatch,
   type ScreenChangeBatch,
 } from './screen-change-batch.js';
@@ -74,6 +80,7 @@ import {
   validateToolResultEnvelope,
 } from './tool-executor.js';
 import type { ToolRegistryEntry } from './tool-registry.js';
+import { toolCallRef, type ToolCallRef } from './transcript.js';
 
 /**
  * Observation points of {@link runAgentChat} beyond the Agent Run
@@ -138,6 +145,7 @@ async function* streamAgentRun(
     input.logger,
     options.onActivity,
     policy,
+    (name) => input.registry.get(name) !== undefined,
   );
   const executions = createToolExecutionFence();
   const serverTools = createServerToolQueue(policy.abortController.signal);
@@ -278,7 +286,15 @@ function startChat(
     logger: input.logger,
     runId: input.runId,
   });
-  const tools = withBuiltInTools(input.registry, [describeCapabilities]);
+  const fetchToolResult = createFetchToolResultToolEntry(
+    (resultId) =>
+      calls.storedResult(resultId) ??
+      input.toolResults?.get(resultId as ToolCallRef),
+  );
+  const tools = withBuiltInTools(input.registry, [
+    describeCapabilities,
+    fetchToolResult,
+  ]);
   const capabilityIndex = buildCapabilityIndex(input.vessels);
   const policyMiddleware = createAgentRunPolicyMiddleware(policy, {
     registry: tools,
@@ -371,6 +387,15 @@ function startChat(
         serverTools,
         (callId) => rawArgsByCall.get(callId),
       ),
+      toChatTool(
+        fetchToolResult,
+        input,
+        policy,
+        calls,
+        executions,
+        serverTools,
+        (callId) => rawArgsByCall.get(callId),
+      ),
     ],
     toolExecution: 'parallel',
     agentLoopStrategy: () => true,
@@ -447,7 +472,7 @@ function startChat(
     const own = calls.settledResult(info.toolCallId);
     if (
       own !== undefined &&
-      isSameModelPayload(info.result, toModelToolPayload(own))
+      isSameModelPayload(info.result, calls.modelPayload(own))
     ) {
       return undefined;
     }
@@ -463,7 +488,7 @@ function startChat(
       ? validation.result
       : invalidSubstitutionResult(entry);
     calls.settle(info.toolCallId, result);
-    return { type: 'replaceResult', result: toModelToolPayload(result) };
+    return { type: 'replaceResult', result: calls.modelPayload(result) };
   }
 }
 
@@ -535,7 +560,7 @@ function toChatTool(
         ? outcome.value
         : stoppedToolResult();
     if (callId !== undefined) calls.settle(callId, settled);
-    return toModelToolPayload(settled);
+    return calls.modelPayload(settled);
   }) as Tool;
 }
 
@@ -630,6 +655,8 @@ interface AnnouncedToolCall {
   startedAt?: number;
   settledAt?: number;
   completionReported: boolean;
+  /** The result id a started `fetch_tool_result` call reads. */
+  fetchedResultId?: string;
 }
 
 interface OpenTurn {
@@ -670,6 +697,7 @@ function createRunActivityTracker(
   logger: Logger,
   onActivity: ((activity: AgentRunActivity) => void) | undefined,
   policy: Pick<AgentRunPolicy, 'countRequestedToolCall' | 'metrics'>,
+  withholdsLargeResults: (toolName: string) => boolean,
 ) {
   let turn = 0;
   let openTurn: OpenTurn | undefined;
@@ -685,6 +713,8 @@ function createRunActivityTracker(
   const callIdByProviderId = new Map<string, CallId>();
   const announced = new Map<CallId, AnnouncedToolCall>();
   const settled = new Map<CallId, ToolCallResult>();
+  const storedValues = new Map<string, { readonly value: unknown }>();
+  const withheld = new WeakMap<ToolCallResult, ToolCallRef>();
 
   return {
     beginTurn(index: number) {
@@ -774,12 +804,17 @@ function createRunActivityTracker(
       const call = callId === undefined ? undefined : announced.get(callId);
       if (call === undefined) return;
       call.startedAt = clock.now();
+      if (call.name === FETCH_TOOL_RESULT_TOOL_NAME)
+        call.fetchedResultId = resultIdArgument(args);
       report({
         type: 'tool_started',
         turnId: call.turnId,
         callId: call.callId,
         name: call.name,
         args,
+        ...(call.fetchedResultId === undefined
+          ? {}
+          : { resultId: call.fetchedResultId }),
       });
     },
     settle(providerCallId: string, result: ToolCallResult) {
@@ -788,6 +823,29 @@ function createRunActivityTracker(
       settled.set(callId, result);
       const call = announced.get(callId);
       if (call !== undefined) call.settledAt = clock.now();
+      const ref = toolCallRef(runId, callId);
+      if (!result.ok) {
+        storedValues.delete(ref);
+        return;
+      }
+      storedValues.set(ref, { value: result.value });
+      if (
+        call !== undefined &&
+        withholdsLargeResults(call.name) &&
+        (serializedLength(result.value) ?? Number.POSITIVE_INFINITY) >
+          INLINE_TOOL_RESULT_MAX_CHARS
+      )
+        withheld.set(result, ref);
+    },
+    storedResult(resultId: string): { readonly value: unknown } | undefined {
+      return storedValues.get(resultId);
+    },
+    // A withheld result reaches the model as its result id and summary only.
+    modelPayload(result: ToolCallResult): unknown {
+      const resultId = withheld.get(result);
+      return resultId === undefined
+        ? toModelToolPayload(result)
+        : { resultId, summary: result.summary };
     },
     settledResult(providerCallId: string): ToolCallResult | undefined {
       const callId = callIdByProviderId.get(providerCallId);
@@ -881,6 +939,12 @@ function createRunActivityTracker(
             ),
           }),
       result: activityResultOf(result),
+      ...(call.fetchedResultId === undefined
+        ? {}
+        : { resultId: call.fetchedResultId }),
+      ...(call.fetchedResultId !== undefined && result.ok
+        ? payloadCharsOf(result.value)
+        : {}),
     });
   }
 
@@ -923,6 +987,7 @@ function createRunActivityTracker(
         name: call.name,
         ok: result.ok,
         summary: result.summary,
+        ...withheldResultId(withheld.get(result)),
       },
       phaseResult: result.ok
         ? {
@@ -1148,6 +1213,23 @@ function unsettledResult(call: AnnouncedToolCall): ToolCallResult {
 
 function hasStarted(call: AnnouncedToolCall): boolean {
   return call.startedAt !== undefined;
+}
+
+function withheldResultId(resultId: ToolCallRef | undefined): {
+  resultId?: ToolCallRef;
+} {
+  return resultId === undefined ? {} : { resultId };
+}
+
+function resultIdArgument(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null) return undefined;
+  const resultId: unknown = (args as { resultId?: unknown }).resultId;
+  return typeof resultId === 'string' ? resultId : undefined;
+}
+
+function payloadCharsOf(value: unknown): { payloadChars?: number } {
+  const chars = serializedLength(value);
+  return chars === undefined ? {} : { payloadChars: chars };
 }
 
 function parseArgsText(argsText: string): unknown {

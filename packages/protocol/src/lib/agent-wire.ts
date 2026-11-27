@@ -562,6 +562,8 @@ export interface AgentToolCallEvent {
  * succeeded and `summary` is a short human-readable description of the
  * outcome, not whitespace-only and at most 200 characters. A failure
  * carries its cause in `summary`, so there is no separate error field.
+ * `resultId` is present when the result was too large for the loop model's
+ * prompt, which then held only that id and the summary.
  */
 export const AgentToolResultEventSchema = z.object({
   type: z.literal('tool_result'),
@@ -583,6 +585,7 @@ export const AgentToolResultEventSchema = z.object({
     .refine((s) => s.trim().length > 0, {
       message: 'summary must not be whitespace-only',
     }),
+  resultId: z.string().min(1).optional(),
 });
 
 /**
@@ -610,6 +613,13 @@ export interface AgentToolResultEvent {
    * characters. For a failed call it describes the failure.
    */
   summary: string;
+  /**
+   * Id of the stored result, present when the result was too large for the
+   * loop model's prompt. The prompt then held only this id and `summary`,
+   * and the model reads the payload by this id. The payload itself never
+   * reaches the wire.
+   */
+  resultId?: string;
 }
 
 /**

@@ -5,6 +5,7 @@ import type { ToolRegistry, ToolRegistryEntry } from './tool-registry.js';
 export const RESERVED_TOOL_NAMES: readonly string[] = [
   'change_screen',
   'describe_capabilities',
+  'fetch_tool_result',
 ];
 
 /** The built-in tools every Agent Run offers beside the registry that need no per-run state. */
@@ -15,7 +16,7 @@ export const BUILT_IN_TOOLS: readonly ToolRegistryEntry[] = [
 /**
  * A registry that also knows the built-in tools, so policy and argument
  * checks treat them as known. `runBuiltIns` are built-in entries bound to
- * one run, such as `describe_capabilities`. `entries` still lists only the
+ * one run, such as `describe_capabilities` and `fetch_tool_result`. `entries` still lists only the
  * user tools.
  */
 export function withBuiltInTools(

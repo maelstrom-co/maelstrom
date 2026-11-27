@@ -14,6 +14,7 @@ import type { ScreenChangeResult } from './screen-change-result.js';
 import type { ToolCallIdentity } from './server-tool-runner.js';
 import type { ToolCallFailureCode } from './tool-executor.js';
 import type { ToolRegistry } from './tool-registry.js';
+import type { ToolResultStore } from './tool-result-store.js';
 
 /**
  * Caps on one Agent Run. A run that reaches any cap stops with
@@ -110,6 +111,11 @@ export interface AgentRunInput {
   readonly logger: Logger;
   /** Where the run's `change_screen` calls go, bound to this run. */
   readonly screenChanges: AgentRunScreenChanges;
+  /**
+   * Results earlier runs of the session stored, read by `fetch_tool_result`
+   * after this run's own results. Omit when the run has no session.
+   */
+  readonly toolResults?: Pick<ToolResultStore, 'get'>;
 }
 
 /** The session's Screen Changes as one Agent Run reaches them. */
@@ -231,6 +237,8 @@ export interface AgentRunToolStartedActivity {
    * They are the model's arguments unless a middleware transformed them.
    */
   readonly args: unknown;
+  /** The result id a `fetch_tool_result` call reads. Absent for other tools. */
+  readonly resultId?: string;
 }
 
 /** How a tool call ended: it returned a result, it failed or was stopped after starting, or it never started. */
@@ -277,6 +285,10 @@ export interface AgentRunToolCompletedActivity {
   readonly durationMs?: number;
   /** The settled result. */
   readonly result: AgentRunActivityToolResult;
+  /** The result id a started `fetch_tool_result` call read. Absent for other tools. */
+  readonly resultId?: string;
+  /** JSON-serialized characters of the payload a successful `fetch_tool_result` call returned. */
+  readonly payloadChars?: number;
 }
 
 /** Turn and tool activity of one Agent Run, reported through {@link AgentRunOptions.onActivity}. */
@@ -327,6 +339,12 @@ export interface AgentRunToolResultEvent {
   readonly ok: boolean;
   /** User-safe description of the outcome, at most 200 characters. */
   readonly summary: string;
+  /**
+   * Present when the result was too large to enter the prompt, so the model
+   * saw only this id and the summary and reads the payload with
+   * `fetch_tool_result`.
+   */
+  readonly resultId?: string;
 }
 
 /** One settled call inside an {@link AgentRunToolPhaseEndedEvent}. */

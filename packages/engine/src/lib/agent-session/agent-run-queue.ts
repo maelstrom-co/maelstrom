@@ -37,6 +37,7 @@ import {
   type RunFailure,
 } from './run-events.js';
 import type { ScreenChangeQueue } from './screen-change-queue.js';
+import type { ToolCallFailureCode } from './tool-executor.js';
 import type { ToolResultStore } from './tool-result-store.js';
 import { renderScreenNote, type Transcript } from './transcript.js';
 
@@ -328,6 +329,7 @@ export function createAgentRunQueue({
           name: event.name,
           ok: event.ok,
           summary: event.summary,
+          ...(event.resultId === undefined ? {} : { resultId: event.resultId }),
         });
         return;
       case 'tool_phase_ended':
@@ -402,6 +404,7 @@ export function createAgentRunQueue({
         identity,
         clock: runClock,
         logger,
+        toolResults,
         screenChanges: {
           request: (turnId, goals) =>
             screenChanges.request({
@@ -662,6 +665,9 @@ function activityObservation(activity: AgentRunActivity): {
           turnId: activity.turnId,
           callId: activity.callId,
           toolName: activity.name,
+          ...(activity.resultId === undefined
+            ? {}
+            : { resultId: activity.resultId }),
         },
         readContent: () => ({ args: activity.args }),
       };
@@ -676,10 +682,35 @@ function activityObservation(activity: AgentRunActivity): {
           ...(activity.durationMs === undefined
             ? {}
             : { durationMs: activity.durationMs }),
+          ...(activity.result.ok
+            ? {}
+            : { errorCategory: toolErrorCategory(activity.result.code) }),
+          ...(activity.resultId === undefined
+            ? {}
+            : { resultId: activity.resultId }),
+          ...(activity.payloadChars === undefined
+            ? {}
+            : { payloadChars: activity.payloadChars }),
         },
         readContent: () => ({ result: activity.result }),
       };
     default:
       return assertNever(activity, 'agent run activity');
+  }
+}
+
+function toolErrorCategory(
+  code: ToolCallFailureCode,
+): 'validation' | 'application' | 'unknown' {
+  switch (code) {
+    case 'invalid_arguments':
+    case 'invalid_output':
+      return 'validation';
+    case 'tool_failed':
+      return 'application';
+    case 'cancelled':
+      return 'unknown';
+    default:
+      return assertNever(code, 'tool call failure code');
   }
 }
