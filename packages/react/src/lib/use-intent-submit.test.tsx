@@ -143,6 +143,41 @@ describe('useIntentSubmit', () => {
     }
   });
 
+  it('does not write explicit submitted text into an empty draft when it fails', async () => {
+    const { connector, sent, pending } = slowConnector();
+    const m = createMaelstrom({ vessels: [] });
+    const failures: IntentSubmitFailure[] = [];
+    let api!: UseIntentSubmitResult;
+
+    function Probe() {
+      api = m.useIntentSubmit({
+        shouldRestoreDraft: () => true,
+        onFailure: (failure) => failures.push(failure),
+      });
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Probe />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => {
+      api.submit('explicit text');
+    });
+    expect(sent).toHaveLength(1);
+    await act(async () => {
+      pending[0].reject(
+        new WireEngineError('401 invalid key', 'ProviderError'),
+      );
+    });
+    expect(failures).toHaveLength(1);
+    expect(api.draft).toBe('');
+  });
+
   it('uses a pluggable failure classifier to decide which failures restore the draft without overwriting newer typing', async () => {
     const { connector, sent, pending } = slowConnector();
     const m = createMaelstrom({ vessels: [] });

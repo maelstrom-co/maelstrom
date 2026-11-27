@@ -244,6 +244,7 @@ export function createUseIntentSubmit(contextPair: MaelstromContextPair) {
     const restoreDraft = useCallback(
       (tracked: TrackedSubmission) => {
         if (
+          tracked.clearedDraft &&
           latestSubmission.current === tracked &&
           draftRevision.current === tracked.revision &&
           !current.current.draft
@@ -301,13 +302,15 @@ export function createUseIntentSubmit(contextPair: MaelstromContextPair) {
         }
         const submitted = orchestrator.submit(trimmed, { source: 'text' });
         const owner = lifetime.current;
-        if (submitted.accepted && usingDraft) {
+        const clearedDraft = submitted.accepted && usingDraft;
+        if (clearedDraft) {
           setDraft('');
         }
         const tracked: TrackedSubmission = {
           rawText,
           revision: draftRevision.current,
           accepted: submitted.accepted,
+          clearedDraft,
         };
         latestSubmission.current = tracked;
         current.current.onSubmitted?.(submitted, rawText);
@@ -398,6 +401,7 @@ interface TrackedSubmission {
   readonly rawText: string;
   readonly revision: number;
   readonly accepted: boolean;
+  readonly clearedDraft: boolean;
 }
 
 interface StaleSubmission {
