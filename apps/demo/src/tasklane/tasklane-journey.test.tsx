@@ -44,10 +44,7 @@ import {
   __resetTaskDetailStoreForTests,
   getTaskDetailSnapshot,
 } from './stores/task-detail.store';
-import {
-  TASKLANE_INTENT_EXAMPLES,
-  TasklaneIntentForm,
-} from './tasklane-intent-form';
+import { TASKLANE_INTENT_EXAMPLES } from './tasklane-intent-form';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
@@ -625,10 +622,13 @@ describe('Tasklane example chips', () => {
       'Show team load',
       layoutBesideBoard('V', TEAM_LOAD, 'team-load', 'bars'),
     );
+    const draft = screen.getByLabelText<HTMLInputElement>('Ask Tasklane');
+    const draftBeforeChip = draft.value;
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Show team load' }));
     });
     await screen.findByRole('list', { name: 'Team load' }, { timeout: 3000 });
+    expect(draft.value).toBe(draftBeforeChip);
 
     await ask('Show team load');
     await waitFor(() =>
@@ -636,29 +636,6 @@ describe('Tasklane example chips', () => {
         userIntents().filter((intent) => intent === 'Show team load'),
       ).toHaveLength(2),
     );
-  });
-
-  it('routes a chip click and a typed send through the one onSubmit handler', () => {
-    const onSubmit = vi.fn();
-    const onIntentChange = vi.fn();
-    render(
-      <TasklaneIntentForm
-        intent="Turn this feedback into tasks."
-        onIntentChange={onIntentChange}
-        onSubmit={onSubmit}
-        submitLabel="Send"
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onSubmit).toHaveBeenLastCalledWith();
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Make the feedback panel bigger' }),
-    );
-    expect(onSubmit).toHaveBeenLastCalledWith('Make the feedback panel bigger');
-    expect(onSubmit).toHaveBeenCalledTimes(2);
-    expect(onIntentChange).not.toHaveBeenCalled();
   });
 
   it('keeps a chip clicked without a key as the draft and asks for the key', async () => {
