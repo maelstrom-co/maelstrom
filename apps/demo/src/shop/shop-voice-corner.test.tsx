@@ -355,3 +355,42 @@ describe('ShopVoiceCorner turn controls', () => {
     );
   });
 });
+
+describe('ShopVoiceCorner hold mode switch', () => {
+  it('turns hold to talk on and off while turnControl can change mode', () => {
+    const setTurnMode = vi.fn(async () => {});
+    const turnControl = { ...makeTurnControl(), setTurnMode };
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      turnMode: 'automatic',
+      turnControl,
+    });
+    const { getByRole, queryByRole, rerender } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+    fireEvent.click(getByRole('switch', { name: 'Hold mode' }));
+    expect(setTurnMode).toHaveBeenLastCalledWith('manual');
+
+    voiceResult = makeVoiceResult('connected', {
+      provider: 'live',
+      turnMode: 'manual',
+      turnControl,
+    });
+    rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
+    expect(getByRole('button', { name: 'Hold to talk' })).toBeTruthy();
+    fireEvent.click(getByRole('switch', { name: 'Hold mode' }));
+    expect(setTurnMode).toHaveBeenLastCalledWith('automatic');
+  });
+
+  it('hides the switch for a control without setTurnMode', () => {
+    voiceResult = makeVoiceResult('connected', {
+      turnMode: 'manual',
+      turnControl: makeTurnControl(),
+    });
+    const { queryByRole } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(queryByRole('switch', { name: 'Hold mode' })).toBeNull();
+  });
+});

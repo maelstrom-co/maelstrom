@@ -3,7 +3,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
@@ -149,5 +149,30 @@ describe('TasklaneVoiceCorner turn controls', () => {
     });
     rerender(<TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
     expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+  });
+});
+
+describe('TasklaneVoiceCorner hold mode switch', () => {
+  it('shows the switch only while turnControl can change mode', () => {
+    voiceResult = makeVoiceResult('connected', {
+      turnMode: 'automatic',
+      turnControl: makeTurnControl(),
+    });
+    const { queryByRole, rerender } = render(
+      <TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(queryByRole('switch', { name: 'Hold mode' })).toBeNull();
+
+    const setTurnMode = vi.fn(async () => {});
+    voiceResult = makeVoiceResult('connected', {
+      turnMode: 'automatic',
+      turnControl: { ...makeTurnControl(), setTurnMode },
+    });
+    rerender(<TasklaneVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
+    const toggle = queryByRole('switch', { name: 'Hold mode' });
+    expect(toggle).toBeTruthy();
+    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+    fireEvent.click(toggle!);
+    expect(setTurnMode).toHaveBeenCalledWith('manual');
   });
 });

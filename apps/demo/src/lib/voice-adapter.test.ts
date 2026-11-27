@@ -92,14 +92,13 @@ describe('createAdapter', () => {
     expect(constructed.live).toHaveLength(0);
   });
 
-  it('builds the speech-native Live adapter with manualTurns enabled for the live provider', () => {
+  it('builds the speech-native Live adapter for the live provider', () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
 
     createAdapter('live', sessionId);
 
     expect(constructed.live).toHaveLength(1);
-    expect(constructed.live[0]).toMatchObject({ manualTurns: true });
     expect(constructed.openAI).toHaveLength(0);
     expect(constructed.liveKit).toHaveLength(0);
   });

@@ -317,6 +317,26 @@ describe('VoiceControl status and SDK controls', () => {
     ).toContain('text-amber-300');
   });
 
+  it('shows the hold mode switch only while turnControl can change mode', () => {
+    voiceResult = makeVoiceResult(
+      'connected',
+      { startTurn: async () => {}, endTurn: async () => {} },
+      'manual',
+    );
+    const { queryByRole, rerender } = render(<VoiceControl />);
+    expect(queryByRole('switch', { name: 'Hold mode' })).toBeNull();
+
+    const setTurnMode = vi.fn(async () => {});
+    voiceResult = makeVoiceResult(
+      'connected',
+      { startTurn: async () => {}, endTurn: async () => {}, setTurnMode },
+      'automatic',
+    );
+    rerender(<VoiceControl />);
+    fireEvent.click(queryByRole('switch', { name: 'Hold mode' })!);
+    expect(setTurnMode).toHaveBeenCalledWith('manual');
+  });
+
   it('can hide the inline orb when the shell already renders one', () => {
     voiceResult = makeVoiceResult('connected', undefined, 'automatic');
 

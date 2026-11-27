@@ -2,6 +2,7 @@ import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { MouseEvent, ReactNode } from 'react';
 
 import { EnablePlaybackButton } from '../components/enable-playback-button';
+import { TurnModeToggle } from '../components/turn-mode-toggle';
 import { useLivePlaybackBlocked } from '../lib/use-live-playback-blocked';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { isVoiceConnected } from '../lib/voice-session-state';
@@ -88,10 +89,16 @@ export function ShopVoiceCorner({
         )}
         {holdToTalk && (
           <shopM.HoldToTalkControl
-            className="shop-voice-pill status-pill select-none touch-none"
+            className="shop-voice-pill shop-voice-control status-pill select-none touch-none"
             guidanceClassName="min-w-0 text-xs text-amber-300"
           />
         )}
+        <TurnModeToggle
+          turnControl={turnControl}
+          turnMode={turnMode}
+          switching={switching}
+          className="shop-voice-pill shop-voice-control status-pill"
+        />
         <span
           className="shop-voice-disclosure"
           data-testid="ai-voice-disclosure"
