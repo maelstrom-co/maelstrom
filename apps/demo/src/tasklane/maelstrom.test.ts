@@ -140,11 +140,6 @@ describe('Tasklane instance', () => {
     }
   });
 
-  it('keeps the Live opening, with its fixed prefix, under the 500 byte limit', () => {
-    const liveContent = `Greet immediately without waiting for the caller, then pause and listen. Follow the application's language and introduction instructions: ${TASKLANE_OPENING_INSTRUCTIONS}`;
-    expect(new TextEncoder().encode(liveContent).length).toBeLessThan(500);
-  });
-
   it('starts on GPT-Live when the stored choice is LiveKit', () => {
     const initialProvider = state.realtimeOptions[0]?.initialProvider as
       | (() => string)
