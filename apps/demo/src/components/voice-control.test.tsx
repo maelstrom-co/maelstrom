@@ -11,6 +11,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
+import { createVoiceMuteToggleStub } from '../lib/__tests__/voice-mute-toggle-stub';
 
 // voice-control.tsx only touches `m.useVoice`, `m.useVoiceObservations`,
 // `m.VoiceOrb`, and `m.HoldToTalkControl` — faking the module boundary here
@@ -33,19 +34,7 @@ vi.doMock('../lib/maelstrom', () => ({
         data-guidance-class={props.guidanceClassName}
       />
     ),
-    VoiceMuteToggle: (props: { className?: string }) =>
-      voiceResult.state !== 'idle' && voiceResult.state !== 'error' ? (
-        <button
-          type="button"
-          data-testid="voice-mute-toggle"
-          aria-label={
-            voiceResult.inputMuted ? 'Unmute microphone' : 'Mute microphone'
-          }
-          aria-pressed={voiceResult.inputMuted}
-          className={props.className}
-          onClick={() => voiceResult.setInputMuted(!voiceResult.inputMuted)}
-        />
-      ) : null,
+    VoiceMuteToggle: createVoiceMuteToggleStub(() => voiceResult),
   },
 }));
 

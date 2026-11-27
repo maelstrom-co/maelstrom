@@ -7,6 +7,7 @@ import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
+import { createVoiceMuteToggleStub } from '../lib/__tests__/voice-mute-toggle-stub';
 import type { TasklaneVoiceProvider } from './voice-providers';
 
 type TasklaneVoiceResult = UseVoiceResult<TasklaneVoiceProvider>;
@@ -34,19 +35,7 @@ vi.doMock('./maelstrom', () => ({
         Hold to talk
       </button>
     ),
-    VoiceMuteToggle: (props: { className?: string }) =>
-      voiceResult.state !== 'idle' && voiceResult.state !== 'error' ? (
-        <button
-          type="button"
-          data-testid="voice-mute-toggle"
-          aria-label={
-            voiceResult.inputMuted ? 'Unmute microphone' : 'Mute microphone'
-          }
-          aria-pressed={voiceResult.inputMuted}
-          className={props.className}
-          onClick={() => voiceResult.setInputMuted(!voiceResult.inputMuted)}
-        />
-      ) : null,
+    VoiceMuteToggle: createVoiceMuteToggleStub(() => voiceResult),
   },
 }));
 
