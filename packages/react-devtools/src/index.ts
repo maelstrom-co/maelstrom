@@ -15,7 +15,7 @@ export function devtools(
 ): MaelstromExtension<DevtoolsExtension> {
   return (context) => {
     if (process.env.NODE_ENV !== 'development' || options.enabled === false)
-      return { Devtools: () => null };
+      return { Devtools: () => null, disposeDevtools: () => {} };
     return createExtension(options)(context);
   };
 }

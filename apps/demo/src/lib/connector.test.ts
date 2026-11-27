@@ -8,7 +8,7 @@ import {
   buildWsUrl,
   createDemoConnector,
 } from './connector';
-import { diagnosticCapture } from './diagnostic-capture';
+import { DiagnosticCapture, diagnosticCapture } from './diagnostic-capture';
 import { engineMetadata } from './engine-metadata';
 
 /**
@@ -170,6 +170,82 @@ describe('buildPlaygroundHello', () => {
 });
 
 describe('createDemoConnector', () => {
+  it.each([false, true])(
+    'records model updates after recording starts across reconnect and replacement (scoped=%s)',
+    async (scoped) => {
+      vi.stubEnv('VITE_HOSTED', '0');
+      vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+      const restore = installFakeWebSocket();
+      const capture = scoped ? new DiagnosticCapture() : diagnosticCapture;
+      const options = scoped ? { capture } : {};
+      const preparation = createDemoConnector(options);
+      const live = createDemoConnector(options);
+      const globalRecord = vi.spyOn(diagnosticCapture, 'record');
+      capture.start('maelstrom');
+      const observeModel = async (
+        connector: ReturnType<typeof createDemoConnector>,
+        session: string,
+        model: string,
+      ) => {
+        const connected = connector.connect(SessionId(session));
+        const socket = FakeWebSocket.instances.at(-1)!;
+        socket.emitOpen();
+        await connected;
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: 'playground.metadata',
+            engineModel: model,
+            source: 'server-configuration',
+            apiKey: 'sk-private-metadata-extra',
+          }),
+        });
+      };
+      try {
+        await observeModel(preparation, 'preparation', 'preparation-model');
+        await observeModel(preparation, 'preparation', 'reconnected-model');
+        await preparation.disconnect();
+        await observeModel(live, 'live', 'live-model');
+        await live.disconnect();
+        expect(capture.getSnapshot().active).toBe(true);
+        const exported = JSON.parse(capture.export());
+        expect(
+          exported.events.filter(
+            (event: { kind: string }) => event.kind === 'engine_metadata',
+          ),
+        ).toMatchObject([
+          {
+            sessionId: 'preparation',
+            engineModel: 'preparation-model',
+            source: 'server-configuration',
+          },
+          {
+            sessionId: 'preparation',
+            engineModel: 'reconnected-model',
+            source: 'server-configuration',
+          },
+          {
+            sessionId: 'live',
+            engineModel: 'live-model',
+            source: 'server-configuration',
+          },
+        ]);
+        expect(capture.export()).not.toContain('sk-private-metadata-extra');
+        if (scoped) expect(globalRecord).not.toHaveBeenCalled();
+        else
+          expect(globalRecord).toHaveBeenCalledWith(
+            'engine_metadata',
+            expect.objectContaining({ engineModel: 'live-model' }),
+          );
+      } finally {
+        await preparation.disconnect();
+        await live.disconnect();
+        capture.clear();
+        globalRecord.mockRestore();
+        restore();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
   it('ignores late model metadata from an older socket on the same connector', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');

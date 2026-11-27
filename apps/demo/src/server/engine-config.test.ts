@@ -1,9 +1,9 @@
-import type { AgentConfig } from '@maelstrom-co/engine';
+import type { AgentConfig, EngineConfig } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const createEngineMock = vi.hoisted(() =>
-  vi.fn((_config: { agent?: unknown }) => ({})),
+  vi.fn((_config: EngineConfig) => ({})),
 );
 const plannerMocks = vi.hoisted(() => ({
   llmPlanner: vi.fn(() => () => undefined),
@@ -20,6 +20,7 @@ vi.mock('@maelstrom-co/planner-llm', async (importOriginal) => ({
   ...plannerMocks,
 }));
 
+import { validateLivePlan } from '../talking-points/live-plan';
 import {
   createDemoAgentConfig,
   createJevPlaygroundEngine,
@@ -90,6 +91,12 @@ describe('playground engines and the agent slot', () => {
   };
 
   for (const [name, build] of Object.entries(builders)) {
+    it(`${name} installs the same live policy for every chart request`, () => {
+      build();
+      expect(createEngineMock.mock.calls[0]?.[0].validatePlan).toBe(
+        validateLivePlan,
+      );
+    });
     it(`${name} passes the exact agent reference to createEngine`, () => {
       build(agent);
 

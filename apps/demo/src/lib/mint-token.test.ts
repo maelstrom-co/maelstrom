@@ -337,3 +337,126 @@ describe('mintOpenAIToken', () => {
     expect((error as Error).message).not.toMatch(/unexpected token/i);
   });
 });
+
+describe('Talking Points transcription grants', () => {
+  it('mints a dedicated input-only GA grant with the visitor key and caller cancellation', async () => {
+    const { createBrowserMintTranscriptionToken } =
+      await import('./mint-token');
+    const controller = new AbortController();
+    const calls: RequestInit[] = [];
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      calls.push(init!);
+      return Response.json({
+        value: 'ek_transcription',
+        expires_at: 1_800_000_000,
+      });
+    }) as typeof fetch;
+    const grant = await createBrowserMintTranscriptionToken(
+      () => 'visitor-test-key',
+    )(controller.signal);
+    expect(grant).toMatchObject({
+      value: 'ek_transcription',
+      model: 'gpt-4o-transcribe',
+    });
+    expect(JSON.parse(String(calls[0].body))).toEqual({
+      expires_after: { anchor: 'created_at', seconds: 600 },
+      session: {
+        type: 'transcription',
+        audio: {
+          input: {
+            transcription: { model: 'gpt-4o-transcribe' },
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 500,
+            },
+          },
+        },
+      },
+    });
+    expect(calls[0]).toMatchObject({
+      redirect: 'error',
+      headers: { Authorization: 'Bearer visitor-test-key' },
+    });
+    controller.abort();
+    expect(calls[0].signal?.aborted).toBe(true);
+  });
+  it('requests only the dedicated server intent, propagates cancellation and validates the returned model', async () => {
+    const { mintOpenAITranscriptionToken } = await import('./mint-token');
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      Response.json({
+        provider: 'openai',
+        value: 'ek_capture',
+        expiresAt: 1_800_000_000,
+        model: 'gpt-4o-transcribe',
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await mintOpenAITranscriptionToken(
+      SessionId('sess-transcription'),
+      controller.signal,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/realtime-token',
+      expect.objectContaining({
+        redirect: 'error',
+        body: JSON.stringify({
+          provider: 'openai',
+          sessionId: 'sess-transcription',
+          intent: 'talking-points-transcription',
+        }),
+      }),
+    );
+    controller.abort();
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    fetchMock.mockResolvedValue(
+      Response.json({
+        provider: 'openai',
+        value: 'ek_wrong',
+        expiresAt: 1_800_000_000,
+        model: 'gpt-realtime',
+      }),
+    );
+    await expect(
+      mintOpenAITranscriptionToken(
+        SessionId('sess-transcription'),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Unexpected transcription grant model');
+  });
+
+  it('does not expose failed server response bodies', async () => {
+    const { mintOpenAITranscriptionToken } = await import('./mint-token');
+    globalThis.fetch = vi.fn(
+      async () => new Response('sensitive server detail', { status: 502 }),
+    ) as unknown as typeof fetch;
+    await expect(
+      mintOpenAITranscriptionToken(
+        SessionId('sess-transcription'),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Token mint failed with status 502');
+  });
+
+  it('keeps BYOK missing-key and upstream failures redacted for the transcription path', async () => {
+    const { createBrowserMintTranscriptionToken } =
+      await import('./mint-token');
+    const fetchMock = vi.fn(
+      async () => new Response('sensitive provider detail', { status: 401 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await expect(
+      createBrowserMintTranscriptionToken(() => null)(
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('No API key set');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(
+      createBrowserMintTranscriptionToken(() => 'visitor-test-key')(
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Invalid API key');
+  });
+});

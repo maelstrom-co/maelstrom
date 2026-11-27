@@ -1,5 +1,6 @@
 import type {
   AgentMessageSubmission,
+  IntentScope,
   Orchestrator,
   TranscriptEntry,
   VoiceObservationSnapshot,
@@ -162,6 +163,15 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
+  /**
+   * Creates a fresh connection-owned scope backed by the owning Orchestrator's
+   * intent scheduler. Called lazily on connect, including reconnects and after
+   * provider replacement; defaults to `orchestrator.createIntentScope()`.
+   * Wrappers must preserve the original submission tickets and results, and
+   * forward retirement only to their own scope so pending work retires without
+   * interrupting active work. Unused when `sendAgentMessage` is set.
+   */
+  readonly createIntentScope?: (orchestrator: Orchestrator) => IntentScope;
   /**
    * Sends each voice `submit_intent` intent to the agent instead of the intent
    * scheduler, normally by returning `orchestrator.sendMessage(text, {

@@ -16,6 +16,8 @@ test('production extension requires no Provider, DOM, or observation hooks', () 
       return () => {};
     },
   });
+  result.disposeDevtools();
+  result.disposeDevtools();
   expect(renderToString(createElement(result.Devtools))).toBe('');
   expect(observed).toBe(false);
 });

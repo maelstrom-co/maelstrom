@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShopRouteImport } from './routes/shop'
+import { Route as TalkingPointsRouteImport } from './routes/talking-points'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as ApiDemoGreetingTtsRouteImport } from './routes/api/demo-greeting-tts'
 import { Route as ApiLiveSessionRouteImport } from './routes/api/live-session'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const ShopRoute = ShopRouteImport.update({
   id: '/shop',
   path: '/shop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TalkingPointsRoute = TalkingPointsRouteImport.update({
+  id: '/talking-points',
+  path: '/talking-points',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TasksRoute = TasksRouteImport.update({
@@ -50,6 +56,7 @@ const ApiRealtimeTokenRoute = ApiRealtimeTokenRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/shop': typeof ShopRoute
+  '/talking-points': typeof TalkingPointsRoute
   '/tasks': typeof TasksRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/shop': typeof ShopRoute
+  '/talking-points': typeof TalkingPointsRoute
   '/tasks': typeof TasksRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/shop': typeof ShopRoute
+  '/talking-points': typeof TalkingPointsRoute
   '/tasks': typeof TasksRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/shop'
+    | '/talking-points'
     | '/tasks'
     | '/api/demo-greeting-tts'
     | '/api/live-session'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/shop'
+    | '/talking-points'
     | '/tasks'
     | '/api/demo-greeting-tts'
     | '/api/live-session'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/shop'
+    | '/talking-points'
     | '/tasks'
     | '/api/demo-greeting-tts'
     | '/api/live-session'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShopRoute: typeof ShopRoute
+  TalkingPointsRoute: typeof TalkingPointsRoute
   TasksRoute: typeof TasksRoute
   ApiDemoGreetingTtsRoute: typeof ApiDemoGreetingTtsRoute
   ApiLiveSessionRoute: typeof ApiLiveSessionRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/shop'
       fullPath: '/shop'
       preLoaderRoute: typeof ShopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/talking-points': {
+      id: '/talking-points'
+      path: '/talking-points'
+      fullPath: '/talking-points'
+      preLoaderRoute: typeof TalkingPointsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks': {
@@ -158,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShopRoute: ShopRoute,
+  TalkingPointsRoute: TalkingPointsRoute,
   TasksRoute: TasksRoute,
   ApiDemoGreetingTtsRoute: ApiDemoGreetingTtsRoute,
   ApiLiveSessionRoute: ApiLiveSessionRoute,

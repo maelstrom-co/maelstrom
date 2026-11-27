@@ -20,6 +20,8 @@ import {
   createEngine,
   createInMemoryStore,
   type Engine,
+  type HistoryConfig,
+  type HistoryEntry,
 } from '@maelstrom-co/engine';
 import {
   jevComposedPairsPlanner,
@@ -32,12 +34,34 @@ import {
   llmPlanner,
 } from '@maelstrom-co/planner-llm';
 
+import { isLiveRequest, validateLivePlan } from '../talking-points/live-plan';
 import { latestOrderTool } from './latest-order-tool';
 import { PLAYGROUND_SYSTEM_RULES } from './planner-system-rules';
 import { searchProductsTool } from './search-products-tool';
 
 const MAX_RETRIES = 2;
 const HISTORY_MAX_ENTRIES = 20;
+
+function createPlaygroundHistory(): HistoryConfig {
+  const store = createInMemoryStore();
+  const retain = (entry: HistoryEntry) =>
+    entry.kind !== 'turn' || !isLiveRequest(entry.input.request);
+  return {
+    maxEntries: HISTORY_MAX_ENTRIES,
+    deriveLLMContext: (entry, defaults) => (retain(entry) ? defaults() : []),
+    store: {
+      ...store,
+      // Live evidence/results must not outlive their bounded request. Completed
+      // live IDs therefore have no history replay; the live client never retries.
+      append: (sessionId, entry) =>
+        retain(entry)
+          ? store.append(sessionId, entry)
+          : Promise.resolve({ inserted: false }),
+      replace: (sessionId, entries) =>
+        store.replace(sessionId, entries.filter(retain)),
+    },
+  };
+}
 const DEMO_AGENT_INSTRUCTIONS = [
   'You are the assistant for the pet shop demo. Use your tools to look up order data instead of guessing, and answer briefly.',
   'To put something on screen, call change_screen with a plain goal that itself contains the exact values, for example the order id, and put the same values in referents.',
@@ -93,11 +117,9 @@ export function createPlaygroundEngine(
         ? {}
         : { modelOptions: options.modelOptions }),
     }),
+    validatePlan: validateLivePlan,
     retry: { max: MAX_RETRIES },
-    history: {
-      store: createInMemoryStore(),
-      maxEntries: HISTORY_MAX_ENTRIES,
-    },
+    history: createPlaygroundHistory(),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     ...(options.agent === undefined ? {} : { agent: options.agent }),
   });
@@ -146,11 +168,9 @@ export function createJevPlaygroundEngine(
         ...modelOptions,
       }),
     }),
+    validatePlan: validateLivePlan,
     retry: false,
-    history: {
-      store: createInMemoryStore(),
-      maxEntries: HISTORY_MAX_ENTRIES,
-    },
+    history: createPlaygroundHistory(),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     ...(options.agent === undefined ? {} : { agent: options.agent }),
   });

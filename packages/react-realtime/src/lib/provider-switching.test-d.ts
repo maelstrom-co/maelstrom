@@ -1,3 +1,4 @@
+import type { IntentScope, Orchestrator } from '@maelstrom-co/client';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 
 import type { MaelstromRealtimeOptions, UseVoiceResult } from '../index.js';
@@ -44,6 +45,11 @@ maelstromRealtime({
     provider === 'live'
       ? { generatedOpening: { instructions: 'Introduce yourself.' } }
       : { greeting: { text: 'Hello.' } },
+  createIntentScope: (orchestrator) => {
+    const owner: Orchestrator = orchestrator;
+    const scope: IntentScope = owner.createIntentScope();
+    return scope;
+  },
   onSession: (_session, { instanceId, adapter: built }) => {
     void instanceId;
     void built;

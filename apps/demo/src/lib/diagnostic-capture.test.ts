@@ -20,6 +20,29 @@ describe('local diagnostic capture', () => {
       }
     },
   );
+  it.each(['live', 'livekit', 'realtime'] as const)(
+    'labels a scoped realtime capture independently of global %s',
+    (provider) => {
+      const previous = voiceProviderStore.state.provider;
+      try {
+        voiceProviderStore.setState(() => ({ provider }));
+        const capture = new DiagnosticCapture(
+          () => null,
+          () => 'realtime',
+        );
+        capture.start('maelstrom', 'session', 'provider');
+        expect(JSON.parse(capture.export()).metadata).toMatchObject({
+          mode: 'realtime',
+          voiceModel: null,
+          defaultVoiceModel: 'gpt-realtime-2.1',
+          managedModel: null,
+        });
+        expect(voiceProviderStore.state.provider).toBe(provider);
+      } finally {
+        selectVoiceProvider(previous);
+      }
+    },
+  );
   it('does not present the Realtime default as the model used by a server-owned session', () => {
     const capture = new DiagnosticCapture();
     capture.start('realtime', 'session', 'provider');

@@ -26,6 +26,12 @@ afterEach(() => {
 });
 
 describe('app identity', () => {
+  it('keeps Talking Points and Tasklane discoverable only by URL', () => {
+    const { container } = render(<DemoHeader>{null}</DemoHeader>);
+    expect(container.querySelector('a[href="/talking-points"]')).toBeNull();
+    expect(container.querySelector('a[href="/tasks"]')).toBeNull();
+  });
+
   it('names Dayline as the app and Maelstrom as what powers it', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
     expect(getByRole('heading', { level: 1 }).textContent).toBe('Dayline');

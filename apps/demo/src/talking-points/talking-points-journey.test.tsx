@@ -1,0 +1,1375 @@
+// @vitest-environment happy-dom
+
+import { DiagnosticChannel, type ConnectorEvent } from '@maelstrom-co/client';
+import {
+  ActionName,
+  type ChartRequestMessage,
+  InstanceId,
+  type MaelstromResponse,
+  VariantName,
+} from '@maelstrom-co/protocol';
+import type { RealtimeInstance } from '@maelstrom-co/realtime';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { StrictMode } from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
+import { createMockConnector } from '../lib/__tests__/mock-connector';
+import type { CreateDemoConnectorOptions } from '../lib/connector';
+import {
+  clearPlaygroundKey,
+  setPlaygroundKey,
+} from '../lib/playground-key-store';
+import { selectVoiceProvider } from '../lib/voice-provider';
+import type { LiveCaptureOptions } from './live-capture';
+import { OUTLINE_STORAGE_KEY, type Topic } from './outline.store';
+
+vi.mock('@maelstrom-co/realtime', async (original) => ({
+  ...(await original<typeof import('@maelstrom-co/realtime')>()),
+  RealtimeSession: FakeRealtimeSession,
+}));
+vi.mock('@maelstrom-co/realtime-openai', () => ({
+  OpenAIAdapter: class {
+    activateAudio() {}
+  },
+}));
+vi.mock('../lib/hosted-vad', () => ({
+  HOSTED_VAD_MODEL: 'legacy',
+  preloadHostedVadAssets: async () => {},
+}));
+const liveCapture = vi.hoisted(() => ({
+  callbacks: undefined as LiveCaptureOptions | undefined,
+  ready: undefined as (() => void) | undefined,
+  begin: vi.fn(),
+  stop: vi.fn(),
+  dispose: vi.fn(),
+  commit: vi.fn(() => ({ status: 'sent', eventId: 'commit' })),
+}));
+vi.mock('./live-capture', () => ({
+  createLiveCapture: (options: LiveCaptureOptions) => {
+    liveCapture.callbacks = options;
+    return {
+      start: () =>
+        new Promise((resolve) => {
+          options.diagnostics?.captureState('starting');
+          liveCapture.ready = () => {
+            options.diagnostics?.control(true, true);
+            options.diagnostics?.captureState('ready');
+            resolve({ inputOnly: true, turnMode: 'server_vad' });
+          };
+        }),
+      beginCapture: () => {
+        liveCapture.begin();
+        options.diagnostics?.captureState('capturing');
+        options.diagnostics?.microphone(true);
+      },
+      stopCapture: () => {
+        liveCapture.stop();
+        options.diagnostics?.captureState('stopped');
+        options.diagnostics?.microphone(false);
+      },
+      dispose: liveCapture.dispose,
+      commitFinalAudio: liveCapture.commit,
+    };
+  },
+}));
+const engine = vi.hoisted(() => ({
+  requests: [] as ChartRequestMessage[],
+  sessions: [] as string[],
+  captures: [] as CreateDemoConnectorOptions['capture'][],
+  release: undefined as (() => void) | undefined,
+  delayConnection: false,
+  connections: [] as {
+    emit: (event: ConnectorEvent) => void;
+    ready: () => void;
+    reject: () => void;
+    connect: ReturnType<typeof vi.fn>;
+  }[],
+}));
+vi.mock('../lib/connector', () => ({
+  createDemoConnector: ({
+    sessionId,
+    capture,
+  }: CreateDemoConnectorOptions & { sessionId: string }) => {
+    engine.sessions.push(sessionId);
+    engine.captures.push(capture);
+    const subscribers = new Set<(event: ConnectorEvent) => void>();
+    const base = createMockConnector();
+    const connection = {
+      emit: (event: ConnectorEvent) => {
+        for (const listener of [...subscribers]) listener(event);
+      },
+      ready: () => {},
+      reject: () => {},
+      connect: vi.fn(async () => {
+        if (engine.delayConnection)
+          await new Promise<void>((resolve, reject) => {
+            connection.ready = resolve;
+            connection.reject = () =>
+              reject(new Error('private startup error'));
+          });
+        await base.connect(sessionId as never);
+      }),
+    };
+    engine.connections.push(connection);
+    return {
+      ...base,
+      connect: connection.connect,
+      subscribe: (listener: (event: ConnectorEvent) => void) => {
+        subscribers.add(listener);
+        return () => {
+          subscribers.delete(listener);
+        };
+      },
+      disconnect: async () =>
+        connection.emit({
+          type: 'disconnected',
+          clean: true,
+          message: 'test disconnect',
+        }),
+      process: async (
+        message: ChartRequestMessage,
+      ): Promise<MaelstromResponse> => {
+        engine.requests.push(message);
+        const reason = message.request.context.updateReasons.find(
+          (reason) => reason.type === 'user_intent',
+        );
+        const intent = reason?.type === 'user_intent' ? reason.intent : '';
+        if (intent === 'Delayed unconfirmed preparation') {
+          await new Promise<void>((resolve) => {
+            engine.release = resolve;
+          });
+          throw new Error('Connection lost after submission');
+        }
+        if (intent === 'Unconfirmed preparation')
+          throw new Error('Connection lost after submission');
+        if (
+          intent.startsWith('Evaluate semantic coverage') &&
+          message.request.layout?.type === 'tiling'
+        )
+          return {
+            type: 'maelstrom_response',
+            requestId: message.id,
+            userMessage: '',
+            rationale: '',
+            layout: message.request.layout,
+            executionPlan: message.request.layout.instances.map(
+              ({ instanceId }) => ({
+                instanceId,
+                action: ActionName('mark'),
+                params: {},
+              }),
+            ),
+          };
+        const topics = publishedTopics(message);
+        if (intent === 'Mark closing spoken')
+          return {
+            type: 'maelstrom_response',
+            requestId: message.id,
+            userMessage: 'Marked.',
+            rationale: '',
+            layout: message.request.layout,
+            executionPlan: [
+              {
+                instanceId: InstanceId(
+                  `topic-${topics.find((topic) => topic.content === 'Closing with a question')!.id}-main`,
+                ),
+                action: ActionName('mark'),
+                params: {},
+              },
+            ],
+          };
+        const steps: [string, Record<string, unknown>][] = [];
+        if (intent === 'Add opening and closing') {
+          await new Promise<void>((resolve) => {
+            engine.release = resolve;
+          });
+          steps.push(
+            ['createTopic', { content: 'Opening' }],
+            ['createTopic', { content: 'Closing' }],
+          );
+        }
+        if (intent === 'Put the closing first and expand it') {
+          const closing = topics.find((topic) => topic.content === 'Closing')!;
+          steps.push(
+            [
+              'editTopic',
+              { topic: closing.id, content: 'Closing with a question' },
+            ],
+            ['moveTopic', { topic: closing.id, position: 1 }],
+          );
+        }
+        if (intent === 'Remove opening')
+          steps.push([
+            'removeTopic',
+            { topic: topics.find((topic) => topic.content === 'Opening')!.id },
+          ]);
+        return {
+          type: 'maelstrom_response',
+          requestId: message.id,
+          userMessage: 'Prepared.',
+          rationale: '',
+          layout: message.request.layout,
+          executionPlan: steps.map(([action, params]) => ({
+            instanceId: InstanceId('outline-main'),
+            action: ActionName(action),
+            params,
+          })),
+        };
+      },
+    };
+  },
+}));
+
+beforeEach(() => {
+  vi.stubEnv('VITE_HOSTED', '1');
+  selectVoiceProvider('realtime');
+  setPlaygroundKey('sk-outline-test-12345678901234567890');
+  localStorage.clear();
+  engine.requests = [];
+  engine.sessions = [];
+  engine.captures = [];
+  engine.release = undefined;
+  engine.delayConnection = false;
+  engine.connections = [];
+  FakeRealtimeSession.instances = [];
+  liveCapture.callbacks = undefined;
+  liveCapture.ready = undefined;
+  liveCapture.begin.mockClear();
+  liveCapture.stop.mockClear();
+  liveCapture.dispose.mockClear();
+  liveCapture.commit.mockClear();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+afterEach(() => {
+  cleanup();
+  clearPlaygroundKey();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+it('shows only the active runtime DevTools through preparation, Start, Reset and disposal without recording', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { talkingPointsDiagnosticCapture: diagnosticCapture } =
+    await import('./maelstrom');
+  const captureBefore = diagnosticCapture.getSnapshot();
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  const mounted = render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+
+  const panel = () => {
+    const hosts = document.querySelectorAll('[data-maelstrom-devtools]');
+    expect(hosts).toHaveLength(1);
+    return hosts[0]!.shadowRoot!;
+  };
+  const click = (root: ShadowRoot, name: string) => {
+    const button = Array.from(root.querySelectorAll('button')).find(
+      (button) =>
+        (button.getAttribute('aria-label') ?? button.textContent) === name,
+    );
+    expect(button).toBeDefined();
+    fireEvent.click(button!);
+  };
+  const inspect = (root: ShadowRoot) => {
+    click(root, 'Open Maelstrom Devtools');
+    click(root, 'Inspector');
+  };
+  const preparation = panel();
+  inspect(preparation);
+  expect(preparation.textContent).toContain('Registered Vessels · 2');
+  expect(preparation.textContent).toContain('Outline preparation');
+  expect(preparation.textContent).not.toContain('Live Topic');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  const live = panel();
+  expect(live).not.toBe(preparation);
+  expect(preparation.host.isConnected).toBe(false);
+  inspect(live);
+  expect(live.textContent).toContain('Registered Vessels · 1');
+  expect(live.textContent).toContain('Live Topic');
+  expect(live.textContent).not.toContain('Outline preparation');
+  await act(async () => liveCapture.ready!());
+  const oldCapture = liveCapture.callbacks!;
+  const oldEngine = engine.connections[1]!;
+  click(live, 'Voice');
+  const evidenceSource = live.querySelector('[aria-label="Evidence source"]')!;
+  fireEvent.change(evidenceSource, { target: { value: 'live' } });
+  await waitFor(() =>
+    expect(live.querySelector('.voice-events')?.textContent).toContain(
+      'listening',
+    ),
+  );
+  expect(
+    live.querySelector('[aria-label="Voice evidence timeline"]'),
+  ).not.toBeNull();
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'Not linked to a turn',
+  );
+  expect(live.querySelector('.voice-requests')).toBeNull();
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'Capture ready',
+  );
+  expect(live.querySelector('.voice-events')?.textContent).toContain('begin');
+  act(() => {
+    oldCapture.diagnostics!.providerEvent(
+      'conversation.item.input_audio_transcription.failed',
+    );
+    oldCapture.onTranscriptionFailed({
+      itemId: 'failed',
+      contentIndex: 0,
+      previousItemId: undefined,
+    });
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  const select = (name: string, text: string) => {
+    const field = live.querySelector(`[aria-label="${name}"]`)!;
+    const option = Array.from(field.querySelectorAll('option')).find((option) =>
+      option.textContent?.includes(text),
+    );
+    expect(option).toBeDefined();
+    fireEvent.change(field, { target: { value: option!.value } });
+  };
+  select('Voice provider lifetime', 'talking-points-live-capture');
+  select('Voice generation', 'Provider generation 1');
+  expect(live.querySelector('.voice-events')?.textContent).toContain(
+    'conversation.item.input_audio_transcription.failed',
+  );
+  const failedRow = [...live.querySelectorAll('.voice-events tr')].find((row) =>
+    row.textContent?.includes(
+      'conversation.item.input_audio_transcription.failed',
+    ),
+  )!;
+  fireEvent.click(failedRow.querySelector('button')!);
+  click(live, 'Raw JSON');
+  expect(live.querySelector('.json-raw')?.textContent).toContain(
+    '"observedFailed": 1',
+  );
+  expect(live.querySelector('.json-raw')?.textContent).toContain(
+    '"providerGeneration": 1',
+  );
+  expect(live.querySelector('.json-raw')?.textContent).not.toMatch(
+    /requestId|responseId|invocationId|runId/,
+  );
+  act(() =>
+    oldCapture.onDelta({
+      itemId: 'private',
+      contentIndex: 0,
+      delta: 'Private live transcription',
+    }),
+  );
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(screen.queryByText('Private live transcription')).toBeNull();
+  expect(live.textContent).not.toContain('Private live transcription');
+  expect(live.querySelector('.voice-events')?.textContent).not.toMatch(
+    /Tool called|Provider response|Assistant/,
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  const replacement = panel();
+  expect(replacement).not.toBe(live);
+  expect(live.host.isConnected).toBe(false);
+  inspect(replacement);
+  expect(replacement.textContent).toContain('Registered Vessels · 2');
+  expect(replacement.textContent).toContain('Outline preparation');
+  expect(replacement.textContent).not.toContain('Live Topic');
+  act(() => {
+    oldEngine.emit({ type: 'error', error: new Error('stale Engine failure') });
+    oldCapture.onCompleted({
+      itemId: 'private',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Stale private transcription',
+    });
+  });
+  click(replacement, 'Connections');
+  expect(replacement.querySelectorAll('.connection')).toHaveLength(1);
+  expect(replacement.textContent).toContain('Active');
+  expect(replacement.textContent).toContain('connected');
+  expect(replacement.textContent).not.toContain('stale Engine failure');
+  expect(replacement.textContent).not.toContain('Stale private transcription');
+  expect(diagnosticCapture.getSnapshot()).toEqual(captureBefore);
+  expect(diagnosticCapture.getSnapshot().active).toBe(false);
+  expect(engine.requests).toHaveLength(0);
+  expect(liveCapture.dispose).toHaveBeenCalledOnce();
+
+  mounted.unmount();
+  expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+});
+
+it.each([false, true])(
+  'releases runtime capture subscriptions across repeated Start/Reset and unmount without interrupting a shared recording (StrictMode=%s)',
+  async (strict) => {
+    localStorage.setItem(
+      OUTLINE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        topics: [
+          { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+        ],
+      }),
+    );
+    const { talkingPointsDiagnosticCapture: diagnosticCapture } =
+      await import('./maelstrom');
+    const emissions = vi.spyOn(DiagnosticChannel.prototype, 'emitDiagnostic');
+    const diagnosticsModule = await import('./live-capture-diagnostics');
+    const createDiagnostics = diagnosticsModule.createLiveCaptureDiagnostics;
+    const observers = new Set<object>();
+    const diagnosticFactory = vi
+      .spyOn(diagnosticsModule, 'createLiveCaptureDiagnostics')
+      .mockImplementation((id) => {
+        const source = createDiagnostics(id);
+        const subscribe = source.subscribe;
+        source.subscribe = (listener) => {
+          const token = {};
+          observers.add(token);
+          const release = subscribe(listener);
+          return () => {
+            observers.delete(token);
+            release();
+          };
+        };
+        return source;
+      });
+    const subscribe = diagnosticCapture.subscribe;
+    const subscribers = new Set<() => void>();
+    const subscription = vi
+      .spyOn(diagnosticCapture, 'subscribe')
+      .mockImplementation((listener) => {
+        subscribers.add(listener);
+        const release = subscribe(listener);
+        return () => {
+          subscribers.delete(listener);
+          return release();
+        };
+      });
+    const releaseExternal = diagnosticCapture.subscribe(() => {});
+    const baseline = subscribers.size;
+    diagnosticCapture.start('fixture', 'fixture', 'fixture');
+    diagnosticCapture.record('fixture.kept', {
+      note: 'Recording survives runtime disposal',
+    });
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    const tree = strict ? (
+      <StrictMode>
+        <TalkingPointsPage />
+      </StrictMode>
+    ) : (
+      <TalkingPointsPage />
+    );
+    let mounted = render(tree);
+    const assertCurrent = async () => {
+      await waitFor(() => expect(subscribers.size).toBe(baseline + 2));
+      expect(
+        document.querySelectorAll('[data-maelstrom-devtools]'),
+      ).toHaveLength(1);
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(engine.captures.length).toBeGreaterThan(0);
+      expect(
+        engine.captures.every((capture) => capture === diagnosticCapture),
+      ).toBe(true);
+      expect(diagnosticCapture.export()).toContain(
+        'Recording survives runtime disposal',
+      );
+    };
+    try {
+      await screen.findByRole('button', { name: 'Start take' });
+      await assertCurrent();
+      expect(observers.size).toBe(0);
+      const lifetimes = new Set<string | number | boolean>();
+      for (let cycle = 0; cycle < 3; cycle++) {
+        liveCapture.ready = undefined;
+        fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+        await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+        await act(async () => liveCapture.ready!());
+        await assertCurrent();
+        expect(observers.size).toBe(1);
+        const old = liveCapture.callbacks!;
+        const identity = old.diagnostics!.getSnapshot().providerInstanceId!;
+        expect(lifetimes.has(identity)).toBe(false);
+        lifetimes.add(identity);
+        const canary = 'PRIVATE_RECORDING_TRANSCRIPT_PROVIDER_ERROR_192.0.2.1';
+        act(() => {
+          old.diagnostics!.providerEvent(canary);
+          old.onDelta({ itemId: 'a', contentIndex: 0, delta: canary });
+          old.onCompleted({
+            itemId: 'a',
+            contentIndex: 0,
+            previousItemId: undefined,
+            transcript: canary,
+          });
+        });
+        const exported = JSON.parse(diagnosticCapture.export()) as {
+          events: {
+            kind: string;
+            metadata?: Record<string, unknown>;
+            content?: unknown;
+          }[];
+        };
+        const bridge = exported.events.filter(
+          (event) => event.metadata?.provider === 'talking-points-live-capture',
+        );
+        expect(bridge.length).toBeGreaterThan(0);
+        expect(JSON.stringify(bridge)).not.toContain(canary);
+        expect(bridge.every((event) => !Object.hasOwn(event, 'content'))).toBe(
+          true,
+        );
+        const bridgeEmissions = emissions.mock.calls.filter(
+          ([, metadata]) =>
+            metadata?.provider === 'talking-points-live-capture',
+        );
+        expect(bridgeEmissions.length).toBeGreaterThan(0);
+        expect(bridgeEmissions.every((call) => call.length === 2)).toBe(true);
+        const rowsBeforeReset = bridge.length;
+        fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+        await screen.findByRole('button', { name: 'Start take' });
+        await assertCurrent();
+        expect(observers.size).toBe(0);
+        act(() => {
+          old.diagnostics!.providerEvent(
+            'conversation.item.input_audio_transcription.failed',
+          );
+          old.onDelta({ itemId: 'late', contentIndex: 0, delta: canary });
+        });
+        const after = JSON.parse(diagnosticCapture.export()) as typeof exported;
+        expect(
+          after.events.filter(
+            (event) =>
+              event.metadata?.provider === 'talking-points-live-capture',
+          ),
+        ).toHaveLength(rowsBeforeReset);
+        const root = document.querySelector(
+          '[data-maelstrom-devtools]',
+        )!.shadowRoot!;
+        const click = (name: string) =>
+          fireEvent.click(
+            [...root.querySelectorAll('button')].find(
+              (button) =>
+                (button.getAttribute('aria-label') ?? button.textContent) ===
+                name,
+            )!,
+          );
+        click('Open Maelstrom Devtools');
+        click('Voice');
+        fireEvent.change(
+          root.querySelector('[aria-label="Evidence source"]')!,
+          { target: { value: 'live' } },
+        );
+        expect(root.querySelector('.voice-events')).toBeNull();
+        expect(root.textContent).not.toContain(String(identity));
+      }
+      mounted.unmount();
+      await waitFor(() => expect(subscribers.size).toBe(baseline));
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+      mounted = render(tree);
+      await screen.findByRole('button', { name: 'Start take' });
+      liveCapture.ready = undefined;
+      fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+      await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+      await assertCurrent();
+      mounted.unmount();
+      await waitFor(() => expect(subscribers.size).toBe(baseline));
+      expect(observers.size).toBe(0);
+      expect(diagnosticCapture.getSnapshot().active).toBe(true);
+      expect(diagnosticCapture.export()).toContain(
+        'Recording survives runtime disposal',
+      );
+      expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+    } finally {
+      mounted.unmount();
+      await act(async () => {});
+      diagnosticCapture.clear();
+      releaseExternal();
+      subscription.mockRestore();
+      diagnosticFactory.mockRestore();
+      emissions.mockRestore();
+    }
+  },
+);
+
+it('queues text and actual voice-bridge preparation, projects stable Topic Vessels, and restores only the ordered outline', async () => {
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  const mounted = render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  expect(
+    screen.getByText(/Build your outline with voice or text/),
+  ).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Your outline' })).toBeTruthy();
+  expect(
+    screen.getByText('Add your first Topic by voice or text below.'),
+  ).toBeTruthy();
+  expect(
+    document.querySelector('.talking-points-controller .vessel-card'),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  await ask('Add opening and closing');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  const session = FakeRealtimeSession.instances.at(-1)!;
+  const { instance } = session.options as { instance: RealtimeInstance };
+  const voiceScope = instance.createIntentScope!();
+  const voice = voiceScope.enqueueIntent('Put the closing first and expand it');
+  expect(voice.accepted).toBe(true);
+  expect(engine.requests).toHaveLength(1);
+  await act(async () => {
+    engine.release!();
+    await voice.result;
+  });
+  expect((await voice.result).status).toBe('applied');
+  await screen.findByRole('article', { name: 'Closing with a question' });
+  expect(visibleTopics()).toEqual(['Closing with a question', 'Opening']);
+  const created = publishedTopics(engine.requests[1]!);
+  expect(created.map((topic) => topic.content)).toEqual(['Opening', 'Closing']);
+  const closingId = created[1]!.id;
+  const durable = JSON.parse(localStorage.getItem(OUTLINE_STORAGE_KEY)!);
+  expect(durable).toEqual({
+    version: 1,
+    topics: [{ id: closingId, content: 'Closing with a question' }, created[0]],
+  });
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
+  await act(async () => {
+    const marked = voiceScope.enqueueIntent('Mark closing spoken');
+    expect((await marked.result).status).toBe('applied');
+  });
+  const markedIndicator = screen.getByRole('checkbox', {
+    name: 'Spoken',
+    checked: true,
+  });
+  expect(markedIndicator.getAttribute('aria-readonly')).toBe('true');
+  fireEvent.click(markedIndicator);
+  expect(markedIndicator.getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Unmark spoken' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull(),
+  );
+  expect(screen.queryByRole('checkbox', { checked: true })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  await act(async () => {
+    const marked = voiceScope.enqueueIntent('Mark closing spoken');
+    expect((await marked.result).status).toBe('applied');
+  });
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole('article', { name: 'Closing with a question' })
+        .getAttribute('data-spoken'),
+    ).toBe('true'),
+  );
+  expect(JSON.parse(localStorage.getItem(OUTLINE_STORAGE_KEY)!)).toEqual(
+    durable,
+  );
+  await ask('Remove opening');
+  await waitFor(() =>
+    expect(visibleTopics()).toEqual(['Closing with a question']),
+  );
+  const latest = engine.requests.at(-1)!;
+  expect(publishedTopics(latest).map((topic) => topic.id)).toEqual([
+    closingId,
+    created[0]!.id,
+  ]);
+  const topicVessel = latest.request.vessels.find(
+    (vessel) => vessel.id === `topic-${closingId}`,
+  )!;
+  expect(topicVessel.description).toContain('Closing with a question');
+  expect(Object.keys(topicVessel.variants)).toEqual(['topic']);
+  expect(
+    topicVessel.variants[VariantName('topic')]!.actions.map(
+      (action) => action.name,
+    ),
+  ).toEqual(['mark', 'unmark']);
+  expect(FakeRealtimeSession.instances).toHaveLength(1);
+  expect(engine.sessions).toEqual([
+    (session.options as { sessionId: string }).sessionId,
+  ]);
+  expect(
+    engine.requests.every(
+      (request) => request.sessionId === engine.sessions[0],
+    ),
+  ).toBe(true);
+  mounted.unmount();
+  render(<TalkingPointsPage />);
+  const restored = await screen.findByRole('article', {
+    name: 'Closing with a question',
+  });
+  expect(restored.getAttribute('data-topic-id')).toBe(closingId);
+  expect(restored.getAttribute('data-spoken')).toBe('false');
+  expect(
+    screen.getByRole('checkbox', { name: 'Spoken', checked: false }),
+  ).toBeTruthy();
+  expect(visibleTopics()).toEqual(['Closing with a question']);
+  voiceScope.retire();
+});
+
+it('replaces owner, Provider and connector together without replaying old active work', async () => {
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  const oldSession = FakeRealtimeSession.instances.at(-1)!;
+  const { instance } = oldSession.options as { instance: RealtimeInstance };
+  const scope = instance.createIntentScope!();
+  const active = scope.enqueueIntent('Add opening and closing');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  await act(async () => {
+    setPlaygroundKey('sk-replacement-test-12345678901234567890');
+  });
+  await waitFor(() => expect(FakeRealtimeSession.instances).toHaveLength(2));
+  const replacement = FakeRealtimeSession.instances[1]!;
+  expect(engine.sessions).toEqual(
+    [oldSession, replacement].map(
+      (session) => (session.options as { sessionId: string }).sessionId,
+    ),
+  );
+  expect(engine.sessions[1]).not.toBe(engine.sessions[0]);
+  await act(async () => {
+    engine.release!();
+    await active.result;
+  });
+  expect((await active.result).status).toBe('unknown');
+  expect(visibleTopics()).toEqual([]);
+  expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).toBeNull();
+  expect(engine.requests).toHaveLength(1);
+  expect(scope.enqueueIntent('Remove opening').accepted).toBe(false);
+});
+
+function publishedTopics(message: ChartRequestMessage): Topic[] {
+  const description = message.request.vessels.find(
+    (vessel) => vessel.id === 'outline',
+  )!.description;
+  return JSON.parse(description.split('Ordered Topics:\n')[1]!) as Topic[];
+}
+function visibleTopics() {
+  return screen
+    .queryAllByRole('article')
+    .map((topic) => topic.getAttribute('aria-label'));
+}
+async function ask(intent: string) {
+  fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+    target: { value: intent },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+}
+
+it('seals actual voice and typed prep, freezes only after accepted batches settle, and resets a pending capture without resurrection', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Existing' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  await ask('Add opening and closing');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  const session = FakeRealtimeSession.instances.at(-1)!;
+  const { instance } = session.options as { instance: RealtimeInstance };
+  const scope = instance.createIntentScope!();
+  const voice = scope.enqueueIntent('Put the closing first and expand it');
+  expect(voice.accepted).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  expect(scope.enqueueIntent('Remove opening').accepted).toBe(false);
+  expect(liveCapture.ready).toBeUndefined();
+  await act(async () => {
+    engine.release!();
+    await voice.result;
+  });
+  await screen.findByRole('status', { name: 'Take status' });
+  expect(screen.queryByLabelText('Prepare your outline')).toBeNull();
+  expect(screen.queryByLabelText('Voice status')).toBeNull();
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  expect(visibleTopics()).toEqual([
+    'Closing with a question',
+    'Existing',
+    'Opening',
+  ]);
+  expect(engine.sessions).toHaveLength(2);
+  expect(engine.sessions[0]).not.toBe(engine.sessions[1]);
+  const durable = localStorage.getItem(OUTLINE_STORAGE_KEY);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  await screen.findByRole('button', { name: 'Start take' });
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  expect(liveCapture.dispose).toHaveBeenCalled();
+  expect(screen.queryByLabelText('Take status')).toBeNull();
+  expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).toBe(durable);
+  expect(engine.sessions).toHaveLength(3);
+});
+
+it('shows only silent take controls and frozen Topics, keeps voice-driven marks through fixed finalization, then resets', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  vi.useFakeTimers();
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await vi.waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  expect(
+    screen.queryByText(/Build your outline with voice or text/),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unmark spoken' })).toBeNull();
+  act(() => {
+    liveCapture.callbacks!.onCommitted({
+      itemId: 'covered',
+      previousItemId: null,
+    });
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'covered',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Opening.',
+    });
+  });
+  await vi.waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Unmark spoken' })).toBeTruthy(),
+  );
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
+  expect(screen.queryByText('Engine: connected')).toBeNull();
+  expect(screen.queryByText('Opening.')).toBeNull();
+  act(() =>
+    liveCapture.callbacks!.onDelta({
+      itemId: 'a',
+      contentIndex: 0,
+      delta: 'Live words',
+    }),
+  );
+  expect(screen.queryByText('Live words')).toBeNull();
+  expect(screen.queryByText('AI-generated voice')).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  expect(
+    screen
+      .getByRole('article', { name: 'Opening' })
+      .getAttribute('data-spoken'),
+  ).toBe('true');
+  act(() => vi.advanceTimersByTime(12_345));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:12');
+  expect(liveCapture.stop).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(2999));
+  expect(screen.getByLabelText('Take status').textContent).toBe('Finalizing…');
+  act(() =>
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'a',
+      contentIndex: 0,
+      previousItemId: undefined,
+      transcript: 'Final words retained.',
+    }),
+  );
+  expect(screen.queryByText('Final words retained.')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  act(() => vi.advanceTimersByTime(1));
+  act(() =>
+    liveCapture.callbacks!.onDelta({
+      itemId: 'late',
+      contentIndex: 0,
+      delta: 'After cutoff',
+    }),
+  );
+  expect(screen.queryByText('After cutoff')).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(screen.getByLabelText('Take status').textContent).toMatch(/Stopped/);
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:12');
+  expect(screen.getByText(/tail may be incomplete/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Start take' })).toBeNull();
+  expect(
+    screen
+      .getByRole('article', { name: 'Opening' })
+      .getAttribute('data-spoken'),
+  ).toBe('true');
+  vi.useRealTimers();
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await screen.findByRole('button', { name: 'Start take' });
+  expect(
+    screen
+      .getByRole('article', { name: 'Opening' })
+      .getAttribute('data-spoken'),
+  ).toBe('false');
+  expect(screen.queryByLabelText('Elapsed time')).toBeNull();
+  expect(
+    screen.getByRole('checkbox', { name: 'Spoken', checked: false }),
+  ).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Live transcript' })).toBeNull();
+  expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).not.toContain(
+    'Final words',
+  );
+});
+
+it('fails Start visibly after an unknown preparation outcome without freezing or replay', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  await ask('Unconfirmed preparation');
+  await screen.findByText(/Outcome not confirmed/);
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('alert').textContent).toMatch(
+    /did not settle successfully/,
+  );
+  expect(liveCapture.ready).toBeUndefined();
+  expect(engine.requests).toHaveLength(1);
+  expect(engine.sessions).toHaveLength(2);
+  expect(visibleTopics()).toEqual(['Opening']);
+});
+
+it('Reset during the preparation barrier retires authority before old active Actions return', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Existing' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  await ask('Add opening and closing');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await waitFor(() => expect(engine.sessions).toHaveLength(2));
+  const durable = localStorage.getItem(OUTLINE_STORAGE_KEY);
+  await act(async () => {
+    engine.release!();
+  });
+  expect(visibleTopics()).toEqual(['Existing']);
+  expect(localStorage.getItem(OUTLINE_STORAGE_KEY)).toBe(durable);
+  expect(liveCapture.ready).toBeUndefined();
+});
+
+it('waits for the real live Engine connection, then stops an idle take immediately on Engine loss without reconnecting or losing marks/time', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  engine.delayConnection = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(engine.connections).toHaveLength(2));
+  await waitFor(() =>
+    expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1),
+  );
+  expect(liveCapture.ready).toBeUndefined();
+  expect(screen.getByLabelText('Take status').textContent).toBe('Starting…');
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
+  await act(async () => {
+    engine.connections[1]!.ready();
+  });
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  vi.useFakeTimers();
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  expect(screen.queryByRole('button', { name: 'Mark spoken' })).toBeNull();
+  act(() => {
+    liveCapture.callbacks!.onCommitted({ itemId: 'a', previousItemId: null });
+    liveCapture.callbacks!.onCompleted({
+      itemId: 'a',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'Opening.',
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByRole('button', { name: 'Unmark spoken' })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1200);
+  });
+  expect(engine.requests).toHaveLength(1);
+  const elapsed = screen.getByLabelText('Elapsed time').textContent;
+  act(() =>
+    engine.connections[1]!.emit({
+      type: 'disconnected',
+      clean: false,
+      message: 'private transport detail',
+    }),
+  );
+  expect(liveCapture.stop).toHaveBeenCalledTimes(1);
+  expect(liveCapture.dispose).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(screen.getByRole('alert').textContent).toMatch(
+    /Engine connection.*retained/i,
+  );
+  expect(screen.getByRole('alert').textContent).not.toContain(
+    'private transport detail',
+  );
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
+  expect(
+    screen
+      .getByRole('article', { name: 'Opening' })
+      .getAttribute('data-spoken'),
+  ).toBe('true');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe(elapsed);
+  expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
+  expect(liveCapture.begin).toHaveBeenCalledTimes(1);
+  expect(engine.requests).toHaveLength(1);
+});
+
+it('stops a failed Engine startup before microphone setup', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  engine.delayConnection = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() =>
+    expect(engine.connections[1]?.connect).toHaveBeenCalledTimes(1),
+  );
+  await act(async () => {
+    engine.connections[1]!.reject();
+  });
+  expect(screen.getByRole('alert').textContent).toMatch(
+    /Engine connection.*retained/i,
+  );
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(screen.getByLabelText('Elapsed time').textContent).toBe('00:00');
+  expect(liveCapture.ready).toBeUndefined();
+  expect(liveCapture.ready).toBeUndefined();
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  expect(engine.connections[1]!.connect).toHaveBeenCalledTimes(1);
+});
+
+it('stops capture setup on Engine errors and isolates late Engine/capture events after Reset from the replacement take', async () => {
+  localStorage.setItem(
+    OUTLINE_STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      topics: [
+        { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+      ],
+    }),
+  );
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  const oldEngine = engine.connections[1]!;
+  const oldReady = liveCapture.ready!;
+  const oldCapture = liveCapture.callbacks!;
+  act(() =>
+    oldEngine.emit({
+      type: 'error',
+      error: new Error('private connection error'),
+    }),
+  );
+  expect(screen.getByLabelText('Take status').textContent).toContain('Stopped');
+  expect(liveCapture.stop).toHaveBeenCalledTimes(1);
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  await act(async () => {
+    oldReady();
+  });
+  expect(liveCapture.begin).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  await screen.findByRole('button', { name: 'Start take' });
+  liveCapture.ready = undefined;
+  fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+  await waitFor(() => expect(liveCapture.ready).toBeTypeOf('function'));
+  await act(async () => {
+    liveCapture.ready!();
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  const stops = liveCapture.stop.mock.calls.length;
+  act(() => {
+    oldEngine.emit({
+      type: 'disconnected',
+      clean: false,
+      message: 'old socket',
+    });
+    oldEngine.emit({ type: 'error', error: new Error('old error') });
+    oldCapture.onFatalError(new Error('old capture') as never);
+    oldCapture.onCompleted({
+      itemId: 'old',
+      previousItemId: null,
+      contentIndex: 0,
+      transcript: 'old speech',
+    });
+  });
+  expect(screen.getByLabelText('Take status').textContent).toBe('Listening');
+  expect(screen.queryByLabelText('Engine connection status')).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(liveCapture.stop).toHaveBeenCalledTimes(stops);
+  expect(liveCapture.begin).toHaveBeenCalledTimes(1);
+  expect(engine.requests).toHaveLength(0);
+});
+
+it.each(['retry', 'dismiss'] as const)(
+  'retains expired instructions and the newer draft through failed Start and reconnect until explicit %s',
+  async (action) => {
+    localStorage.setItem(
+      OUTLINE_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        topics: [
+          { id: 'tp-00000000-0000-4000-8000-000000000001', content: 'Opening' },
+        ],
+      }),
+    );
+    engine.delayConnection = true;
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    render(<TalkingPointsPage />);
+    await waitFor(() =>
+      expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+    );
+    vi.useFakeTimers();
+    await ask('Older instruction');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    await ask('Newer instruction');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Still editing' },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5001);
+    });
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    await act(async () => {
+      engine.connections[0]!.ready();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(engine.requests).toHaveLength(1);
+    expect(engine.requests[0]!.request.context.updateReasons).toContainEqual(
+      expect.objectContaining({
+        type: 'user_intent',
+        intent: 'Newer instruction',
+      }),
+    );
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(screen.getByLabelText('Preparation result').textContent).not.toMatch(
+      /Not submitted/,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start take' }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Start was stopped',
+    );
+    expect(engine.connections).toHaveLength(2);
+    expect(
+      screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+    ).toContain('Older instruction');
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    expect(engine.requests).toHaveLength(1);
+    await ask('Another expired instruction');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Still editing' },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_001);
+      engine.connections[1]!.ready();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const unsent = screen.getByRole('region', { name: 'Unsent instructions' });
+    expect(unsent.textContent).toContain('Older instruction');
+    expect(unsent.textContent).toContain('Another expired instruction');
+    expect(
+      screen.getAllByRole('button', { name: 'Retry instruction' }),
+    ).toHaveLength(2);
+    expect(engine.requests).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(
+        screen.getAllByRole('button', {
+          name:
+            action === 'retry' ? 'Retry instruction' : 'Dismiss instruction',
+        })[0]!,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(engine.requests).toHaveLength(action === 'retry' ? 2 : 1);
+    if (action === 'retry')
+      expect(engine.requests[1]!.request.context.updateReasons).toContainEqual(
+        expect.objectContaining({
+          type: 'user_intent',
+          intent: 'Older instruction',
+        }),
+      );
+    expect(unsent.textContent).not.toContain('Older instruction');
+    expect(unsent.textContent).toContain('Another expired instruction');
+    expect(
+      screen.getAllByRole('button', { name: 'Dismiss instruction' }),
+    ).toHaveLength(1);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Dismiss instruction' }),
+    );
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Still editing');
+    expect(
+      screen.queryByRole('region', { name: 'Unsent instructions' }),
+    ).toBeNull();
+  },
+);
+
+it('leaves a refused instruction in the draft without duplicating recovery', async () => {
+  engine.delayConnection = true;
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await waitFor(() =>
+    expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+  );
+  for (let i = 0; i < 8; i++) await ask(`Queued ${i}`);
+  await ask('Refused instruction');
+  expect(
+    (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+  ).toBe('Refused instruction');
+  expect(
+    screen.queryByRole('region', { name: 'Unsent instructions' }),
+  ).toBeNull();
+  expect(engine.requests).toHaveLength(0);
+});
+
+it('does not recover or replay an active unknown outcome after owner retirement', async () => {
+  const { TalkingPointsPage } = await import('./talking-points-page');
+  render(<TalkingPointsPage />);
+  await screen.findByRole('status', { name: 'Connection status: connected' });
+  await ask('Delayed unconfirmed preparation');
+  await waitFor(() => expect(engine.release).toBeTypeOf('function'));
+  act(() => setPlaygroundKey('sk-replacement-12345678901234567890'));
+  await waitFor(() => expect(engine.connections).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+    target: { value: 'New owner draft' },
+  });
+  await act(async () => engine.release!());
+  expect(
+    screen.queryByRole('region', { name: 'Unsent instructions' }),
+  ).toBeNull();
+  expect(
+    (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+  ).toBe('New owner draft');
+  expect(screen.getByLabelText('Preparation result').textContent).not.toMatch(
+    /Outcome not confirmed|Not submitted/,
+  );
+  expect(engine.requests).toHaveLength(1);
+});
+
+it.each(['replace', 'remove'] as const)(
+  'recovers accepted queued instructions after key %s without replay or overwriting a newer draft',
+  async (operation) => {
+    engine.delayConnection = true;
+    const { TalkingPointsPage } = await import('./talking-points-page');
+    render(<TalkingPointsPage />);
+    await waitFor(() =>
+      expect(engine.connections[0]?.connect).toHaveBeenCalledOnce(),
+    );
+    await ask('Accepted before retirement');
+    fireEvent.change(screen.getByLabelText('Prepare your outline'), {
+      target: { value: 'Newer draft' },
+    });
+    act(() => {
+      if (operation === 'replace')
+        setPlaygroundKey('sk-replacement-12345678901234567890');
+      else clearPlaygroundKey();
+    });
+    if (operation === 'remove') {
+      await screen.findByRole('button', { name: 'Add an API key to prepare' });
+      act(() => setPlaygroundKey('sk-restored-12345678901234567890'));
+    }
+    await waitFor(() =>
+      expect(
+        screen.getByRole('region', { name: 'Unsent instructions' }).textContent,
+      ).toContain('Accepted before retirement'),
+    );
+    expect(
+      (screen.getByLabelText('Prepare your outline') as HTMLInputElement).value,
+    ).toBe('Newer draft');
+    expect(
+      screen.getAllByRole('button', { name: 'Retry instruction' }),
+    ).toHaveLength(1);
+    expect(engine.requests).toHaveLength(0);
+    await act(async () => engine.connections.at(-1)!.ready());
+    expect(engine.requests).toHaveLength(0);
+    expect(
+      screen.getByLabelText('Preparation result').textContent,
+    ).not.toContain('Not submitted');
+  },
+);

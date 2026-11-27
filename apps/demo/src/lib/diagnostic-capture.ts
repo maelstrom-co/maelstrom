@@ -4,18 +4,21 @@ import { engineMetadata } from './engine-metadata';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import {
+  type DemoVoiceProvider,
   LIVE_BACKEND_MODEL,
   LIVE_MODEL,
   voiceProviderStore,
 } from './voice-provider';
 export class DiagnosticCapture extends CoreCapture {
-  constructor(getKey: () => string | null = () => null) {
+  constructor(
+    getKey: () => string | null = () => null,
+    getProvider: () => DemoVoiceProvider = () =>
+      voiceProviderStore.state.provider,
+  ) {
     super(getKey, {
       metadata: (requestedMode) => {
         const mode =
-          requestedMode === 'maelstrom'
-            ? voiceProviderStore.state.provider
-            : requestedMode;
+          requestedMode === 'maelstrom' ? getProvider() : requestedMode;
         return {
           mode,
           voiceModel: mode === 'live' ? LIVE_MODEL : null,

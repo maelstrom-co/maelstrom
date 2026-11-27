@@ -80,6 +80,12 @@ export interface DevtoolsSnapshot {
   readonly imported: unknown;
 }
 
+/** Ownership policy when permanently releasing a collector. */
+export interface DevtoolsDisposeOptions {
+  /** Leaves capture content and recording state untouched; only this collector's resources are released. Defaults to false. */
+  readonly preserveCapture?: boolean;
+}
+
 /** Framework-independent collector and capture interface. */
 export interface Devtools {
   /** Configuration used by the shared panel. */
@@ -110,6 +116,6 @@ export interface Devtools {
   setOverlays(enabled: boolean): void;
   /** Highlights a rendered Instance on its owning active client without changing layout. Omit either identity to clear selection. */
   setHighlightedInstance?(clientId?: string, instanceId?: string): void;
-  /** Releases subscriptions and evidence. */
-  dispose(): void;
+  /** Permanently releases subscriptions and evidence. Stops and clears capture unless preserveCapture is true. Repeated calls are inert. */
+  dispose(options?: DevtoolsDisposeOptions): void;
 }

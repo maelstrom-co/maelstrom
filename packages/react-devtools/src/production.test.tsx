@@ -58,6 +58,69 @@ test('the demo opt-in mounts a working capture panel in a production runtime', a
   }
 });
 
+test('runtime disposal releases shared capture subscriptions without stopping another recording or reattaching', async () => {
+  const capture = new DiagnosticCapture();
+  const subscribe = capture.subscribe;
+  let subscriptions = 0;
+  capture.subscribe = (listener) => {
+    subscriptions++;
+    const release = subscribe(listener);
+    return () => {
+      subscriptions--;
+      return release();
+    };
+  };
+  const client = new Orchestrator(connector);
+  let attach!: (client: Orchestrator) => () => void;
+  let registered = true;
+  const extension = devtools({ capture })({
+    useMaelstromContext: () => {
+      throw new Error('the panel must work outside a Provider');
+    },
+    onOrchestrator: (observer) => {
+      attach = observer;
+      return () => {
+        registered = false;
+      };
+    },
+  });
+  const detach = attach(client);
+  const view = render(
+    <>
+      <extension.Devtools />
+      <extension.Devtools />
+    </>,
+  );
+  capture.start('fixture', 'fixture', 'fixture');
+  capture.record('fixture.kept', { kept: true });
+  try {
+    expect(subscriptions).toBe(2);
+    expect(document.querySelectorAll('[data-maelstrom-devtools]')).toHaveLength(
+      1,
+    );
+    const recorded = capture.export();
+    extension.disposeDevtools();
+    view.unmount();
+    expect(subscriptions).toBe(0);
+    expect(registered).toBe(false);
+    expect(capture.export()).toBe(recorded);
+    expect(capture.getSnapshot().active).toBe(true);
+    extension.disposeDevtools();
+    detach();
+    attach(client)();
+    render(<extension.Devtools />);
+    client.diagnostics.emit('fixture.retired', {});
+    expect(subscriptions).toBe(0);
+    expect(capture.export()).toBe(recorded);
+    expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
+  } finally {
+    cleanup();
+    extension.disposeDevtools();
+    capture.clear();
+    await client.dispose();
+  }
+});
+
 test('the production opt-in still respects an explicit disable', () => {
   process.env.NODE_ENV = 'production';
   const extension = devtools({ enabled: false })({
@@ -69,5 +132,7 @@ test('the production opt-in still respects an explicit disable', () => {
     },
   });
   render(<extension.Devtools />);
+  extension.disposeDevtools();
+  extension.disposeDevtools();
   expect(document.querySelector('[data-maelstrom-devtools]')).toBeNull();
 });

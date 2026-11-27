@@ -20,7 +20,12 @@ import {
   retireLiveEvidence,
 } from './live-evidence.js';
 import { retainRequestEvents } from './request-history.js';
-import type { Devtools, DevtoolsOptions, DevtoolsSnapshot } from './types.js';
+import type {
+  Devtools,
+  DevtoolsDisposeOptions,
+  DevtoolsOptions,
+  DevtoolsSnapshot,
+} from './types.js';
 
 const captureOwners = new WeakMap<Orchestrator, Set<string>>();
 
@@ -196,6 +201,7 @@ class Controller implements Devtools {
       }
     };
     const record = (event: DiagnosticEvent, content?: () => unknown) => {
+      if (this.disposed) return;
       try {
         const checked = DiagnosticEventSchema.safeParse(
           sanitizeDiagnosticValue(
@@ -502,15 +508,31 @@ class Controller implements Devtools {
           instanceId: next.instanceId,
         });
   }
-  dispose(): void {
+  dispose(options: DevtoolsDisposeOptions = {}): void {
+    if (this.disposed) return;
     retireLiveEvidence(this);
-    this.stopCapture();
+    if (options.preserveCapture) {
+      this.disposed = true;
+      this.selectedCapture = undefined;
+    } else this.stopCapture();
     for (const { release } of [...this.attached.values()]) release();
-    this.capture.clear();
+    if (!options.preserveCapture) this.capture.clear();
     this.releaseCapture();
     this.releaseRedaction();
     this.inspectors.clear();
     this.listeners.clear();
+    if (options.preserveCapture)
+      this.snapshot = {
+        sessions: [],
+        activity: [],
+        droppedActivityEvents: 0,
+        requestActivity: [],
+        droppedRequestEvents: 0,
+        runActivity: [],
+        droppedRunEvents: 0,
+        transportHistory: [],
+        imported: null,
+      };
     this.disposed = true;
   }
 }

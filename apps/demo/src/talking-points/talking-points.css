@@ -1,0 +1,68 @@
+.talking-points-app {
+  --talking-points-row-height: 80px;
+  min-height: 100dvh;
+  color: var(--color-ink);
+  padding-bottom: 3.5rem;
+}
+.talking-points-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem max(1rem, calc((100% - 960px) / 2));
+  border-bottom: 1px solid var(--line);
+  background: var(--color-bg-1);
+}
+.talking-points-header > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.talking-points-header a:not(.powered-by-badge), .talking-points-hint { font-size: 12px; color: var(--color-ink-3); }
+.talking-points-controls, .talking-points-toolbar, .talking-points-take-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.talking-points-toolbar { justify-content: flex-end; margin-bottom: .5rem; }
+.talking-points-toolbar > .status-pill { margin-right: auto; }
+.talking-points-app .btn { min-height: 44px; padding: 10px 16px; cursor: pointer; }
+.talking-points-app button:disabled { opacity: .5; cursor: default; }
+.talking-points-app :is(button, a, select, [tabindex]):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.talking-points-app .status-pill { display: inline-flex; border-radius: 999px; padding: 6px 10px; font: 11px var(--font-mono); color: var(--color-ink-2); }
+.talking-points-main, .talking-points-preview { max-width: 960px; margin: auto; padding: 1.25rem 1rem; }
+.talking-points-preview { display: grid; gap: 1rem; }
+.talking-points-preview h2 { font-size: 20px; }
+.talking-points-instructions { margin-bottom: 1rem; font-size: 14px; line-height: 1.6; color: var(--color-ink-2); }
+.talking-points-preview li { padding: .75rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.talking-points-controller { height: 100%; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; overflow: auto; }
+.talking-points-outline-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.talking-points-outline-heading h2 { font-size: 14px; font-weight: 500; }
+.talking-points-outline-heading span { font: 11px var(--font-mono); color: var(--color-ink-3); }
+.talking-points-controller p { font-size: 12px; line-height: 1.5; color: var(--color-ink-3); }
+.talking-points-topic { height: 100%; min-height: 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; overflow: auto; }
+.talking-points-topic p { flex: 1; min-width: 0; max-height: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.talking-points-topic .btn { flex-shrink: 0; font-size: 12px; padding: 8px 12px; }
+.talking-points-check { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; border: 1px solid var(--color-ink-3); border-radius: 4px; font-size: 14px; line-height: 1; }
+.talking-points-check[aria-checked="true"] { background: var(--color-green); border-color: var(--color-green); color: var(--color-bg); }
+.talking-points-topic[data-spoken="true"] { background: color-mix(in srgb, var(--color-green) 20%, var(--color-bg-2)); border-color: color-mix(in srgb, var(--color-green) 55%, var(--color-bg-2)); }
+.talking-points-topic[data-spoken="true"] p { text-decoration: line-through; text-decoration-color: var(--color-green); color: var(--color-ink-2); }
+.talking-points-dock { display: flex; gap: 1rem; align-items: center; max-width: 960px; margin: 0 auto; padding: 1rem; border-top: 1px solid var(--line); }
+.talking-points-voice { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10px; color: var(--color-ink-3); flex-shrink: 0; }
+.talking-points-dock form { flex: 1; min-width: 0; }
+.talking-points-dock label { font: 11px var(--font-mono); color: var(--color-ink-2); }
+.talking-points-input-row { display: flex; gap: .5rem; margin: .5rem 0; }
+.talking-points-input-row input { flex: 1; min-width: 0; padding: 12px 16px; font-size: 14px; }
+.talking-points-dock form p { min-height: 2.8em; font-size: 12px; line-height: 1.4; color: var(--color-ink-2); overflow-wrap: anywhere; }
+.talking-points-take-controls { margin: 1rem 0 .75rem; }
+.talking-points-take-controls output { margin-right: auto; font: 24px var(--font-mono); font-variant-numeric: tabular-nums; }
+.talking-points-chart { margin-top: .75rem; }
+.talking-points-transcript { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.talking-points-transcript h2 { font: 11px var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--color-ink-2); margin-bottom: .75rem; }
+.talking-points-transcript-scroll { height: 8rem; max-height: 25dvh; overflow-y: auto; overscroll-behavior: contain; }
+.talking-points-transcript p { font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: .5rem; }
+.talking-points-transcript [data-status="draft"] { color: var(--color-ink-3); }
+@media (max-width: 600px) {
+  .talking-points-app { --talking-points-row-height: 104px; }
+  .talking-points-header { align-items: flex-start; }
+  .talking-points-header > div:first-child { gap: .75rem; }
+  .talking-points-header .powered-by-badge { display: block; }
+  .talking-points-topic { gap: 6px; padding: 6px 8px; }
+  .talking-points-topic .btn { padding: 8px; white-space: normal; max-width: 82px; }
+  .talking-points-dock { gap: .75rem; }
+  .talking-points-input-row { flex-wrap: wrap; }
+  .talking-points-input-row input { flex-basis: 100%; }
+}
