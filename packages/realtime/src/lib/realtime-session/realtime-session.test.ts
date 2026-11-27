@@ -4053,4 +4053,30 @@ describe('playback control', () => {
     leakedHandler?.();
     expect(session.playbackBlocked).toBe(false);
   });
+
+  it('fences stale adapter playback notifications that ignore unsubscribe after a failed connect', async () => {
+    const { session, adapter } = makeHarness();
+    let blocked = false;
+    let leakedHandler: (() => void) | undefined;
+    Object.assign(adapter, {
+      playbackControl: {
+        isBlocked: () => blocked,
+        subscribe: (handler: () => void) => {
+          leakedHandler = handler;
+          return () => {
+            // Intentionally ignore unsubscribe to simulate a buggy/stale adapter.
+          };
+        },
+        resume: async () => {},
+      },
+    });
+    adapter.failNextConnect();
+
+    await expect(session.connect()).rejects.toThrow('adapter connect failed');
+    expect(session.state).toBe('error');
+
+    blocked = true;
+    leakedHandler?.();
+    expect(session.playbackBlocked).toBe(false);
+  });
 });

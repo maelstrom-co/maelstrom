@@ -683,7 +683,11 @@ export class RealtimeSession implements VoiceSession {
       const playbackControl = this.#adapter.playbackControl;
       if (playbackControl) {
         subscriptions.playback = playbackControl.subscribe(() => {
-          if (epoch !== this.#connectEpoch) return;
+          if (
+            epoch !== this.#connectEpoch ||
+            this.#subscriptions !== subscriptions
+          )
+            return;
           this.#setPlaybackBlocked(playbackControl.isBlocked());
         });
       }
